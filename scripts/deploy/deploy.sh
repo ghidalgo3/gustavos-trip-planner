@@ -111,7 +111,7 @@ if [[ "$SKIP_INFRA" == false ]]; then
     --resource-group "$RESOURCE_GROUP" \
     --name "$DEPLOYMENT_NAME" \
     --template-file infra/main.bicep \
-    --parameters namePrefix="$NAME_PREFIX" imageName="$IMAGE_NAME" imageTag="$IMAGE_TAG" deploymentPrefix="$DEPLOYMENT_PREFIX" \
+    --parameters namePrefix="$NAME_PREFIX" imageName="$IMAGE_NAME" imageTag="$IMAGE_TAG" \
     --output none
 else
   log "Skipping infrastructure deployment (--skip-infra)"
