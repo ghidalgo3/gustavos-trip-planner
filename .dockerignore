@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+.git/
+.github/
+infra/
+scripts/
+tests/
+**/*.user
+**/*.md
+.dockerignore
+.gitignore
+.editorconfig

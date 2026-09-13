@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+#
+# Deploys gustavo_trip_planner to Azure:
+#   1. provisions/updates infrastructure from infra/main.bicep
+#   2. builds the API container and pushes it to the provisioned ACR
+#   3. restarts the Web App and waits for /health to come back green
+#
+# Safe to re-run: every step is idempotent.
+set -euo pipefail
+
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+LOCATION="${LOCATION:-eastus}"
+NAME_PREFIX="${NAME_PREFIX:-tripplanner}"
+IMAGE_NAME="${IMAGE_NAME:-tripplanner-api}"
+IMAGE_TAG="${IMAGE_TAG:-}"
+SUBSCRIPTION="${SUBSCRIPTION:-}"
+SKIP_INFRA=false
+SKIP_BUILD=false
+
+DEPLOYMENT_PREFIX="tripplanner-deploy"
+HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-20}"
+HEALTH_INTERVAL="${HEALTH_INTERVAL:-15}"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/deploy/deploy.sh [options]
+
+Options:
+  -g, --resource-group NAME   Resource group to deploy into  (default: rg-tripplanner-dev)
+  -l, --location REGION       Azure region                   (default: eastus)
+  -p, --name-prefix PREFIX    Resource name prefix           (default: tripplanner)
+  -t, --tag TAG               Image tag                      (default: git short SHA)
+  -s, --subscription ID       Subscription to target         (required)
+      --skip-infra            Reuse the last deployment's outputs, don't run Bicep
+      --skip-build            Don't build/push; just restart and health-check
+  -h, --help                  Show this help
+
+Environment overrides: RESOURCE_GROUP, LOCATION, NAME_PREFIX, IMAGE_NAME, IMAGE_TAG,
+SUBSCRIPTION, HEALTH_ATTEMPTS, HEALTH_INTERVAL, NUGET_SOURCE, EXPECTED_TENANT_ID.
+
+Set NUGET_SOURCE when the build host cannot reach nuget.org and needs a mirror.
+USAGE
+}
+
+log()  { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -g|--resource-group) RESOURCE_GROUP="${2:?missing value for $1}"; shift 2 ;;
+    -l|--location)       LOCATION="${2:?missing value for $1}";       shift 2 ;;
+    -p|--name-prefix)    NAME_PREFIX="${2:?missing value for $1}";    shift 2 ;;
+    -t|--tag)            IMAGE_TAG="${2:?missing value for $1}";      shift 2 ;;
+    -s|--subscription)   SUBSCRIPTION="${2:?missing value for $1}";   shift 2 ;;
+    --skip-infra)        SKIP_INFRA=true;  shift ;;
+    --skip-build)        SKIP_BUILD=true;  shift ;;
+    -h|--help)           usage; exit 0 ;;
+    *)                   usage >&2; die "unknown argument: $1" ;;
+  esac
+done
+
+# --- preflight ---------------------------------------------------------------
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+command -v az >/dev/null 2>&1 || die "Azure CLI not found. Install it: https://aka.ms/azure-cli"
+
+if [[ "$SKIP_BUILD" == false ]]; then
+  command -v docker >/dev/null 2>&1 || die "docker not found. Install Docker Desktop or the Docker engine."
+  docker info >/dev/null 2>&1 || die "the Docker daemon is not running. Start it and re-run."
+fi
+
+az account show >/dev/null 2>&1 || die "not signed in to Azure. Run: az login"
+
+# Subscription id must be set
+[[ -n "$SUBSCRIPTION" ]] || die "subscription id must be set via -s|--subscription"
+
+az account set --subscription "$SUBSCRIPTION"
+
+# Tenant guard: this project is personal-only. Refuse to touch a work tenant.
+EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
+ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
+if [[ "$ACTUAL_TENANT_ID" != "$EXPECTED_TENANT_ID" ]]; then
+  die "subscription '$SUBSCRIPTION' lives in tenant $ACTUAL_TENANT_ID, not the expected
+       personal tenant $EXPECTED_TENANT_ID -- refusing to deploy.
+       Sign in with: az login --tenant $EXPECTED_TENANT_ID
+       If this really is intended, set EXPECTED_TENANT_ID to override."
+fi
+
+if [[ -z "$IMAGE_TAG" ]]; then
+  IMAGE_TAG="$(git rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"
+fi
+
+SUBSCRIPTION_NAME="$(az account show --query name -o tsv)"
+log "Subscription : $SUBSCRIPTION_NAME"
+echo "    Group     : $RESOURCE_GROUP ($LOCATION)"
+echo "    Prefix    : $NAME_PREFIX"
+echo "    Image tag : $IMAGE_TAG"
+
+# --- 1. infrastructure -------------------------------------------------------
+
+if [[ "$SKIP_INFRA" == false ]]; then
+  log "Ensuring resource group '$RESOURCE_GROUP' exists"
+  az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+
+  DEPLOYMENT_NAME="${DEPLOYMENT_PREFIX}-$(date -u +%Y%m%d%H%M%S)"
+  log "Deploying infra/main.bicep as '$DEPLOYMENT_NAME'"
+  az deployment group create \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$DEPLOYMENT_NAME" \
+    --template-file infra/main.bicep \
+    --parameters namePrefix="$NAME_PREFIX" imageName="$IMAGE_NAME" imageTag="$IMAGE_TAG" deploymentPrefix="$DEPLOYMENT_PREFIX" \
+    --output none
+else
+  log "Skipping infrastructure deployment (--skip-infra)"
+  DEPLOYMENT_NAME="$(az deployment group list \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "sort_by([?starts_with(name, '${DEPLOYMENT_PREFIX}') && properties.provisioningState=='Succeeded'], &properties.timestamp)[-1].name" \
+    -o tsv 2>/dev/null || true)"
+  [[ -n "$DEPLOYMENT_NAME" && "$DEPLOYMENT_NAME" != "null" ]] \
+    || die "no previous successful '${DEPLOYMENT_PREFIX}-*' deployment in '$RESOURCE_GROUP'; re-run without --skip-infra"
+fi
+
+read_output() {
+  az deployment group show \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$DEPLOYMENT_NAME" \
+    --query "properties.outputs.$1.value" -o tsv
+}
+
+ACR_NAME="$(read_output acrName)"
+ACR_LOGIN_SERVER="$(read_output acrLoginServer)"
+WEB_APP_NAME="$(read_output webAppName)"
+WEB_APP_URL="$(read_output webAppUrl)"
+
+[[ -n "$ACR_NAME" && -n "$WEB_APP_NAME" ]] || die "could not read deployment outputs from '$DEPLOYMENT_NAME'"
+
+echo "    Registry  : $ACR_LOGIN_SERVER"
+echo "    Web App   : $WEB_APP_NAME"
+
+IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
+IMAGE_LATEST="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:latest"
+
+# --- 2. build and push -------------------------------------------------------
+
+if [[ "$SKIP_BUILD" == false ]]; then
+  log "Signing in to registry '$ACR_NAME'"
+  az acr login --name "$ACR_NAME" --output none
+
+  build_args=()
+  if [[ -n "${NUGET_SOURCE:-}" ]]; then
+    warn "using NUGET_SOURCE=$NUGET_SOURCE for the restore"
+    build_args+=(--build-arg "NUGET_SOURCE=$NUGET_SOURCE")
+  fi
+
+  # --platform linux/amd64 is required: App Service runs amd64, and an arm64 image
+  # built on an Apple Silicon Mac will be pulled and then crash-loop with no clear error.
+  log "Building $IMAGE_REF"
+  docker build \
+    --platform linux/amd64 \
+    -f src/TripPlanner.Api/Dockerfile \
+    -t "$IMAGE_REF" \
+    -t "$IMAGE_LATEST" \
+    "${build_args[@]}" \
+    .
+
+  log "Pushing $IMAGE_REF"
+  docker push "$IMAGE_REF"
+  docker push "$IMAGE_LATEST"
+else
+  log "Skipping image build and push (--skip-build)"
+fi
+
+# --- 3. restart and verify ---------------------------------------------------
+
+log "Restarting '$WEB_APP_NAME' to pick up the image"
+az webapp restart --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" --output none
+
+log "Waiting for ${WEB_APP_URL}/health (up to $((HEALTH_ATTEMPTS * HEALTH_INTERVAL))s)"
+for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
+  if body="$(curl -fsS --max-time 20 "${WEB_APP_URL}/health" 2>/dev/null)"; then
+    printf '\n\033[1;32mDeployed.\033[0m %s -> %s\n' "$IMAGE_REF" "$WEB_APP_URL"
+    echo "    /health responded: $body"
+    exit 0
+  fi
+  echo "    attempt ${attempt}/${HEALTH_ATTEMPTS}: not ready yet, retrying in ${HEALTH_INTERVAL}s"
+  sleep "$HEALTH_INTERVAL"
+done
+
+warn "health check never succeeded. Inspect the container logs with:"
+echo "  az webapp log tail --resource-group $RESOURCE_GROUP --name $WEB_APP_NAME"
+exit 1
