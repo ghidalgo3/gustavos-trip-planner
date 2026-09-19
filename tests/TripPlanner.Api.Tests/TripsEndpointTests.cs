@@ -28,16 +28,16 @@ public class TripsEndpointTests
             "Scaffold smoke test"
         );
 
-        var created = await client.PostAsJsonAsync("/trips", request);
+        var created = await client.PostAsJsonAsync("/api/trips", request);
 
         Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
         var trip = await created.Content.ReadFromJsonAsync<Trip>();
         Assert.IsNotNull(trip);
         Assert.AreEqual("Lisbon", trip.Destination);
         Assert.AreNotEqual(Guid.Empty, trip.Id);
-        Assert.AreEqual($"/trips/{trip.Id}", created.Headers.Location?.ToString());
+        Assert.AreEqual($"/api/trips/{trip.Id}", created.Headers.Location?.ToString());
 
-        var fetched = await client.GetFromJsonAsync<Trip>($"/trips/{trip.Id}");
+        var fetched = await client.GetFromJsonAsync<Trip>($"/api/trips/{trip.Id}");
 
         Assert.AreEqual(trip, fetched);
     }
@@ -47,7 +47,7 @@ public class TripsEndpointTests
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync($"/trips/{Guid.NewGuid()}");
+        var response = await client.GetAsync($"/api/trips/{Guid.NewGuid()}");
 
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -63,7 +63,7 @@ public class TripsEndpointTests
             null
         );
 
-        var response = await client.PostAsJsonAsync("/trips", request);
+        var response = await client.PostAsJsonAsync("/api/trips", request);
 
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
         StringAssert.Contains(await response.Content.ReadAsStringAsync(), "EndDate");
@@ -74,7 +74,7 @@ public class TripsEndpointTests
     {
         using var client = _factory.CreateClient();
         var created = await client.PostAsJsonAsync(
-            "/trips",
+            "/api/trips",
             new CreateTripRequest(
                 "Oslo",
                 new DateOnly(2026, 11, 1),
@@ -85,10 +85,10 @@ public class TripsEndpointTests
         var trip = await created.Content.ReadFromJsonAsync<Trip>();
         Assert.IsNotNull(trip);
 
-        var deleted = await client.DeleteAsync($"/trips/{trip.Id}");
+        var deleted = await client.DeleteAsync($"/api/trips/{trip.Id}");
         Assert.AreEqual(HttpStatusCode.NoContent, deleted.StatusCode);
 
-        var refetched = await client.GetAsync($"/trips/{trip.Id}");
+        var refetched = await client.GetAsync($"/api/trips/{trip.Id}");
         Assert.AreEqual(HttpStatusCode.NotFound, refetched.StatusCode);
     }
 }

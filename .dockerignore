@@ -8,6 +8,8 @@
 infra/
 scripts/
 tests/
+**/node_modules/
+**/dist/
 **/*.user
 **/*.md
 .dockerignore

@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
+using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
 
@@ -9,6 +10,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<ITripStore, InMemoryTripStore>();
+builder.Services.AddCors(options =>
+{
+    string[] clientOrigins =
+        builder.Configuration.GetSection("ClientOrigins").Get<string[]>()
+        ?? ["http://localhost:5173"];
+
+    options.AddDefaultPolicy(policy =>
+        policy.WithOrigins(clientOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()
+    );
+});
 
 var app = builder.Build();
 
@@ -19,11 +30,14 @@ if (app.Environment.IsDevelopment())
 
 // No UseHttpsRedirection: in the container the app serves plain HTTP on 8080 and
 // App Service terminates TLS in front of it (the Web App is created with httpsOnly).
+app.UseCors();
 
 // Probed by App Service (healthCheckPath) and by scripts/deploy/deploy.sh.
 app.MapHealthChecks("/health");
 
-app.MapGet(
+var api = app.MapGroup("/api");
+
+api.MapGet(
         "/",
         () =>
             Results.Ok(
@@ -38,7 +52,43 @@ app.MapGet(
     )
     .WithName("GetServiceInfo");
 
-var trips = app.MapGroup("/trips").WithTags("Trips");
+api.MapGet(
+        "/user",
+        (HttpContext context) =>
+        {
+            ClientPrincipal? principal = ClientPrincipal.FromHeader(
+                context.Request.Headers["X-MS-CLIENT-PRINCIPAL"].FirstOrDefault()
+            );
+
+            return Results.Ok(
+                principal is null
+                    ? new
+                    {
+                        isAuthenticated = false,
+                        name = (string?)null,
+                        email = (string?)null,
+                        provider = (string?)null,
+                    }
+                    : new
+                    {
+                        isAuthenticated = true,
+                        name = principal.FindFirst(
+                            "name",
+                            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+                        ),
+                        email = principal.FindFirst(
+                            "email",
+                            "emails",
+                            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+                        ),
+                        provider = principal.AuthType,
+                    }
+            );
+        }
+    )
+    .WithName("GetCurrentUser");
+
+var trips = api.MapGroup("/trips").WithTags("Trips");
 
 trips.MapGet("/", (ITripStore store) => store.GetAll()).WithName("ListTrips");
 
@@ -73,7 +123,7 @@ trips
             }
 
             var trip = store.Add(request);
-            return TypedResults.Created($"/trips/{trip.Id}", trip);
+            return TypedResults.Created($"/api/trips/{trip.Id}", trip);
         }
     )
     .WithName("CreateTrip");

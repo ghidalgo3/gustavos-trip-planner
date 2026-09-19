@@ -1,0 +1,9 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+WORKDIR /workspace
+
+COPY src/TripPlanner.Api/TripPlanner.Api.csproj src/TripPlanner.Api/
+RUN dotnet restore src/TripPlanner.Api/TripPlanner.Api.csproj
+
+COPY src/TripPlanner.Api/ src/TripPlanner.Api/
+EXPOSE 8080
+CMD ["dotnet", "watch", "--project", "src/TripPlanner.Api/TripPlanner.Api.csproj", "run", "--no-launch-profile", "--urls", "http://0.0.0.0:8080"]

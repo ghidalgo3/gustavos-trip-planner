@@ -1,0 +1,194 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
+NAME_PREFIX="${NAME_PREFIX:-tripplanner}"
+IMAGE_NAME="${IMAGE_NAME:-tripplanner-api}"
+IMAGE_TAG="release"
+INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
+CONFIG_DEPLOYMENT_NAME="${CONFIG_DEPLOYMENT_NAME:-tripplanner-release}"
+SKIP_TESTS=false
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/release [options]
+
+Build, configure, deploy, and verify the API and static web application.
+Run scripts/buildout at least once before this command.
+
+Options:
+  -g, --resource-group NAME   Resource group (default: rg-tripplanner-dev)
+  -s, --subscription ID|NAME  Azure subscription
+  -p, --name-prefix PREFIX    Resource name prefix (default: tripplanner)
+      --skip-tests            Skip local API and web tests
+  -h, --help                  Show this help
+
+Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, NAME_PREFIX, IMAGE_NAME,
+INFRA_DEPLOYMENT_NAME, CONFIG_DEPLOYMENT_NAME, EXPECTED_TENANT_ID,
+NUGET_SOURCE, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APPLE_CLIENT_ID,
+APPLE_CLIENT_SECRET, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
+
+Set all four provider values on every release to enable authentication. Set none
+to deploy with App Service Authentication disabled.
+USAGE
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+log() { printf '\n==> %s\n' "$*"; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -g|--resource-group) RESOURCE_GROUP="${2:?missing value for $1}"; shift 2 ;;
+    -s|--subscription) SUBSCRIPTION="${2:?missing value for $1}"; shift 2 ;;
+    -p|--name-prefix) NAME_PREFIX="${2:?missing value for $1}"; shift 2 ;;
+    --skip-tests) SKIP_TESTS=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown argument: $1" ;;
+  esac
+done
+
+REPO_ROOT="${0:A:h:h}"
+cd "$REPO_ROOT"
+
+run_pnpm() {
+  (cd "$REPO_ROOT/src/TripPlanner.Web" && corepack pnpm "$@")
+}
+
+for command_name in az corepack curl docker dotnet; do
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/install"
+done
+docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
+az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
+az account set --subscription "$SUBSCRIPTION"
+
+EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
+ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
+[[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
+  "subscription is in tenant $ACTUAL_TENANT_ID, expected personal tenant $EXPECTED_TENANT_ID"
+
+az deployment group show \
+  --name "$INFRA_DEPLOYMENT_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --output none 2>/dev/null || die \
+  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' was not found; run scripts/buildout first"
+
+read_output() {
+  az deployment group show \
+    --name "$INFRA_DEPLOYMENT_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "properties.outputs.$1.value" -o tsv
+}
+
+ACR_NAME="$(read_output acrName)"
+ACR_LOGIN_SERVER="$(read_output acrLoginServer)"
+WEB_APP_NAME="$(read_output webAppName)"
+WEB_APP_URL="$(read_output webAppUrl)"
+STATIC_WEB_APP_NAME="$(read_output staticWebAppName)"
+STATIC_WEB_APP_URL="$(read_output staticWebAppUrl)"
+IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+auth_parameters=(authenticationEnabled=false)
+if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" || -n "${APPLE_CLIENT_ID:-}" || -n "${APPLE_CLIENT_SECRET:-}" ]]; then
+  [[ -n "${GOOGLE_CLIENT_ID:-}" && -n "${GOOGLE_CLIENT_SECRET:-}" && -n "${APPLE_CLIENT_ID:-}" && -n "${APPLE_CLIENT_SECRET:-}" ]] || die \
+    "set all four Google and Apple provider variables, or none of them"
+  auth_parameters=(
+    authenticationEnabled=true
+    googleClientId="$GOOGLE_CLIENT_ID"
+    googleClientSecret="$GOOGLE_CLIENT_SECRET"
+    appleClientId="$APPLE_CLIENT_ID"
+    appleClientSecret="$APPLE_CLIENT_SECRET"
+  )
+fi
+
+if [[ "$SKIP_TESTS" == false ]]; then
+  log "Checking C# formatting"
+  dotnet tool restore
+  dotnet csharpier check .
+
+  log "Running API tests"
+  dotnet test GustavoTripPlanner.sln -c Release
+
+  log "Installing and validating web dependencies"
+  run_pnpm install --frozen-lockfile
+  run_pnpm run lint
+  run_pnpm test
+fi
+
+log "Building web application for $WEB_APP_URL"
+run_pnpm install --frozen-lockfile
+export VITE_API_BASE_URL="$WEB_APP_URL"
+run_pnpm run build
+unset VITE_API_BASE_URL
+
+log "Building API container $IMAGE_REF"
+az acr login --name "$ACR_NAME" --output none
+if [[ -n "${NUGET_SOURCE:-}" ]]; then
+  docker build \
+    --platform linux/amd64 \
+    --build-arg "NUGET_SOURCE=$NUGET_SOURCE" \
+    -f src/TripPlanner.Api/Dockerfile \
+    -t "$IMAGE_REF" \
+    .
+else
+  docker build \
+    --platform linux/amd64 \
+    -f src/TripPlanner.Api/Dockerfile \
+    -t "$IMAGE_REF" \
+    .
+fi
+docker push "$IMAGE_REF"
+
+log "Applying release configuration"
+az bicep build --file infra/release.bicep --stdout >/dev/null
+az bicep build-params --file infra/release.bicepparam --stdout >/dev/null
+az deployment group create \
+  --name "$CONFIG_DEPLOYMENT_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --template-file infra/release.bicep \
+  --parameters infra/release.bicepparam \
+    namePrefix="$NAME_PREFIX" imageName="$IMAGE_NAME" imageTag="$IMAGE_TAG" \
+    "${auth_parameters[@]}" \
+  --output none
+az webapp restart --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" --output none
+
+log "Deploying static web application"
+SWA_TOKEN="$(az staticwebapp secrets list \
+  --name "$STATIC_WEB_APP_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query properties.apiKey -o tsv)"
+[[ -n "$SWA_TOKEN" ]] || die "could not retrieve the Static Web App deployment token"
+export SWA_CLI_DEPLOYMENT_TOKEN="$SWA_TOKEN"
+export NO_UPDATE_NOTIFIER=1
+run_pnpm exec swa deploy ./dist --env production
+unset SWA_TOKEN SWA_CLI_DEPLOYMENT_TOKEN NO_UPDATE_NOTIFIER
+
+HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-20}"
+HEALTH_INTERVAL="${HEALTH_INTERVAL:-15}"
+log "Waiting for API health at ${WEB_APP_URL}/health"
+api_ready=false
+for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
+  if curl -fsS --max-time 20 "${WEB_APP_URL}/health" >/dev/null 2>&1; then
+    api_ready=true
+    break
+  fi
+  printf '  attempt %s/%s; retrying in %ss\n' "$attempt" "$HEALTH_ATTEMPTS" "$HEALTH_INTERVAL"
+  sleep "$HEALTH_INTERVAL"
+done
+[[ "$api_ready" == true ]] || die \
+  "API health check did not recover; run: az webapp log tail -g $RESOURCE_GROUP -n $WEB_APP_NAME"
+
+log "Waiting for static web application at $STATIC_WEB_APP_URL"
+for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
+  if curl -fsS --max-time 20 "$STATIC_WEB_APP_URL" >/dev/null 2>&1; then
+    printf '\nRelease complete.\n'
+    printf '  API image:  %s\n' "$IMAGE_REF"
+    printf '  API:        %s\n' "$WEB_APP_URL"
+    printf '  Static app: %s\n' "$STATIC_WEB_APP_URL"
+    exit 0
+  fi
+  printf '  attempt %s/%s; retrying in %ss\n' "$attempt" "$HEALTH_ATTEMPTS" "$HEALTH_INTERVAL"
+  sleep "$HEALTH_INTERVAL"
+done
+
+die "Static Web App did not respond at $STATIC_WEB_APP_URL"

@@ -1,0 +1,35 @@
+name: gustavos-trip-planner
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/TripPlanner.Api/Dockerfile.dev
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_USE_POLLING_FILE_WATCHER: "1"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src/TripPlanner.Api:/workspace/src/TripPlanner.Api
+      - api-obj:/workspace/src/TripPlanner.Api/obj
+      - api-bin:/workspace/src/TripPlanner.Api/bin
+
+  web:
+    build:
+      context: .
+      dockerfile: src/TripPlanner.Web/Dockerfile
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8080
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./src/TripPlanner.Web:/workspace/src/TripPlanner.Web
+      - web-node-modules:/workspace/src/TripPlanner.Web/node_modules
+    depends_on:
+      - api
+
+volumes:
+  api-bin:
+  api-obj:
+  web-node-modules:

@@ -1,48 +1,37 @@
 targetScope = 'resourceGroup'
 
-@description('Prefix for generated resource names. Combined with a hash of the resource group id to stay globally unique.')
+@description('Prefix for generated resource names. Combined with a resource-group hash for global uniqueness.')
 @minLength(3)
 @maxLength(16)
 param namePrefix string = 'tripplanner'
 
-@description('Azure region for all resources.')
-param location string = resourceGroup().location
+@description('Azure region for all resources. The project target is East US 2.')
+param location string = 'eastus2'
 
-@description('Container repository name inside the registry.')
 param imageName string = 'tripplanner-api'
-
-@description('Container image tag to run. The deploy script passes the git short SHA.')
-param imageTag string = 'latest'
-
-@description('App Service plan SKU. B1 is the cheapest tier that supports alwaysOn.')
 param appServicePlanSku string = 'B1'
 
-@description('Tags applied to every resource.')
 param tags object = {
   workload: 'gustavo-trip-planner'
   managedBy: 'bicep'
 }
 
-// Registry names allow only lowercase alphanumerics.
 var sanitizedPrefix = toLower(replace(replace(namePrefix, '-', ''), '_', ''))
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var acrName = 'acr${sanitizedPrefix}${uniqueSuffix}'
-var webAppName = '${namePrefix}-${uniqueSuffix}'
+var webAppName = '${namePrefix}-api-${uniqueSuffix}'
+var staticWebAppName = '${namePrefix}-web-${uniqueSuffix}'
 var acrPullRoleDefinitionId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
-  '7f951dda-4ed3-4680-a7ca-43fe172d538d' // AcrPull
+  '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 )
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: acrName
   location: location
   tags: tags
-  sku: {
-    name: 'Basic'
-  }
+  sku: { name: 'Basic' }
   properties: {
-    // The Web App pulls with its managed identity, so no admin user is needed and
-    // no registry password is ever stored in app settings or CI secrets.
     adminUserEnabled: false
     publicNetworkAccess: 'Enabled'
   }
@@ -53,11 +42,21 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   location: location
   tags: tags
   kind: 'linux'
+  sku: { name: appServicePlanSku }
+  properties: { reserved: true }
+}
+
+resource staticWebApp 'Microsoft.Web/staticSites@2025-03-01' = {
+  name: staticWebAppName
+  location: location
+  tags: tags
   sku: {
-    name: appServicePlanSku
+    name: 'Free'
+    tier: 'Free'
   }
   properties: {
-    reserved: true // required for Linux plans
+    allowConfigFileUpdates: true
+    stagingEnvironmentPolicy: 'Enabled'
   }
 }
 
@@ -66,41 +65,32 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   location: location
   tags: tags
   kind: 'app,linux,container'
-  identity: {
-    type: 'SystemAssigned'
-  }
+  identity: { type: 'SystemAssigned' }
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/${imageName}:${imageTag}'
+      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/${imageName}:release'
       acrUseManagedIdentityCreds: true
       healthCheckPath: '/health'
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
+      cors: {
+        allowedOrigins: ['https://${staticWebApp.properties.defaultHostname}']
+        supportCredentials: true
+      }
       appSettings: [
-        {
-          // App Service probes this port inside the container; it must match
-          // ASPNETCORE_HTTP_PORTS in src/TripPlanner.Api/Dockerfile.
-          name: 'WEBSITES_PORT'
-          value: '8080'
-        }
-        {
-          name: 'ASPNETCORE_ENVIRONMENT'
-          value: 'Production'
-        }
-        {
-          name: 'DOCKER_REGISTRY_SERVER_URL'
-          value: 'https://${acr.properties.loginServer}'
-        }
+        { name: 'WEBSITES_PORT', value: '8080' }
+        { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
+        { name: 'DOCKER_REGISTRY_SERVER_URL', value: 'https://${acr.properties.loginServer}' }
+        { name: 'ClientOrigins__0', value: 'https://${staticWebApp.properties.defaultHostname}' }
       ]
     }
   }
 }
 
-// Lets the Web App's system-assigned identity pull images from the registry.
 resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(acr.id, webApp.id, acrPullRoleDefinitionId)
   scope: acr
@@ -115,3 +105,5 @@ output acrName string = acr.name
 output acrLoginServer string = acr.properties.loginServer
 output webAppName string = webApp.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
+output staticWebAppName string = staticWebApp.name
+output staticWebAppUrl string = 'https://${staticWebApp.properties.defaultHostname}'

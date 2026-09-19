@@ -1,126 +1,132 @@
-# gustavo_trip_planner
+# Gustavo's Trip Planner
 
-A .NET minimal API deployed to Azure App Service as a Linux container, with the
-infrastructure defined in Bicep and a single script that provisions and ships it.
+Starter architecture for a React single-page application and a C# API deployed to Azure.
 
-```
-src/TripPlanner.Api      ASP.NET Core minimal API (+ Dockerfile)
-tests/TripPlanner.Api.Tests   MSTest integration tests over WebApplicationFactory
-infra/main.bicep         ACR + Linux App Service plan + containerised Web App
-scripts/deploy/deploy.sh  provision -> build -> push -> restart -> health check
-.github/workflows        CI (build/test/container/bicep) and OIDC deploy
-```
+## Repository layout
 
-## API
+| Path | Purpose |
+| --- | --- |
+| `src/TripPlanner.Web` | React 19 + Vite + TypeScript + Fluent UI web app |
+| `src/TripPlanner.Api` | .NET 10 minimal API |
+| `tests/TripPlanner.Api.Tests` | API integration tests |
+| `infra/main.bicep` | Azure resource definitions used by `scripts/buildout` |
+| `infra/release.bicep` | Runtime and authentication configuration used by `scripts/release` |
+| `compose.yaml` | Local Vite HMR and `dotnet watch` environment |
+| `scripts/install` | Install and validate the local macOS toolchain |
+| `scripts/buildout` | Provision or update Azure resources |
+| `scripts/release` | Test, build, configure, deploy, and verify a release |
 
-| Method | Route          | Notes                                    |
-| ------ | -------------- | ---------------------------------------- |
-| GET    | `/`            | Service name, version, environment       |
-| GET    | `/health`      | Liveness probe, also used by App Service  |
-| GET    | `/trips`       | List trips                               |
-| POST   | `/trips`       | Create a trip, returns 201 + `Location`  |
-| GET    | `/trips/{id}`  | Fetch one trip                           |
-| DELETE | `/trips/{id}`  | Delete a trip                            |
+The trip store is intentionally in memory. It is behind `ITripStore` so a durable store can be selected later without changing the API surface.
 
-OpenAPI is served at `/openapi/v1.json` in the Development environment only.
+## Local development
 
-**Trips are stored in process memory.** `InMemoryTripStore` is a placeholder so the
-deploy pipeline has something real to exercise — data is lost on restart and is not
-shared across instances. Swapping it for a real data store is the obvious next step.
-
-## Run locally
+Install the macOS development toolchain and project dependencies first:
 
 ```bash
-dotnet run --project src/TripPlanner.Api
+scripts/install
 ```
 
-Then `curl http://localhost:5xxx/health` (the port is printed on startup).
+The local scripts target macOS and use zsh. `scripts/install` installs Azure CLI, Corepack and Node, .NET 10, Git, Docker Desktop, Azure Bicep, the pinned pnpm version, NuGet packages, and web dependencies. It does not silently launch Docker Desktop. Check an existing installation without changing it with `scripts/install --check`.
 
-Tests:
+Start Docker Desktop, then run:
+
+```bash
+docker compose up --build
+```
+
+Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at `http://api:8080`; editing either project triggers HMR or `dotnet watch`. The API is also exposed at <http://localhost:8080>.
+
+Useful commands when Node.js and .NET are installed locally:
 
 ```bash
 dotnet test GustavoTripPlanner.sln
+cd src/TripPlanner.Web
+corepack enable
+pnpm install
+pnpm run lint
+pnpm test
+pnpm run build
 ```
 
-As a container, the same way App Service runs it:
+Local development presents the Google and Apple buttons, but real sign-in starts working only after provider credentials are configured in Azure. The `/api/user` endpoint remains anonymous when App Service Authentication is disabled.
+
+## Authentication
+
+Authentication is handled by Azure App Service Authentication (Easy Auth), not by browser-side secrets. The API reads the trusted `X-MS-CLIENT-PRINCIPAL` header injected by App Service and returns only a small safe profile from `/api/user`.
+
+Create provider registrations with these callbacks after the first infrastructure deployment:
+
+- Google: `https://<api-app>.azurewebsites.net/.auth/login/google/callback`
+- Apple: `https://<api-app>.azurewebsites.net/.auth/login/apple/callback`
+
+Export these variables before running `scripts/release` to enable both providers:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `APPLE_CLIENT_ID` (the Apple Services ID)
+- `APPLE_CLIENT_SECRET` (a signed Apple client-secret JWT)
+
+All four must be supplied together. Apple client-secret JWTs expire after at most six months and must be rotated. Azure's native Sign in with Apple provider is currently in preview.
+
+## Azure infrastructure and deployment
+
+The intended target is **Gustavo Hidalgo personal subscription**, region **East US 2**. Bicep provisions:
+
+- Azure Container Registry (Basic, admin credentials disabled) with a daily purge task
+- Linux App Service plan and containerized Web App
+- managed-identity `AcrPull` assignment
+- Azure Static Web App (Free, PR staging environments enabled)
+- optional Google and Apple App Service authentication configuration
+
+Release prerequisites are installed by `scripts/install`: Azure CLI, Docker with a running daemon, .NET 10 SDK, Node.js with Corepack, Git, and curl.
+The signed-in Azure identity needs permission to create resources and role assignments in the target resource group (Owner, or Contributor plus Role Based Access Control Administrator).
+
+Sign into the correct tenant, then provision the infrastructure:
 
 ```bash
-docker build --platform linux/amd64 -f src/TripPlanner.Api/Dockerfile -t tripplanner-api:local .
-docker run --rm -p 8080:8080 tripplanner-api:local
+az login --tenant 8ac19fe6-f2db-412e-9750-97a9772a6786
+./scripts/buildout \
+  --subscription "Gustavo Hidalgo personal subscription" \
+  --resource-group rg-tripplanner-dev \
+  --location eastus2
 ```
 
-If your machine cannot reach nuget.org directly, point the restore at a mirror:
+`buildout` validates `infra/main.bicep` and `infra/main.bicepparam`, creates the resource group, deploys the resources, configures a daily ACR purge task, and prints the endpoints. It is idempotent and safe to rerun when the infrastructure definition changes. Basic ACR does not support the native retention policy, so the scheduled task removes untagged manifests at 02:00 UTC by default; override its cron expression with `ACR_PURGE_SCHEDULE`.
+
+Deploy application code and runtime configuration separately:
 
 ```bash
-docker build --build-arg NUGET_SOURCE=https://your-feed/v3/index.json -f src/TripPlanner.Api/Dockerfile -t tripplanner-api:local .
+./scripts/release \
+  --subscription "Gustavo Hidalgo personal subscription" \
+  --resource-group rg-tripplanner-dev
 ```
 
-The deploy script forwards a `NUGET_SOURCE` environment variable for the same purpose.
+`release` runs API and web tests, builds the production client with the deployed API URL, builds and pushes the API container as `tripplanner-api:release`, applies `infra/release.bicep` with `infra/release.bicepparam`, uploads the client to Azure Static Web Apps, restarts the API, and waits for `/health`. Reusing the stable tag leaves the previous manifest untagged; the purge task installed by `buildout` removes it on its next run.
 
-## Deploy to Azure
-
-Prerequisites: Azure CLI (`az login`), a running Docker daemon, and permission to
-create resources and role assignments in the target subscription.
+Authentication values are deliberately passed from the shell rather than committed to a parameter file:
 
 ```bash
-./scripts/deploy/deploy.sh --resource-group rg-tripplanner-dev --location eastus
+export GOOGLE_CLIENT_ID='...'
+export GOOGLE_CLIENT_SECRET='...'
+export APPLE_CLIENT_ID='...'
+export APPLE_CLIENT_SECRET='...'
+./scripts/release
 ```
 
-The script is idempotent and re-runnable. It creates the resource group, deploys
-`infra/main.bicep`, logs in to the provisioned registry, builds and pushes the image
-(tagged with the git short SHA plus `latest`), restarts the Web App, and polls
-`/health` until the new container is serving. `--help` lists all options; `--skip-infra`
-and `--skip-build` are useful for iterating on one stage at a time.
+All four values must be present on every authenticated release. With none present, the release explicitly disables App Service Authentication. Run either script with `--help` for all options.
 
-**The first deploy takes several minutes.** The Web App is created pointing at an image
-tag that does not exist yet, so it will be down until the push completes and the restart
-pulls it. The health poll is what confirms recovery. If it times out:
+There is no GitHub Actions CI/CD configuration. Releases are intentional local operations performed using your current Azure CLI login. Azure CLI manages the subscription, resources, configuration, registry, and deployment token; the project-pinned Microsoft Static Web Apps CLI performs the final static artifact upload because `az staticwebapp` does not provide a content-upload command.
 
-```bash
-az webapp log tail --resource-group rg-tripplanner-dev --name <web-app-name>
-```
+## API routes
 
-### What gets provisioned
+| Method | Route | Notes |
+| --- | --- | --- |
+| GET | `/health` | App Service liveness probe |
+| GET | `/api` | Service metadata |
+| GET | `/api/user` | Current App Service authenticated profile or anonymous state |
+| GET | `/api/trips` | List trips |
+| POST | `/api/trips` | Create a trip |
+| GET | `/api/trips/{id}` | Fetch a trip |
+| DELETE | `/api/trips/{id}` | Delete a trip |
 
-- **Azure Container Registry** (Basic), with the admin user **disabled**.
-- **Linux App Service plan** (B1 by default — the cheapest tier supporting `alwaysOn`).
-- **Web App for Containers** with a system-assigned managed identity, `httpsOnly`,
-  and `healthCheckPath` set to `/health`.
-- An **AcrPull** role assignment granting that identity access to the registry.
-
-Image pulls use the managed identity (`acrUseManagedIdentityCreds`), so no registry
-credentials are stored in app settings, in CI secrets, or anywhere else.
-
-Resource names are `<prefix>-<hash>` where the hash derives from the resource group id,
-so a given resource group always produces the same globally-unique names.
-
-## CI/CD
-
-`ci.yml` runs on every pull request and push to `main`: build, test, container build,
-and `bicep build`.
-
-`deploy.yml` runs on push to `main` (and on demand) and calls the same deploy script.
-It authenticates with OIDC federated credentials rather than a stored secret, so it
-will fail at the login step until you configure:
-
-- Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
-- Variables: `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`
-- A GitHub Actions environment named `dev`
-
-To set up the identity:
-
-```bash
-az ad app create --display-name gustavo-trip-planner-deploy
-# note the appId, then create a service principal and a federated credential
-# subject: repo:<owner>/<repo>:ref:refs/heads/main  (and repo:<owner>/<repo>:environment:dev)
-```
-
-The service principal needs **Contributor** on the resource group (to create resources)
-and **User Access Administrator** or **Role Based Access Control Administrator** scoped
-to that group, since the template creates the AcrPull role assignment.
-
-## Not included
-
-Application Insights, a persistent data store, authentication, custom domains, staging
-slots, and per-environment parameter files. Each is a straightforward addition once the
-skeleton is proven end to end.
+OpenAPI is available at `/openapi/v1.json` in Development.

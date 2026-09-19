@@ -31,7 +31,7 @@ public class HealthEndpointTests
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/");
+        var response = await client.GetAsync("/api");
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         StringAssert.Contains(await response.Content.ReadAsStringAsync(), "TripPlanner.Api");

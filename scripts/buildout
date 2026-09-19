@@ -1,0 +1,150 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+LOCATION="${LOCATION:-eastus2}"
+SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
+NAME_PREFIX="${NAME_PREFIX:-tripplanner}"
+IMAGE_NAME="${IMAGE_NAME:-tripplanner-api}"
+DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-tripplanner-infra}"
+ACR_PURGE_TASK_NAME="${ACR_PURGE_TASK_NAME:-}"
+ACR_PURGE_SCHEDULE="${ACR_PURGE_SCHEDULE:-0 2 * * *}"
+ACR_PURGE_TIMER_NAME="daily"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/buildout [options]
+
+Provision or update the Azure resources defined by infra/main.bicep.
+
+Options:
+  -g, --resource-group NAME   Resource group (default: rg-tripplanner-dev)
+  -l, --location REGION       Azure region (default: eastus2)
+  -s, --subscription ID|NAME  Azure subscription
+  -p, --name-prefix PREFIX    Resource name prefix (default: tripplanner)
+  -h, --help                  Show this help
+
+Environment overrides: RESOURCE_GROUP, LOCATION, SUBSCRIPTION, NAME_PREFIX,
+IMAGE_NAME, DEPLOYMENT_NAME, ACR_PURGE_TASK_NAME, ACR_PURGE_SCHEDULE,
+EXPECTED_TENANT_ID.
+USAGE
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+log() { printf '\n==> %s\n' "$*"; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -g|--resource-group) RESOURCE_GROUP="${2:?missing value for $1}"; shift 2 ;;
+    -l|--location) LOCATION="${2:?missing value for $1}"; shift 2 ;;
+    -s|--subscription) SUBSCRIPTION="${2:?missing value for $1}"; shift 2 ;;
+    -p|--name-prefix) NAME_PREFIX="${2:?missing value for $1}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown argument: $1" ;;
+  esac
+done
+
+ACR_PURGE_TASK_NAME="${ACR_PURGE_TASK_NAME:-${NAME_PREFIX}-purge}"
+
+REPO_ROOT="${0:A:h:h}"
+cd "$REPO_ROOT"
+
+command -v az >/dev/null 2>&1 || die "Azure CLI is required: https://aka.ms/azure-cli"
+az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
+az account set --subscription "$SUBSCRIPTION"
+
+EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
+ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
+[[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
+  "subscription is in tenant $ACTUAL_TENANT_ID, expected personal tenant $EXPECTED_TENANT_ID"
+
+log "Validating Bicep"
+az bicep build --file infra/main.bicep --stdout >/dev/null
+az bicep build-params --file infra/main.bicepparam --stdout >/dev/null
+
+log "Ensuring resource group '$RESOURCE_GROUP' exists in '$LOCATION'"
+az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+
+log "Deploying infrastructure as '$DEPLOYMENT_NAME'"
+az deployment group create \
+  --name "$DEPLOYMENT_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --template-file infra/main.bicep \
+  --parameters infra/main.bicepparam location="$LOCATION" namePrefix="$NAME_PREFIX" \
+    imageName="$IMAGE_NAME" \
+  --output none
+
+read_output() {
+  az deployment group show \
+    --name "$DEPLOYMENT_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "properties.outputs.$1.value" -o tsv
+}
+
+ACR_NAME="$(read_output acrName)"
+# acr purge requires a tag filter. Use one that cannot match a real tag so the
+# stable :release tag is never removed; --untagged removes superseded manifests.
+PURGE_COMMAND="acr purge --filter '${IMAGE_NAME}:^__no_tag__$' --ago 1d --untagged"
+
+log "Configuring daily ACR cleanup task '$ACR_PURGE_TASK_NAME'"
+if az acr task show \
+  --name "$ACR_PURGE_TASK_NAME" \
+  --registry "$ACR_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --output none 2>/dev/null; then
+  az acr task update \
+    --name "$ACR_PURGE_TASK_NAME" \
+    --registry "$ACR_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --cmd "$PURGE_COMMAND" \
+    --context /dev/null \
+    --platform linux/amd64 \
+    --base-image-trigger-enabled false \
+    --commit-trigger-enabled false \
+    --status Enabled \
+    --output none
+
+  if [[ -n "$(az acr task timer list \
+    --name "$ACR_PURGE_TASK_NAME" \
+    --registry "$ACR_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "[?name == '$ACR_PURGE_TIMER_NAME'].name | [0]" \
+    --output tsv)" ]]; then
+    az acr task timer update \
+      --name "$ACR_PURGE_TASK_NAME" \
+      --registry "$ACR_NAME" \
+      --resource-group "$RESOURCE_GROUP" \
+      --timer-name "$ACR_PURGE_TIMER_NAME" \
+      --schedule "$ACR_PURGE_SCHEDULE" \
+      --enabled true \
+      --output none
+  else
+    az acr task timer add \
+      --name "$ACR_PURGE_TASK_NAME" \
+      --registry "$ACR_NAME" \
+      --resource-group "$RESOURCE_GROUP" \
+      --timer-name "$ACR_PURGE_TIMER_NAME" \
+      --schedule "$ACR_PURGE_SCHEDULE" \
+      --output none
+  fi
+else
+  az acr task create \
+    --name "$ACR_PURGE_TASK_NAME" \
+    --registry "$ACR_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --cmd "$PURGE_COMMAND" \
+    --context /dev/null \
+    --platform linux/amd64 \
+    --base-image-trigger-enabled false \
+    --commit-trigger-enabled false \
+    --schedule "${ACR_PURGE_TIMER_NAME}:${ACR_PURGE_SCHEDULE}" \
+    --status Enabled \
+    --output none
+fi
+
+printf '\nInfrastructure is ready.\n'
+printf '  API:        %s\n' "$(read_output webAppUrl)"
+printf '  Static app: %s\n' "$(read_output staticWebAppUrl)"
+printf '  Registry:   %s\n' "$(read_output acrLoginServer)"
+printf '  ACR cleanup: daily at %s UTC\n' "$ACR_PURGE_SCHEDULE"
+printf '\nDeploy application code with: scripts/release\n'
