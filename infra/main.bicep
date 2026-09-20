@@ -8,7 +8,6 @@ param namePrefix string = 'tripplanner'
 @description('Azure region for all resources. The project target is East US 2.')
 param location string = 'eastus2'
 
-param imageName string = 'tripplanner-api'
 param appServicePlanSku string = 'B1'
 
 @description('Object ID of the user who manages application credentials in Key Vault.')
@@ -98,24 +97,30 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/${imageName}:release'
-      acrUseManagedIdentityCreds: true
-      healthCheckPath: '/health'
-      alwaysOn: true
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      http20Enabled: true
-      cors: {
-        allowedOrigins: ['https://${staticWebApp.properties.defaultHostname}']
-        supportCredentials: true
+  }
+}
+
+resource webAppLogs 'Microsoft.Web/sites/config@2023-12-01' = {
+  name: 'logs'
+  parent: webApp
+  properties: {
+    applicationLogs: {
+      fileSystem: {
+        level: 'Information'
       }
-      appSettings: [
-        { name: 'WEBSITES_PORT', value: '8080' }
-        { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
-        { name: 'DOCKER_REGISTRY_SERVER_URL', value: 'https://${acr.properties.loginServer}' }
-        { name: 'ClientOrigins__0', value: 'https://${staticWebApp.properties.defaultHostname}' }
-      ]
+    }
+    detailedErrorMessages: {
+      enabled: true
+    }
+    failedRequestsTracing: {
+      enabled: true
+    }
+    httpLogs: {
+      fileSystem: {
+        enabled: true
+        retentionInDays: 1
+        retentionInMb: 35
+      }
     }
   }
 }

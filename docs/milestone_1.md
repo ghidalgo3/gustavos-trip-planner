@@ -42,8 +42,9 @@ Google requires the redirect URI to match exactly. Only basic `openid`, `profile
 1. Open [Microsoft Entra admin center](https://entra.microsoft.com/), select **App registrations**, and create a **New registration**.
 2. Select **Personal Microsoft accounts only** as the supported account type.
 3. Under **Authentication**, add both Web platform redirect URIs: `https://<api-app>.azurewebsites.net/.auth/login/aad/callback` and `http://localhost:5173/.auth/callback/microsoft`.
-4. On the Overview page, record the **Application (client) ID**.
-5. Under **Certificates & secrets**, create a client secret. Copy its **Value** immediately; the portal will not show it again. Use a short expiration and plan rotation before it expires.
+4. In the same **Authentication** page, under **Implicit grant and hybrid flows**, enable **ID tokens (used for implicit and hybrid flows)**. Leave **Access tokens** disabled. App Service Authentication uses the hybrid `code id_token` response type when a client secret is configured.
+5. On the Overview page, record the **Application (client) ID**.
+6. Under **Certificates & secrets**, create a client secret. Copy its **Value** immediately; the portal will not show it again. Use a short expiration and plan rotation before it expires.
 
 Use the personal-Microsoft-account issuer `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0` when configuring App Service Authentication. This consumer tenant only accepts personal Microsoft accounts. See [Microsoft's App Service provider guidance](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-aad) and [Microsoft account-type guidance](https://learn.microsoft.com/en-us/security/zero-trust/develop/identity-supported-account-types).
 

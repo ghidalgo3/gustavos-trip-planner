@@ -80,7 +80,7 @@ After running `scripts/buildout`, store the four provider values in Azure Key Va
 
 The prompts do not echo secret values. `scripts/release` enables authentication when `google-client-id`, `google-client-secret`, `microsoft-client-id`, and `microsoft-client-secret` all exist. The Web App reads the provider secrets through versionless Key Vault references using its managed identity, so credentials are not copied into Bicep parameters or App Service configuration. Rotate one value with `./scripts/secrets set microsoft-client-secret` (or another supported name).
 
-The Microsoft provider is restricted to personal Microsoft accounts through the consumer-account issuer. In the Entra application registration, add both Microsoft callback URLs above to the **Web** platform. Provider secrets must be rotated before their configured expiration.
+The Microsoft provider is restricted to personal Microsoft accounts through the consumer-account issuer. In the Entra application registration, add both Microsoft callback URLs above to the **Web** platform. Under **Authentication > Implicit grant and hybrid flows**, enable **ID tokens (used for implicit and hybrid flows)** and leave **Access tokens** disabled; Easy Auth uses the hybrid `code id_token` response type when its client secret is configured. Provider secrets must be rotated before their configured expiration.
 
 ## Azure infrastructure and deployment
 
@@ -89,6 +89,7 @@ The intended target is **Gustavo Hidalgo personal subscription**, region **East 
 - Azure Container Registry (Basic, admin credentials disabled) with a daily purge task
 - Azure Key Vault (RBAC authorization, soft delete, and purge protection enabled)
 - Linux App Service plan and containerized Web App
+- App Service filesystem diagnostics with one-day HTTP log retention
 - managed-identity access to pull images and read Key Vault secrets
 - Azure Static Web App (Free, PR staging environments enabled)
 - optional Google and personal Microsoft account App Service authentication configuration
@@ -106,7 +107,7 @@ az login --tenant 8ac19fe6-f2db-412e-9750-97a9772a6786
   --location eastus2
 ```
 
-`buildout` validates `infra/main.bicep` and `infra/main.bicepparam`, creates the resource group, deploys the resources, grants the signed-in user permission to manage Key Vault secrets, configures a daily ACR purge task, and prints the endpoints. It is idempotent and safe to rerun when the infrastructure definition changes. Basic ACR does not support the native retention policy, so the scheduled task removes untagged manifests at 02:00 UTC by default; override its cron expression with `ACR_PURGE_SCHEDULE`.
+`buildout` validates `infra/main.bicep` and `infra/main.bicepparam`, creates the resource group, deploys the long-lived resources, grants the signed-in user permission to manage Key Vault secrets, configures a daily ACR purge task, and prints the endpoints. It does not manage the Web App's release settings or authentication configuration, so it is safe to rerun after a release. Basic ACR does not support the native retention policy, so the scheduled task removes untagged manifests at 02:00 UTC by default; override its cron expression with `ACR_PURGE_SCHEDULE`.
 
 Azure RBAC assignments can take a few minutes to propagate after the first `buildout`. If `scripts/secrets` initially reports a permission error, wait briefly and retry it.
 
