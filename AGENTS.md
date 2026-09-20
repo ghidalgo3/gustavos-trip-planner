@@ -10,12 +10,14 @@ This repository contains a small trip-planning web application and its Azure inf
 - `infra/main.bicep` and `main.bicepparam`: long-lived Azure resources.
 - `infra/release.bicep` and `release.bicepparam`: App Service container and authentication configuration applied during a release.
 - `compose.yaml`: local Vite HMR and `dotnet watch` environment.
-- `scripts/install`, `scripts/buildout`, `scripts/secrets`, `scripts/server`, `scripts/release`: macOS zsh scripts for setup, infrastructure deployment, Key Vault credential management, local development, and application deployment. There is intentionally no GitHub CI/CD.
+- `scripts/setup`, `scripts/install`, `scripts/format`, `scripts/buildout`, `scripts/secrets`, `scripts/server`, `scripts/release`: zsh scripts for machine setup, project dependency installation, formatting, infrastructure deployment, Key Vault credential management, local development, and application deployment. There is intentionally no GitHub CI/CD.
 
 ## Common Commands
 
 ```zsh
-./scripts/install --check
+./scripts/setup --check
+./scripts/install
+./scripts/format
 ./scripts/server
 dotnet test GustavoTripPlanner.sln -c Release
 cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepack pnpm run build

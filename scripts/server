@@ -33,7 +33,7 @@ REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
 
 for command_name in az docker; do
-  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/install"
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
 done
 docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
 az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"

@@ -12,7 +12,9 @@ Starter architecture for a React single-page application and a C# API deployed t
 | `infra/main.bicep` | Azure resource definitions used by `scripts/buildout` |
 | `infra/release.bicep` | Runtime and authentication configuration used by `scripts/release` |
 | `compose.yaml` | Local Vite HMR and `dotnet watch` environment |
-| `scripts/install` | Install and validate the local macOS toolchain |
+| `scripts/setup` | Install and validate the macOS development toolchain |
+| `scripts/install` | Restore .NET and frontend project dependencies |
+| `scripts/format` | Format frontend code with Prettier and C# code with CSharpier |
 | `scripts/buildout` | Provision or update Azure resources |
 | `scripts/secrets` | Store and rotate authentication credentials in Azure Key Vault |
 | `scripts/server` | Load local auth configuration and start the development containers |
@@ -22,13 +24,14 @@ The trip store is intentionally in memory. It is behind `ITripStore` so a durabl
 
 ## Local development
 
-Install the macOS development toolchain and project dependencies first:
+Set up the macOS development toolchain, then install the project dependencies:
 
 ```bash
+scripts/setup
 scripts/install
 ```
 
-The local scripts target macOS and use zsh. `scripts/install` installs Azure CLI, Corepack and Node, .NET 10, Git, Docker Desktop, Azure Bicep, the pinned pnpm version, NuGet packages, and web dependencies. It does not silently launch Docker Desktop. Check an existing installation without changing it with `scripts/install --check`.
+The local scripts use zsh. `scripts/setup` targets macOS and installs Azure CLI, Corepack and Node, .NET 10, Git, Docker Desktop, Azure Bicep, and the pinned pnpm version. It does not silently launch Docker Desktop. Check the machine toolchain without changing it with `scripts/setup --check`. `scripts/install` performs no Homebrew or machine setup; it restores the repository's .NET tools and NuGet packages and installs the frozen pnpm dependencies.
 
 After provisioning Azure, storing the provider credentials, and signing in with Azure CLI, start Docker Desktop and run:
 
@@ -43,6 +46,7 @@ Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at 
 Useful commands when Node.js and .NET are installed locally:
 
 ```bash
+scripts/format
 dotnet test GustavoTripPlanner.sln
 cd src/TripPlanner.Web
 corepack enable
@@ -89,7 +93,7 @@ The intended target is **Gustavo Hidalgo personal subscription**, region **East 
 - Azure Static Web App (Free, PR staging environments enabled)
 - optional Google and personal Microsoft account App Service authentication configuration
 
-Release prerequisites are installed by `scripts/install`: Azure CLI, Docker with a running daemon, .NET 10 SDK, Node.js with Corepack, Git, and curl.
+Release prerequisites are installed by `scripts/setup`: Azure CLI, Docker with a running daemon, .NET 10 SDK, Node.js with Corepack, Git, and curl. Repository dependencies are installed by `scripts/install`.
 The signed-in Azure identity needs permission to create resources and role assignments in the target resource group (Owner, or Contributor plus Role Based Access Control Administrator).
 
 Sign into the correct tenant, then provision the infrastructure:

@@ -1,0 +1,37 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/format
+
+Format the frontend with Prettier and all repository C# code with CSharpier.
+USAGE
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+log() { printf '\n==> %s\n' "$*"; }
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  '') ;;
+  *) usage >&2; die "unknown argument: $1" ;;
+esac
+
+REPO_ROOT="${0:A:h:h}"
+cd "$REPO_ROOT"
+
+for command_name in corepack dotnet; do
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
+done
+
+log "Formatting frontend code with Prettier"
+(cd src/TripPlanner.Web && corepack pnpm run format)
+
+log "Restoring the repository's CSharpier tool"
+dotnet tool restore
+
+log "Formatting C# code with CSharpier"
+dotnet csharpier format --no-cache .
+
+log "Formatting complete"

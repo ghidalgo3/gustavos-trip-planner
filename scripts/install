@@ -1,85 +1,29 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-CHECK_ONLY=false
-
 usage() {
   cat <<'USAGE'
-Usage: scripts/install [--check]
+Usage: scripts/install
 
-Install the macOS development and release toolchain with Homebrew, then restore
-the repository's .NET tools, NuGet packages, pnpm, and web dependencies.
-
-Options:
-  --check   Report tool availability without installing or changing anything
-  -h        Show this help
+Restore the repository's .NET tools and packages and install its web dependencies.
 USAGE
 }
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 log() { printf '\n==> %s\n' "$*"; }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --check) CHECK_ONLY=true; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) usage >&2; die "unknown argument: $1" ;;
-  esac
-done
-
-[[ "$(uname -s)" == "Darwin" ]] || die "this installer currently supports macOS only"
-command -v brew >/dev/null 2>&1 || die \
-  "Homebrew is required. Install it from https://brew.sh, then rerun this script."
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  '') ;;
+  *) usage >&2; die "unknown argument: $1" ;;
+esac
 
 REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
 
-report_tools() {
-  local missing=false
-  for command_name in az node corepack pnpm docker dotnet git curl; do
-    if command -v "$command_name" >/dev/null 2>&1; then
-      printf '  %-10s %s\n' "$command_name" "$(command -v "$command_name")"
-    else
-      printf '  %-10s missing\n' "$command_name"
-      missing=true
-    fi
-  done
-
-  if command -v docker >/dev/null 2>&1; then
-    if docker info >/dev/null 2>&1; then
-      printf '  %-10s running\n' daemon
-    else
-      printf '  %-10s not running (start Docker Desktop before local development or release)\n' daemon
-    fi
-  fi
-
-  [[ "$missing" == false ]]
-}
-
-if [[ "$CHECK_ONLY" == true ]]; then
-  log "Development toolchain"
-  report_tools || exit 1
-  exit 0
-fi
-
-log "Installing command-line dependencies"
-brew install azure-cli corepack dotnet git
-
-if ! brew list --cask docker-desktop >/dev/null 2>&1 \
-  && [[ ! -d /Applications/Docker.app ]] \
-  && [[ ! -d "$HOME/Applications/Docker.app" ]]; then
-  log "Installing Docker Desktop"
-  brew install --cask docker-desktop
-fi
-
-hash -r
-
-log "Activating the repository's pinned pnpm release"
-corepack enable pnpm
-corepack install --global pnpm@11.19.0
-
-log "Installing Azure Bicep CLI"
-az bicep install
+for command_name in corepack dotnet; do
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
+done
 
 log "Restoring .NET tools and packages"
 dotnet tool restore
@@ -88,13 +32,4 @@ dotnet restore GustavoTripPlanner.sln
 log "Installing web dependencies"
 (cd src/TripPlanner.Web && corepack pnpm install --frozen-lockfile)
 
-log "Installed toolchain"
-report_tools || die "one or more required commands are still unavailable; open a new shell and run scripts/install --check"
-
-if ! docker info >/dev/null 2>&1; then
-  printf '\nDocker Desktop is installed but not running. Start it before running:\n'
-  printf '  scripts/server\n'
-  printf '  scripts/release\n'
-fi
-
-printf '\nInstallation complete.\n'
+printf '\nProject dependencies installed.\n'

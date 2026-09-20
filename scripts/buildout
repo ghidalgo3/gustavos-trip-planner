@@ -50,7 +50,7 @@ ACR_PURGE_TASK_NAME="${ACR_PURGE_TASK_NAME:-${NAME_PREFIX}-purge}"
 REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
 
-command -v az >/dev/null 2>&1 || die "Azure CLI is required: https://aka.ms/azure-cli"
+command -v az >/dev/null 2>&1 || die "Azure CLI is required; run scripts/setup"
 az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
 az account set --subscription "$SUBSCRIPTION"
 
