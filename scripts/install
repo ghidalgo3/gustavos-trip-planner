@@ -93,7 +93,7 @@ report_tools || die "one or more required commands are still unavailable; open a
 
 if ! docker info >/dev/null 2>&1; then
   printf '\nDocker Desktop is installed but not running. Start it before running:\n'
-  printf '  docker compose up --build\n'
+  printf '  scripts/server\n'
   printf '  scripts/release\n'
 fi
 

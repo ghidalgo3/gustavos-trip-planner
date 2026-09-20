@@ -1,0 +1,83 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
+INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/server [DOCKER_COMPOSE_UP_OPTIONS]
+
+Load local authentication credentials from the deployed Azure Key Vault, then
+start the API and web development containers with Docker Compose.
+
+Examples:
+  scripts/server
+  scripts/server --detach
+
+Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, INFRA_DEPLOYMENT_NAME,
+EXPECTED_TENANT_ID.
+USAGE
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+log() { printf '\n==> %s\n' "$*"; }
+
+if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+  usage
+  exit 0
+fi
+
+REPO_ROOT="${0:A:h:h}"
+cd "$REPO_ROOT"
+
+for command_name in az docker; do
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/install"
+done
+docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
+az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
+az account set --subscription "$SUBSCRIPTION"
+
+EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
+ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
+[[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
+  "subscription is in tenant $ACTUAL_TENANT_ID, expected personal tenant $EXPECTED_TENANT_ID"
+
+az deployment group show \
+  --name "$INFRA_DEPLOYMENT_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --output none 2>/dev/null || die \
+  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' was not found; run scripts/buildout first"
+
+KEY_VAULT_NAME="$(az deployment group show \
+  --name "$INFRA_DEPLOYMENT_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query 'properties.outputs.keyVaultName.value' \
+  --output tsv)"
+[[ -n "$KEY_VAULT_NAME" ]] || die \
+  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' has no keyVaultName output; run scripts/buildout"
+
+read_secret() {
+  local name="$1"
+  local value
+  value="$(az keyvault secret show \
+    --vault-name "$KEY_VAULT_NAME" \
+    --name "$name" \
+    --query value \
+    --output tsv)" || die \
+    "could not read '$name' from Key Vault '$KEY_VAULT_NAME'; run scripts/secrets set-auth"
+  [[ -n "$value" ]] || die "Key Vault secret '$name' is empty"
+  printf '%s' "$value"
+}
+
+log "Loading local authentication configuration from $KEY_VAULT_NAME"
+LOCAL_GOOGLE_CLIENT_ID="$(read_secret google-client-id)"
+LOCAL_GOOGLE_CLIENT_SECRET="$(read_secret google-client-secret)"
+LOCAL_MICROSOFT_CLIENT_ID="$(read_secret microsoft-client-id)"
+LOCAL_MICROSOFT_CLIENT_SECRET="$(read_secret microsoft-client-secret)"
+export LOCAL_GOOGLE_CLIENT_ID LOCAL_GOOGLE_CLIENT_SECRET
+export LOCAL_MICROSOFT_CLIENT_ID LOCAL_MICROSOFT_CLIENT_SECRET
+
+log "Starting development containers"
+docker compose up --build "$@"

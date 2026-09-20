@@ -15,10 +15,65 @@ Milestone 1 supports one destination per plan and round-trip flights. It ends at
 ### Users and trips
 
 - Maintain a persistent database of users. Collect each user's home city during signup as the default starting point for planning.
+- Start with sign-in through Google and personal Microsoft accounts.
+- Sign in with Apple is outside this milestone and may be reconsidered later.
 - Users can create, read, update, and delete their trips. A newly created trip needs only a name; destinations and constraints are added iteratively.
 - A trip owner can invite other users and manage trip membership and membership in travel parties.
 - Constraints are defined per user, per trip. Party membership and shared party preferences supplement those individual constraints.
 - A trip needs at least one destination and a date constraint to begin planning. Running a fare search additionally requires bounded departure and return date ranges and a resolved origin.
+
+### Initial sign-in provider setup
+
+Production sign-in is handled by Azure App Service Authentication at the API application. Local sign-in is handled by server-side provider middleware in the API container. Neither flow is implemented in the React client. Provider client secrets must remain server-side in Azure Key Vault and must never be committed, added to the browser application, or pasted into this document.
+
+Before configuring either provider, deploy or identify the API App Service hostname, represented below as `<api-app>.azurewebsites.net`.
+
+#### Google
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and complete the Google Auth Platform branding and audience setup. Use an external audience for a consumer application. During testing, add the intended test accounts.
+2. Create an OAuth 2.0 client ID with application type **Web application**.
+3. Add `https://<api-app>.azurewebsites.net` as an authorized JavaScript origin. Add both `https://<api-app>.azurewebsites.net/.auth/login/google/callback` and `http://localhost:5173/.auth/callback/google` as authorized redirect URIs on this same Web client.
+4. Record the generated client ID and client secret. The secret is only displayed at creation time; download or copy it immediately to the approved secret store.
+
+Google requires the redirect URI to match exactly. Only basic `openid`, `profile`, and `email` scopes are needed for initial sign-in. See [Google's OAuth web-server guidance](https://developers.google.com/identity/protocols/oauth2/web-server) and [Azure App Service's Google provider guidance](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-google).
+
+#### Personal Microsoft accounts
+
+1. Open [Microsoft Entra admin center](https://entra.microsoft.com/), select **App registrations**, and create a **New registration**.
+2. Select **Personal Microsoft accounts only** as the supported account type.
+3. Under **Authentication**, add both Web platform redirect URIs: `https://<api-app>.azurewebsites.net/.auth/login/aad/callback` and `http://localhost:5173/.auth/callback/microsoft`.
+4. On the Overview page, record the **Application (client) ID**.
+5. Under **Certificates & secrets**, create a client secret. Copy its **Value** immediately; the portal will not show it again. Use a short expiration and plan rotation before it expires.
+
+Use the personal-Microsoft-account issuer `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0` when configuring App Service Authentication. This consumer tenant only accepts personal Microsoft accounts. See [Microsoft's App Service provider guidance](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-aad) and [Microsoft account-type guidance](https://learn.microsoft.com/en-us/security/zero-trust/develop/identity-supported-account-types).
+
+#### Project integration
+
+Store these four values in Azure Key Vault under names recognized by the project scripts:
+
+| Provider | Client ID secret name | Client secret name |
+| --- | --- | --- |
+| Google | `google-client-id` | `google-client-secret` |
+| Microsoft | `microsoft-client-id` | `microsoft-client-secret` |
+
+Run `scripts/secrets set-auth` to store all four values, `scripts/secrets status` to verify their presence without displaying them, and `scripts/release` to apply the Google and Microsoft App Service Authentication configuration.
+
+#### Localhost development
+
+Production uses Azure App Service Authentication. Local development uses equivalent server-side provider handlers in the API container, with Vite proxying the authentication routes so the browser stays on `http://localhost:5173`.
+
+Each provider registration therefore needs two Web callback URLs:
+
+| Provider | Production callback owner and URI | Local callback owner and URI |
+| --- | --- | --- |
+| Google | Azure Easy Auth: `https://<api-app>.azurewebsites.net/.auth/login/google/callback` | ASP.NET Google handler: `http://localhost:5173/.auth/callback/google` |
+| Microsoft Entra | Azure Easy Auth: `https://<api-app>.azurewebsites.net/.auth/login/aad/callback` | ASP.NET OpenID Connect handler: `http://localhost:5173/.auth/callback/microsoft` |
+
+Azure Easy Auth defines the production `/.auth/login/<provider>/callback` paths. The local callback paths are application-defined in `Program.cs`; Vite exposes and proxies them on port 5173. The browser initiates either flow at `/.auth/login/google` or `/.auth/login/aad`. These sign-in entry points are separate from the callback URLs registered with Google and Entra. The `aad` provider identifier remains part of Azure App Service's route even though the product is now named Microsoft Entra.
+
+Run `scripts/server` to retrieve the four authentication values from Azure Key Vault and start Docker Compose. The values are passed through the script process only to the API container; they are not written to an `.env` file or exposed through Vite. Running `docker compose up` directly leaves local authentication disabled.
+
+The local API issues an HTTP-only development cookie after provider sign-in. App Service continues to own the production session and inject the authenticated principal header there.
 
 ### Travel parties and authority
 
@@ -157,7 +212,7 @@ The exact freshness window, retention policy, provider-filter strategy, retry po
 | Natural-language translation | Define the structured vocabulary, confirmation flow, handling of ambiguity, and invalid or unsupported requests. |
 | Region definitions | Choose the geographic source, inspectable membership, and versioning behavior for named areas. |
 | Travelers | Must all passengers have accounts? Are guests and children supported? |
-| Accounts and invitations | Define identity linking, invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
+| Accounts and invitations | Google and personal Microsoft accounts are the initial sign-in providers. Define identity linking across providers, invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
 | Persistence | Choose the database and durable representations for users, trips, membership, constraints, runs, fare data, and scores. |
 | Concurrent edits | Recommendation: plan against an input snapshot and label results outdated if constraints or membership change during a run. |
 | Search operations | Set cache freshness, retries, timeouts, partial-result behavior, per-run tie-breaking, and limits across repeated runs. |

@@ -26,11 +26,10 @@ Options:
 
 Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, NAME_PREFIX, IMAGE_NAME,
 INFRA_DEPLOYMENT_NAME, CONFIG_DEPLOYMENT_NAME, EXPECTED_TENANT_ID,
-NUGET_SOURCE, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APPLE_CLIENT_ID,
-APPLE_CLIENT_SECRET, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
+NUGET_SOURCE, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
 
-Set all four provider values on every release to enable authentication. Set none
-to deploy with App Service Authentication disabled.
+Authentication is enabled when all four credentials have been stored in the
+deployed Key Vault with scripts/secrets set-auth.
 USAGE
 }
 
@@ -86,19 +85,33 @@ WEB_APP_NAME="$(read_output webAppName)"
 WEB_APP_URL="$(read_output webAppUrl)"
 STATIC_WEB_APP_NAME="$(read_output staticWebAppName)"
 STATIC_WEB_APP_URL="$(read_output staticWebAppUrl)"
+KEY_VAULT_NAME="$(read_output keyVaultName)"
 IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 auth_parameters=(authenticationEnabled=false)
-if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" || -n "${APPLE_CLIENT_ID:-}" || -n "${APPLE_CLIENT_SECRET:-}" ]]; then
-  [[ -n "${GOOGLE_CLIENT_ID:-}" && -n "${GOOGLE_CLIENT_SECRET:-}" && -n "${APPLE_CLIENT_ID:-}" && -n "${APPLE_CLIENT_SECRET:-}" ]] || die \
-    "set all four Google and Apple provider variables, or none of them"
+required_auth_secrets=(google-client-id google-client-secret microsoft-client-id microsoft-client-secret)
+vault_secret_names=("${(@f)$(az keyvault secret list \
+  --vault-name "$KEY_VAULT_NAME" \
+  --query '[].name' \
+  --output tsv)}") || die \
+  "could not list secrets in Key Vault '$KEY_VAULT_NAME'; verify your RBAC access"
+available_auth_secrets=0
+for secret_name in "${required_auth_secrets[@]}"; do
+  if (( ${vault_secret_names[(Ie)$secret_name]} )); then
+    available_auth_secrets=$((available_auth_secrets + 1))
+  fi
+done
+
+if (( available_auth_secrets == ${#required_auth_secrets} )); then
+  GOOGLE_CLIENT_ID="$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name google-client-id --query value -o tsv)"
+  MICROSOFT_CLIENT_ID="$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name microsoft-client-id --query value -o tsv)"
   auth_parameters=(
     authenticationEnabled=true
     googleClientId="$GOOGLE_CLIENT_ID"
-    googleClientSecret="$GOOGLE_CLIENT_SECRET"
-    appleClientId="$APPLE_CLIENT_ID"
-    appleClientSecret="$APPLE_CLIENT_SECRET"
+    microsoftClientId="$MICROSOFT_CLIENT_ID"
   )
+elif (( available_auth_secrets != 0 )); then
+  die "Key Vault has only $available_auth_secrets of ${#required_auth_secrets} authentication credentials; run scripts/secrets set-auth"
 fi
 
 if [[ "$SKIP_TESTS" == false ]]; then

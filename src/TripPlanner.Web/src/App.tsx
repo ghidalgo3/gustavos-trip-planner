@@ -24,7 +24,11 @@ export default function App() {
     const controller = new AbortController();
     getCurrentUser(controller.signal)
       .then(setUser)
-      .catch(() => setApiAvailable(false));
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setApiAvailable(false);
+        }
+      });
     return () => controller.abort();
   }, []);
 
@@ -66,8 +70,8 @@ export default function App() {
               <Button as="a" href={loginUrl("google")} appearance="primary" size="large">
                 Continue with Google
               </Button>
-              <Button as="a" href={loginUrl("apple")} appearance="outline" size="large">
-                Continue with Apple
+              <Button as="a" href={loginUrl("aad")} appearance="outline" size="large">
+                Continue with Microsoft
               </Button>
             </div>
           )}

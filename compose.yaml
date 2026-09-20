@@ -8,6 +8,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
+      Authentication__Google__ClientId: ${LOCAL_GOOGLE_CLIENT_ID:-}
+      Authentication__Google__ClientSecret: ${LOCAL_GOOGLE_CLIENT_SECRET:-}
+      Authentication__Microsoft__ClientId: ${LOCAL_MICROSOFT_CLIENT_ID:-}
+      Authentication__Microsoft__ClientSecret: ${LOCAL_MICROSOFT_CLIENT_SECRET:-}
     ports:
       - "8080:8080"
     volumes:

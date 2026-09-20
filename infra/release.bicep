@@ -9,17 +9,15 @@ param imageTag string
 @description('Enable App Service authentication after both provider registrations are ready.')
 param authenticationEnabled bool = false
 param googleClientId string = ''
-@secure()
-param googleClientSecret string = ''
-param appleClientId string = ''
-@secure()
-param appleClientSecret string = ''
+param microsoftClientId string = ''
 
 var sanitizedPrefix = toLower(replace(replace(namePrefix, '-', ''), '_', ''))
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var acrName = 'acr${sanitizedPrefix}${uniqueSuffix}'
+var keyVaultName = 'kv${take(sanitizedPrefix, 9)}${uniqueSuffix}'
 var webAppName = '${namePrefix}-api-${uniqueSuffix}'
 var staticWebAppName = '${namePrefix}-web-${uniqueSuffix}'
+var microsoftPersonalAccountsIssuer = '${environment().authentication.loginEndpoint}9188040d-6c67-4c5b-b112-36a304b66dad/v2.0'
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
@@ -45,7 +43,10 @@ resource webConfig 'Microsoft.Web/sites/config@2023-12-01' = {
     minTlsVersion: '1.2'
     http20Enabled: true
     cors: {
-      allowedOrigins: ['https://${staticWebApp.properties.defaultHostname}']
+      allowedOrigins: [
+        'https://${staticWebApp.properties.defaultHostname}'
+        'http://localhost:5173'
+      ]
       supportCredentials: true
     }
   }
@@ -59,9 +60,10 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     ASPNETCORE_ENVIRONMENT: 'Production'
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
     ClientOrigins__0: 'https://${staticWebApp.properties.defaultHostname}'
+    ClientOrigins__1: 'http://localhost:5173'
   }, authenticationEnabled ? {
-    GOOGLE_PROVIDER_AUTHENTICATION_SECRET: googleClientSecret
-    APPLE_PROVIDER_AUTHENTICATION_SECRET: appleClientSecret
+    GOOGLE_PROVIDER_AUTHENTICATION_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=google-client-secret)'
+    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=microsoft-client-secret)'
   } : {})
 }
 
@@ -85,13 +87,19 @@ resource authSettings 'Microsoft.Web/sites/config@2022-09-01' = {
         }
         login: { scopes: ['openid', 'profile', 'email'] }
       }
-      apple: {
+      azureActiveDirectory: {
         enabled: true
         registration: {
-          clientId: appleClientId
-          clientSecretSettingName: 'APPLE_PROVIDER_AUTHENTICATION_SECRET'
+          clientId: microsoftClientId
+          clientSecretSettingName: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET'
+          openIdIssuer: microsoftPersonalAccountsIssuer
         }
-        login: { scopes: ['name', 'email'] }
+        login: {
+          loginParameters: ['scope=openid profile email']
+        }
+        validation: {
+          allowedAudiences: [microsoftClientId]
+        }
       }
     }
     login: {

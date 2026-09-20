@@ -11,6 +11,9 @@ param location string = 'eastus2'
 param imageName string = 'tripplanner-api'
 param appServicePlanSku string = 'B1'
 
+@description('Object ID of the user who manages application credentials in Key Vault.')
+param keyVaultOperatorPrincipalId string
+
 param tags object = {
   workload: 'gustavo-trip-planner'
   managedBy: 'bicep'
@@ -19,11 +22,20 @@ param tags object = {
 var sanitizedPrefix = toLower(replace(replace(namePrefix, '-', ''), '_', ''))
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var acrName = 'acr${sanitizedPrefix}${uniqueSuffix}'
+var keyVaultName = 'kv${take(sanitizedPrefix, 9)}${uniqueSuffix}'
 var webAppName = '${namePrefix}-api-${uniqueSuffix}'
 var staticWebAppName = '${namePrefix}-web-${uniqueSuffix}'
 var acrPullRoleDefinitionId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+)
+var keyVaultSecretsOfficerRoleDefinitionId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
+)
+var keyVaultSecretsUserRoleDefinitionId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '4633458b-17de-408a-b874-0445c86b69e6'
 )
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -33,6 +45,23 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   sku: { name: 'Basic' }
   properties: {
     adminUserEnabled: false
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: keyVaultName
+  location: location
+  tags: tags
+  properties: {
+    tenantId: tenant().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    enableRbacAuthorization: true
+    enablePurgeProtection: true
+    softDeleteRetentionInDays: 90
     publicNetworkAccess: 'Enabled'
   }
 }
@@ -101,8 +130,30 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
+resource webAppKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, webApp.id, keyVaultSecretsUserRoleDefinitionId)
+  scope: keyVault
+  properties: {
+    principalId: webApp.identity.principalId
+    roleDefinitionId: keyVaultSecretsUserRoleDefinitionId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource secretManagerKeyVaultSecretsOfficer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, keyVaultOperatorPrincipalId, keyVaultSecretsOfficerRoleDefinitionId)
+  scope: keyVault
+  properties: {
+    principalId: keyVaultOperatorPrincipalId
+    roleDefinitionId: keyVaultSecretsOfficerRoleDefinitionId
+    principalType: 'User'
+  }
+}
+
 output acrName string = acr.name
 output acrLoginServer string = acr.properties.loginServer
+output keyVaultName string = keyVault.name
+output keyVaultUri string = keyVault.properties.vaultUri
 output webAppName string = webApp.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output staticWebAppName string = staticWebApp.name

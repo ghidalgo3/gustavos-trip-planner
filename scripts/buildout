@@ -10,6 +10,7 @@ DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-tripplanner-infra}"
 ACR_PURGE_TASK_NAME="${ACR_PURGE_TASK_NAME:-}"
 ACR_PURGE_SCHEDULE="${ACR_PURGE_SCHEDULE:-0 2 * * *}"
 ACR_PURGE_TIMER_NAME="daily"
+KEY_VAULT_OPERATOR_PRINCIPAL_ID="${KEY_VAULT_OPERATOR_PRINCIPAL_ID:-}"
 
 usage() {
   cat <<'USAGE'
@@ -26,7 +27,7 @@ Options:
 
 Environment overrides: RESOURCE_GROUP, LOCATION, SUBSCRIPTION, NAME_PREFIX,
 IMAGE_NAME, DEPLOYMENT_NAME, ACR_PURGE_TASK_NAME, ACR_PURGE_SCHEDULE,
-EXPECTED_TENANT_ID.
+KEY_VAULT_OPERATOR_PRINCIPAL_ID, EXPECTED_TENANT_ID.
 USAGE
 }
 
@@ -58,6 +59,11 @@ ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
 [[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
   "subscription is in tenant $ACTUAL_TENANT_ID, expected personal tenant $EXPECTED_TENANT_ID"
 
+if [[ -z "$KEY_VAULT_OPERATOR_PRINCIPAL_ID" ]]; then
+  KEY_VAULT_OPERATOR_PRINCIPAL_ID="$(az ad signed-in-user show --query id -o tsv)" || die \
+    "could not determine the signed-in user's object ID; set KEY_VAULT_OPERATOR_PRINCIPAL_ID"
+fi
+
 log "Validating Bicep"
 az bicep build --file infra/main.bicep --stdout >/dev/null
 az bicep build-params --file infra/main.bicepparam --stdout >/dev/null
@@ -71,7 +77,7 @@ az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --template-file infra/main.bicep \
   --parameters infra/main.bicepparam location="$LOCATION" namePrefix="$NAME_PREFIX" \
-    imageName="$IMAGE_NAME" \
+    imageName="$IMAGE_NAME" keyVaultOperatorPrincipalId="$KEY_VAULT_OPERATOR_PRINCIPAL_ID" \
   --output none
 
 read_output() {
@@ -104,28 +110,56 @@ if az acr task show \
     --status Enabled \
     --output none
 
-  if [[ -n "$(az acr task timer list \
+  EXISTING_TIMER_NAME="$(az acr task timer list \
     --name "$ACR_PURGE_TASK_NAME" \
     --registry "$ACR_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "[?name == '$ACR_PURGE_TIMER_NAME'].name | [0]" \
-    --output tsv)" ]]; then
-    az acr task timer update \
+    --query "[?schedule == '$ACR_PURGE_SCHEDULE'].name | [0]" \
+    --output tsv)"
+
+  if [[ -n "$EXISTING_TIMER_NAME" ]]; then
+    EXISTING_TIMER_STATUS="$(az acr task timer list \
       --name "$ACR_PURGE_TASK_NAME" \
       --registry "$ACR_NAME" \
       --resource-group "$RESOURCE_GROUP" \
-      --timer-name "$ACR_PURGE_TIMER_NAME" \
-      --schedule "$ACR_PURGE_SCHEDULE" \
-      --enabled true \
-      --output none
+      --query "[?name == '$EXISTING_TIMER_NAME'].status | [0]" \
+      --output tsv)"
+
+    if [[ "$EXISTING_TIMER_STATUS" != 'Enabled' ]]; then
+      az acr task timer update \
+        --name "$ACR_PURGE_TASK_NAME" \
+        --registry "$ACR_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --timer-name "$EXISTING_TIMER_NAME" \
+        --enabled true \
+        --output none
+    fi
   else
-    az acr task timer add \
+    EXISTING_TIMER_NAME="$(az acr task timer list \
       --name "$ACR_PURGE_TASK_NAME" \
       --registry "$ACR_NAME" \
       --resource-group "$RESOURCE_GROUP" \
-      --timer-name "$ACR_PURGE_TIMER_NAME" \
-      --schedule "$ACR_PURGE_SCHEDULE" \
-      --output none
+      --query "[?name == '$ACR_PURGE_TIMER_NAME'].name | [0]" \
+      --output tsv)"
+
+    if [[ -n "$EXISTING_TIMER_NAME" ]]; then
+      az acr task timer update \
+        --name "$ACR_PURGE_TASK_NAME" \
+        --registry "$ACR_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --timer-name "$EXISTING_TIMER_NAME" \
+        --schedule "$ACR_PURGE_SCHEDULE" \
+        --enabled true \
+        --output none
+    else
+      az acr task timer add \
+        --name "$ACR_PURGE_TASK_NAME" \
+        --registry "$ACR_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --timer-name "$ACR_PURGE_TIMER_NAME" \
+        --schedule "$ACR_PURGE_SCHEDULE" \
+        --output none
+    fi
   fi
 else
   az acr task create \
@@ -146,5 +180,7 @@ printf '\nInfrastructure is ready.\n'
 printf '  API:        %s\n' "$(read_output webAppUrl)"
 printf '  Static app: %s\n' "$(read_output staticWebAppUrl)"
 printf '  Registry:   %s\n' "$(read_output acrLoginServer)"
+printf '  Key Vault:  %s\n' "$(read_output keyVaultName)"
 printf '  ACR cleanup: daily at %s UTC\n' "$ACR_PURGE_SCHEDULE"
-printf '\nDeploy application code with: scripts/release\n'
+printf '\nStore authentication credentials with: scripts/secrets set-auth\n'
+printf 'Deploy application code with: scripts/release\n'

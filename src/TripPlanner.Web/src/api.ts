@@ -20,7 +20,7 @@ export async function getCurrentUser(signal?: AbortSignal): Promise<CurrentUser>
   return response.json() as Promise<CurrentUser>;
 }
 
-export function loginUrl(provider: "google" | "apple"): string {
+export function loginUrl(provider: "google" | "aad"): string {
   const returnTo = `${window.location.origin}/`;
   return `${apiBaseUrl}/.auth/login/${provider}?post_login_redirect_uri=${encodeURIComponent(returnTo)}`;
 }
