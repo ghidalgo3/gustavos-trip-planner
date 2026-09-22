@@ -9,8 +9,9 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/server [DOCKER_COMPOSE_UP_OPTIONS]
 
-Load local authentication credentials from the deployed Azure Key Vault, then
-start the API and web development containers with Docker Compose.
+Load local authentication credentials and the Ignav API key from the deployed Azure Key Vault, issue
+a two-hour Azure Maps development SAS, then start the API and web development
+containers with Docker Compose.
 
 Examples:
   scripts/server
@@ -66,18 +67,48 @@ read_secret() {
     --name "$name" \
     --query value \
     --output tsv)" || die \
-    "could not read '$name' from Key Vault '$KEY_VAULT_NAME'; run scripts/secrets set-auth"
+    "could not read '$name' from Key Vault '$KEY_VAULT_NAME'; run scripts/secrets set $name"
   [[ -n "$value" ]] || die "Key Vault secret '$name' is empty"
   printf '%s' "$value"
 }
 
 log "Loading local authentication configuration from $KEY_VAULT_NAME"
+LOCAL_IGNAV_API_KEY="$(read_secret ignav-api-key)"
+export LOCAL_IGNAV_API_KEY
 LOCAL_GOOGLE_CLIENT_ID="$(read_secret google-client-id)"
 LOCAL_GOOGLE_CLIENT_SECRET="$(read_secret google-client-secret)"
 LOCAL_MICROSOFT_CLIENT_ID="$(read_secret microsoft-client-id)"
 LOCAL_MICROSOFT_CLIENT_SECRET="$(read_secret microsoft-client-secret)"
 export LOCAL_GOOGLE_CLIENT_ID LOCAL_GOOGLE_CLIENT_SECRET
 export LOCAL_MICROSOFT_CLIENT_ID LOCAL_MICROSOFT_CLIENT_SECRET
+
+read_output() {
+  az deployment group show \
+    --name "$INFRA_DEPLOYMENT_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "properties.outputs.$1.value" \
+    --output tsv
+}
+
+AZURE_MAPS_RESOURCE_ID="$(read_output azureMapsAccountResourceId)"
+AZURE_MAPS_SAS_PRINCIPAL_ID="$(read_output azureMapsSasPrincipalId)"
+[[ -n "$AZURE_MAPS_RESOURCE_ID" && -n "$AZURE_MAPS_SAS_PRINCIPAL_ID" ]] || die \
+  "Azure Maps SAS deployment outputs are missing; run scripts/buildout"
+
+LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT="$(date -u -v+2H '+%Y-%m-%dT%H:%M:%SZ')"
+AZURE_MAPS_SAS_START="$(date -u -v-5M '+%Y-%m-%dT%H:%M:%SZ')"
+log "Issuing a two-hour Azure Maps development token"
+LOCAL_AZURE_MAPS_SAS_TOKEN="$(az rest \
+  --method post \
+  --url "https://management.azure.com${AZURE_MAPS_RESOURCE_ID}/listSas?api-version=2023-06-01" \
+  --body "{\"signingKey\":\"managedIdentity\",\"principalId\":\"${AZURE_MAPS_SAS_PRINCIPAL_ID}\",\"maxRatePerSecond\":50,\"start\":\"${AZURE_MAPS_SAS_START}\",\"expiry\":\"${LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT}\"}" \
+  --query accountSasToken \
+  --output tsv)" || die \
+  "could not issue an Azure Maps SAS; run scripts/buildout and allow time for RBAC propagation"
+[[ -n "$LOCAL_AZURE_MAPS_SAS_TOKEN" ]] || die "Azure Maps returned an empty SAS token"
+LOCAL_AZURE_MAPS_ENDPOINT='https://atlas.microsoft.com'
+export LOCAL_AZURE_MAPS_ENDPOINT LOCAL_AZURE_MAPS_SAS_TOKEN
+export LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT
 
 log "Starting development containers"
 docker compose up --build "$@"

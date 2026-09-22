@@ -3,6 +3,7 @@ set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
 LOCATION="${LOCATION:-eastus2}"
+AZURE_MAPS_LOCATION="${AZURE_MAPS_LOCATION:-eastus}"
 SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
 NAME_PREFIX="${NAME_PREFIX:-tripplanner}"
 IMAGE_NAME="${IMAGE_NAME:-tripplanner-api}"
@@ -25,9 +26,9 @@ Options:
   -p, --name-prefix PREFIX    Resource name prefix (default: tripplanner)
   -h, --help                  Show this help
 
-Environment overrides: RESOURCE_GROUP, LOCATION, SUBSCRIPTION, NAME_PREFIX,
-IMAGE_NAME, DEPLOYMENT_NAME, ACR_PURGE_TASK_NAME, ACR_PURGE_SCHEDULE,
-KEY_VAULT_OPERATOR_PRINCIPAL_ID, EXPECTED_TENANT_ID.
+Environment overrides: RESOURCE_GROUP, LOCATION, AZURE_MAPS_LOCATION, SUBSCRIPTION,
+NAME_PREFIX, IMAGE_NAME, DEPLOYMENT_NAME, ACR_PURGE_TASK_NAME,
+ACR_PURGE_SCHEDULE, KEY_VAULT_OPERATOR_PRINCIPAL_ID, EXPECTED_TENANT_ID.
 USAGE
 }
 
@@ -72,13 +73,22 @@ log "Ensuring resource group '$RESOURCE_GROUP' exists in '$LOCATION'"
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
 
 log "Deploying infrastructure as '$DEPLOYMENT_NAME'"
-az deployment group create \
-  --name "$DEPLOYMENT_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --template-file infra/main.bicep \
-  --parameters infra/main.bicepparam location="$LOCATION" namePrefix="$NAME_PREFIX" \
-    keyVaultOperatorPrincipalId="$KEY_VAULT_OPERATOR_PRINCIPAL_ID" \
-  --output none
+for attempt in 1 2 3; do
+  if az deployment group create \
+    --name "$DEPLOYMENT_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --template-file infra/main.bicep \
+    --parameters infra/main.bicepparam location="$LOCATION" \
+      azureMapsLocation="$AZURE_MAPS_LOCATION" namePrefix="$NAME_PREFIX" \
+      keyVaultOperatorPrincipalId="$KEY_VAULT_OPERATOR_PRINCIPAL_ID" \
+    --output none; then
+    break
+  fi
+
+  [[ "$attempt" -lt 3 ]] || die "infrastructure deployment failed after $attempt attempts"
+  log "Azure resources are still converging; retrying deployment in 20 seconds"
+  sleep 20
+done
 
 read_output() {
   az deployment group show \
@@ -178,7 +188,6 @@ fi
 
 printf '\nInfrastructure is ready.\n'
 printf '  API:        %s\n' "$(read_output webAppUrl)"
-printf '  Static app: %s\n' "$(read_output staticWebAppUrl)"
 printf '  Registry:   %s\n' "$(read_output acrLoginServer)"
 printf '  Key Vault:  %s\n' "$(read_output keyVaultName)"
 printf '  ACR cleanup: daily at %s UTC\n' "$ACR_PURGE_SCHEDULE"

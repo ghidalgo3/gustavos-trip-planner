@@ -1,8 +1,8 @@
 # Milestone 1: Collaborative trip planning and ranked flight suggestions
 
-Status: Living design document; implementation has not started as part of this design work.
+Status: Living design document; implementation is in progress.
 
-Last updated: 2026-09-19.
+Last updated: 2026-09-20.
 
 This document records the agreed product behavior, the proposed planning architecture, and unresolved questions. Confirmed decisions are requirements. Recommendations and open questions are explicitly labeled and should not be treated as settled behavior.
 
@@ -10,21 +10,25 @@ This document records the agreed product behavior, the proposed planning archite
 
 Build a social travel-planning website where users iteratively define a trip, collaborate with other travelers, express requirements and preferences, and ask a scheduling system to produce ranked flight suggestions using Ignav fare data.
 
-Milestone 1 supports one destination per plan and round-trip flights. It ends at ranked suggestions. Multi-stop routing, partial-trip travel parties, booking, and planning transport to a shared departure point are outside this milestone.
+Milestone 1 supports one destination per plan and round-trip flights. It ends at ranked suggestions. Fare results may offer a provider booking link for a selected cached itinerary, but completing a purchase, multi-stop routing, partial-trip travel parties, and planning transport to a shared departure point are outside this milestone.
 
 ### Users and trips
 
-- Maintain a persistent database of users. Collect each user's home city during signup as the default starting point for planning.
+- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point.
+- Treat the normalized email supplied by Google or Microsoft as the unique application identity. If the same email signs in through another provider, reuse the user ID and append the provider to that user's provider list.
 - Start with sign-in through Google and personal Microsoft accounts.
 - Sign in with Apple is outside this milestone and may be reconsidered later.
 - Users can create, read, update, and delete their trips. A newly created trip needs only a name; destinations and constraints are added iteratively.
+- Trip CRUD is exposed at `/api/user/{userId}/trips`. The authenticated application user must match `{userId}`, and database operations are scoped to that owner. Trip creation is available after home-city onboarding is complete.
+- The initial `trips` representation stores an ID, owner user ID, name, description, and a JSONB `constraints` object. A newly created trip has an empty constraints object.
+- The initial `parties` representation stores an ID, trip ID, and a UUID array of member user IDs. Creating a trip atomically creates one party containing only its owner; deleting the trip cascades to every party belonging to it.
 - A trip owner can invite other users and manage trip membership and membership in travel parties.
 - Constraints are defined per user, per trip. Party membership and shared party preferences supplement those individual constraints.
-- A trip needs at least one destination and a date constraint to begin planning. Running a fare search additionally requires bounded departure and return date ranges and a resolved origin.
+- A trip needs a destination, departure date, return-flight date, and a resolved origin to prepare searches. Additional constraints are optional; calendar selections provide bounded dates without requiring departure/return constraints.
 
 ### Initial sign-in provider setup
 
-Production sign-in is handled by Azure App Service Authentication at the API application. Local sign-in is handled by server-side provider middleware in the API container. Neither flow is implemented in the React client. Provider client secrets must remain server-side in Azure Key Vault and must never be committed, added to the browser application, or pasted into this document.
+Production and local sign-in are handled by server-side ASP.NET authentication middleware in the API. Azure App Service Authentication is disabled. Provider client secrets must remain server-side in Azure Key Vault and must never be committed, added to the browser application, or pasted into this document.
 
 Before configuring either provider, deploy or identify the API App Service hostname, represented below as `<api-app>.azurewebsites.net`.
 
@@ -32,7 +36,7 @@ Before configuring either provider, deploy or identify the API App Service hostn
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and complete the Google Auth Platform branding and audience setup. Use an external audience for a consumer application. During testing, add the intended test accounts.
 2. Create an OAuth 2.0 client ID with application type **Web application**.
-3. Add `https://<api-app>.azurewebsites.net` as an authorized JavaScript origin. Add both `https://<api-app>.azurewebsites.net/.auth/login/google/callback` and `http://localhost:5173/.auth/callback/google` as authorized redirect URIs on this same Web client.
+3. Add both `https://<api-app>.azurewebsites.net/.auth/callback/google` and `http://localhost:5173/.auth/callback/google` as authorized redirect URIs on this same Web client.
 4. Record the generated client ID and client secret. The secret is only displayed at creation time; download or copy it immediately to the approved secret store.
 
 Google requires the redirect URI to match exactly. Only basic `openid`, `profile`, and `email` scopes are needed for initial sign-in. See [Google's OAuth web-server guidance](https://developers.google.com/identity/protocols/oauth2/web-server) and [Azure App Service's Google provider guidance](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-google).
@@ -41,12 +45,12 @@ Google requires the redirect URI to match exactly. Only basic `openid`, `profile
 
 1. Open [Microsoft Entra admin center](https://entra.microsoft.com/), select **App registrations**, and create a **New registration**.
 2. Select **Personal Microsoft accounts only** as the supported account type.
-3. Under **Authentication**, add both Web platform redirect URIs: `https://<api-app>.azurewebsites.net/.auth/login/aad/callback` and `http://localhost:5173/.auth/callback/microsoft`.
-4. In the same **Authentication** page, under **Implicit grant and hybrid flows**, enable **ID tokens (used for implicit and hybrid flows)**. Leave **Access tokens** disabled. App Service Authentication uses the hybrid `code id_token` response type when a client secret is configured.
+3. Under **Authentication**, add both Web platform redirect URIs: `https://<api-app>.azurewebsites.net/.auth/callback/microsoft` and `http://localhost:5173/.auth/callback/microsoft`.
+4. Leave **Implicit grant and hybrid flows** disabled. Under **API permissions**, add the delegated Microsoft Graph `User.Read` permission so the API can retrieve the signed-in user's profile image.
 5. On the Overview page, record the **Application (client) ID**.
 6. Under **Certificates & secrets**, create a client secret. Copy its **Value** immediately; the portal will not show it again. Use a short expiration and plan rotation before it expires.
 
-Use the personal-Microsoft-account issuer `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0` when configuring App Service Authentication. This consumer tenant only accepts personal Microsoft accounts. See [Microsoft's App Service provider guidance](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-aad) and [Microsoft account-type guidance](https://learn.microsoft.com/en-us/security/zero-trust/develop/identity-supported-account-types).
+The API uses the personal-Microsoft-account issuer `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`. This consumer tenant only accepts personal Microsoft accounts. See [Microsoft's OpenID Connect guidance](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc) and [Microsoft account-type guidance](https://learn.microsoft.com/en-us/security/zero-trust/develop/identity-supported-account-types).
 
 #### Project integration
 
@@ -57,24 +61,24 @@ Store these four values in Azure Key Vault under names recognized by the project
 | Google | `google-client-id` | `google-client-secret` |
 | Microsoft | `microsoft-client-id` | `microsoft-client-secret` |
 
-Run `scripts/secrets set-auth` to store all four values, `scripts/secrets status` to verify their presence without displaying them, and `scripts/release` to apply the Google and Microsoft App Service Authentication configuration.
+Run `scripts/secrets set-auth` to store all four values, `scripts/secrets status` to verify their presence without displaying them, and `scripts/release` to configure the API's Google and Microsoft handlers.
 
 #### Localhost development
 
-Production uses Azure App Service Authentication. Local development uses equivalent server-side provider handlers in the API container, with Vite proxying the authentication routes so the browser stays on `http://localhost:5173`.
+The same server-side provider handlers own production and local authentication. Vite proxies the local authentication routes so the browser stays on `http://localhost:5173`.
 
 Each provider registration therefore needs two Web callback URLs:
 
 | Provider | Production callback owner and URI | Local callback owner and URI |
 | --- | --- | --- |
-| Google | Azure Easy Auth: `https://<api-app>.azurewebsites.net/.auth/login/google/callback` | ASP.NET Google handler: `http://localhost:5173/.auth/callback/google` |
-| Microsoft Entra | Azure Easy Auth: `https://<api-app>.azurewebsites.net/.auth/login/aad/callback` | ASP.NET OpenID Connect handler: `http://localhost:5173/.auth/callback/microsoft` |
+| Google | ASP.NET Google handler: `https://<api-app>.azurewebsites.net/.auth/callback/google` | ASP.NET Google handler: `http://localhost:5173/.auth/callback/google` |
+| Microsoft | ASP.NET OpenID Connect handler: `https://<api-app>.azurewebsites.net/.auth/callback/microsoft` | ASP.NET OpenID Connect handler: `http://localhost:5173/.auth/callback/microsoft` |
 
-Azure Easy Auth defines the production `/.auth/login/<provider>/callback` paths. The local callback paths are application-defined in `Program.cs`; Vite exposes and proxies them on port 5173. The browser initiates either flow at `/.auth/login/google` or `/.auth/login/aad`. These sign-in entry points are separate from the callback URLs registered with Google and Entra. The `aad` provider identifier remains part of Azure App Service's route even though the product is now named Microsoft Entra.
+The callback paths are application-defined in `Program.cs`; Vite exposes and proxies them on port 5173. The browser initiates either flow at `/.auth/login/google` or `/.auth/login/aad`. These sign-in entry points are separate from the callback URLs registered with Google and Microsoft.
 
 Run `scripts/server` to retrieve the four authentication values from Azure Key Vault and start Docker Compose. The values are passed through the script process only to the API container; they are not written to an `.env` file or exposed through Vite. Running `docker compose up` directly leaves local authentication disabled.
 
-The local API issues an HTTP-only development cookie after provider sign-in. App Service continues to own the production session and inject the authenticated principal header there.
+The API issues an encrypted HTTP-only cookie after provider sign-in in both environments. The production API container also serves the React application, so the UI, authentication callbacks, and API share one origin.
 
 ### Travel parties and authority
 
@@ -94,6 +98,7 @@ Examples include required presence at the destination, departure and return flex
 | --- | --- |
 | Required presence in City A between X and Y | Arrive on or before X and depart on day Y or later, using destination-local dates. |
 | Date flexibility | Apply independently to departure and return. |
+| User-facing return date | The day the flight home begins. It maps directly to Ignav's return date; arriving home may be on a later day. |
 | Date input | Accept either preferred dates with a separate ±N-day flexibility for each end, or explicit earliest/latest departure and return windows. |
 | Direct flights | Nonstop flights. |
 | Layover exclusions | Support an airport, city, country, or named region such as “Middle East.” |
@@ -135,7 +140,71 @@ Use a constraint solver to derive departure/return date pairs within the supplie
 
 These pairs are candidates, not proof of flight feasibility. Actual flight times and other itinerary details are only available after fare retrieval. Do not claim that date-level feasibility guarantees satisfaction of the required destination stay.
 
-The solver library and formal constraint representation have not been selected.
+The prototype uses bounded date enumeration in C# behind `ISearchPlanBuilder`.
+It intersects each party's departure and return-flight windows and retains
+requirements needing flight-level validation. No external solver library is
+required for this initial finite search.
+
+### Constraint editor and bounded search preparation
+
+- The trip's existing JSONB `constraints` column holds a format-versioned document:
+  one destination, selected travel dates, automatically detected user time zone,
+  settings per persisted party, and identified optional constraints scoped
+  to individual travelers. This format version is not trip revision history.
+- The owner can save incomplete drafts. Planning validates the displayed inputs
+  without requiring a separate save. Date contradictions are returned as HTTP 400
+  issues; malformed inputs and references to users or parties outside the trip are
+  also rejected with a 4xx response.
+- Structured input covers departure and return-flight windows (either explicit
+  bounds or preferred dates with independent flexibility), presence at the one
+  destination, whole-trip togetherness, nonstop flights, and layover exclusions.
+  Airline preferences belong to the party and are reserved for later fare scoring.
+  Natural-language translation remains a subsequent implementation step.
+- The initial form asks for a destination and departure/return-flight calendar dates.
+  With no date-window constraints, those dates are fixed. An optional window replaces
+  the fixed date for its direction; multiple members' windows are intersected.
+  Its preferred date, otherwise the selected calendar date, anchors selection.
+  Legacy documents containing only windows still load and can be planned.
+- Airport autocomplete accepts city names, airport names, and IATA codes, backed by
+  a bundled scheduled-passenger-airport catalog (OurAirports plus airportsdata time
+  zones). Suggestions select concrete airports. Search is debounced, cancelable,
+  and cached in the browser; it makes no paid provider requests.
+- A party sharing one home city gets a suggested departure airport from saved
+  coordinates: prefer a large airport within 75 km, otherwise the nearest passenger
+  airport within 250 km. This is editable. Different home cities or no nearby
+  catalog airport require an explicit common departure airport.
+- No one enters time zones. The client detects the current browser zone with
+  `Intl.DateTimeFormat().resolvedOptions().timeZone`. Date inputs use local calendar
+  values; airport zones are supplied automatically for flight-date calculations.
+- Cabin, pricing market, maximum journey hours, and preferred airlines are hidden
+  behind an **Advanced filters** button in the destination-and-dates section,
+  grouped by party.
+- Each party can also cap the provider search at zero, one, or two stops. A
+  mandatory nonstop constraint overrides that cap with zero stops.
+- A configurable maximum duration per direction (default 48 hours,
+  including connections; allowed range 1–168) is an additional mandatory
+  requirement checked on actual flights. This default is a prototype choice.
+- Return dates are supplied directly to Ignav as the date the return flight
+  departs. Candidate requests are deduplicated by outbound/return-flight date
+  pair. Date-level feasibility is conservative: it does not assume flight
+  schedules, travel time, or a guaranteed arrival day. Required presence and
+  actual arrival back home must still be checked against flight timestamps.
+- Only future/today outbound dates are included, using the origin's local date.
+  Each individual input window spans at most 366 days, with dates in 2000–2100;
+  at most 100 constraints and 20 parties are accepted in the prototype.
+- Each party member currently counts as one adult passenger; parties above nine
+  members are blocked. Guests, children, and infants need a later traveler model.
+- A named layover region must include an explicit country-code definition.
+  City and country exclusions are preserved as pending checks until airport
+  geography is resolved during fare evaluation. Preferences never become hard
+  provider airline filters.
+- The server prepares selected versus eligible date-pair counts, pending flight
+  checks, exact request bodies, and SHA-256 cache
+  keys for the normalized provider request and endpoint as part of the asynchronous
+  planning operation. The client presents the operation and its results rather than
+  exposing a separate preview action.
+- Trip revision history and persisted planning snapshots are deferred to
+  [later milestones](later_milestones.md).
 
 ### C. Search and persist fares
 
@@ -168,7 +237,7 @@ When suggesting a relaxation, identify the affected requirements and users and h
 - Default to **20 date pairs per travel party per planning run**. Make the limit configurable so it can be raised or lowered later.
 - Filter out pairs violating known date constraints before applying the cap.
 - If more pairs remain, select those closest to the preferred departure and return dates. Distance is the sum of the absolute departure and return deviations in days.
-- For explicit windows without preferred dates, use the window midpoints as ranking anchors.
+- For explicit windows without preferred dates, use the selected travel dates as ranking anchors, falling back to window midpoints for legacy documents.
 - A selected pair with sufficiently fresh cached fares counts toward the 20-pair coverage limit but requires no new fare-search call. The cap limits searched pairs, not just cache misses.
 - Show coverage, for example: “Searched 20 of 81 eligible date pairs.” Distinguish selected, completed, and failed searches where necessary.
 - Date proximity chooses which pairs to search. It does not by itself determine the final ranking of returned fares.
@@ -177,7 +246,12 @@ Five possible departure dates and four possible return dates produce 20 pairs. F
 
 This policy can miss cheaper fares farther from the preferred dates. The interface must describe results as the best options found within the searched subset, not an exhaustive optimum.
 
-Boundary tie-breaking, automatic replacement of failed or empty searches, and whether such replacements are permitted within one run are not yet specified. Do not assume automatic expansion beyond the configured cap.
+For the prototype, proximity sums deviations from each member's preferred dates
+(or selected travel dates, falling back to window midpoints for legacy drafts).
+Ties use outbound departure date, then return departure date, ascending.
+The configured `Planning:DatePairLimit` defaults to 20 and is bounded to 1–200.
+The cap applies to distinct provider date pairs.
+Automatic replacement of failed or empty searches is not yet specified.
 
 ## 5. Ignav integration and caching
 
@@ -186,6 +260,36 @@ The following findings were checked against Ignav's public documentation on 2026
 - Round-trip results contain outbound choices and compatible returns, not every possible flight combination. Search prices are not reserved fares or guarantees of one combined ticket. See the [round-trip API documentation](https://ignav.com/docs/round-trip).
 - Requests include origin, destination, dates, passenger counts, cabin, pricing market, and optional filters. Passenger composition matters; a single-passenger search multiplied by party size is not an equivalent group search. The documented maximum is nine passengers per request. See the [request parameters](https://ignav.com/docs/one-way).
 - Ignav recommends caching identical fare searches for minutes and avoiding cached results older than a few hours for live fare use. Empty itinerary lists are valid successful responses. See the [production and caching guidance](https://ignav.com/docs/production-checklist).
+
+### Implemented asynchronous search execution
+
+The Plan action now saves the current constraints, queues real Ignav round-trip calls,
+and returns HTTP 202 with a polling URL. Operations belong to their initiating user
+and identify the trip as their resource; client polling is internal to the interface.
+The browser displays progress and can recover work when the trip is reopened. Types
+are explicit (currently `flightSearch`); statuses
+are `pending`, `InProgress`, `Completed`, and `Failed`, with progress counts
+`items`, `completedItems`, and `failedItems`. Partial successes remain available.
+
+A .NET BackgroundService uses PostgreSQL as its durable message queue. The generic
+`operations` table stores only scalar status and progress fields. `fare_searches`
+stores normalized provider requests, cached responses, and queue leases; there is no
+operation-items table. Enqueue and operation creation are atomic; lease claims use
+SKIP LOCKED and fenced completion. Successful responses, including empty results,
+are cached for one hour after retrieval; errors are not cached. GET derives required
+cache keys from the trip's current constraints and returns 404 when the cache is
+incomplete or expired. Request IDs make HTTP submission retries idempotent.
+
+The API key is stored as `ignav-api-key` in Key Vault, set with
+`scripts/secrets --set-ignav`. Default concurrency is two requests per API instance;
+default provider timeout is eight minutes, with a ten-minute recovery lease.
+Interrupted work can retry up to three provider attempts. Provider failures/timeouts
+are surfaced rather than blindly retried. A crash between provider success and durable
+completion may repeat a billed request: execution is at least once, not exactly once.
+
+Raw provider results are available in the GUI and trip flight-search GET API. They are not
+yet classified as constraint-compliant or ranked recommendations; actual flight-time
+validation, layover geography checks, and preference scoring remain follow-up work.
 
 ### Recommended cache design
 
@@ -196,7 +300,7 @@ The following findings were checked against Ignav's public documentation on 2026
 - Do not assume a broader provider search is exhaustive or equivalent to a narrower follow-up query.
 - Deduplicate identical in-flight requests and reuse eligible results across runs where appropriate.
 
-The exact freshness window, retention policy, provider-filter strategy, retry policy, concurrency limits, and handling of parties larger than the provider's passenger limit remain open. The 20-pair cap is not a complete budget for retries, ancillary API calls, or repeated planning runs.
+Cache freshness is one hour; initial worker concurrency and recovery behavior are defined above. Historical result retention, richer retry policies, provider-filter strategy, and handling of parties larger than the provider's passenger limit remain open. The 20-pair cap is not a complete budget for retries, ancillary API calls, or repeated planning runs.
 
 ## 6. Remaining decisions
 
@@ -208,15 +312,15 @@ The exact freshness window, retention policy, provider-filter strategy, retry po
 | Relaxation authority | The leader accepts changes, but do affected members also need to approve changes to their individual mandatory requirements? |
 | Ranking | How should price, stops, total duration, and airline preferences trade off? What is the stable ordering for tied scores? |
 | Relaxation selection | Prefer fewer changed rules, fewer shifted days, user-assigned importance, or another measure? |
-| Location resolution | How are home cities mapped to selectable origins and airports? How is the shared departure airport selected? |
+| Location resolution | Bundled airport autocomplete and geographic home-airport suggestions are implemented. Later: catalog refresh automation, richer metro-airport grouping, and resolving parties with different home cities. |
 | Date precision | Are airport arrival/departure dates sufficient, or will users need times of day and airport-to-city travel buffers? |
 | Natural-language translation | Define the structured vocabulary, confirmation flow, handling of ambiguity, and invalid or unsupported requests. |
 | Region definitions | Choose the geographic source, inspectable membership, and versioning behavior for named areas. |
 | Travelers | Must all passengers have accounts? Are guests and children supported? |
-| Accounts and invitations | Google and personal Microsoft accounts are the initial sign-in providers. Define identity linking across providers, invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
-| Persistence | Choose the database and durable representations for users, trips, membership, constraints, runs, fare data, and scores. |
-| Concurrent edits | Recommendation: plan against an input snapshot and label results outdated if constraints or membership change during a run. |
-| Search operations | Set cache freshness, retries, timeouts, partial-result behavior, per-run tie-breaking, and limits across repeated runs. |
+| Accounts and invitations | Google and personal Microsoft accounts are linked by normalized email. Define invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
+| Remaining persistence | Users, trips, parties, and the initial JSONB constraints document are implemented. Planning operations, queue messages, and cached fare responses are now durable. Fare validation and scoring remain to be implemented. |
+| Concurrent edits and history | Trip revisions and persisted input snapshots are deferred to later milestones. Concurrent saves currently use last-write-wins. |
+| Search operations | One-hour cache, bounded worker concurrency, timeouts, partial results, and recovery leases are implemented. Define historical retention and limits across repeated runs. |
 
 ## 7. Scenarios to validate when implementing
 

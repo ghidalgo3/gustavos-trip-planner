@@ -1,11 +1,60 @@
 export type CurrentUser = {
   isAuthenticated: boolean;
+  id?: string;
   name?: string;
   email?: string;
   provider?: string;
+  completedOnboarding: boolean;
+  homeCityName?: string;
 };
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+export type CitySuggestion = {
+  id: string;
+  label: string;
+  longitude?: number;
+  latitude?: number;
+};
+
+export type Trip = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  description: string;
+  constraints: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TripInput = {
+  name: string;
+  description: string;
+};
+
+type MapToken = {
+  token: string;
+  endpoint: string;
+  expiresAt: string;
+};
+
+type MapsFeature = {
+  id?: string;
+  geometry?: { coordinates?: number[] } | null;
+  properties?: {
+    name?: string;
+    address?: {
+      locality?: string;
+      formattedAddress?: string;
+    };
+  };
+};
+
+type MapsFeatureCollection = { features?: MapsFeature[] };
+
+export const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").replace(
+  /\/$/,
+  "",
+);
+let cachedMapToken: MapToken | undefined;
 
 export async function getCurrentUser(
   signal?: AbortSignal,
@@ -22,6 +71,215 @@ export async function getCurrentUser(
   return response.json() as Promise<CurrentUser>;
 }
 
+async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
+  if (
+    cachedMapToken &&
+    Date.parse(cachedMapToken.expiresAt) > Date.now() + 60_000
+  ) {
+    return cachedMapToken;
+  }
+
+  const response = await fetch(`${apiBaseUrl}/api/mapToken`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`The map token endpoint returned ${response.status}.`);
+  }
+
+  cachedMapToken = (await response.json()) as MapToken;
+  return cachedMapToken;
+}
+
+async function mapsRequest(
+  path: string,
+  parameters: URLSearchParams,
+  signal?: AbortSignal,
+): Promise<MapsFeatureCollection> {
+  const mapToken = await getMapToken(signal);
+  const response = await fetch(
+    `${mapToken.endpoint}/${path}?${parameters.toString()}`,
+    {
+      headers: { Authorization: `jwt-sas ${mapToken.token}` },
+      signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Azure Maps returned ${response.status}.`);
+  }
+
+  return response.json() as Promise<MapsFeatureCollection>;
+}
+
+export async function searchCities(
+  query: string,
+  signal?: AbortSignal,
+): Promise<CitySuggestion[]> {
+  const parameters = new URLSearchParams({
+    "api-version": "2026-01-01",
+    query,
+    resultTypes: "PopulatedPlace",
+    bbox: "-180,-90,180,90",
+    top: "6",
+  });
+  const result = await mapsRequest("geocode:autocomplete", parameters, signal);
+
+  return (result.features ?? []).flatMap((feature, index) => {
+    const label =
+      feature.properties?.address?.formattedAddress ??
+      feature.properties?.address?.locality ??
+      feature.properties?.name;
+    if (!label) {
+      return [];
+    }
+
+    const coordinates = feature.geometry?.coordinates;
+    return [
+      {
+        id: feature.id ?? `${label}-${index}`,
+        label,
+        longitude: coordinates?.[0],
+        latitude: coordinates?.[1],
+      },
+    ];
+  });
+}
+
+export async function resolveCity(
+  suggestion: CitySuggestion,
+  signal?: AbortSignal,
+): Promise<Required<Pick<CitySuggestion, "longitude" | "latitude">>> {
+  if (suggestion.longitude !== undefined && suggestion.latitude !== undefined) {
+    return {
+      longitude: suggestion.longitude,
+      latitude: suggestion.latitude,
+    };
+  }
+
+  const parameters = new URLSearchParams({
+    "api-version": "2026-01-01",
+    query: suggestion.label,
+    top: "1",
+  });
+  const result = await mapsRequest("geocode", parameters, signal);
+  const coordinates = result.features?.[0]?.geometry?.coordinates;
+  if (coordinates?.[0] === undefined || coordinates[1] === undefined) {
+    throw new Error("Azure Maps could not locate that city.");
+  }
+
+  return { longitude: coordinates[0], latitude: coordinates[1] };
+}
+
+export async function saveHomeCity(
+  city: CitySuggestion,
+  signal?: AbortSignal,
+): Promise<CurrentUser> {
+  const location = await resolveCity(city, signal);
+  const response = await fetch(`${apiBaseUrl}/api/user/homeCity`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cityName: city.label,
+      longitude: location.longitude,
+      latitude: location.latitude,
+    }),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `The API returned ${response.status} while saving your city.`,
+    );
+  }
+
+  return response.json() as Promise<CurrentUser>;
+}
+
+export function tripResourceUrl(userId: string, tripId?: string): string {
+  const collection = `${apiBaseUrl}/api/user/${encodeURIComponent(userId)}/trips`;
+  return tripId ? `${collection}/${encodeURIComponent(tripId)}` : collection;
+}
+
+export async function readTripError(response: Response, action: string) {
+  let message = `The API returned ${response.status} while ${action}.`;
+  try {
+    const problem = (await response.json()) as {
+      title?: string;
+      errors?: Record<string, string[]>;
+      issues?: { message: string }[];
+    };
+    const validationMessage = Object.values(problem.errors ?? {}).flat()[0];
+    message =
+      validationMessage ??
+      (problem.issues?.map((issue) => issue.message).join(" ") ||
+        problem.title ||
+        message);
+  } catch {
+    // Keep the status-based message when the response has no JSON body.
+  }
+  throw new Error(message);
+}
+
+export async function listTrips(
+  userId: string,
+  signal?: AbortSignal,
+): Promise<Trip[]> {
+  const response = await fetch(tripResourceUrl(userId), {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) {
+    await readTripError(response, "loading trips");
+  }
+  return response.json() as Promise<Trip[]>;
+}
+
+export async function createTrip(
+  userId: string,
+  input: TripInput,
+): Promise<Trip> {
+  const response = await fetch(tripResourceUrl(userId), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    await readTripError(response, "creating the trip");
+  }
+  return response.json() as Promise<Trip>;
+}
+
+export async function updateTrip(
+  userId: string,
+  tripId: string,
+  input: TripInput,
+): Promise<Trip> {
+  const response = await fetch(tripResourceUrl(userId, tripId), {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    await readTripError(response, "updating the trip");
+  }
+  return response.json() as Promise<Trip>;
+}
+
+export async function deleteTrip(
+  userId: string,
+  tripId: string,
+): Promise<void> {
+  const response = await fetch(tripResourceUrl(userId, tripId), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    await readTripError(response, "deleting the trip");
+  }
+}
+
 export function loginUrl(provider: "google" | "aad"): string {
   const returnTo = `${window.location.origin}/`;
   return `${apiBaseUrl}/.auth/login/${provider}?post_login_redirect_uri=${encodeURIComponent(returnTo)}`;
@@ -30,4 +288,8 @@ export function loginUrl(provider: "google" | "aad"): string {
 export function logoutUrl(): string {
   const returnTo = `${window.location.origin}/`;
   return `${apiBaseUrl}/.auth/logout?post_logout_redirect_uri=${encodeURIComponent(returnTo)}`;
+}
+
+export function profileImageUrl(): string {
+  return `${apiBaseUrl}/api/user/avatar`;
 }

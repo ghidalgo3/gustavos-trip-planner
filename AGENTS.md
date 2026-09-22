@@ -28,9 +28,18 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 ## Conventions
 
+- Groups of related REST APIs should go into *Endpoints.cs files, not Program.cs.
+- Define C# Options classes for configuration binding instead of resolving configuration values by string key.
 - Keep shell scripts compatible with zsh and preserve `set -euo pipefail`.
 - Format C# with the repository's CSharpier tool before completing changes.
 - Keep API tests and frontend tests current when behavior changes.
 - The production API image uses the stable `tripplanner-api:release` tag. `buildout` maintains the scheduled ACR task that purges superseded untagged manifests.
-- Never commit Google or Microsoft provider credentials; manage them with `scripts/secrets` in the provisioned Azure Key Vault.
+- Never commit any secrets; manage them with `scripts/secrets` in the provisioned Azure Key Vault.
 - Preserve unrelated working-tree changes and update `README.md` when workflows or architecture change.
+- Prefer to write "functional" code, minimizing side effects and I/O until they are necessary, this is easier to test. 
+- I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
+
+## Test practices
+
+- Tests should verify the code satisfy a requirement, not simply branch coverage.
+- Where possible, write parametrized tests instead of more test functions.

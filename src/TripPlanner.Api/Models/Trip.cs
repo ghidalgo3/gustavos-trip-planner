@@ -1,18 +1,19 @@
+using System.Text.Json;
+
 namespace TripPlanner.Api.Models;
 
-/// <summary>A planned trip.</summary>
-public record Trip(
+public sealed record Trip(
     Guid Id,
-    string Destination,
-    DateOnly StartDate,
-    DateOnly EndDate,
-    string? Notes
+    Guid OwnerUserId,
+    string Name,
+    string Description,
+    JsonElement Constraints,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt
 );
 
-/// <summary>Payload for creating a new trip.</summary>
-public record CreateTripRequest(
-    string Destination,
-    DateOnly StartDate,
-    DateOnly EndDate,
-    string? Notes
-);
+public sealed record CreateTripRequest(string Name, string? Description);
+
+public sealed record UpdateTripRequest(string Name, string? Description);
+
+public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds);

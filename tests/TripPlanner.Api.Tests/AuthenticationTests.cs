@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -12,7 +11,7 @@ public class AuthenticationTests
     [TestMethod]
     public async Task User_WithoutPlatformHeader_IsAnonymous()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
 
         var user = await client.GetFromJsonAsync<UserResponse>("/api/user");
@@ -22,17 +21,11 @@ public class AuthenticationTests
     }
 
     [TestMethod]
-    public async Task User_WithPlatformHeader_ReturnsSafeProfile()
+    public async Task User_WithAuthenticatedSession_ReturnsSafeProfile()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        const string principal = """
-            {"auth_typ":"google","name_typ":"name","role_typ":"roles","claims":[{"typ":"name","val":"Ada Traveler"},{"typ":"email","val":"ada@example.com"}]}
-            """;
-        client.DefaultRequestHeaders.Add(
-            "X-MS-CLIENT-PRINCIPAL",
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(principal))
-        );
+        AddTestPrincipal(client, "google-ada-123", "Ada Traveler", "ada@example.com");
 
         var response = await client.GetAsync("/api/user");
         var user = await response.Content.ReadFromJsonAsync<UserResponse>();
@@ -43,12 +36,131 @@ public class AuthenticationTests
         Assert.AreEqual("Ada Traveler", user.Name);
         Assert.AreEqual("ada@example.com", user.Email);
         Assert.AreEqual("google", user.Provider);
+        Assert.IsFalse(user.CompletedOnboarding);
+        Assert.AreNotEqual(Guid.Empty, user.Id);
+        Assert.HasCount(1, factory.Database.Users);
+        Assert.AreEqual("ada@example.com", factory.Database.Users.Single().Email);
+
+        var repeatedUser = await client.GetFromJsonAsync<UserResponse>("/api/user");
+        Assert.IsNotNull(repeatedUser);
+        Assert.AreEqual(user.Id, repeatedUser.Id);
+        Assert.HasCount(1, factory.Database.Users);
+    }
+
+    [TestMethod]
+    public async Task User_WithSameEmailFromMultipleProviders_ReusesIdAndTracksProviders()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var googleClient = factory.CreateClient();
+        AddTestPrincipal(googleClient, "google-ada-123", "Ada Traveler", "Ada@Example.com");
+
+        var googleUser = await googleClient.GetFromJsonAsync<UserResponse>("/api/user");
+
+        using var microsoftClient = factory.CreateClient();
+        AddTestPrincipal(
+            microsoftClient,
+            "microsoft-ada-456",
+            "Ada Traveler",
+            "ada@example.com",
+            "microsoft"
+        );
+
+        var microsoftUser = await microsoftClient.GetFromJsonAsync<UserResponse>("/api/user");
+
+        Assert.IsNotNull(googleUser);
+        Assert.IsNotNull(microsoftUser);
+        Assert.AreEqual(googleUser.Id, microsoftUser.Id);
+        Assert.AreEqual("ada@example.com", microsoftUser.Email);
+        Assert.AreEqual("google,microsoft", microsoftUser.Provider);
+        Assert.HasCount(1, factory.Database.Users);
+        Assert.AreEqual("google,microsoft", factory.Database.Users.Single().Provider);
+    }
+
+    [TestMethod]
+    public async Task AuthenticatedNonUserRequest_DoesNotCreateUser()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddTestPrincipal(client, "not-provisioned");
+
+        var response = await client.GetAsync("/api");
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.IsEmpty(factory.Database.Users);
+    }
+
+    [TestMethod]
+    public async Task MapToken_RequiresAuthentication()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/mapToken");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task UserAvatar_WithoutProviderToken_IsNotStoredOrReturned()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+
+        var response = await client.GetAsync("/api/user/avatar");
+
+        Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.IsEmpty(factory.Database.Users);
+    }
+
+    [TestMethod]
+    public async Task MapToken_ReturnsTheConfiguredAzureMapsToken()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+
+        var response = await client.GetAsync("/api/mapToken");
+        var token = await response.Content.ReadFromJsonAsync<MapTokenResponse>();
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("no-store", response.Headers.CacheControl?.ToString());
+        Assert.IsNotNull(token);
+        Assert.AreEqual("test-map-token", token.Token);
+        Assert.AreEqual("https://atlas.example.test", token.Endpoint);
+        Assert.AreEqual(DateTimeOffset.Parse("2030-01-01T02:00:00Z"), token.ExpiresAt);
+    }
+
+    [TestMethod]
+    public async Task SetHomeCity_CompletesOnboarding()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/user/homeCity",
+            new
+            {
+                cityName = "Boston, Massachusetts, United States",
+                longitude = -71.0589,
+                latitude = 42.3601,
+            }
+        );
+        var updatedUser = await response.Content.ReadFromJsonAsync<UserResponse>();
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.IsNotNull(updatedUser);
+        Assert.IsTrue(updatedUser.CompletedOnboarding);
+        Assert.AreEqual("Boston, Massachusetts, United States", updatedUser.HomeCityName);
+        Assert.AreEqual(-71.0589, factory.Database.Users.Single().HomeCityLocation?.Longitude);
+        Assert.AreEqual(42.3601, factory.Database.Users.Single().HomeCityLocation?.Latitude);
     }
 
     [TestMethod]
     public async Task LocalGoogleLogin_UsesDevelopmentCallbackWithoutOpenRedirect()
     {
-        await using var baseFactory = new WebApplicationFactory<Program>();
+        await using var baseFactory = new TestApplicationFactory();
         await using var factory = baseFactory.WithWebHostBuilder(builder =>
             builder
                 .UseSetting("Authentication:Google:ClientId", "google-client-id")
@@ -81,7 +193,7 @@ public class AuthenticationTests
     [TestMethod]
     public async Task LocalMicrosoftLogin_UsesQueryCallbackAndDevelopmentCookies()
     {
-        await using var baseFactory = new WebApplicationFactory<Program>();
+        await using var baseFactory = new TestApplicationFactory();
         await using var factory = baseFactory.WithWebHostBuilder(builder =>
             builder
                 .UseSetting("Authentication:Google:ClientId", "google-client-id")
@@ -125,10 +237,40 @@ public class AuthenticationTests
         Assert.IsFalse(correlationCookie.Contains("secure", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static void AddGooglePrincipal(HttpClient client)
+    {
+        AddTestPrincipal(client, "google-map-user", "Map User", "map-user@example.com");
+    }
+
+    private static void AddTestPrincipal(
+        HttpClient client,
+        string subject,
+        string? name = null,
+        string? email = null,
+        string provider = "google"
+    )
+    {
+        client.DefaultRequestHeaders.Add("X-Test-Subject", subject);
+        client.DefaultRequestHeaders.Add("X-Test-Provider", provider);
+        if (name is not null)
+        {
+            client.DefaultRequestHeaders.Add("X-Test-Name", name);
+        }
+        if (email is not null)
+        {
+            client.DefaultRequestHeaders.Add("X-Test-Email", email);
+        }
+    }
+
     private sealed record UserResponse(
         bool IsAuthenticated,
+        Guid? Id,
         string? Name,
         string? Email,
-        string? Provider
+        string? Provider,
+        bool CompletedOnboarding,
+        string? HomeCityName
     );
+
+    private sealed record MapTokenResponse(string Token, string Endpoint, DateTimeOffset ExpiresAt);
 }

@@ -30,6 +30,6 @@ dotnet tool restore
 dotnet restore GustavoTripPlanner.sln
 
 log "Installing web dependencies"
-(cd src/TripPlanner.Web && corepack pnpm install --frozen-lockfile)
+(cd src/TripPlanner.Web && CI=true corepack pnpm install --frozen-lockfile)
 
 printf '\nProject dependencies installed.\n'

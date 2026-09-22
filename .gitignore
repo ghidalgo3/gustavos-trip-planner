@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# pnpm package store
+.pnpm-store/
+
 # User-specific files
 *.rsuser
 *.suo

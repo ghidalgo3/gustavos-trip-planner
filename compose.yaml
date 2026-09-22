@@ -1,6 +1,23 @@
 name: gustavos-trip-planner
 
 services:
+  database:
+    image: postgis/postgis:18-3.6-alpine
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: tripplanner
+      POSTGRES_USER: tripplanner
+      POSTGRES_PASSWORD: tripplanner
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-18-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tripplanner -d tripplanner"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
   api:
     build:
       context: .
@@ -8,22 +25,32 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
+      ConnectionStrings__TripPlanner: Host=database;Port=5432;Database=tripplanner;Username=tripplanner;Password=tripplanner
+      Ignav__ApiKey: ${LOCAL_IGNAV_API_KEY:-}
       Authentication__Google__ClientId: ${LOCAL_GOOGLE_CLIENT_ID:-}
       Authentication__Google__ClientSecret: ${LOCAL_GOOGLE_CLIENT_SECRET:-}
       Authentication__Microsoft__ClientId: ${LOCAL_MICROSOFT_CLIENT_ID:-}
       Authentication__Microsoft__ClientSecret: ${LOCAL_MICROSOFT_CLIENT_SECRET:-}
+      AzureMaps__Endpoint: ${LOCAL_AZURE_MAPS_ENDPOINT:-https://atlas.microsoft.com}
+      AzureMaps__SasToken: ${LOCAL_AZURE_MAPS_SAS_TOKEN:-}
+      AzureMaps__SasTokenExpiresAt: ${LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT:-}
     ports:
       - "8080:8080"
     volumes:
       - ./src/TripPlanner.Api:/workspace/src/TripPlanner.Api
       - api-obj:/workspace/src/TripPlanner.Api/obj
       - api-bin:/workspace/src/TripPlanner.Api/bin
+      - api-data-protection:/root/.aspnet/DataProtection-Keys
+    depends_on:
+      database:
+        condition: service_healthy
 
   web:
     build:
       context: .
       dockerfile: src/TripPlanner.Web/Dockerfile
     environment:
+      CI: "true"
       VITE_API_PROXY_TARGET: http://api:8080
     ports:
       - "5173:5173"
@@ -35,5 +62,7 @@ services:
 
 volumes:
   api-bin:
+  api-data-protection:
   api-obj:
+  postgres-18-data:
   web-node-modules:

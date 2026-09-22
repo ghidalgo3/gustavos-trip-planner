@@ -16,7 +16,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/release [options]
 
-Build, configure, deploy, and verify the API and static web application.
+Build, configure, deploy, and verify the application.
 Run scripts/buildout at least once before this command.
 
 Options:
@@ -30,8 +30,9 @@ Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, NAME_PREFIX, IMAGE_NAME,
 INFRA_DEPLOYMENT_NAME, CONFIG_DEPLOYMENT_NAME, EXPECTED_TENANT_ID,
 NUGET_SOURCE, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
 
-Authentication is enabled when all four credentials have been stored in the
-deployed Key Vault with scripts/secrets set-auth.
+All four authentication credentials must be stored in the deployed Key Vault
+with scripts/secrets set-auth and the Ignav API key with scripts/secrets --set-ignav
+before releasing.
 USAGE
 }
 
@@ -53,7 +54,7 @@ REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
 
 run_pnpm() {
-  (cd "$REPO_ROOT/src/TripPlanner.Web" && corepack pnpm "$@")
+  (cd "$REPO_ROOT/src/TripPlanner.Web" && CI=true corepack pnpm "$@")
 }
 
 for command_name in az corepack curl docker dotnet; do
@@ -85,18 +86,16 @@ ACR_NAME="$(read_output acrName)"
 ACR_LOGIN_SERVER="$(read_output acrLoginServer)"
 WEB_APP_NAME="$(read_output webAppName)"
 WEB_APP_URL="$(read_output webAppUrl)"
-STATIC_WEB_APP_NAME="$(read_output staticWebAppName)"
-STATIC_WEB_APP_URL="$(read_output staticWebAppUrl)"
 KEY_VAULT_NAME="$(read_output keyVaultName)"
 IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-auth_parameters=(authenticationEnabled=false)
 required_auth_secrets=(google-client-id google-client-secret microsoft-client-id microsoft-client-secret)
 vault_secret_names=("${(@f)$(az keyvault secret list \
   --vault-name "$KEY_VAULT_NAME" \
   --query '[].name' \
   --output tsv)}") || die \
   "could not list secrets in Key Vault '$KEY_VAULT_NAME'; verify your RBAC access"
+(( ${vault_secret_names[(Ie)ignav-api-key]} )) || die "Key Vault is missing ignav-api-key; run scripts/secrets --set-ignav"
 available_auth_secrets=0
 for secret_name in "${required_auth_secrets[@]}"; do
   if (( ${vault_secret_names[(Ie)$secret_name]} )); then
@@ -108,12 +107,11 @@ if (( available_auth_secrets == ${#required_auth_secrets} )); then
   GOOGLE_CLIENT_ID="$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name google-client-id --query value -o tsv)"
   MICROSOFT_CLIENT_ID="$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name microsoft-client-id --query value -o tsv)"
   auth_parameters=(
-    authenticationEnabled=true
     googleClientId="$GOOGLE_CLIENT_ID"
     microsoftClientId="$MICROSOFT_CLIENT_ID"
   )
-elif (( available_auth_secrets != 0 )); then
-  die "Key Vault has only $available_auth_secrets of ${#required_auth_secrets} authentication credentials; run scripts/secrets set-auth"
+else
+  die "Key Vault has $available_auth_secrets of ${#required_auth_secrets} authentication credentials; run scripts/secrets set-auth"
 fi
 
 if [[ "$SKIP_TESTS" == false ]]; then
@@ -132,9 +130,7 @@ fi
 
 log "Building web application for $WEB_APP_URL"
 run_pnpm install --frozen-lockfile
-export VITE_API_BASE_URL="$WEB_APP_URL"
 run_pnpm run build
-unset VITE_API_BASE_URL
 
 log "Building API container $IMAGE_REF"
 az acr login --name "$ACR_NAME" --output none
@@ -167,17 +163,6 @@ az deployment group create \
   --output none
 az webapp restart --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" --output none
 
-log "Deploying static web application"
-SWA_TOKEN="$(az staticwebapp secrets list \
-  --name "$STATIC_WEB_APP_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --query properties.apiKey -o tsv)"
-[[ -n "$SWA_TOKEN" ]] || die "could not retrieve the Static Web App deployment token"
-export SWA_CLI_DEPLOYMENT_TOKEN="$SWA_TOKEN"
-export NO_UPDATE_NOTIFIER=1
-run_pnpm exec swa deploy ./dist --env production
-unset SWA_TOKEN SWA_CLI_DEPLOYMENT_TOKEN NO_UPDATE_NOTIFIER
-
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-20}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-15}"
 log "Waiting for API health at ${WEB_APP_URL}/health"
@@ -193,17 +178,7 @@ done
 [[ "$api_ready" == true ]] || die \
   "API health check did not recover; run: az webapp log tail -g $RESOURCE_GROUP -n $WEB_APP_NAME"
 
-log "Waiting for static web application at $STATIC_WEB_APP_URL"
-for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
-  if curl -fsS --max-time 20 "$STATIC_WEB_APP_URL" >/dev/null 2>&1; then
-    printf '\nRelease complete.\n'
-    printf '  API image:  %s\n' "$IMAGE_REF"
-    printf '  API:        %s\n' "$WEB_APP_URL"
-    printf '  Static app: %s\n' "$STATIC_WEB_APP_URL"
-    exit 0
-  fi
-  printf '  attempt %s/%s; retrying in %ss\n' "$attempt" "$HEALTH_ATTEMPTS" "$HEALTH_INTERVAL"
-  sleep "$HEALTH_INTERVAL"
-done
-
-die "Static Web App did not respond at $STATIC_WEB_APP_URL"
+curl -fsS --max-time 20 "$WEB_APP_URL" >/dev/null || die "web application did not respond at $WEB_APP_URL"
+printf '\nRelease complete.\n'
+printf '  API image:  %s\n' "$IMAGE_REF"
+printf '  Application: %s\n' "$WEB_APP_URL"

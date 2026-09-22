@@ -18,6 +18,7 @@ RUN dotnet publish src/TripPlanner.Api/TripPlanner.Api.csproj -c Release -o /app
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY src/TripPlanner.Web/dist ./wwwroot
 
 # App Service routes to the port named by the WEBSITES_PORT app setting; keep the
 # three in sync (here, infra/main.bicep, and the deploy script's health check).

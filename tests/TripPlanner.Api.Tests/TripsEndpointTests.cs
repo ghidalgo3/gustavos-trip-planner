@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Tests;
@@ -8,87 +7,174 @@ namespace TripPlanner.Api.Tests;
 [TestClass]
 public class TripsEndpointTests
 {
-    private static WebApplicationFactory<Program> _factory = null!;
-
-    [ClassInitialize]
-    public static void ClassInitialize(TestContext context) =>
-        _factory = new WebApplicationFactory<Program>();
-
-    [ClassCleanup]
-    public static void ClassCleanup() => _factory.Dispose();
-
     [TestMethod]
-    public async Task PostThenGet_RoundTripsTheTrip()
+    public async Task Crud_ManagesOwnedTripAndInitialParty()
     {
-        using var client = _factory.CreateClient();
-        var request = new CreateTripRequest(
-            "Lisbon",
-            new DateOnly(2026, 10, 1),
-            new DateOnly(2026, 10, 8),
-            "Scaffold smoke test"
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "ada@example.com");
+        CurrentUserResponse user = await CompleteOnboardingAsync(client);
+        string collectionUrl = $"/api/user/{user.Id}/trips";
+
+        HttpResponseMessage createdResponse = await client.PostAsJsonAsync(
+            collectionUrl,
+            new CreateTripRequest("  Summer in Lisbon  ", "  Food and museums  ")
         );
+        Trip? created = await createdResponse.Content.ReadFromJsonAsync<Trip>();
 
-        var created = await client.PostAsJsonAsync("/api/trips", request);
-
-        Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
-        var trip = await created.Content.ReadFromJsonAsync<Trip>();
-        Assert.IsNotNull(trip);
-        Assert.AreEqual("Lisbon", trip.Destination);
-        Assert.AreNotEqual(Guid.Empty, trip.Id);
-        Assert.AreEqual($"/api/trips/{trip.Id}", created.Headers.Location?.ToString());
-
-        var fetched = await client.GetFromJsonAsync<Trip>($"/api/trips/{trip.Id}");
-
-        Assert.AreEqual(trip, fetched);
-    }
-
-    [TestMethod]
-    public async Task Get_UnknownId_ReturnsNotFound()
-    {
-        using var client = _factory.CreateClient();
-
-        var response = await client.GetAsync($"/api/trips/{Guid.NewGuid()}");
-
-        Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    [TestMethod]
-    public async Task Post_EndDateBeforeStartDate_ReturnsValidationProblem()
-    {
-        using var client = _factory.CreateClient();
-        var request = new CreateTripRequest(
-            "Reykjavik",
-            new DateOnly(2026, 10, 8),
-            new DateOnly(2026, 10, 1),
-            null
+        Assert.AreEqual(HttpStatusCode.Created, createdResponse.StatusCode);
+        Assert.IsNotNull(created);
+        Assert.AreEqual("Summer in Lisbon", created.Name);
+        Assert.AreEqual("Food and museums", created.Description);
+        Assert.AreEqual(user.Id, created.OwnerUserId);
+        Assert.AreEqual(0, created.Constraints.EnumerateObject().Count());
+        Assert.AreEqual(
+            $"/api/user/{user.Id}/trips/{created.Id}",
+            createdResponse.Headers.Location?.ToString()
         );
+        Party party = factory.Database.Parties.Single();
+        Assert.AreEqual(created.Id, party.TripId);
+        CollectionAssert.AreEqual(new[] { user.Id!.Value }, party.UserIds.ToArray());
 
-        var response = await client.PostAsJsonAsync("/api/trips", request);
+        Trip[]? listed = await client.GetFromJsonAsync<Trip[]>(collectionUrl);
+        Assert.IsNotNull(listed);
+        Assert.HasCount(1, listed);
+        Assert.AreEqual(created.Id, listed[0].Id);
 
-        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-        StringAssert.Contains(await response.Content.ReadAsStringAsync(), "EndDate");
-    }
+        Trip? fetched = await client.GetFromJsonAsync<Trip>($"{collectionUrl}/{created.Id}");
+        Assert.AreEqual(created.Id, fetched?.Id);
 
-    [TestMethod]
-    public async Task Delete_RemovesTheTrip()
-    {
-        using var client = _factory.CreateClient();
-        var created = await client.PostAsJsonAsync(
-            "/api/trips",
-            new CreateTripRequest(
-                "Oslo",
-                new DateOnly(2026, 11, 1),
-                new DateOnly(2026, 11, 5),
-                null
-            )
+        HttpResponseMessage updatedResponse = await client.PutAsJsonAsync(
+            $"{collectionUrl}/{created.Id}",
+            new UpdateTripRequest("Lisbon and Porto", "Train between the cities")
         );
-        var trip = await created.Content.ReadFromJsonAsync<Trip>();
-        Assert.IsNotNull(trip);
+        Trip? updated = await updatedResponse.Content.ReadFromJsonAsync<Trip>();
+        Assert.AreEqual(HttpStatusCode.OK, updatedResponse.StatusCode);
+        Assert.AreEqual("Lisbon and Porto", updated?.Name);
+        Assert.AreEqual("Train between the cities", updated?.Description);
 
-        var deleted = await client.DeleteAsync($"/api/trips/{trip.Id}");
+        HttpResponseMessage deleted = await client.DeleteAsync($"{collectionUrl}/{created.Id}");
         Assert.AreEqual(HttpStatusCode.NoContent, deleted.StatusCode);
+        Assert.IsEmpty(factory.Database.Trips);
+        Assert.IsEmpty(factory.Database.Parties);
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await client.GetAsync($"{collectionUrl}/{created.Id}")).StatusCode
+        );
+    }
 
-        var refetched = await client.GetAsync($"/api/trips/{trip.Id}");
-        Assert.AreEqual(HttpStatusCode.NotFound, refetched.StatusCode);
+    [TestMethod]
+    public async Task Trips_RequireAuthenticationAndCompletedOnboarding()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var anonymousClient = factory.CreateClient();
+        Assert.AreEqual(
+            HttpStatusCode.Unauthorized,
+            (await anonymousClient.GetAsync($"/api/user/{Guid.NewGuid()}/trips")).StatusCode
+        );
+
+        using var authenticatedClient = factory.CreateClient();
+        AddPrincipal(authenticatedClient, "new@example.com");
+        HttpResponseMessage unprovisionedResponse = await authenticatedClient.GetAsync(
+            $"/api/user/{Guid.NewGuid()}/trips"
+        );
+        Assert.AreEqual(HttpStatusCode.Forbidden, unprovisionedResponse.StatusCode);
+        Assert.IsEmpty(factory.Database.Users);
+
+        CurrentUserResponse? user = await authenticatedClient.GetFromJsonAsync<CurrentUserResponse>(
+            "/api/user"
+        );
+        Assert.IsNotNull(user?.Id);
+        HttpResponseMessage response = await authenticatedClient.GetAsync(
+            $"/api/user/{user.Id}/trips"
+        );
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        StringAssert.Contains(await response.Content.ReadAsStringAsync(), "Complete onboarding");
+    }
+
+    [TestMethod]
+    public async Task Trips_RejectAnotherUsersRouteAndHideAnotherUsersTrip()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var ownerClient = factory.CreateClient();
+        AddPrincipal(ownerClient, "owner@example.com");
+        CurrentUserResponse owner = await CompleteOnboardingAsync(ownerClient);
+        Trip? trip = await (
+            await ownerClient.PostAsJsonAsync(
+                $"/api/user/{owner.Id}/trips",
+                new CreateTripRequest("Owner trip", null)
+            )
+        ).Content.ReadFromJsonAsync<Trip>();
+        Assert.IsNotNull(trip);
+
+        using var otherClient = factory.CreateClient();
+        AddPrincipal(otherClient, "other@example.com");
+        CurrentUserResponse other = await CompleteOnboardingAsync(otherClient);
+
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (await otherClient.GetAsync($"/api/user/{owner.Id}/trips")).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await otherClient.GetAsync($"/api/user/{other.Id}/trips/{trip.Id}")).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await otherClient.PutAsJsonAsync(
+                    $"/api/user/{other.Id}/trips/{trip.Id}",
+                    new UpdateTripRequest("Stolen", "")
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await otherClient.DeleteAsync($"/api/user/{other.Id}/trips/{trip.Id}")).StatusCode
+        );
+        Assert.HasCount(1, factory.Database.Trips);
+    }
+
+    [TestMethod]
+    public async Task CreateAndUpdate_ValidateTripFields()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "validation@example.com");
+        CurrentUserResponse user = await CompleteOnboardingAsync(client);
+        string collectionUrl = $"/api/user/{user.Id}/trips";
+
+        HttpResponseMessage blankName = await client.PostAsJsonAsync(
+            collectionUrl,
+            new CreateTripRequest("   ", "Description")
+        );
+        Assert.AreEqual(HttpStatusCode.BadRequest, blankName.StatusCode);
+        StringAssert.Contains(await blankName.Content.ReadAsStringAsync(), "Name");
+
+        HttpResponseMessage longDescription = await client.PostAsJsonAsync(
+            collectionUrl,
+            new CreateTripRequest("Trip", new string('x', 4001))
+        );
+        Assert.AreEqual(HttpStatusCode.BadRequest, longDescription.StatusCode);
+        StringAssert.Contains(await longDescription.Content.ReadAsStringAsync(), "Description");
+    }
+
+    private static async Task<CurrentUserResponse> CompleteOnboardingAsync(HttpClient client)
+    {
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            "/api/user/homeCity",
+            new SetHomeCityRequest("Boston, Massachusetts, United States", -71.0589, 42.3601)
+        );
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<CurrentUserResponse>()
+            ?? throw new AssertFailedException("The onboarding response did not contain a user.");
+    }
+
+    private static void AddPrincipal(HttpClient client, string email)
+    {
+        client.DefaultRequestHeaders.Add("X-Test-Subject", $"subject-{email}");
+        client.DefaultRequestHeaders.Add("X-Test-Provider", "google");
+        client.DefaultRequestHeaders.Add("X-Test-Name", "Test Traveler");
+        client.DefaultRequestHeaders.Add("X-Test-Email", email);
     }
 }

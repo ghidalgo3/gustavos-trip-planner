@@ -1,16 +1,15 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace TripPlanner.Api.Tests;
 
 [TestClass]
 public class HealthEndpointTests
 {
-    private static WebApplicationFactory<Program> _factory = null!;
+    private static TestApplicationFactory _factory = null!;
 
     [ClassInitialize]
     public static void ClassInitialize(TestContext context) =>
-        _factory = new WebApplicationFactory<Program>();
+        _factory = new TestApplicationFactory();
 
     [ClassCleanup]
     public static void ClassCleanup() => _factory.Dispose();
