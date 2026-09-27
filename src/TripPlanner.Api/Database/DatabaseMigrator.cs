@@ -18,6 +18,25 @@ public sealed class DatabaseMigrator(NpgsqlDataSource dataSource, ILogger<Databa
         await ExecuteAsync(
             connection,
             transaction,
+            """
+            CREATE SCHEMA IF NOT EXISTS gustavo_planner;
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_roles WHERE rolname = 'gustavo_planner_contributor'
+                ) THEN
+                    ALTER SCHEMA gustavo_planner OWNER TO gustavo_planner_contributor;
+                END IF;
+            END;
+            $$;
+            SET LOCAL search_path TO gustavo_planner, public;
+            """,
+            cancellationToken
+        );
+
+        await ExecuteAsync(
+            connection,
+            transaction,
             "SELECT pg_advisory_xact_lock(1937003881);",
             cancellationToken
         );

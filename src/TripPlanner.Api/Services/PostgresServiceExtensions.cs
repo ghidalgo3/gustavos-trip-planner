@@ -37,6 +37,7 @@ public static class PostgresServiceExtensions
                 .GetRequiredService<IOptions<DatabaseOptions>>()
                 .Value;
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(database.ConnectionString);
+            dataSourceBuilder.ConnectionStringBuilder.SearchPath = "gustavo_planner,public";
             if (database.UseAzureManagedIdentity)
             {
                 TokenCredential credential = serviceProvider.GetRequiredService<TokenCredential>();

@@ -16,6 +16,7 @@ param appServicePlanSku string = 'B1'
 @description('Object ID of the user who manages application credentials in Key Vault.')
 param keyVaultOperatorPrincipalId string
 
+
 param tags object = {
   workload: 'gustavo-trip-planner'
   managedBy: 'bicep'
@@ -27,6 +28,7 @@ var acrName = 'acr${sanitizedPrefix}${uniqueSuffix}'
 var keyVaultName = 'kv${take(sanitizedPrefix, 9)}${uniqueSuffix}'
 var webAppName = '${namePrefix}-api-${uniqueSuffix}'
 var postgresServerName = 'psql-${namePrefix}-${uniqueSuffix}'
+var postgresAdminIdentityName = '${namePrefix}-postgres-admin-${uniqueSuffix}'
 var azureMapsAccountName = '${namePrefix}-maps-${uniqueSuffix}'
 var azureMapsSasIdentityName = '${namePrefix}-maps-sas-${uniqueSuffix}'
 var acrPullRoleDefinitionId = subscriptionResourceId(
@@ -120,6 +122,12 @@ resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2
   }
 }
 
+resource postgresAdminIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: postgresAdminIdentityName
+  location: location
+  tags: tags
+}
+
 resource postgresExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
   name: 'azure.extensions'
   parent: postgresServer
@@ -136,6 +144,7 @@ resource postgresPreloadLibraries 'Microsoft.DBforPostgreSQL/flexibleServers/con
     source: 'user-override'
     value: 'pg_cron,pg_stat_statements'
   }
+  dependsOn: [postgresExtensions]
 }
 
 resource postgresCronDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
@@ -145,6 +154,7 @@ resource postgresCronDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/configu
     source: 'user-override'
     value: postgresDatabase.name
   }
+  dependsOn: [postgresPreloadLibraries]
 }
 
 resource postgresAzureFirewallRule 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
@@ -220,10 +230,67 @@ module postgresEntraAdministrator './postgres-entra-admin.bicep' = {
   name: 'postgres-entra-administrator'
   params: {
     postgresServerName: postgresServer.name
+    principalId: postgresAdminIdentity.properties.principalId
+    principalName: postgresAdminIdentity.name
+    tenantId: tenant().tenantId
+  }
+}
+
+module postgresAppEntraAdministrator './postgres-entra-admin.bicep' = {
+  name: 'postgres-app-entra-administrator'
+  params: {
+    postgresServerName: postgresServer.name
     principalId: webApp.identity.principalId
     principalName: webApp.name
     tenantId: tenant().tenantId
   }
+}
+
+resource postgresRoleSetup 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: '${namePrefix}-postgres-roles-${uniqueSuffix}'
+  location: location
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${postgresAdminIdentity.id}': {}
+    }
+  }
+  properties: {
+    azCliVersion: '2.74.0'
+    timeout: 'PT20M'
+    cleanupPreference: 'OnSuccess'
+    retentionInterval: 'PT1H'
+    environmentVariables: [
+      { name: 'ADMIN_CLIENT_ID', value: postgresAdminIdentity.properties.clientId }
+      { name: 'ADMIN_NAME', value: postgresAdminIdentity.name }
+      { name: 'POSTGRES_HOST', value: postgresServer.properties.fullyQualifiedDomainName }
+      { name: 'APP_ROLE', value: webApp.name }
+      { name: 'CONTRIBUTOR_NAME', value: 'gustavo_planner_contributor' }
+      { name: 'USER_PRINCIPAL_ID', value: keyVaultOperatorPrincipalId }
+      { name: 'USER_DATABASE_ROLE', value: 'gustavo_hidalgo' }
+    ]
+    scriptContent: replace('''
+      set -euo pipefail
+      az login --identity --client-id "$ADMIN_CLIENT_ID" --allow-no-subscriptions >/dev/null
+      access_token="$(az account get-access-token --resource https://ossrdbms-aad.database.windows.net --query accessToken -o tsv)"
+      python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --upgrade
+      python3 -m pip install --quiet --root-user-action=ignore --target /tmp/postgres-role-deps 'psycopg[binary]'
+      export PYTHONPATH=/tmp/postgres-role-deps
+      export PGPASSWORD="$access_token"
+      printf '%s' '__ROLE_SETUP_B64__' | base64 -d > /tmp/postgres-role-setup.py
+      python3 /tmp/postgres-role-setup.py
+    ''', '__ROLE_SETUP_B64__', base64(loadTextContent('./postgres-role-setup.py')))
+    forceUpdateTag: 'gustavo-planner-contributor-v7'
+  }
+  dependsOn: [
+    postgresDatabase
+    postgresCronDatabase
+    postgresEntraAdministrator
+    postgresAppEntraAdministrator
+    postgresAzureFirewallRule
+    webApp
+  ]
 }
 
 resource azureMapsSasIdentitySearchReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -329,6 +396,8 @@ output keyVaultUri string = keyVault.properties.vaultUri
 output webAppName string = webApp.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output postgresServerName string = postgresServer.name
+output postgresContributorRoleName string = 'gustavo_planner_contributor'
+output postgresUserRoleName string = 'gustavo_hidalgo'
 output azureMapsAccountName string = azureMapsAccount.name
 output azureMapsAccountResourceId string = azureMapsAccount.id
 output azureMapsSasPrincipalId string = azureMapsSasIdentity.properties.principalId

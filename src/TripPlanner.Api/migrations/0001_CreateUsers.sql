@@ -1,4 +1,8 @@
-CREATE EXTENSION IF NOT EXISTS postgis;
+-- PostGIS is shared infrastructure in public. Its installation needs public
+-- first in the search path; application tables below use gustavo_planner.
+SET LOCAL search_path TO public;
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
+SET LOCAL search_path TO gustavo_planner, public;
 
 CREATE TABLE users (
     id uuid,
@@ -147,7 +151,7 @@ BEGIN
         PERFORM cron.schedule(
             'tripplanner-purge-fares',
             '0 * * * *',
-            $job$DELETE FROM public.fare_searches
+            $job$DELETE FROM gustavo_planner.fare_searches
                  WHERE operation_id IS NULL
                    AND COALESCE(fetched_at, created_at) < now() - interval '6 hours'$job$
         );

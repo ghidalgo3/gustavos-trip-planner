@@ -44,6 +44,16 @@ report_tools() {
     fi
   done
 
+  local postgres_client="$(brew --prefix libpq 2>/dev/null)/bin/psql"
+  if command -v psql >/dev/null 2>&1; then
+    printf '  %-10s %s\n' psql "$(command -v psql)"
+  elif [[ -x "$postgres_client" ]]; then
+    printf '  %-10s %s\n' psql "$postgres_client"
+  else
+    printf '  %-10s missing\n' psql
+    missing=true
+  fi
+
   if command -v docker >/dev/null 2>&1; then
     if docker info >/dev/null 2>&1; then
       printf '  %-10s running\n' daemon
@@ -62,7 +72,7 @@ if [[ "$CHECK_ONLY" == true ]]; then
 fi
 
 log "Installing command-line tools"
-brew install azure-cli corepack dotnet git
+brew install azure-cli corepack dotnet git libpq
 
 if ! brew list --cask docker-desktop >/dev/null 2>&1 \
   && [[ ! -d /Applications/Docker.app ]] \

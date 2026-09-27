@@ -1,0 +1,76 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
+INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
+EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/drop_db
+
+Drop the production gustavo_planner PostgreSQL schema using the signed-in
+Microsoft Entra user.
+
+Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, INFRA_DEPLOYMENT_NAME,
+EXPECTED_TENANT_ID.
+USAGE
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+[[ $# -eq 0 ]] || { usage >&2; die "this command does not accept arguments"; }
+PSQL_BIN="$(command -v psql || true)"
+if [[ -z "$PSQL_BIN" ]]; then
+  PSQL_BIN="$(brew --prefix libpq 2>/dev/null)/bin/psql"
+fi
+
+for command_name in az; do
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
+done
+[[ -x "$PSQL_BIN" ]] || die "psql is required; run scripts/setup"
+az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
+az account set --subscription "$SUBSCRIPTION"
+
+ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
+[[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
+  "subscription is in tenant $ACTUAL_TENANT_ID, expected personal tenant $EXPECTED_TENANT_ID"
+
+az deployment group show \
+  --name "$INFRA_DEPLOYMENT_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --output none 2>/dev/null || die \
+  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' was not found"
+
+read_output() {
+  az deployment group show \
+    --name "$INFRA_DEPLOYMENT_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "properties.outputs.$1.value" -o tsv
+}
+
+POSTGRES_SERVER_NAME="$(read_output postgresServerName)"
+[[ -n "$POSTGRES_SERVER_NAME" ]] || die \
+  "deployment '$INFRA_DEPLOYMENT_NAME' is missing the PostgreSQL server output"
+POSTGRES_USER_ROLE="$(read_output postgresUserRoleName)"
+[[ -n "$POSTGRES_USER_ROLE" ]] || die \
+  "deployment '$INFRA_DEPLOYMENT_NAME' is missing the PostgreSQL user role output"
+
+printf 'This will permanently drop schema gustavo_planner (including all its objects and data)\n'
+printf 'from production database tripplanner on %s.\n' "$POSTGRES_SERVER_NAME"
+read -r "confirmation?Type drop gustavo_planner to continue: "
+[[ "$confirmation" == "drop gustavo_planner" ]] || die "confirmation did not match"
+
+ACCESS_TOKEN="$(az account get-access-token \
+  --resource https://ossrdbms-aad.database.windows.net \
+  --query accessToken -o tsv)" || die "could not acquire a PostgreSQL Entra access token"
+[[ -n "$ACCESS_TOKEN" ]] || die "Azure returned an empty PostgreSQL access token"
+
+PGPASSWORD="$ACCESS_TOKEN" "$PSQL_BIN" \
+  "host=${POSTGRES_SERVER_NAME}.postgres.database.azure.com port=5432 dbname=tripplanner user=${POSTGRES_USER_ROLE} sslmode=require" \
+  --no-psqlrc \
+  --set ON_ERROR_STOP=1 \
+  --command 'SET ROLE gustavo_planner_contributor; DROP SCHEMA IF EXISTS gustavo_planner CASCADE;'
+unset ACCESS_TOKEN
+printf 'Dropped schema gustavo_planner from production database tripplanner.\n'
