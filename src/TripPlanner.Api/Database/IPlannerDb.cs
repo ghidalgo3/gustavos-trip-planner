@@ -1,11 +1,36 @@
 using System.Text.Json;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services;
 
 namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb
 {
+    Task<TrackedOperation> CreateTripFormOperationAsync(
+        Guid userId,
+        Guid tripId,
+        Guid operationId,
+        string input,
+        PlanningDocument draft,
+        CancellationToken cancellationToken = default
+    );
+    Task<TripFormWork?> ClaimTripFormWorkAsync(
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> CompleteTripFormWorkAsync(
+        TripFormWork work,
+        TripFormProposal? proposal,
+        string? error,
+        CancellationToken cancellationToken = default
+    );
+    Task<TripFormProposal?> GetTripFormProposalAsync(
+        Guid userId,
+        Guid tripId,
+        Guid operationId,
+        CancellationToken cancellationToken = default
+    );
     Task<TrackedOperation> CreateFlightSearchOperationAsync(
         Guid userId,
         Guid tripId,
@@ -52,6 +77,21 @@ public interface IPlannerDb
 
     Task<User?> GetUserByEmailAsync(string email, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<UserSearchResult>> SearchUsersAsync(
+        Guid excludingUserId,
+        string query,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<PartyMemberChangeStatus> ChangePartyMemberAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        Guid partyId,
+        Guid memberUserId,
+        bool add,
+        CancellationToken cancellationToken = default
+    );
+
     Task<IReadOnlyList<Party>> GetPartiesAsync(
         Guid ownerUserId,
         Guid tripId,
@@ -65,10 +105,15 @@ public interface IPlannerDb
         CancellationToken cancellationToken = default
     );
 
-    Task<User> SetHomeCityAsync(
-        AuthenticatedUserProfile profile,
-        string cityName,
-        GeographicPoint location,
+    Task<User> SetUserProfileAsync(
+        Guid userId,
+        UserProfile profile,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<User> SetUserFeatureFlagsAsync(
+        Guid userId,
+        string featureFlags,
         CancellationToken cancellationToken = default
     );
 

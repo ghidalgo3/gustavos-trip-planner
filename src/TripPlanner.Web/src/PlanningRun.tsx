@@ -6,13 +6,18 @@ import {
   Text,
   Title3,
 } from "@fluentui/react-components";
-import type { PlanningParty } from "./planningApi";
-import type { PartySettings } from "./planningApi";
+import type {
+  PlanningConstraint,
+  PlanningParty,
+  PartySettings,
+} from "./planningApi";
 import FareResults from "./FareResults";
 import {
   getFlightSearchResults,
   getOperations,
   startFlightSearch,
+  FlightSearchValidationError,
+  type FlightSearchIssue,
   type FareSearchResult,
   type TrackedOperation,
 } from "./operationsApi";
@@ -21,19 +26,26 @@ export default function PlanningRun({
   tripId,
   parties,
   partySettings,
+  constraints,
+  currentAiPrompt,
   disabled,
   onBeforeSearch,
+  onReviewRequirements,
 }: {
   tripId: string;
   parties: PlanningParty[];
   partySettings: PartySettings[];
+  constraints: PlanningConstraint[];
+  currentAiPrompt?: string | null;
   disabled: boolean;
   onBeforeSearch: () => Promise<void>;
+  onReviewRequirements: (constraintId?: string) => void;
 }) {
   const [operation, setOperation] = useState<TrackedOperation>();
   const [results, setResults] = useState<FareSearchResult[]>([]);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
+  const [issues, setIssues] = useState<FlightSearchIssue[]>([]);
   const [pollError, setPollError] = useState<string>();
   const [refresh, setRefresh] = useState(0);
   const [checkedAt, setCheckedAt] = useState(() => Date.now());
@@ -96,6 +108,7 @@ export default function PlanningRun({
   async function plan() {
     setStarting(true);
     setError(undefined);
+    setIssues([]);
     requestId.current ??= crypto.randomUUID();
     try {
       await onBeforeSearch();
@@ -105,6 +118,8 @@ export default function PlanningRun({
       requestId.current = undefined;
       setRefresh((value) => value + 1);
     } catch (reason) {
+      if (reason instanceof FlightSearchValidationError)
+        setIssues(reason.issues);
       setError(
         reason instanceof Error ? reason.message : "Unable to start planning.",
       );
@@ -122,7 +137,11 @@ export default function PlanningRun({
           onClick={plan}
           disabled={disabled || starting || active}
         >
-          {starting ? "Starting…" : active ? "Searching flights…" : "Plan trip"}
+          {starting
+            ? "Starting…"
+            : active
+              ? "Searching flights…"
+              : "Find flights"}
         </Button>
       </div>
       <Text>
@@ -130,6 +149,38 @@ export default function PlanningRun({
         return while the search continues.
       </Text>
       {error && <Text role="alert">{error}</Text>}
+      {issues.length > 0 && (
+        <div className="planning-conflict" aria-label="Planning conflicts">
+          {issues.map((issue, index) => (
+            <div key={index}>
+              <Text weight="semibold">{issue.message}</Text>
+              {issue.constraintIds.length > 0 && (
+                <ul>
+                  {issue.constraintIds.map((id) => {
+                    const position = constraints.findIndex(
+                      (constraint) => constraint.id === id,
+                    );
+                    return position < 0 ? null : (
+                      <li key={id}>
+                        {describeRequirement(
+                          constraints[position],
+                          position,
+                          currentAiPrompt,
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          ))}
+          <Button
+            onClick={() => onReviewRequirements(issues[0]?.constraintIds[0])}
+          >
+            Review requirements
+          </Button>
+        </div>
+      )}
       {pollError && <Text>{pollError} Checking again shortly.</Text>}
       {operation && (
         <>
@@ -178,4 +229,39 @@ export default function PlanningRun({
       )}
     </Card>
   );
+}
+
+function describeRequirement(
+  constraint: PlanningConstraint,
+  index: number,
+  currentAiPrompt?: string | null,
+): string {
+  const prefix = `Requirement ${index + 1}: `;
+  const source =
+    constraint.originalInput &&
+    currentAiPrompt &&
+    constraint.originalInput !== currentAiPrompt
+      ? " (from an earlier trip description)"
+      : "";
+  if (
+    constraint.type === "departureWindow" ||
+    constraint.type === "returnHomeWindow"
+  ) {
+    const kind =
+      constraint.type === "departureWindow" ? "Leave home" : "Return flight";
+    return `${prefix}${kind}, ${dateRange(constraint.window?.earliest, constraint.window?.latest)}${source}`;
+  }
+  if (constraint.type === "presence")
+    return `${prefix}Required destination stay, ${dateRange(constraint.startDate, constraint.endDate)}${source}`;
+  return `${prefix}${constraint.type}${source}`;
+}
+
+function dateRange(start?: string | null, end?: string | null): string {
+  if (!start || !end) return "dates incomplete";
+  const format = (date: string) =>
+    new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeZone: "UTC",
+    }).format(new Date(`${date}T12:00:00Z`));
+  return start === end ? format(start) : `${format(start)}–${format(end)}`;
 }

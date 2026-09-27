@@ -3,20 +3,32 @@ import {
   Button,
   Card,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   Field,
   Input,
   Select,
   Spinner,
   Text,
+  Textarea,
   Title1,
   Title3,
 } from "@fluentui/react-components";
 import { ArrowLeft24Regular, Add24Regular } from "@fluentui/react-icons";
+import { useSearchParams } from "react-router";
 import type { Trip } from "./api";
 import AirportPicker from "./AirportPicker";
+import FlightAirportPicker from "./FlightAirportPicker";
+import PartySelector from "./PartySelector";
 import PlanningRun from "./PlanningRun";
 import {
   getPlanning,
+  getTripFormProposal,
+  proposeTripForm,
   saveConstraints,
   type ConstraintType,
   type DateWindow,
@@ -25,6 +37,7 @@ import {
   type PlanningDocument,
   type PlanningParty,
 } from "./planningApi";
+import { getOperation, getOperations } from "./operationsApi";
 
 const constraintNames: Record<ConstraintType, string> = {
   departureWindow: "Leave home",
@@ -41,12 +54,22 @@ const emptyWindow: DateWindow = {
 };
 type Props = {
   userId: string;
+  preferredAirlines?: string[];
+  featureFlags?: string[];
   trip: Trip;
   onBack: () => void;
   onSaved: (trip: Trip) => void;
 };
 
-export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
+export default function TripPlanning({
+  userId,
+  preferredAirlines,
+  featureFlags,
+  trip,
+  onBack,
+  onSaved,
+}: Props) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [document, setDocument] = useState<PlanningDocument>();
   const [parties, setParties] = useState<PlanningParty[]>([]);
   const [busy, setBusy] = useState(false);
@@ -54,7 +77,17 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [dirty, setDirty] = useState(false);
-  const [advanced, setAdvanced] = useState(false);
+  const [freeform, setFreeform] = useState("");
+  const [promptHelpOpen, setPromptHelpOpen] = useState(false);
+  const [formOperationId, setFormOperationId] = useState<string>();
+  const [confirmFresh, setConfirmFresh] = useState(false);
+  const [proposalWarnings, setProposalWarnings] = useState<string[]>([]);
+  const advanced = searchParams.get("advanced") === "1";
+  const promptLocked =
+    Boolean(document?.aiPrompt) && (document?.aiPromptLocked ?? true);
+  const hasLlmFeature = featureFlags?.includes("LLM") ?? false;
+  const documentLoaded = document !== undefined;
+  const appliedFormOperationId = document?.aiFormOperationId;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,6 +95,7 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
       .then((editor) => {
         if (controller.signal.aborted) return;
         setParties(editor.parties);
+        setFreeform(editor.document.aiPrompt ?? "");
         setDocument({
           ...editor.document,
           userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -79,7 +113,11 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
               market: "US",
               maxJourneyHours: 48,
               maxStops: null,
-              preferredAirlines: [],
+              preferredAirlines: party.members.some(
+                (member) => member.id === userId,
+              )
+                ? (preferredAirlines ?? [])
+                : [],
               ...saved,
               origin: saved?.origin ?? party.suggestedOrigin ?? null,
             };
@@ -93,7 +131,89 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [userId, trip.id]);
+  }, [userId, trip.id, preferredAirlines]);
+
+  useEffect(() => {
+    if (!hasLlmFeature || !documentLoaded || formOperationId) return;
+    const controller = new AbortController();
+    void getOperations(controller.signal, { type: "tripFormFill", top: 20 })
+      .then((operations) => {
+        if (controller.signal.aborted) return;
+        const latest = operations.find(
+          (operation) => operation.resourceId === trip.id,
+        );
+        if (
+          latest &&
+          latest.id !== appliedFormOperationId &&
+          latest.status !== "Failed"
+        )
+          setFormOperationId(latest.id);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [
+    hasLlmFeature,
+    documentLoaded,
+    appliedFormOperationId,
+    formOperationId,
+    trip.id,
+  ]);
+
+  useEffect(() => {
+    if (!formOperationId) return;
+    const controller = new AbortController();
+    let timer: number;
+    async function poll() {
+      try {
+        const operation = await getOperation(
+          formOperationId!,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        if (operation.status === "Completed") {
+          const proposal = await getTripFormProposal(
+            userId,
+            trip.id,
+            formOperationId!,
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          if (proposal.document.constraints.length > 0)
+            setSearchParams((params) => {
+              const next = new URLSearchParams(params);
+              next.set("advanced", "1");
+              return next;
+            });
+          setDocument(proposal.document);
+          setFreeform(proposal.document.aiPrompt ?? "");
+          setPromptHelpOpen(false);
+          setDirty(true);
+          setProposalWarnings(proposal.warnings);
+          setNotice(
+            "Suggested details added to your draft. Review and save them below.",
+          );
+          setFormOperationId(undefined);
+          return;
+        }
+        if (operation.status === "Failed") {
+          setError("The AI form assistant could not fill the trip. Try again.");
+          setFormOperationId(undefined);
+          return;
+        }
+        timer = window.setTimeout(poll, 2000);
+      } catch (reason) {
+        if (!controller.signal.aborted) {
+          setError(message(reason));
+          timer = window.setTimeout(poll, 5000);
+        }
+      }
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [formOperationId, userId, trip.id, setSearchParams]);
 
   function change(next: PlanningDocument) {
     setDocument(next);
@@ -137,6 +257,51 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
       setBusy(false);
     }
   }
+  async function fillFromDescription() {
+    if (!document || !freeform.trim()) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const operation = await proposeTripForm(
+        userId,
+        trip.id,
+        crypto.randomUUID(),
+        freeform.trim(),
+        document,
+      );
+      setFormOperationId(operation.id);
+      setNotice(
+        "Filling trip details in the background. You can return to this trip later.",
+      );
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function planAgain() {
+    if (!document) return;
+    const unlocked: PlanningDocument = {
+      ...document,
+      aiPromptLocked: false,
+    };
+    setBusy(true);
+    setError(undefined);
+    try {
+      onSaved(await saveConstraints(userId, trip.id, unlocked));
+      setDocument(unlocked);
+      setDirty(false);
+      setPromptHelpOpen(false);
+      setProposalWarnings([]);
+      setNotice("Description unlocked. Edit it, then fill trip details again.");
+      setConfirmFresh(false);
+    } catch (reason) {
+      setError(message(reason));
+      setConfirmFresh(false);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="planning-page" aria-label="Trip planning">
       <Button
@@ -162,10 +327,112 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
       {loading && <Spinner label="Loading planning details" />}
       {document && (
         <>
-          <fieldset className="planning-fields" disabled={busy}>
+          <fieldset
+            className="planning-fields"
+            disabled={busy || Boolean(formOperationId)}
+          >
+            {featureFlags?.includes("LLM") && (
+              <Card className="planning-card">
+                <Title3 as="h2">Describe your trip</Title3>
+                <Text>
+                  Describe dates, destination, flight preferences, and
+                  requirements in your own words.
+                </Text>
+                <div
+                  className={
+                    promptLocked ? "locked-prompt-container" : undefined
+                  }
+                >
+                  <Field label="Trip description for AI assistance">
+                    <Textarea
+                      className={
+                        promptLocked ? "trip-prompt-locked" : undefined
+                      }
+                      value={freeform}
+                      maxLength={4000}
+                      rows={5}
+                      readOnly={promptLocked}
+                      aria-describedby={
+                        promptLocked
+                          ? "locked-trip-prompt-explanation"
+                          : undefined
+                      }
+                      onMouseEnter={() => setPromptHelpOpen(true)}
+                      onMouseLeave={() => setPromptHelpOpen(false)}
+                      onFocus={() => setPromptHelpOpen(true)}
+                      onBlur={() => setPromptHelpOpen(false)}
+                      onClick={() => setPromptHelpOpen(true)}
+                      onChange={(_, data) => {
+                        setFreeform(data.value);
+                        if (!promptLocked)
+                          change({
+                            ...document,
+                            aiPrompt: data.value,
+                            aiPromptLocked: false,
+                          });
+                      }}
+                    />
+                  </Field>
+                  {promptLocked && (
+                    <div
+                      id="locked-trip-prompt-explanation"
+                      className="locked-prompt-tip"
+                      role="tooltip"
+                      hidden={!promptHelpOpen}
+                    >
+                      This prompt is locked because AI filled the trip from it.
+                      Later edits to trip details do not update this text.
+                      Choose Plan again to edit this description.
+                    </div>
+                  )}
+                </div>
+                {promptLocked ? (
+                  <Button onClick={() => setConfirmFresh(true)}>
+                    Plan again
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={!freeform.trim()}
+                    onClick={() => void fillFromDescription()}
+                  >
+                    Fill trip details
+                  </Button>
+                )}
+                {formOperationId && (
+                  <div
+                    className="trip-form-progress"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <Spinner
+                      size="small"
+                      label="Filling trip details with AI…"
+                    />
+                  </div>
+                )}
+                {proposalWarnings.map((warning, index) => (
+                  <Text key={index} role="status">
+                    {warning}
+                  </Text>
+                ))}
+              </Card>
+            )}
+            {parties.map((party, index) => (
+              <PartySelector
+                key={party.id}
+                userId={userId}
+                tripId={trip.id}
+                party={party}
+                index={index}
+                onChanged={async () => {
+                  const editor = await getPlanning(userId, trip.id);
+                  setParties(editor.parties);
+                }}
+              />
+            ))}
             <Card className="planning-card">
               <Title3 as="h2">Where and when?</Title3>
-              <AirportPicker
+              <FlightAirportPicker
                 label="Destination"
                 value={document.destination}
                 onChange={(destination) => change({ ...document, destination })}
@@ -209,16 +476,56 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
                   />
                 </Field>
               </div>
+              {parties.map((party, index) => {
+                const settings = document.parties.find(
+                  (p) => p.partyId === party.id,
+                )!;
+                return (
+                  <div className="planning-origin" key={party.id}>
+                    <FlightAirportPicker
+                      label={
+                        parties.length === 1
+                          ? "Departure airport"
+                          : `Party ${index + 1} departure airport`
+                      }
+                      value={settings.origin}
+                      onChange={(origin) =>
+                        updatePartySettings(party.id, { ...settings, origin })
+                      }
+                    />
+                    {party.suggestedOrigin &&
+                      settings.origin?.code === party.suggestedOrigin.code && (
+                        <Text size={200}>
+                          Suggested from the trip owner's home city.
+                        </Text>
+                      )}
+                  </div>
+                );
+              })}
+              {document.destination &&
+                document.parties.every((settings) => settings.origin) && (
+                  <Text size={200}>
+                    Each date pair searches {airportCombinationCount(document)}{" "}
+                    airport combination(s) across your parties.
+                  </Text>
+                )}
               <Button
                 appearance="subtle"
                 aria-expanded={advanced}
-                aria-controls="advanced-filters"
-                onClick={() => setAdvanced(!advanced)}
+                aria-controls="advanced"
+                onClick={() =>
+                  setSearchParams((current) => {
+                    const next = new URLSearchParams(current);
+                    if (advanced) next.delete("advanced");
+                    else next.set("advanced", "1");
+                    return next;
+                  })
+                }
               >
-                Advanced filters
+                Advanced
               </Button>
               {advanced && (
-                <div id="advanced-filters" className="advanced-filters">
+                <div id="advanced" className="advanced-filters">
                   {parties.map((party, index) => {
                     const settings = document.parties.find(
                       (candidate) => candidate.partyId === party.id,
@@ -323,127 +630,72 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
                       </div>
                     );
                   })}
+                  <div className="advanced-constraints">
+                    <div className="planning-section-heading">
+                      <Title3 as="h3">Requirements</Title3>
+                      <Button
+                        icon={<Add24Regular />}
+                        disabled={parties.length === 0}
+                        onClick={() => {
+                          const firstUser = parties[0]?.members[0]?.id;
+                          if (firstUser)
+                            change({
+                              ...document,
+                              constraints: [
+                                ...document.constraints,
+                                {
+                                  id: crypto.randomUUID(),
+                                  userId: firstUser,
+                                  type: "departureWindow",
+                                  window: {
+                                    earliest:
+                                      document.travelDates?.startDate ?? null,
+                                    latest:
+                                      document.travelDates?.startDate ?? null,
+                                    preferred:
+                                      document.travelDates?.startDate ?? null,
+                                  },
+                                  countryCodes: [],
+                                },
+                              ],
+                            });
+                        }}
+                      >
+                        Add requirement
+                      </Button>
+                    </div>
+                    <Text>
+                      Your selected dates are enough to start. Add requirements
+                      only when needed.
+                    </Text>
+                    {document.constraints.length === 0 && (
+                      <Text>No requirements yet.</Text>
+                    )}
+                    {document.constraints.map((constraint, index) => (
+                      <ConstraintEditor
+                        key={constraint.id}
+                        index={index}
+                        constraint={constraint}
+                        parties={parties}
+                        travelDates={document.travelDates}
+                        onChange={changeConstraint}
+                        onRemove={() =>
+                          change({
+                            ...document,
+                            constraints: document.constraints.filter(
+                              (c) => c.id !== constraint.id,
+                            ),
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
             </Card>
-
-            {parties.map((party, index) => {
-              const settings = document.parties.find(
-                (p) => p.partyId === party.id,
-              )!;
-              return (
-                <Card className="planning-card party-card" key={party.id}>
-                  <div className="planning-section-heading">
-                    <Title3 as="h2">
-                      Party {index + 1} ·{" "}
-                      {party.members.map((m) => m.name).join(", ")}
-                    </Title3>
-                    <Button
-                      appearance="subtle"
-                      className="coming-soon-button"
-                      icon={<Add24Regular />}
-                      aria-label={`Invite someone to Party ${index + 1}`}
-                      title="Coming soon"
-                      onClick={() =>
-                        setNotice("Inviting travelers is coming soon.")
-                      }
-                    />
-                  </div>
-                  <Text size={200}>
-                    {party.members
-                      .map((m) => m.homeCity || "Home city not set")
-                      .join(" · ")}
-                  </Text>
-                  <AirportPicker
-                    label={"Party " + (index + 1) + " origin"}
-                    value={settings.origin}
-                    onChange={(origin) =>
-                      updatePartySettings(party.id, { ...settings, origin })
-                    }
-                  />
-                  {party.suggestedOrigin &&
-                    settings.origin?.code === party.suggestedOrigin.code && (
-                      <Text size={200}>
-                        Suggested from your party's home city.
-                      </Text>
-                    )}
-                  {!settings.origin && (
-                    <Text size={200}>
-                      Choose the airport your party will depart from.
-                    </Text>
-                  )}
-                  <Text size={200}>
-                    Passenger count: {party.members.length}. This prototype
-                    treats each party member as an adult; guests and children
-                    will follow.
-                  </Text>
-                </Card>
-              );
-            })}
-
-            <Card className="planning-card">
-              <div className="planning-section-heading">
-                <Title3 as="h2">Optional constraints</Title3>
-                <Button
-                  icon={<Add24Regular />}
-                  disabled={parties.length === 0}
-                  onClick={() => {
-                    const firstUser = parties[0]?.members[0]?.id;
-                    if (firstUser)
-                      change({
-                        ...document,
-                        constraints: [
-                          ...document.constraints,
-                          {
-                            id: crypto.randomUUID(),
-                            userId: firstUser,
-                            type: "departureWindow",
-                            window: {
-                              earliest: document.travelDates?.startDate ?? null,
-                              latest: document.travelDates?.startDate ?? null,
-                              preferred:
-                                document.travelDates?.startDate ?? null,
-                            },
-                            countryCodes: [],
-                          },
-                        ],
-                      });
-                  }}
-                >
-                  Add requirement
-                </Button>
-              </div>
-              <Text>
-                Your selected dates are enough to start. Add departure or
-                return-flight windows to allow flexibility separately, or add
-                requirements for destination stays, traveling together, and
-                layovers.
-              </Text>
-              {document.constraints.length === 0 && (
-                <Text>No requirements yet.</Text>
-              )}
-              {document.constraints.map((constraint, index) => (
-                <ConstraintEditor
-                  key={constraint.id}
-                  index={index}
-                  constraint={constraint}
-                  parties={parties}
-                  travelDates={document.travelDates}
-                  onChange={changeConstraint}
-                  onRemove={() =>
-                    change({
-                      ...document,
-                      constraints: document.constraints.filter(
-                        (c) => c.id !== constraint.id,
-                      ),
-                    })
-                  }
-                />
-              ))}
-            </Card>
           </fieldset>
           <div className="planning-toolbar">
-            <Button onClick={save} disabled={busy}>
+            <Button onClick={save} disabled={busy || Boolean(formOperationId)}>
               Save planning details
             </Button>
             <Text size={200}>
@@ -455,11 +707,56 @@ export default function TripPlanning({ userId, trip, onBack, onSaved }: Props) {
             tripId={trip.id}
             parties={parties}
             partySettings={document.parties}
-            disabled={busy}
+            constraints={document.constraints}
+            currentAiPrompt={document.aiPrompt}
+            disabled={busy || Boolean(formOperationId)}
             onBeforeSearch={() => persist(false)}
+            onReviewRequirements={(constraintId) => {
+              setSearchParams((current) => {
+                const next = new URLSearchParams(current);
+                next.set("advanced", "1");
+                return next;
+              });
+              requestAnimationFrame(() => {
+                const target = window.document.getElementById(
+                  constraintId ? `requirement-${constraintId}` : "advanced",
+                );
+                target?.scrollIntoView?.({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              });
+            }}
           />
         </>
       )}
+      <Dialog
+        open={confirmFresh}
+        onOpenChange={(_, data) => setConfirmFresh(data.open)}
+      >
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Plan again?</DialogTitle>
+            <DialogContent>
+              Your description and trip details will stay as they are. Unlock
+              the description to edit it, then choose Fill trip details again
+              when you are ready to update the suggestions.
+            </DialogContent>
+            <DialogActions>
+              <Button disabled={busy} onClick={() => setConfirmFresh(false)}>
+                Cancel
+              </Button>
+              <Button
+                appearance="primary"
+                disabled={busy}
+                onClick={() => void planAgain()}
+              >
+                Unlock description
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </section>
   );
 }
@@ -487,6 +784,7 @@ function ConstraintEditor({
   const members = parties.flatMap((p) => p.members);
   return (
     <div
+      id={`requirement-${c.id}`}
       className="constraint-editor"
       role="group"
       aria-label={"Requirement " + (index + 1)}
@@ -811,6 +1109,23 @@ function shiftDate(date: string | null, days: number): string | null {
   if (!Number.isFinite(parsed.getTime())) return null;
   parsed.setUTCDate(parsed.getUTCDate() + days);
   return parsed.toISOString().slice(0, 10);
+}
+function airportCombinationCount(document: PlanningDocument): number {
+  const destination = document.destination;
+  const destinations =
+    destination?.codes ?? (destination ? [destination.code] : []);
+  return document.parties.reduce((count, party) => {
+    const origins =
+      party.origin?.codes ?? (party.origin ? [party.origin.code] : []);
+    return (
+      count +
+      origins.reduce(
+        (partyCount, origin) =>
+          partyCount + destinations.filter((code) => code !== origin).length,
+        0,
+      )
+    );
+  }, 0);
 }
 function message(reason: unknown) {
   return reason instanceof Error

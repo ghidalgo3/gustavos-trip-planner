@@ -12,19 +12,55 @@ public sealed class PlanningWorker(
     IOptions<IgnavOptions> ignavOptions,
     IOptions<PlanningOptions> planningOptions,
     TimeProvider clock,
-    ILogger<PlanningWorker> logger
+    ILogger<PlanningWorker> logger,
+    TripFormJobProcessor? formProcessor
 ) : BackgroundService
 {
     private readonly TimeSpan _timeout = TimeSpan.FromSeconds(
         Math.Clamp(ignavOptions.Value.TimeoutSeconds, 1, 1800)
     );
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        Task.WhenAll(
-            Enumerable
-                .Range(0, Math.Clamp(planningOptions.Value.WorkerConcurrency, 1, 8))
-                .Select(_ => ConsumeAsync(stoppingToken))
-        );
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var consumers = Enumerable
+            .Range(0, Math.Clamp(planningOptions.Value.WorkerConcurrency, 1, 8))
+            .Select(_ => ConsumeAsync(stoppingToken))
+            .ToList();
+        if (formProcessor is not null)
+            consumers.Add(ConsumeFormsAsync(stoppingToken));
+        return Task.WhenAll(consumers);
+    }
+
+    private async Task ConsumeFormsAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (await formProcessor!.ProcessNextAsync(stoppingToken))
+                    continue;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Trip form queue failed; work will resume after its lease expires."
+                );
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+    }
 
     private async Task ConsumeAsync(CancellationToken stoppingToken)
     {

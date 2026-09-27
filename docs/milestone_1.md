@@ -2,7 +2,7 @@
 
 Status: Living design document; implementation is in progress.
 
-Last updated: 2026-09-20.
+Last updated: 2026-09-22.
 
 This document records the agreed product behavior, the proposed planning architecture, and unresolved questions. Confirmed decisions are requirements. Recommendations and open questions are explicitly labeled and should not be treated as settled behavior.
 
@@ -14,7 +14,7 @@ Milestone 1 supports one destination per plan and round-trip flights. It ends at
 
 ### Users and trips
 
-- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point.
+- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point. The user profile page edits the home city and preferred airlines together through `PUT /api/user/profile`; the avatar menu opens that page and contains Sign out.
 - Treat the normalized email supplied by Google or Microsoft as the unique application identity. If the same email signs in through another provider, reuse the user ID and append the provider to that user's provider list.
 - Start with sign-in through Google and personal Microsoft accounts.
 - Sign in with Apple is outside this milestone and may be reconsidered later.
@@ -22,8 +22,10 @@ Milestone 1 supports one destination per plan and round-trip flights. It ends at
 - Trip CRUD is exposed at `/api/user/{userId}/trips`. The authenticated application user must match `{userId}`, and database operations are scoped to that owner. Trip creation is available after home-city onboarding is complete.
 - The initial `trips` representation stores an ID, owner user ID, name, description, and a JSONB `constraints` object. A newly created trip has an empty constraints object.
 - The initial `parties` representation stores an ID, trip ID, and a UUID array of member user IDs. Creating a trip atomically creates one party containing only its owner; deleting the trip cascades to every party belonging to it.
+- The trip owner can search existing users by display name and add or remove them from a party. Membership changes are idempotent. The owner remains in their party, a user belongs to at most one party in a trip, and a party has at most nine travelers.
 - A trip owner can invite other users and manage trip membership and membership in travel parties.
 - Constraints are defined per user, per trip. Party membership and shared party preferences supplement those individual constraints.
+- An `LLM` feature flag on the user enables an optional free-form trip description. The server uses an OpenAI Responses API function call to propose destination, dates, preferences, and requirements, then returns an unsaved draft for review in the same editor. The server enforces the flag and resolves airports and party members rather than trusting model-provided IDs.
 - A trip needs a destination, departure date, return-flight date, and a resolved origin to prepare searches. Additional constraints are optional; calendar selections provide bounded dates without requiring departure/return constraints.
 
 ### Initial sign-in provider setup
@@ -83,8 +85,7 @@ The API issues an encrypted HTTP-only cookie after provider sign-in in both envi
 ### Travel parties and authority
 
 - For this milestone, traveling together means the whole trip: the same outbound and return flights, including every connecting segment, and the shared destination stay. This supersedes the earlier idea of supporting selected portions of a trip.
-- Within a party, members with the same home city depart from the same airport.
-- Members with different home cities choose a shared origin. Getting to that origin is outside this planner's scope.
+- All members depart from the trip owner's home city, regardless of their own saved home cities. The owner can change the suggested departure airport in the trip editor. Positioning travel to that airport is outside this planner's scope.
 - Each travel party has one shared preference set and a travel leader. Individual mandatory requirements still apply to every proposed party itinerary.
 - The party leader accepts proposed constraint changes. The system must not silently relax mandatory requirements.
 
@@ -159,7 +160,9 @@ required for this initial finite search.
   bounds or preferred dates with independent flexibility), presence at the one
   destination, whole-trip togetherness, nonstop flights, and layover exclusions.
   Airline preferences belong to the party and are reserved for later fare scoring.
-  Natural-language translation remains a subsequent implementation step.
+  The initial AI-assisted translator can propose these fields as an unsaved draft
+  when the owner has the `LLM` flag; deterministic validation still governs saving
+  and planning.
 - The initial form asks for a destination and departure/return-flight calendar dates.
   With no date-window constraints, those dates are fixed. An optional window replaces
   the fixed date for its direction; multiple members' windows are intersected.
@@ -167,18 +170,21 @@ required for this initial finite search.
   Legacy documents containing only windows still load and can be planned.
 - Airport autocomplete accepts city names, airport names, and IATA codes, backed by
   a bundled scheduled-passenger-airport catalog (OurAirports plus airportsdata time
-  zones). Suggestions select concrete airports. Search is debounced, cancelable,
+  zones). A city selection includes its matching catalog airports, while a named
+  airport remains specific; the user may add or remove individual airports.
+  Search is debounced, cancelable,
   and cached in the browser; it makes no paid provider requests.
-- A party sharing one home city gets a suggested departure airport from saved
+- Every party gets suggested departure airports from the trip owner's saved
   coordinates: prefer a large airport within 75 km, otherwise the nearest passenger
-  airport within 250 km. This is editable. Different home cities or no nearby
-  catalog airport require an explicit common departure airport.
+  airport within 250 km, then include the catalog airports in that city.
+  This is editable. If no catalog airport is nearby,
+  the owner chooses a departure airport explicitly.
 - No one enters time zones. The client detects the current browser zone with
   `Intl.DateTimeFormat().resolvedOptions().timeZone`. Date inputs use local calendar
   values; airport zones are supplied automatically for flight-date calculations.
-- Cabin, pricing market, maximum journey hours, and preferred airlines are hidden
-  behind an **Advanced filters** button in the destination-and-dates section,
-  grouped by party.
+- Cabin, pricing market, maximum journey hours, preferred airlines, and all
+  optional constraint editors are behind **Advanced** in the destination-and-dates
+  section, grouped by party where applicable.
 - Each party can also cap the provider search at zero, one, or two stops. A
   mandatory nonstop constraint overrides that cap with zero stops.
 - A configurable maximum duration per direction (default 48 hours,
@@ -250,7 +256,9 @@ For the prototype, proximity sums deviations from each member's preferred dates
 (or selected travel dates, falling back to window midpoints for legacy drafts).
 Ties use outbound departure date, then return departure date, ascending.
 The configured `Planning:DatePairLimit` defaults to 20 and is bounded to 1–200.
-The cap applies to distinct provider date pairs.
+The cap applies to distinct provider date pairs. Each selected date pair expands
+into one Ignav request per distinct origin/destination airport combination;
+multi-airport choices therefore increase the request count and cache entries.
 Automatic replacement of failed or empty searches is not yet specified.
 
 ## 5. Ignav integration and caching
@@ -287,6 +295,11 @@ Interrupted work can retry up to three provider attempts. Provider failures/time
 are surfaced rather than blindly retried. A crash between provider success and durable
 completion may repeat a billed request: execution is at least once, not exactly once.
 
+The one-hour freshness window is separate from storage retention. An hourly
+pg_cron job deletes fare-search rows six hours after their successful retrieval,
+or six hours after creation for a request that never produced a response. Rows
+assigned to an active operation are protected until the operation completes.
+
 Raw provider results are available in the GUI and trip flight-search GET API. They are not
 yet classified as constraint-compliant or ranked recommendations; actual flight-time
 validation, layover geography checks, and preference scoring remain follow-up work.
@@ -300,7 +313,11 @@ validation, layover geography checks, and preference scoring remain follow-up wo
 - Do not assume a broader provider search is exhaustive or equivalent to a narrower follow-up query.
 - Deduplicate identical in-flight requests and reuse eligible results across runs where appropriate.
 
-Cache freshness is one hour; initial worker concurrency and recovery behavior are defined above. Historical result retention, richer retry policies, provider-filter strategy, and handling of parties larger than the provider's passenger limit remain open. The 20-pair cap is not a complete budget for retries, ancillary API calls, or repeated planning runs.
+Cache freshness is one hour and row retention is six hours, cleaned hourly by
+pg_cron. Initial worker concurrency and recovery behavior are defined above.
+Richer retry policies, provider-filter strategy, and handling of parties larger
+than the provider's passenger limit remain open. The 20-pair cap is not a
+complete budget for retries, ancillary API calls, or repeated planning runs.
 
 ## 6. Remaining decisions
 
@@ -312,21 +329,21 @@ Cache freshness is one hour; initial worker concurrency and recovery behavior ar
 | Relaxation authority | The leader accepts changes, but do affected members also need to approve changes to their individual mandatory requirements? |
 | Ranking | How should price, stops, total duration, and airline preferences trade off? What is the stable ordering for tied scores? |
 | Relaxation selection | Prefer fewer changed rules, fewer shifted days, user-assigned importance, or another measure? |
-| Location resolution | Bundled airport autocomplete and geographic home-airport suggestions are implemented. Later: catalog refresh automation, richer metro-airport grouping, and resolving parties with different home cities. |
+| Location resolution | Bundled airport autocomplete and geographic owner-home-airport suggestions are implemented. Later: catalog refresh automation and richer metro-airport grouping. |
 | Date precision | Are airport arrival/departure dates sufficient, or will users need times of day and airport-to-city travel buffers? |
-| Natural-language translation | Define the structured vocabulary, confirmation flow, handling of ambiguity, and invalid or unsupported requests. |
+| Natural-language translation | The first form proposal and review flow are implemented. Later: multi-turn clarification, richer ambiguity handling, and unsupported requests. |
 | Region definitions | Choose the geographic source, inspectable membership, and versioning behavior for named areas. |
 | Travelers | Must all passengers have accounts? Are guests and children supported? |
 | Accounts and invitations | Google and personal Microsoft accounts are linked by normalized email. Define invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
 | Remaining persistence | Users, trips, parties, and the initial JSONB constraints document are implemented. Planning operations, queue messages, and cached fare responses are now durable. Fare validation and scoring remain to be implemented. |
 | Concurrent edits and history | Trip revisions and persisted input snapshots are deferred to later milestones. Concurrent saves currently use last-write-wins. |
-| Search operations | One-hour cache, bounded worker concurrency, timeouts, partial results, and recovery leases are implemented. Define historical retention and limits across repeated runs. |
+| Search operations | One-hour cache, six-hour fare-row retention, bounded worker concurrency, timeouts, partial results, and recovery leases are implemented. Define limits across repeated runs. |
 
 ## 7. Scenarios to validate when implementing
 
 - Create a trip with only a name; add its destination, members, and constraints later.
 - Combine individual mandatory constraints within a party and explain contradictions without relaxing them automatically.
-- Search a shared origin for members with different home cities without planning their positioning travel.
+- Suggest the trip owner's home airport for every party without planning members' positioning travel.
 - Convert both date-input styles into bounded ranges and apply departure and return flexibility independently.
 - Reject an overnight flight that arrives after X even when its departure date appeared acceptable.
 - Select the nearest 20 eligible pairs, reuse cached selected pairs, and disclose limited coverage.

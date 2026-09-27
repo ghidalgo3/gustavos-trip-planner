@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -94,8 +95,14 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
                 );
             ValidateLocation(settings.Origin, "Origin", complete, settings.PartyId, issues);
             if (
-                settings.Origin?.Code == document.Destination?.Code
-                && !string.IsNullOrEmpty(settings.Origin?.Code)
+                settings.Origin is not null
+                && document.Destination is not null
+                && settings.Origin.AirportCodes.All(code =>
+                    document.Destination.AirportCodes.Contains(code)
+                )
+                && document.Destination.AirportCodes.All(code =>
+                    settings.Origin.AirportCodes.Contains(code)
+                )
             )
                 Issue("Origin and destination must differ.", settings.PartyId);
             if (settings.MaxJourneyHours is < 1 or > 168)
@@ -313,10 +320,11 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
             if (depStart > depEnd || returnStart > returnEnd)
             {
                 var conflicting = depStart > depEnd ? departures : returnFlights;
+                string kind = depStart > depEnd ? "Departure" : "Return-flight";
                 issues.Add(
                     new(
                         "conflict",
-                        "The party's travel windows have no common dates.",
+                        $"{kind} windows do not overlap: {string.Join("; ", conflicting.Select(c => DateRange(c.Window!.Earliest!.Value, c.Window.Latest!.Value)))}. Change or remove a window so they share at least one date.",
                         party.Id,
                         conflicting.Select(c => c.Id).ToArray()
                     )
@@ -326,6 +334,7 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
             var today = DateOnly.FromDateTime(
                 TimeZoneInfo.ConvertTime(clock.GetUtcNow(), originZone).DateTime
             );
+            var allowedDepartureStart = depStart;
             depStart = depStart < today ? today : depStart;
             DateTime? arriveByExclusive =
                 presence.Length == 0
@@ -369,33 +378,91 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
                                     - Anchor(c.Window!, document.TravelDates?.EndDate)
                             )
                         );
-                    var body = new IgnavRoundTripRequest(
-                        origin.Code,
-                        destination.Code,
-                        departure,
-                        returning,
-                        party.UserIds.Count,
-                        settings.Cabin,
-                        settings.Market,
-                        constraints.Any(c => c.Type == "nonstop") ? 0 : settings.MaxStops
-                    );
-                    candidates.Add(new(body, "", distance));
+                    foreach (var originCode in origin.AirportCodes)
+                    foreach (var destinationCode in destination.AirportCodes)
+                    {
+                        if (originCode == destinationCode)
+                            continue;
+                        var body = new IgnavRoundTripRequest(
+                            originCode,
+                            destinationCode,
+                            departure,
+                            returning,
+                            party.UserIds.Count,
+                            settings.Cabin,
+                            settings.Market,
+                            constraints.Any(c => c.Type == "nonstop") ? 0 : settings.MaxStops
+                        );
+                        candidates.Add(new(body, "", distance));
+                    }
                 }
             }
             if (candidates.Count == 0)
-                issues.Add(
-                    new(
-                        "conflict",
-                        "No candidate dates remain within these windows, presence requirements, and journey-duration bound. Check past dates and required stays.",
-                        party.Id,
-                        constraints
-                            .Where(c =>
-                                c.Type is "departureWindow" or "returnHomeWindow" or "presence"
-                            )
-                            .Select(c => c.Id)
-                            .ToArray()
-                    )
-                );
+            {
+                string explanation;
+                Guid[] affected;
+                if (depEnd < today)
+                {
+                    explanation =
+                        $"Departure is allowed {DateRange(allowedDepartureStart, depEnd)}, but those dates have passed in {origin.TimeZone}. Choose a future departure window.";
+                    affected = departures.Select(c => c.Id).ToArray();
+                }
+                else if (presence.Length > 0 && returnEnd < presence.Max(c => c.EndDate!.Value))
+                {
+                    var requiredEnd = presence.Max(c => c.EndDate!.Value);
+                    string source =
+                        returnFlights.Length == 0
+                            ? "Selected return-flight date"
+                            : "Return-flight window";
+                    explanation =
+                        $"{source} allows {DateRange(returnStart, returnEnd)}, but the required destination stay ends {DateLabel(requiredEnd)}. The return flight must begin on or after that day. Move or remove the return-flight requirement, or shorten the required stay.";
+                    affected =
+                    [
+                        .. returnFlights.Select(c => c.Id),
+                        .. presence.Where(c => c.EndDate == requiredEnd).Select(c => c.Id),
+                    ];
+                }
+                else if (
+                    arriveByExclusive is not null
+                    && DayStart(depStart, originZone) >= arriveByExclusive.Value
+                )
+                {
+                    var requiredStart = presence.Min(c => c.StartDate!.Value);
+                    explanation =
+                        $"Departure is allowed {DateRange(depStart, depEnd)}, but the required destination stay starts {DateLabel(requiredStart)}. Move the departure window earlier or move the required stay later.";
+                    affected =
+                    [
+                        .. departures.Select(c => c.Id),
+                        .. presence.Where(c => c.StartDate == requiredStart).Select(c => c.Id),
+                    ];
+                }
+                else if (returnEnd < depStart)
+                {
+                    explanation =
+                        $"The return-flight window ends {DateLabel(returnEnd)}, before the first allowed departure on {DateLabel(depStart)}. Move one of the windows.";
+                    affected =
+                    [
+                        .. departures.Select(c => c.Id),
+                        .. returnFlights.Select(c => c.Id),
+                    ];
+                }
+                else
+                {
+                    explanation =
+                        $"No flight-date pair satisfies departure {DateRange(depStart, depEnd)} and return {DateRange(returnStart, returnEnd)}"
+                        + (
+                            presence.Length == 0
+                                ? "."
+                                : $" while arriving by {DateLabel(presence.Min(c => c.StartDate!.Value))} and leaving on or after {DateLabel(presence.Max(c => c.EndDate!.Value))}."
+                        )
+                        + " Adjust the date windows or required stay.";
+                    affected = constraints
+                        .Where(c => c.Type is "departureWindow" or "returnHomeWindow" or "presence")
+                        .Select(c => c.Id)
+                        .ToArray();
+                }
+                issues.Add(new("conflict", explanation, party.Id, affected.Distinct().ToArray()));
+            }
             var checks = new List<string>
             {
                 "Verify actual outbound arrival and return departure occur in the correct order.",
@@ -425,12 +492,19 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
             previews.Add(
                 new(
                     party.Id,
-                    candidates.Count,
+                    candidates
+                        .Select(c => (c.Body.DepartureDate, c.Body.ReturnDate))
+                        .Distinct()
+                        .Count(),
                     candidates
                         .OrderBy(c => c.DateDistance)
                         .ThenBy(c => c.Body.DepartureDate)
                         .ThenBy(c => c.Body.ReturnDate)
+                        .GroupBy(c => (c.Body.DepartureDate, c.Body.ReturnDate))
                         .Take(_limit)
+                        .SelectMany(group =>
+                            group.OrderBy(c => c.Body.Origin).ThenBy(c => c.Body.Destination)
+                        )
                         .Select(c => c with { CacheKey = CacheKey(c.Body) })
                         .ToArray(),
                     checks,
@@ -452,6 +526,12 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
         );
 
     private static bool SupportedDate(DateOnly date) => date.Year is >= 2000 and <= 2100;
+
+    private static string DateLabel(DateOnly date) =>
+        date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
+
+    private static string DateRange(DateOnly first, DateOnly last) =>
+        first == last ? DateLabel(first) : $"{DateLabel(first)}–{DateLabel(last)}";
 
     private static bool Code(string? code, string pattern) =>
         code is not null && Regex.IsMatch(code, pattern, RegexOptions.CultureInvariant);
@@ -480,6 +560,23 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
         if (!Code(location.Code, "^[A-Z]{3}$"))
             issues.Add(
                 new("invalidInput", $"{label} must use a three-letter IATA code.", party, [])
+            );
+        if (
+            location.Codes is { Length: > 0 } codes
+            && (
+                codes.Length > 20
+                || codes.Any(code => !Code(code, "^[A-Z]{3}$"))
+                || codes.Distinct().Count() != codes.Length
+                || !codes.Contains(location.Code)
+            )
+        )
+            issues.Add(
+                new(
+                    "invalidInput",
+                    $"{label} must contain distinct IATA airport codes, including its primary airport.",
+                    party,
+                    []
+                )
             );
         if (string.IsNullOrWhiteSpace(location.TimeZone))
             issues.Add(

@@ -17,6 +17,7 @@ public sealed partial class InMemoryPlannerDb
         DateTimeOffset createdAt
     )
     {
+        public string Type { get; set; } = OperationState.FlightSearch;
         public Guid UserId { get; } = userId;
         public Guid ResourceId { get; } = resourceId;
         public int Items { get; } = items;
@@ -250,7 +251,7 @@ public sealed partial class InMemoryPlannerDb
         new(
             id,
             operation.ResourceId,
-            OperationState.FlightSearch,
+            operation.Type,
             operation.Status,
             new(operation.Items, operation.CompletedItems, operation.FailedItems),
             operation.CreatedAt,

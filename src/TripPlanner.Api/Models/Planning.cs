@@ -13,6 +13,9 @@ public sealed record PlanningDocument
     public SearchLocation? Destination { get; init; }
     public PartySearchSettings[] Parties { get; init; } = [];
     public PlanningConstraint[] Constraints { get; init; } = [];
+    public string? AiPrompt { get; init; }
+    public bool? AiPromptLocked { get; init; }
+    public Guid? AiFormOperationId { get; init; }
 
     public static PlanningDocument FromJson(JsonElement json) =>
         json.Deserialize<PlanningDocument>(JsonSerializerOptions.Web) ?? new();
@@ -20,7 +23,16 @@ public sealed record PlanningDocument
 
 public sealed record TravelDates(DateOnly? StartDate, DateOnly? EndDate);
 
-public sealed record SearchLocation(string Code, string TimeZone, string? Label = null);
+public sealed record SearchLocation(
+    string Code,
+    string TimeZone,
+    string? Label = null,
+    string[]? Codes = null
+)
+{
+    [JsonIgnore]
+    public IReadOnlyList<string> AirportCodes => Codes is { Length: > 0 } ? Codes : [Code];
+}
 
 public sealed record PartySearchSettings
 {

@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import {
   Avatar,
-  Button,
   Card,
   CardHeader,
   LargeTitle,
@@ -10,20 +16,43 @@ import {
   Text,
   Title3,
 } from "@fluentui/react-components";
-import { Location24Regular, SignOut24Regular } from "@fluentui/react-icons";
+import {
+  Location24Regular,
+  Person24Regular,
+  SignOut24Regular,
+} from "@fluentui/react-icons";
 import {
   getCurrentUser,
   loginUrl,
   logoutUrl,
   profileImageUrl,
   type CurrentUser,
+  type UserProfile,
 } from "./api";
 import HomeCityPicker from "./HomeCityPicker";
+import ProfilePage from "./ProfilePage";
 import TripsDashboard from "./TripsDashboard";
+import TripPlanningPage from "./TripPlanningPage";
+
+const emptyProfile: UserProfile = { homeCity: null, preferredAirlines: [] };
 
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState<CurrentUser>();
   const [apiAvailable, setApiAvailable] = useState(true);
+  const userMenu = useRef<HTMLDetailsElement>(null);
+  const profile = user?.profile ?? emptyProfile;
+
+  async function openProfile() {
+    try {
+      setUser(await getCurrentUser());
+    } catch {
+      // The route can still render the current session and let the user retry.
+    }
+    userMenu.current?.removeAttribute("open");
+    navigate("/profile");
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,24 +77,53 @@ export default function App() {
         </div>
         {user?.isAuthenticated && (
           <div className="user-actions">
-            <Avatar
-              name={user.name ?? user.email ?? "Traveler"}
-              image={{ src: profileImageUrl() }}
-            />
-            <Button
-              as="a"
-              href={logoutUrl()}
-              appearance="subtle"
-              icon={<SignOut24Regular />}
-            >
-              Sign out
-            </Button>
+            <details className="user-menu" ref={userMenu}>
+              <summary aria-label="User profile">
+                <Avatar
+                  name={user.name ?? user.email ?? "Traveler"}
+                  image={{ src: profileImageUrl() }}
+                />
+                <span>{user.name ?? user.email ?? "Traveler"}</span>
+              </summary>
+              <div className="user-menu-panel">
+                <button type="button" onClick={() => void openProfile()}>
+                  <Person24Regular /> Your profile
+                </button>
+                <a href={logoutUrl()}>
+                  <SignOut24Regular /> Sign out
+                </a>
+              </div>
+            </details>
           </div>
         )}
       </header>
 
-      {user?.isAuthenticated && user.completedOnboarding && user.id ? (
-        <TripsDashboard user={{ ...user, id: user.id }} />
+      {user?.isAuthenticated &&
+      user.id &&
+      (user.completedOnboarding || location.pathname === "/profile") ? (
+        <Routes>
+          <Route
+            path="/"
+            element={<TripsDashboard user={{ ...user, id: user.id }} />}
+          />
+          <Route
+            path="/trips/:tripId"
+            element={
+              <TripPlanningPage
+                userId={user.id}
+                preferredAirlines={profile.preferredAirlines}
+                featureFlags={user.featureFlags ?? []}
+              />
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProfilePage user={{ ...user, profile }} onSaved={setUser} />
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       ) : (
         <section className="hero">
           <div className="hero-copy">

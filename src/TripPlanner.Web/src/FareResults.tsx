@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
+import { useSearchParams } from "react-router";
 import {
   Button,
   Dropdown,
@@ -50,7 +51,36 @@ export default function FareResults({
   parties: PlanningParty[];
   partySettings: PartySettings[];
 }) {
-  const [filters, setFilters] = useState(initialFilters);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters: Filters = {
+    minimumPrice: searchParams.get("minPrice") ?? "",
+    maximumPrice: searchParams.get("maxPrice") ?? "",
+    airlines: searchParams.getAll("airline"),
+    arrivals: searchParams.getAll("arrival"),
+    stops: searchParams.getAll("stops"),
+  };
+  function setFilters(next: Filters) {
+    setSearchParams(
+      (current) => {
+        const params = new URLSearchParams(current);
+        for (const key of [
+          "minPrice",
+          "maxPrice",
+          "airline",
+          "arrival",
+          "stops",
+        ])
+          params.delete(key);
+        if (next.minimumPrice) params.set("minPrice", next.minimumPrice);
+        if (next.maximumPrice) params.set("maxPrice", next.maximumPrice);
+        for (const airline of next.airlines) params.append("airline", airline);
+        for (const arrival of next.arrivals) params.append("arrival", arrival);
+        for (const stops of next.stops) params.append("stops", stops);
+        return params;
+      },
+      { replace: true },
+    );
+  }
   const options = useMemo(
     () =>
       results.flatMap((result) =>
@@ -73,6 +103,19 @@ export default function FareResults({
     .filter(Number.isFinite);
   const priceMinimum = prices.length ? Math.min(...prices) : 0;
   const priceMaximum = prices.length ? Math.max(...prices) : 0;
+  const selectedMinimum = Math.max(
+    priceMinimum,
+    Math.min(priceMaximum, number(filters.minimumPrice) ?? priceMinimum),
+  );
+  const selectedMaximum = Math.max(
+    priceMinimum,
+    Math.min(priceMaximum, number(filters.maximumPrice) ?? priceMaximum),
+  );
+  const priceSpan = priceMaximum - priceMinimum || 1;
+  const rangeStyle = {
+    "--range-start": `${((selectedMinimum - priceMinimum) / priceSpan) * 100}%`,
+    "--range-end": `${((selectedMaximum - priceMinimum) / priceSpan) * 100}%`,
+  } as CSSProperties;
   const matching = options.filter((option) => matches(option, filters));
 
   return (
@@ -83,97 +126,120 @@ export default function FareResults({
         Itinerary-level constraint scoring will follow.
       </Text>
       <div className="fare-filters" aria-label="Filter flight options">
-        <Field label="Price range" className="price-range-filter">
-          <div className="price-range-sliders">
-            <input
-              aria-label="Minimum price slider"
-              type="range"
-              min={priceMinimum}
-              max={priceMaximum}
-              value={filters.minimumPrice || priceMinimum}
-              onChange={(event) =>
-                setFilters({ ...filters, minimumPrice: event.target.value })
-              }
-            />
-            <input
-              aria-label="Maximum price slider"
-              type="range"
-              min={priceMinimum}
-              max={priceMaximum}
-              value={filters.maximumPrice || priceMaximum}
-              onChange={(event) =>
-                setFilters({ ...filters, maximumPrice: event.target.value })
-              }
-            />
-          </div>
-          <div className="price-range-inputs">
-            <Input
-              aria-label="Minimum price"
-              type="number"
-              min={0}
-              value={filters.minimumPrice}
-              onChange={(_, data) =>
-                setFilters({ ...filters, minimumPrice: data.value })
-              }
-            />
-            <Input
-              aria-label="Maximum price"
-              type="number"
-              min={0}
-              value={filters.maximumPrice}
-              onChange={(_, data) =>
-                setFilters({ ...filters, maximumPrice: data.value })
-              }
-            />
-          </div>
-        </Field>
-        <Field label="Airline">
-          <Dropdown
-            multiselect
-            placeholder="Any airline"
-            selectedOptions={filters.airlines}
-            onOptionSelect={(_, data) =>
-              setFilters({ ...filters, airlines: data.selectedOptions })
-            }
+        <div className="fare-filters-heading">
+          <Text weight="semibold">Filter options</Text>
+          <Button
+            appearance="subtle"
+            onClick={() => setFilters(initialFilters)}
           >
-            {airlines.map((airline) => (
-              <Option key={airline} value={airline}>
-                {airline}
-              </Option>
-            ))}
-          </Dropdown>
-        </Field>
-        <Field label="Arrival time">
-          <Dropdown
-            multiselect
-            placeholder="Any time"
-            selectedOptions={filters.arrivals}
-            onOptionSelect={(_, data) =>
-              setFilters({ ...filters, arrivals: data.selectedOptions })
-            }
-          >
-            <Option value="morning">Before noon</Option>
-            <Option value="afternoon">Noon–6 PM</Option>
-            <Option value="evening">After 6 PM</Option>
-          </Dropdown>
-        </Field>
-        <Field label="Stops">
-          <Dropdown
-            multiselect
-            placeholder="Any number"
-            selectedOptions={filters.stops}
-            onOptionSelect={(_, data) =>
-              setFilters({ ...filters, stops: data.selectedOptions })
-            }
-          >
-            <Option value="0">Nonstop</Option>
-            <Option value="1">1 stop</Option>
-            <Option value="2">2 stops</Option>
-          </Dropdown>
-        </Field>
-        <Button appearance="subtle" onClick={() => setFilters(initialFilters)}>
-          Clear filters
-        </Button>
+            Clear filters
+          </Button>
+        </div>
+        <div className="fare-filter-grid">
+          <fieldset className="price-range-filter">
+            <legend>Price range</legend>
+            <div className="price-range-sliders" style={rangeStyle}>
+              <input
+                aria-label="Minimum price slider"
+                type="range"
+                min={priceMinimum}
+                max={priceMaximum}
+                value={selectedMinimum}
+                onChange={(event) =>
+                  setFilters({
+                    ...filters,
+                    minimumPrice: String(
+                      Math.min(Number(event.target.value), selectedMaximum),
+                    ),
+                  })
+                }
+              />
+              <input
+                aria-label="Maximum price slider"
+                type="range"
+                min={priceMinimum}
+                max={priceMaximum}
+                value={selectedMaximum}
+                onChange={(event) =>
+                  setFilters({
+                    ...filters,
+                    maximumPrice: String(
+                      Math.max(Number(event.target.value), selectedMinimum),
+                    ),
+                  })
+                }
+              />
+            </div>
+            <div className="price-range-inputs">
+              <Field label="Minimum">
+                <Input
+                  aria-label="Minimum price"
+                  type="number"
+                  min={0}
+                  value={filters.minimumPrice}
+                  onChange={(_, data) =>
+                    setFilters({ ...filters, minimumPrice: data.value })
+                  }
+                />
+              </Field>
+              <Field label="Maximum">
+                <Input
+                  aria-label="Maximum price"
+                  type="number"
+                  min={0}
+                  value={filters.maximumPrice}
+                  onChange={(_, data) =>
+                    setFilters({ ...filters, maximumPrice: data.value })
+                  }
+                />
+              </Field>
+            </div>
+          </fieldset>
+          <Field label="Airline">
+            <Dropdown
+              multiselect
+              placeholder="Any airline"
+              selectedOptions={filters.airlines}
+              onOptionSelect={(_, data) =>
+                setFilters({ ...filters, airlines: data.selectedOptions })
+              }
+            >
+              {airlines.map((airline) => (
+                <Option key={airline} value={airline}>
+                  {airline}
+                </Option>
+              ))}
+            </Dropdown>
+          </Field>
+          <Field label="Arrival time">
+            <Dropdown
+              multiselect
+              placeholder="Any time"
+              selectedOptions={filters.arrivals}
+              onOptionSelect={(_, data) =>
+                setFilters({ ...filters, arrivals: data.selectedOptions })
+              }
+            >
+              <Option value="morning">Before noon</Option>
+              <Option value="afternoon">Noon–6 PM</Option>
+              <Option value="evening">After 6 PM</Option>
+            </Dropdown>
+          </Field>
+          <Field label="Stops">
+            <Dropdown
+              multiselect
+              placeholder="Any number"
+              selectedOptions={filters.stops}
+              onOptionSelect={(_, data) =>
+                setFilters({ ...filters, stops: data.selectedOptions })
+              }
+            >
+              <Option value="0">Nonstop</Option>
+              <Option value="1">1 stop</Option>
+              <Option value="2">2 stops</Option>
+            </Dropdown>
+          </Field>
+        </div>
       </div>
       {parties.map((party) => {
         const partyOptions = matching.filter(
@@ -223,7 +289,18 @@ function PartyResults({
       .filter((option): option is FareOption => !!option)
       .map((option) => option.id),
   );
-  const remainder = options.filter((option) => !highlightIds.has(option.id));
+  const remainder = options
+    .filter((option) => !highlightIds.has(option.id))
+    .sort((left, right) => {
+      const preferenceDifference =
+        Number(usesPreferredAirline(right, preferredAirlines)) -
+        Number(usesPreferredAirline(left, preferredAirlines));
+      return (
+        preferenceDifference ||
+        (left.itinerary.price?.amount ?? Infinity) -
+          (right.itinerary.price?.amount ?? Infinity)
+      );
+    });
 
   return (
     <section
@@ -260,7 +337,11 @@ function PartyResults({
       {remainder.length > 0 && (
         <details className="remaining-fares">
           <summary>More matching options ({remainder.length})</summary>
-          <FareTable options={remainder} />
+          <div className="remaining-fare-list">
+            {remainder.map((option) => (
+              <FareCard key={option.id} option={option} tripId={tripId} />
+            ))}
+          </div>
         </details>
       )}
     </section>
@@ -279,12 +360,7 @@ function HighlightedFare({
   tripId: string;
 }) {
   return (
-    <article className="highlighted-fare">
-      <Text weight="semibold">{title}</Text>
-      <FareTable options={[option]} />
-      {detail && <Text size={200}>{detail}</Text>}
-      <BookingLink tripId={tripId} option={option} />
-    </article>
+    <FareCard option={option} tripId={tripId} title={title} detail={detail} />
   );
 }
 
@@ -339,51 +415,80 @@ function BookingLink({
   );
 }
 
-function FareTable({ options }: { options: FareOption[] }) {
+function FareCard({
+  option,
+  tripId,
+  title,
+  detail,
+}: {
+  option: FareOption;
+  tripId: string;
+  title?: string;
+  detail?: string;
+}) {
   return (
-    <div className="preview-table-scroll">
-      <table className="preview-table">
-        <thead>
-          <tr>
-            <th>Dates</th>
-            <th>Price</th>
-            <th>Departure time</th>
-            <th>Flight numbers</th>
-            <th>Total travel time</th>
-            <th>Outbound airline</th>
-            <th>Return airline</th>
-            <th>Arrive home</th>
-            <th>Stops</th>
-          </tr>
-        </thead>
-        <tbody>
-          {options.map((option) => (
-            <tr key={option.id}>
-              <td>{`${option.request.departure_date} → ${option.request.return_date}`}</td>
-              <td>{formatPrice(option)}</td>
-              <td>
-                {formatLocalTime(
-                  option.itinerary.outbound?.segments.at(0)
-                    ?.departure_time_local,
-                )}
-              </td>
-              <td>{flightNumbers(option)}</td>
-              <td>
-                <TravelTime option={option} />
-              </td>
-              <td>{option.itinerary.outbound?.carrier ?? "Unknown"}</td>
-              <td>{option.itinerary.inbound?.carrier ?? "Unknown"}</td>
-              <td>
-                {formatTime(
-                  option.itinerary.inbound?.segments.at(-1)?.arrival_time_local,
-                )}
-              </td>
-              <td>{stopLabel(stops(option))}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <article className={title ? "fare-card highlighted-fare" : "fare-card"}>
+      {title && (
+        <Text className="fare-card-category" weight="semibold" size={200}>
+          {title}
+        </Text>
+      )}
+      <div className="fare-card-heading">
+        <div className="fare-card-route">
+          <strong>{`${option.request.origin} → ${option.request.destination}`}</strong>
+          <Text
+            size={200}
+          >{`${option.request.departure_date} → ${option.request.return_date}`}</Text>
+        </div>
+        <Text className="fare-card-price" weight="semibold">
+          {formatPrice(option)}
+        </Text>
+      </div>
+      <dl className="fare-detail-grid">
+        <div>
+          <dt>Departure time</dt>
+          <dd>
+            {formatLocalTime(
+              option.itinerary.outbound?.segments.at(0)?.departure_time_local,
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Flight numbers</dt>
+          <dd>{flightNumbers(option)}</dd>
+        </div>
+        <div>
+          <dt>Total travel time</dt>
+          <dd>
+            <TravelTime option={option} />
+          </dd>
+        </div>
+        <div>
+          <dt>Stops</dt>
+          <dd>{stopLabel(stops(option))}</dd>
+        </div>
+        <div>
+          <dt>Outbound airline</dt>
+          <dd>{option.itinerary.outbound?.carrier ?? "Unknown"}</dd>
+        </div>
+        <div>
+          <dt>Return airline</dt>
+          <dd>{option.itinerary.inbound?.carrier ?? "Unknown"}</dd>
+        </div>
+        <div>
+          <dt>Arrive home</dt>
+          <dd>
+            {formatTime(
+              option.itinerary.inbound?.segments.at(-1)?.arrival_time_local,
+            )}
+          </dd>
+        </div>
+      </dl>
+      <div className="fare-card-footer">
+        {detail && <Text size={200}>{detail}</Text>}
+        <BookingLink tripId={tripId} option={option} />
+      </div>
+    </article>
   );
 }
 

@@ -25,6 +25,7 @@ public static class IgnavServiceExtensions
                 client.MaxResponseContentBufferSize = 32 * 1024 * 1024;
             })
             .RedactLoggedHeaders(["X-Api-Key"]);
+        builder.Services.AddSingleton<TripFormJobProcessor>();
         if (planning.WorkerEnabled)
             builder.Services.AddHostedService<PlanningWorker>();
     }

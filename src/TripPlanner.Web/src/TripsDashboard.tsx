@@ -1,8 +1,15 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   Button,
   Card,
   CardHeader,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   Field,
   Input,
   Spinner,
@@ -25,21 +32,25 @@ import {
   type Trip,
   type TripInput,
 } from "./api";
-import TripPlanning from "./TripPlanning";
 
 type Props = { user: CurrentUser & { id: string } };
 
 const emptyInput: TripInput = { name: "", description: "" };
 
 export default function TripsDashboard({ user }: Props) {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [trips, setTrips] = useState<Trip[]>();
-  const [showCreate, setShowCreate] = useState(false);
+  const showCreate = searchParams.get("create") === "1";
+  const editingId = searchParams.get("edit") ?? undefined;
   const [createInput, setCreateInput] = useState<TripInput>(emptyInput);
-  const [editingId, setEditingId] = useState<string>();
-  const [editInput, setEditInput] = useState<TripInput>(emptyInput);
+  const [editDraft, setEditDraft] = useState<{
+    tripId: string;
+    input: TripInput;
+  }>();
   const [busyId, setBusyId] = useState<string>();
   const [error, setError] = useState<string>();
-  const [planningTrip, setPlanningTrip] = useState<Trip>();
+  const [tripToDelete, setTripToDelete] = useState<Trip>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,7 +73,7 @@ export default function TripsDashboard({ user }: Props) {
       const created = await createTrip(user.id, createInput);
       setTrips((current) => [created, ...(current ?? [])]);
       setCreateInput(emptyInput);
-      setShowCreate(false);
+      setSearchParams({}, { replace: true });
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -71,13 +82,21 @@ export default function TripsDashboard({ user }: Props) {
   }
 
   function startEditing(trip: Trip) {
-    setEditingId(trip.id);
-    setEditInput({ name: trip.name, description: trip.description });
+    setSearchParams({ edit: trip.id });
+    setEditDraft(undefined);
     setError(undefined);
   }
 
   async function submitEdit(event: FormEvent, tripId: string) {
     event.preventDefault();
+    const original = trips?.find((trip) => trip.id === tripId);
+    const editInput =
+      editDraft?.tripId === tripId
+        ? editDraft.input
+        : {
+            name: original?.name ?? "",
+            description: original?.description ?? "",
+          };
     if (!editInput.name.trim()) return;
     setBusyId(tripId);
     setError(undefined);
@@ -86,7 +105,7 @@ export default function TripsDashboard({ user }: Props) {
       setTrips((current) =>
         current?.map((trip) => (trip.id === tripId ? updated : trip)),
       );
-      setEditingId(undefined);
+      setSearchParams({}, { replace: true });
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -100,28 +119,12 @@ export default function TripsDashboard({ user }: Props) {
     try {
       await deleteTrip(user.id, trip.id);
       setTrips((current) => current?.filter((item) => item.id !== trip.id));
+      setTripToDelete(undefined);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
       setBusyId(undefined);
     }
-  }
-
-  if (planningTrip) {
-    return (
-      <TripPlanning
-        key={planningTrip.id}
-        userId={user.id}
-        trip={planningTrip}
-        onBack={() => setPlanningTrip(undefined)}
-        onSaved={(saved) => {
-          setTrips((current) =>
-            current?.map((trip) => (trip.id === saved.id ? saved : trip)),
-          );
-          setPlanningTrip(saved);
-        }}
-      />
-    );
   }
 
   return (
@@ -141,15 +144,14 @@ export default function TripsDashboard({ user }: Props) {
           size="large"
           icon={<Add24Regular />}
           onClick={() => {
-            setShowCreate(true);
-            setEditingId(undefined);
+            setSearchParams({ create: "1" });
           }}
         >
           New trip
         </Button>
       </div>
 
-      {error && <Text role="alert">{error}</Text>}
+      {error && !tripToDelete && <Text role="alert">{error}</Text>}
 
       {showCreate && (
         <Card className="trip-editor">
@@ -159,7 +161,7 @@ export default function TripsDashboard({ user }: Props) {
             onChange={setCreateInput}
             onSubmit={submitCreate}
             onCancel={() => {
-              setShowCreate(false);
+              setSearchParams({}, { replace: true });
               setCreateInput(emptyInput);
             }}
             submitLabel="Create trip"
@@ -181,10 +183,14 @@ export default function TripsDashboard({ user }: Props) {
             <Card key={trip.id} className="trip-card">
               {editingId === trip.id ? (
                 <TripForm
-                  input={editInput}
-                  onChange={setEditInput}
+                  input={
+                    editDraft?.tripId === trip.id
+                      ? editDraft.input
+                      : { name: trip.name, description: trip.description }
+                  }
+                  onChange={(input) => setEditDraft({ tripId: trip.id, input })}
                   onSubmit={(event) => submitEdit(event, trip.id)}
-                  onCancel={() => setEditingId(undefined)}
+                  onCancel={() => setSearchParams({}, { replace: true })}
                   submitLabel="Save changes"
                   busy={busyId === trip.id}
                 />
@@ -199,10 +205,12 @@ export default function TripsDashboard({ user }: Props) {
                   <div className="trip-actions">
                     <Button
                       appearance="primary"
-                      onClick={() => setPlanningTrip(trip)}
+                      onClick={() =>
+                        navigate(`/trips/${encodeURIComponent(trip.id)}`)
+                      }
                       disabled={busyId !== undefined}
                     >
-                      Plan trip
+                      Find flights
                     </Button>
                     <Button
                       appearance="subtle"
@@ -215,7 +223,10 @@ export default function TripsDashboard({ user }: Props) {
                     <Button
                       appearance="subtle"
                       icon={<Delete24Regular />}
-                      onClick={() => removeTrip(trip)}
+                      onClick={() => {
+                        setError(undefined);
+                        setTripToDelete(trip);
+                      }}
                       disabled={busyId === trip.id}
                     >
                       Delete
@@ -227,6 +238,44 @@ export default function TripsDashboard({ user }: Props) {
           ))}
         </div>
       )}
+      <Dialog
+        open={Boolean(tripToDelete)}
+        onOpenChange={(_, data) => {
+          if (!data.open && busyId !== tripToDelete?.id) {
+            setTripToDelete(undefined);
+            setError(undefined);
+          }
+        }}
+      >
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Delete trip?</DialogTitle>
+            <DialogContent>
+              Delete <strong>{tripToDelete?.name}</strong> and its planning
+              details? This cannot be undone.
+              {error && <Text role="alert">{error}</Text>}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                disabled={busyId === tripToDelete?.id}
+                onClick={() => {
+                  setTripToDelete(undefined);
+                  setError(undefined);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                appearance="primary"
+                disabled={busyId === tripToDelete?.id}
+                onClick={() => tripToDelete && void removeTrip(tripToDelete)}
+              >
+                {busyId === tripToDelete?.id ? "Deleting…" : "Delete trip"}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </section>
   );
 }

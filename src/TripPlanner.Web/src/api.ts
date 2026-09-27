@@ -5,7 +5,13 @@ export type CurrentUser = {
   email?: string;
   provider?: string;
   completedOnboarding: boolean;
-  homeCityName?: string;
+  featureFlags?: string[];
+  profile: UserProfile;
+};
+
+export type UserProfile = {
+  homeCity: { name: string; longitude: number; latitude: number } | null;
+  preferredAirlines: string[];
 };
 
 export type CitySuggestion = {
@@ -170,25 +176,20 @@ export async function resolveCity(
   return { longitude: coordinates[0], latitude: coordinates[1] };
 }
 
-export async function saveHomeCity(
-  city: CitySuggestion,
+export async function saveUserProfile(
+  profile: UserProfile,
   signal?: AbortSignal,
 ): Promise<CurrentUser> {
-  const location = await resolveCity(city, signal);
-  const response = await fetch(`${apiBaseUrl}/api/user/homeCity`, {
+  const response = await fetch(`${apiBaseUrl}/api/user/profile`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      cityName: city.label,
-      longitude: location.longitude,
-      latitude: location.latitude,
-    }),
+    body: JSON.stringify(profile),
     signal,
   });
   if (!response.ok) {
     throw new Error(
-      `The API returned ${response.status} while saving your city.`,
+      `The API returned ${response.status} while saving your profile.`,
     );
   }
 
@@ -205,6 +206,7 @@ export async function readTripError(response: Response, action: string) {
   try {
     const problem = (await response.json()) as {
       title?: string;
+      message?: string;
       errors?: Record<string, string[]>;
       issues?: { message: string }[];
     };
@@ -213,6 +215,7 @@ export async function readTripError(response: Response, action: string) {
       validationMessage ??
       (problem.issues?.map((issue) => issue.message).join(" ") ||
         problem.title ||
+        problem.message ||
         message);
   } catch {
     // Keep the status-based message when the response has no JSON body.
@@ -232,6 +235,19 @@ export async function listTrips(
     await readTripError(response, "loading trips");
   }
   return response.json() as Promise<Trip[]>;
+}
+
+export async function getTrip(
+  userId: string,
+  tripId: string,
+  signal?: AbortSignal,
+): Promise<Trip> {
+  const response = await fetch(tripResourceUrl(userId, tripId), {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) await readTripError(response, "loading the trip");
+  return response.json() as Promise<Trip>;
 }
 
 export async function createTrip(
@@ -281,7 +297,7 @@ export async function deleteTrip(
 }
 
 export function loginUrl(provider: "google" | "aad"): string {
-  const returnTo = `${window.location.origin}/`;
+  const returnTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
   return `${apiBaseUrl}/.auth/login/${provider}?post_login_redirect_uri=${encodeURIComponent(returnTo)}`;
 }
 

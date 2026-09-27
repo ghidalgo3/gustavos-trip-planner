@@ -63,6 +63,18 @@ public sealed class AirportCatalog
             .ToArray();
     }
 
+    public SearchLocation? Resolve(string query)
+    {
+        var normalized = Normalize(query.Trim());
+        var exactAirport = _airports.FirstOrDefault(a => Normalize(a.Code) == normalized);
+        if (exactAirport is not null)
+            return exactAirport.Location;
+        var cityAirport = _airports.FirstOrDefault(a => MatchesCity(a.City, normalized));
+        if (cityAirport is not null)
+            return CityLocation(cityAirport);
+        return Search(query).FirstOrDefault()?.Location;
+    }
+
     public SearchLocation? SuggestOrigin(IReadOnlyList<User> members)
     {
         if (
@@ -80,12 +92,36 @@ public sealed class AirportCatalog
             .Select(a => (Airport: a, Km: Distance(point, a)))
             .Where(a => a.Km <= 250)
             .ToArray();
-        return nearby
+        var nearest = nearby
             .OrderBy(a => a.Airport.Major && a.Km <= 75 ? 0 : 1)
             .ThenBy(a => a.Km)
             .ThenBy(a => a.Airport.Code)
             .FirstOrDefault()
-            .Airport?.Location;
+            .Airport;
+        return nearest is null ? null
+            : string.IsNullOrWhiteSpace(nearest.City) ? nearest.Location
+            : CityLocation(nearest);
+    }
+
+    private SearchLocation CityLocation(Airport airport)
+    {
+        if (string.IsNullOrWhiteSpace(airport.City))
+            return airport.Location;
+        var codes = _airports
+            .Where(a =>
+                MatchesCity(a.City, Normalize(airport.City).Split('(', ',')[0].Trim())
+                && a.Country == airport.Country
+            )
+            .OrderByDescending(a => a.Major)
+            .ThenBy(a => a.Code)
+            .Select(a => a.Code)
+            .ToArray();
+        return new(
+            codes[0],
+            airport.TimeZone,
+            $"{airport.City}, {airport.Country} ({string.Join(", ", codes)})",
+            codes
+        );
     }
 
     private static double Distance(GeographicPoint point, Airport airport)
@@ -108,4 +144,12 @@ public sealed class AirportCatalog
                 .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
                 .ToArray()
         ).ToLowerInvariant();
+
+    private static bool MatchesCity(string airportCity, string normalizedCity)
+    {
+        var city = Normalize(airportCity);
+        return city == normalizedCity
+            || city.StartsWith(normalizedCity + " (", StringComparison.Ordinal)
+            || city.StartsWith(normalizedCity + ",", StringComparison.Ordinal);
+    }
 }

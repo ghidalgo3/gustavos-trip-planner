@@ -159,11 +159,91 @@ public class TripsEndpointTests
         StringAssert.Contains(await longDescription.Content.ReadAsStringAsync(), "Description");
     }
 
+    [TestMethod]
+    public async Task PartyMembership_IsOwnerManagedAndIdempotent()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var ownerClient = factory.CreateClient();
+        AddPrincipal(ownerClient, "owner@example.com");
+        CurrentUserResponse owner = await CompleteOnboardingAsync(ownerClient);
+        Trip? trip = await (
+            await ownerClient.PostAsJsonAsync(
+                $"/api/user/{owner.Id}/trips",
+                new CreateTripRequest("Paris", "")
+            )
+        ).Content.ReadFromJsonAsync<Trip>();
+        Assert.IsNotNull(trip);
+        Guid partyId = factory.Database.Parties.Single().Id;
+
+        using var travelerClient = factory.CreateClient();
+        AddPrincipal(travelerClient, "traveler@example.com");
+        CurrentUserResponse traveler = (
+            await (
+                await travelerClient.PutAsJsonAsync(
+                    "/api/user/profile",
+                    new UserProfile(new("Seattle", -122.33, 47.61), [])
+                )
+            ).Content.ReadFromJsonAsync<CurrentUserResponse>()
+        )!;
+        string memberUrl =
+            $"/api/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{traveler.Id}";
+
+        UserSearchResult[]? found = await ownerClient.GetFromJsonAsync<UserSearchResult[]>(
+            "/api/users?query=Test"
+        );
+        Assert.IsNotNull(found);
+        Assert.HasCount(1, found);
+        Assert.AreEqual(traveler.Id, found[0].Id);
+
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (await travelerClient.PutAsync(memberUrl, null)).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await ownerClient.PutAsync(memberUrl, null)).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await ownerClient.PutAsync(memberUrl, null)).StatusCode
+        );
+        CollectionAssert.AreEqual(
+            new[] { owner.Id!.Value, traveler.Id!.Value },
+            factory.Database.Parties.Single().UserIds.ToArray()
+        );
+
+        PlanningEditor? editor = await ownerClient.GetFromJsonAsync<PlanningEditor>(
+            $"/api/user/{owner.Id}/trips/{trip.Id}/planning"
+        );
+        Assert.AreEqual("BOS", editor?.Parties.Single().SuggestedOrigin?.Code);
+
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await ownerClient.DeleteAsync(memberUrl)).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await ownerClient.DeleteAsync(memberUrl)).StatusCode
+        );
+        CollectionAssert.AreEqual(
+            new[] { owner.Id!.Value },
+            factory.Database.Parties.Single().UserIds.ToArray()
+        );
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await ownerClient.DeleteAsync(
+                    $"/api/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{owner.Id}"
+                )
+            ).StatusCode
+        );
+    }
+
     private static async Task<CurrentUserResponse> CompleteOnboardingAsync(HttpClient client)
     {
         HttpResponseMessage response = await client.PutAsJsonAsync(
-            "/api/user/homeCity",
-            new SetHomeCityRequest("Boston, Massachusetts, United States", -71.0589, 42.3601)
+            "/api/user/profile",
+            new UserProfile(new("Boston, Massachusetts, United States", -71.0589, 42.3601), [])
         );
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<CurrentUserResponse>()

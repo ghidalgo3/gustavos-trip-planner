@@ -17,3 +17,13 @@ public sealed record CreateTripRequest(string Name, string? Description);
 public sealed record UpdateTripRequest(string Name, string? Description);
 
 public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds);
+
+public enum PartyMemberChangeStatus
+{
+    Success,
+    PartyNotFound,
+    UserNotFound,
+    AlreadyInAnotherParty,
+    PartyFull,
+    OwnerCannotLeave,
+}

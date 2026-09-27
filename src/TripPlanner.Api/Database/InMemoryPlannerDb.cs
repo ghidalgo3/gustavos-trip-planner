@@ -197,25 +197,40 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         }
     }
 
-    public Task<User> SetHomeCityAsync(
-        AuthenticatedUserProfile profile,
-        string cityName,
-        GeographicPoint location,
+    public Task<User> SetUserProfileAsync(
+        Guid userId,
+        UserProfile profile,
         CancellationToken cancellationToken = default
     )
     {
-        User user = _users.AddOrUpdate(
-            profile.Email,
-            _ => CreateUser(profile) with { HomeCityName = cityName, HomeCityLocation = location },
-            (_, existing) =>
-                MergeProvider(existing, profile.Provider) with
-                {
-                    HomeCityName = cityName,
-                    HomeCityLocation = location,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                }
-        );
-        return Task.FromResult(user);
+        cancellationToken.ThrowIfCancellationRequested();
+        User existing = _users.Values.Single(user => user.Id == userId);
+        User updated = existing with
+        {
+            HomeCityName = profile.HomeCity!.Name,
+            HomeCityLocation = new(profile.HomeCity.Longitude, profile.HomeCity.Latitude),
+            PreferredAirlines = profile.PreferredAirlines!,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        _users[existing.Email] = updated;
+        return Task.FromResult(updated);
+    }
+
+    public Task<User> SetUserFeatureFlagsAsync(
+        Guid userId,
+        string featureFlags,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        User existing = _users.Values.Single(user => user.Id == userId);
+        User updated = existing with
+        {
+            FeatureFlags = featureFlags,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        _users[existing.Email] = updated;
+        return Task.FromResult(updated);
     }
 
     private static User CreateUser(AuthenticatedUserProfile profile)
@@ -228,6 +243,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             profile.DisplayName,
             null,
             null,
+            [],
             now,
             now
         );

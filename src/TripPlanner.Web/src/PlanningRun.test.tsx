@@ -1,16 +1,23 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
+import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
 import PlanningRun from "./PlanningRun";
-import type { PartySettings, PlanningParty } from "./planningApi";
+import type {
+  PartySettings,
+  PlanningConstraint,
+  PlanningParty,
+} from "./planningApi";
 import {
+  FlightSearchValidationError,
   getFlightSearchResults,
   getOperations,
   startFlightSearch,
   type TrackedOperation,
 } from "./operationsApi";
 
-vi.mock("./operationsApi", () => ({
+vi.mock("./operationsApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./operationsApi")>()),
   getFlightSearchResults: vi.fn(),
   getOperations: vi.fn(),
   startFlightSearch: vi.fn(),
@@ -42,16 +49,28 @@ const partySettings: PartySettings = {
   preferredAirlines: [],
 };
 
-function show(parties: PlanningParty[] = [], settings: PartySettings[] = []) {
+const reviewRequirements = vi.fn();
+
+function show(
+  parties: PlanningParty[] = [],
+  settings: PartySettings[] = [],
+  constraints: PlanningConstraint[] = [],
+  currentAiPrompt?: string,
+) {
   return render(
     <FluentProvider theme={webLightTheme}>
-      <PlanningRun
-        tripId="trip"
-        parties={parties}
-        partySettings={settings}
-        disabled={false}
-        onBeforeSearch={save}
-      />
+      <MemoryRouter>
+        <PlanningRun
+          tripId="trip"
+          parties={parties}
+          partySettings={settings}
+          constraints={constraints}
+          currentAiPrompt={currentAiPrompt}
+          disabled={false}
+          onBeforeSearch={save}
+          onReviewRequirements={reviewRequirements}
+        />
+      </MemoryRouter>
     </FluentProvider>,
   );
 }
@@ -67,7 +86,7 @@ test("saves constraints, starts asynchronously, and retrieves the fare cache", a
   await waitFor(() => expect(getOperations).toHaveBeenCalled());
   vi.mocked(startFlightSearch).mockResolvedValue(operation);
   vi.mocked(getOperations).mockResolvedValue([operation]);
-  fireEvent.click(screen.getByRole("button", { name: "Plan trip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
   expect(await screen.findByRole("status")).toHaveTextContent(
     "0 of 2 searches completed",
   );
@@ -92,7 +111,7 @@ test("saves constraints, starts asynchronously, and retrieves the fare cache", a
     "trip",
     expect.any(AbortSignal),
   );
-  expect(screen.getByRole("button", { name: "Plan trip" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Find flights" })).toBeEnabled();
 });
 
 test("reopening a trip discovers its latest operation from the generic list", async () => {
@@ -143,13 +162,62 @@ test("retries uncertain submissions with the same request ID", async () => {
     new Error("Network unavailable"),
   );
   show();
-  fireEvent.click(screen.getByRole("button", { name: "Plan trip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Network unavailable",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Plan trip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
   await waitFor(() => expect(startFlightSearch).toHaveBeenCalledTimes(2));
   expect(vi.mocked(startFlightSearch).mock.calls[1][1]).toBe(
     vi.mocked(startFlightSearch).mock.calls[0][1],
   );
+});
+
+test("explains date conflicts with affected requirement values", async () => {
+  const returnWindow: PlanningConstraint = {
+    id: "old-return",
+    userId: "user",
+    type: "returnHomeWindow",
+    window: { earliest: "2030-12-03", latest: "2030-12-09", preferred: null },
+    originalInput: "Old New York trip",
+    countryCodes: [],
+  };
+  const stay: PlanningConstraint = {
+    id: "new-stay",
+    userId: "user",
+    type: "presence",
+    startDate: "2031-01-06",
+    endDate: "2031-01-08",
+    countryCodes: [],
+  };
+  vi.mocked(startFlightSearch).mockRejectedValue(
+    new FlightSearchValidationError([
+      {
+        code: "conflict",
+        partyId: "party",
+        constraintIds: ["old-return", "new-stay"],
+        message:
+          "Return-flight window ends Dec 9, 2030, before the required stay ends Jan 8, 2031.",
+      },
+    ]),
+  );
+  show([party], [partySettings], [returnWindow, stay], "New Boise trip");
+  fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Travel dates need attention",
+  );
+  expect(screen.getByLabelText("Planning conflicts")).toHaveTextContent(
+    "Dec 9, 2030",
+  );
+  expect(screen.getByLabelText("Planning conflicts")).toHaveTextContent(
+    "Requirement 1: Return flight",
+  );
+  expect(screen.getByLabelText("Planning conflicts")).toHaveTextContent(
+    "from an earlier trip description",
+  );
+  expect(screen.getByLabelText("Planning conflicts")).toHaveTextContent(
+    "Requirement 2: Required destination stay",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review requirements" }));
+  expect(reviewRequirements).toHaveBeenCalledWith("old-return");
 });

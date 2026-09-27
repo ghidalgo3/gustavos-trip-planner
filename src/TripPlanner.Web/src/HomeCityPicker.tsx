@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Button } from "@fluentui/react-components";
 import AsyncAutocomplete from "./AsyncAutocomplete";
 import {
-  saveHomeCity,
+  resolveCity,
+  saveUserProfile,
   searchCities,
   type CitySuggestion,
   type CurrentUser,
@@ -26,7 +27,13 @@ export default function HomeCityPicker({ onSaved }: HomeCityPickerProps) {
     setSaving(true);
     setError(undefined);
     try {
-      onSaved(await saveHomeCity(selectedCity));
+      const location = await resolveCity(selectedCity);
+      onSaved(
+        await saveUserProfile({
+          homeCity: { name: selectedCity.label, ...location },
+          preferredAirlines: [],
+        }),
+      );
     } catch (reason) {
       setError(
         reason instanceof Error

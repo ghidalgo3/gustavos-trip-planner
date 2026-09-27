@@ -31,6 +31,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 builder.AddPostgres();
 builder.Services.AddSingleton<AirportCatalog>();
+builder.Services.Configure<OpenAiOptions>(
+    builder.Configuration.GetSection(OpenAiOptions.SectionName)
+);
+builder.Services.AddHttpClient<ITripFormAssistant, OpenAiTripFormAssistant>(client =>
+    client.Timeout = TimeSpan.FromSeconds(90)
+);
 builder.AddIgnav();
 builder.Services.AddSingleton<IMapTokenProvider>(serviceProvider =>
 {
@@ -115,6 +121,8 @@ api.MapGet(
 
 api.MapUserEndpoints();
 api.MapTripsEndpoints();
+api.MapPartyEndpoints();
+api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();
 
 app.MapFallbackToFile("index.html");

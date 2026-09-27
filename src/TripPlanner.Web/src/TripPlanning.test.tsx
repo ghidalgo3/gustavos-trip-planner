@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
+import { MemoryRouter, useLocation } from "react-router";
 import { expect, test, vi } from "vitest";
 import TripPlanning from "./TripPlanning";
 import type { Trip } from "./api";
@@ -57,24 +58,307 @@ const document: PlanningDocument = {
 const parties = [
   { id: partyId, members: [{ id: userId, name: "Ada", homeCity: "Boston" }] },
 ];
-function show(onSaved = vi.fn()) {
+function RouteQuery() {
+  return <div data-testid="route-query">{useLocation().search}</div>;
+}
+function show(
+  onSaved = vi.fn(),
+  route = "/trips/trip",
+  featureFlags: string[] = [],
+  formOperations: { id: string; resourceId: string; status: string }[] = [],
+  onOperationListRequest?: (url: string) => void,
+) {
   const fetchMock = globalThis.fetch;
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
-    String(input).includes("/api/operations?")
-      ? Promise.resolve({ ok: true, json: async () => [] })
-      : fetchMock(input, init),
-  );
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/operations?")) {
+      onOperationListRequest?.(url);
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.includes("type=tripFormFill") ? formOperations : [],
+      });
+    }
+    return fetchMock(input, init);
+  });
   return render(
     <FluentProvider theme={webLightTheme}>
-      <TripPlanning
-        trip={trip}
-        userId={userId}
-        onSaved={onSaved}
-        onBack={vi.fn()}
-      />
+      <MemoryRouter initialEntries={[route]}>
+        <TripPlanning
+          trip={trip}
+          userId={userId}
+          featureFlags={featureFlags}
+          onSaved={onSaved}
+          onBack={vi.fn()}
+        />
+        <RouteQuery />
+      </MemoryRouter>
     </FluentProvider>,
   );
 }
+
+test("AI form fill is flag gated and leaves a reviewable unsaved draft", async () => {
+  const filled: PlanningDocument = {
+    ...document,
+    destination: {
+      code: "LHR",
+      timeZone: "Europe/London",
+      label: "London · Heathrow (LHR)",
+    },
+    constraints: [
+      ...document.constraints,
+      { id: "nonstop", userId, type: "nonstop", countryCodes: [] },
+    ],
+  };
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/formProposal")) {
+        expect(init?.method).toBe("POST");
+        return {
+          ok: true,
+          json: async () => ({ id: "operation-1", status: "pending" }),
+        };
+      }
+      if (String(input).endsWith("/api/operations/operation-1"))
+        return {
+          ok: true,
+          json: async () => ({ id: "operation-1", status: "Completed" }),
+        };
+      if (String(input).endsWith("/formProposal/operation-1"))
+        return {
+          ok: true,
+          json: async () => ({
+            document: {
+              ...filled,
+              aiPrompt: "London, nonstop please",
+              aiFormOperationId: "operation-1",
+            },
+            warnings: [],
+          }),
+        };
+      if (String(input).endsWith("/constraints") && init?.method === "PUT")
+        return { ok: true, json: async () => trip };
+      return { ok: true, json: async () => ({ document, parties }) };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const first = show();
+  await screen.findByRole("heading", { name: "Where and when?" });
+  expect(
+    screen.queryByRole("textbox", {
+      name: "Trip description for AI assistance",
+    }),
+  ).not.toBeInTheDocument();
+  first.unmount();
+  show(vi.fn(), "/trips/trip", ["LLM"]);
+  const text = await screen.findByRole("textbox", {
+    name: "Trip description for AI assistance",
+  });
+  fireEvent.change(text, { target: { value: "London, nonstop please" } });
+  fireEvent.click(screen.getByRole("button", { name: "Fill trip details" }));
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Destination" })).toHaveValue(
+      "London · Heathrow (LHR)",
+    ),
+  );
+  expect(
+    await screen.findByRole("group", { name: "Requirement 3" }),
+  ).toBeVisible();
+  expect(screen.getByText("Unsaved changes")).toBeVisible();
+  expect(text).toHaveAttribute("readonly");
+  expect(text.closest(".trip-prompt-locked")).not.toBeNull();
+  fireEvent.mouseEnter(text);
+  expect(screen.getByRole("tooltip")).toHaveTextContent(
+    "Later edits to trip details do not update this text",
+  );
+  fireEvent.mouseLeave(text);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.click(text);
+  expect(screen.getByRole("tooltip")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Plan again" }));
+  expect(
+    screen.getByText(/description and trip details will stay as they are/),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(text).toHaveAttribute("readonly");
+  fireEvent.click(screen.getByRole("button", { name: "Plan again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Unlock description" }));
+  await waitFor(() => expect(text).not.toHaveAttribute("readonly"));
+  expect(text).toHaveValue("London, nonstop please");
+  expect(screen.getByRole("combobox", { name: "Destination" })).toHaveValue(
+    "London · Heathrow (LHR)",
+  );
+  expect(screen.getByRole("group", { name: "Requirement 3" })).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Fill trip details" }),
+  ).toBeVisible();
+  expect(
+    fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/constraints"),
+    ),
+  ).toHaveLength(1);
+  const unlocked = JSON.parse(
+    fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/constraints"),
+    )?.[1]?.body as string,
+  ) as PlanningDocument;
+  expect(unlocked.constraints).toHaveLength(3);
+  expect(unlocked.aiPrompt).toBe("London, nonstop please");
+  expect(unlocked.aiPromptLocked).toBe(false);
+  fireEvent.change(text, { target: { value: "London, one stop is fine" } });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save planning details" }),
+  );
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith("/constraints"),
+      ),
+    ).toHaveLength(2),
+  );
+  const edited = JSON.parse(
+    fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/constraints"),
+    )[1][1]?.body as string,
+  ) as PlanningDocument;
+  expect(edited.aiPrompt).toBe("London, one stop is fine");
+});
+
+test("shows a spinner while the AI form operation is running", async () => {
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/formProposal") && init?.method === "POST")
+        return {
+          ok: true,
+          json: async () => ({ id: "operation-1", status: "pending" }),
+        };
+      if (url.endsWith("/api/operations/operation-1"))
+        return {
+          ok: true,
+          json: async () => ({ id: "operation-1", status: "InProgress" }),
+        };
+      return { ok: true, json: async () => ({ document, parties }) };
+    },
+  );
+  show(vi.fn(), "/trips/trip", ["LLM"]);
+  const text = await screen.findByRole("textbox", {
+    name: "Trip description for AI assistance",
+  });
+  fireEvent.change(text, { target: { value: "Paris in January" } });
+  fireEvent.click(screen.getByRole("button", { name: "Fill trip details" }));
+  expect(
+    await screen.findByText("Filling trip details with AI…"),
+  ).toBeVisible();
+});
+
+test("restores a completed form fill after returning to the trip", async () => {
+  const filled: PlanningDocument = {
+    ...document,
+    aiPrompt: "Paris January 5 to 15",
+    aiFormOperationId: "operation-1",
+    travelDates: { startDate: "2030-01-05", endDate: "2030-01-15" },
+  };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/api/operations/operation-1"))
+      return {
+        ok: true,
+        json: async () => ({ id: "operation-1", status: "Completed" }),
+      };
+    if (url.endsWith("/formProposal/operation-1"))
+      return {
+        ok: true,
+        json: async () => ({ document: filled, warnings: [] }),
+      };
+    return { ok: true, json: async () => ({ document, parties }) };
+  });
+  show(
+    vi.fn(),
+    "/trips/trip",
+    ["LLM"],
+    [{ id: "operation-1", resourceId: trip.id, status: "Completed" }],
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("textbox", {
+        name: "Trip description for AI assistance",
+      }),
+    ).toHaveValue("Paris January 5 to 15"),
+  );
+  expect(screen.getByRole("button", { name: "Plan again" })).toBeVisible();
+});
+
+test("an unlocked AI description stays editable after reopening the trip", async () => {
+  const saved: PlanningDocument = {
+    ...document,
+    aiPrompt: "London, nonstop please",
+    aiPromptLocked: false,
+    aiFormOperationId: "operation-1",
+  };
+  vi.stubGlobal("fetch", async () => ({
+    ok: true,
+    json: async () => ({ document: saved, parties }),
+  }));
+  show(
+    vi.fn(),
+    "/trips/trip",
+    ["LLM"],
+    [{ id: "operation-1", resourceId: trip.id, status: "Completed" }],
+  );
+  const text = await screen.findByRole("textbox", {
+    name: "Trip description for AI assistance",
+  });
+  expect(text).toHaveValue("London, nonstop please");
+  expect(text).not.toHaveAttribute("readonly");
+  expect(
+    screen.getByRole("button", { name: "Fill trip details" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Plan again" }),
+  ).not.toBeInTheDocument();
+});
+
+test("editing the AI description does not repeat operation recovery requests", async () => {
+  vi.stubGlobal("fetch", async () => ({
+    ok: true,
+    json: async () => ({ document, parties }),
+  }));
+  const operationRequests: string[] = [];
+  show(vi.fn(), "/trips/trip", ["LLM"], [], (url) =>
+    operationRequests.push(url),
+  );
+  const text = await screen.findByRole("textbox", {
+    name: "Trip description for AI assistance",
+  });
+  await waitFor(() =>
+    expect(
+      operationRequests.filter((url) => url.includes("type=tripFormFill")),
+    ).toHaveLength(1),
+  );
+  for (const value of ["P", "Pa", "Paris"])
+    fireEvent.change(text, { target: { value } });
+  expect(text).toHaveValue("Paris");
+  expect(
+    operationRequests.filter((url) => url.includes("type=tripFormFill")),
+  ).toHaveLength(1);
+});
+
+test("restores and toggles the advanced panel through the route", async () => {
+  vi.stubGlobal("fetch", async () => ({
+    ok: true,
+    json: async () => ({ document, parties }),
+  }));
+  show(vi.fn(), "/trips/trip?advanced=1");
+  const toggle = await screen.findByRole("button", {
+    name: "Advanced",
+  });
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByTestId("route-query")).not.toHaveTextContent("advanced");
+});
 
 test("loads and saves an airport suggestion", async () => {
   let stored = structuredClone(document);
@@ -118,14 +402,12 @@ test("loads and saves an airport suggestion", async () => {
   const destination = await screen.findByRole("combobox", {
     name: "Destination",
   });
-  expect(screen.getByRole("button", { name: "Plan trip" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Find flights" })).toBeVisible();
   expect(
     screen.queryByRole("button", { name: "Preview flight searches" }),
   ).not.toBeInTheDocument();
   fireEvent.change(destination, { target: { value: "London" } });
-  expect(
-    screen.getByText("Choose an airport from the suggestions to continue"),
-  ).toBeVisible();
+  expect(destination).toHaveValue("London");
   fireEvent.click(
     await screen.findByRole("option", { name: /London.*Heathrow/ }),
   );
@@ -152,6 +434,60 @@ test("loads and saves an airport suggestion", async () => {
   ).toHaveValue("London · Heathrow (LHR)");
 });
 
+test("selecting a city searches all its airports and allows removing one", async () => {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/airports?"))
+        return {
+          ok: true,
+          json: async () =>
+            ["JFK", "EWR"].map((code) => ({
+              code,
+              city: "New York",
+              name: code === "JFK" ? "John F Kennedy" : "Newark Liberty",
+              country: "US",
+              location: {
+                code,
+                label: `New York · ${code} (${code})`,
+                timeZone: "America/New_York",
+              },
+            })),
+        };
+      if (url.endsWith("/constraints") && init?.method === "PUT")
+        return { ok: true, json: async () => trip };
+      return { ok: true, json: async () => ({ document, parties }) };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  show();
+  const destination = await screen.findByRole("combobox", {
+    name: "Destination",
+  });
+  fireEvent.change(destination, { target: { value: "New York" } });
+  fireEvent.click(
+    await screen.findByRole("option", { name: /New York, US.*all airports/ }),
+  );
+  expect(screen.getByText("Searching JFK, EWR")).toBeVisible();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove EWR from Destination" }),
+  );
+  expect(screen.getByText("Searching JFK")).toBeVisible();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save planning details" }),
+  );
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init?.method === "PUT"),
+    ).toBe(true),
+  );
+  const saved = JSON.parse(
+    fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")?.[1]
+      ?.body as string,
+  ) as PlanningDocument;
+  expect(saved.destination?.codes).toEqual(["JFK"]);
+});
+
 test("departure and return-flight flexibility are independent", async () => {
   const fetchMock = vi.fn(
     async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -161,6 +497,7 @@ test("departure and return-flight flexibility are independent", async () => {
   );
   vi.stubGlobal("fetch", fetchMock);
   show();
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced" }));
   const departure = await screen.findByRole("group", { name: "Requirement 1" });
   const home = screen.getByRole("group", { name: "Requirement 2" });
   fireEvent.click(within(departure).getByRole("checkbox"));
@@ -200,6 +537,7 @@ test("supports adding and removing requirements", async () => {
     })),
   );
   show();
+  fireEvent.click(await screen.findByRole("button", { name: "Advanced" }));
   await screen.findByRole("group", { name: "Requirement 1" });
   fireEvent.click(screen.getByRole("button", { name: "Add requirement" }));
   const added = screen.getByRole("group", { name: "Requirement 3" });
@@ -286,11 +624,11 @@ test("uses calendar dates and a suggested home airport without requiring constra
   const end = screen.getByLabelText("Return flight date");
   expect(start).toHaveAttribute("type", "date");
   expect(end).toHaveAttribute("type", "date");
-  expect(screen.getByRole("combobox", { name: "Party 1 origin" })).toHaveValue(
-    "Boston · Logan (BOS)",
-  );
+  expect(
+    screen.getByRole("combobox", { name: "Departure airport" }),
+  ).toHaveValue("Boston · Logan (BOS)");
   expect(screen.queryByLabelText("Cabin")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Advanced filters" }));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
   expect(screen.getByLabelText("Cabin")).toBeVisible();
   expect(screen.getByLabelText("Pricing market")).toBeVisible();
   expect(
@@ -303,7 +641,7 @@ test("uses calendar dates and a suggested home airport without requiring constra
   fireEvent.change(screen.getByLabelText("Cabin"), {
     target: { value: "business" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Advanced filters" }));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
   expect(screen.queryByLabelText("Cabin")).not.toBeInTheDocument();
   fireEvent.change(start, { target: { value: "2030-01-05" } });
   fireEvent.change(end, { target: { value: "2030-01-15" } });
@@ -327,7 +665,7 @@ test("uses calendar dates and a suggested home airport without requiring constra
   expect(body.parties[0].cabin).toBe("business");
 });
 
-test("shows an invitation placeholder for each party", async () => {
+test("shows compact party selection before the destination", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -336,10 +674,79 @@ test("shows an invitation placeholder for each party", async () => {
     })),
   );
   show();
+  const selector = await screen.findByLabelText("Party 1");
+  expect(
+    within(selector).getByRole("combobox", { name: "Add traveler" }),
+  ).toBeVisible();
+  expect(within(selector).getByText("Ada (you)")).toBeVisible();
+  expect(
+    within(selector).queryByRole("button", { name: /Remove/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    selector.compareDocumentPosition(
+      screen.getByRole("heading", { name: "Where and when?" }),
+    ),
+  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+test("searches users by name and adds and removes a party member", async () => {
+  const traveler = {
+    id: "33333333-3333-3333-3333-333333333333",
+    name: "Alice Smith",
+    email: "alice@example.com",
+  };
+  let members = [...parties[0].members];
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/users?query="))
+        return { ok: true, json: async () => [traveler] };
+      if (url.endsWith(`/members/${traveler.id}`)) {
+        if (init?.method === "PUT")
+          members = [
+            ...members,
+            { id: traveler.id, name: traveler.name, homeCity: "Seattle" },
+          ];
+        else if (init?.method === "DELETE")
+          members = members.filter((member) => member.id !== traveler.id);
+        return { ok: true, status: 204 };
+      }
+      if (url.endsWith("/planning"))
+        return {
+          ok: true,
+          json: async () => ({
+            document,
+            parties: [{ ...parties[0], members }],
+          }),
+        };
+      throw new Error(`Unexpected request: ${url}`);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  show();
+  const input = await screen.findByRole("combobox", { name: "Add traveler" });
+  fireEvent.change(input, { target: { value: "Alice" } });
+  fireEvent.click(await screen.findByRole("option", { name: /Alice Smith/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  expect(await screen.findByText("Alice Smith")).toBeVisible();
   fireEvent.click(
-    await screen.findByRole("button", { name: "Invite someone to Party 1" }),
+    screen.getByRole("button", { name: "Remove Alice Smith from party" }),
   );
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "Inviting travelers is coming soon.",
+  await waitFor(() =>
+    expect(screen.queryByText("Alice Smith")).not.toBeInTheDocument(),
   );
+  expect(
+    fetchMock.mock.calls.some(
+      ([url, init]) =>
+        String(url).endsWith(`/members/${traveler.id}`) &&
+        init?.method === "PUT",
+    ),
+  ).toBe(true);
+  expect(
+    fetchMock.mock.calls.some(
+      ([url, init]) =>
+        String(url).endsWith(`/members/${traveler.id}`) &&
+        init?.method === "DELETE",
+    ),
+  ).toBe(true);
 });

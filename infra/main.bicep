@@ -125,7 +125,25 @@ resource postgresExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configura
   parent: postgresServer
   properties: {
     source: 'user-override'
-    value: 'POSTGIS'
+    value: 'POSTGIS,PG_CRON'
+  }
+}
+
+resource postgresPreloadLibraries 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
+  name: 'shared_preload_libraries'
+  parent: postgresServer
+  properties: {
+    source: 'user-override'
+    value: 'pg_cron,pg_stat_statements'
+  }
+}
+
+resource postgresCronDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
+  name: 'cron.database_name'
+  parent: postgresServer
+  properties: {
+    source: 'user-override'
+    value: postgresDatabase.name
   }
 }
 

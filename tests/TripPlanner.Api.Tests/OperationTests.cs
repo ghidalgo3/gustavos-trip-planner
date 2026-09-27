@@ -54,7 +54,12 @@ public sealed class OperationTests
     }
 
     [TestMethod]
-    public async Task QueueContract_InMemory() => await QueueContract(new InMemoryPlannerDb());
+    public async Task QueueContract_InMemory()
+    {
+        var db = new InMemoryPlannerDb();
+        await QueueContract(db);
+        await TripFormQueueContract(db);
+    }
 
     [TestMethod]
     public async Task QueueContract_Postgres()
@@ -80,7 +85,8 @@ public sealed class OperationTests
                 var schema = source.CreateCommand(
                     """
                     SELECT count(*), to_regclass('public.operations'),
-                        to_regclass('public.fare_searches'), to_regclass('public.operation_items')
+                        to_regclass('public.fare_searches'), to_regclass('public.operation_items'),
+                        to_regclass('public.trip_form_jobs')
                     FROM schema_migrations;
                     """
                 )
@@ -92,8 +98,11 @@ public sealed class OperationTests
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
+                Assert.IsFalse(reader.IsDBNull(4));
             }
-            await QueueContract(new PostgresPlannerDb(source));
+            var db = new PostgresPlannerDb(source);
+            await QueueContract(db);
+            await TripFormQueueContract(db);
         }
         finally
         {
@@ -157,6 +166,54 @@ public sealed class OperationTests
         Assert.IsEmpty(await db.GetOperationsAsync(user.Id, "anotherType", 10, 0));
     }
 
+    private static async Task TripFormQueueContract(IPlannerDb db)
+    {
+        var (user, trip, _) = await Seed(db);
+        Guid id = Guid.NewGuid();
+        var draft = new PlanningDocument();
+        TrackedOperation created = await db.CreateTripFormOperationAsync(
+            user.Id,
+            trip.Id,
+            id,
+            "Paris January 5 to 15",
+            draft
+        );
+        Assert.AreEqual(OperationState.TripFormFill, created.Type);
+        Assert.AreEqual("pending", created.Status);
+        Assert.AreEqual(
+            id,
+            (
+                await db.CreateTripFormOperationAsync(
+                    user.Id,
+                    trip.Id,
+                    id,
+                    "Paris January 5 to 15",
+                    draft
+                )
+            ).Id
+        );
+        Assert.IsNull(await db.GetTripFormProposalAsync(Guid.NewGuid(), trip.Id, id));
+        TripFormWork? work = await db.ClaimTripFormWorkAsync(TimeSpan.FromMinutes(2));
+        Assert.IsNotNull(work);
+        Assert.AreEqual(id, work.OperationId);
+        Assert.IsNull(await db.ClaimTripFormWorkAsync(TimeSpan.FromMinutes(2)));
+        var proposal = new TripFormProposal(
+            draft with
+            {
+                Destination = new SearchLocation("CDG", "Europe/Paris"),
+                AiPrompt = work.Input,
+            },
+            []
+        );
+        Assert.IsTrue(await db.CompleteTripFormWorkAsync(work, proposal, null));
+        Assert.IsFalse(await db.CompleteTripFormWorkAsync(work, proposal, null));
+        Assert.AreEqual("Completed", (await db.GetOperationAsync(user.Id, id))?.Status);
+        Assert.AreEqual(
+            "CDG",
+            (await db.GetTripFormProposalAsync(user.Id, trip.Id, id))?.Document.Destination?.Code
+        );
+    }
+
     [TestMethod]
     public async Task Worker_UsesFreshCacheAndRefreshesExpiredEntries()
     {
@@ -171,7 +228,8 @@ public sealed class OperationTests
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             clock,
-            NullLogger<PlanningWorker>.Instance
+            NullLogger<PlanningWorker>.Instance,
+            null
         );
         await db.CreateFlightSearchOperationAsync(user.Id, trip.Id, Guid.NewGuid(), preview);
         Assert.IsTrue(await worker.ProcessNextAsync());
@@ -210,8 +268,8 @@ public sealed class OperationTests
         var user = (
             await (
                 await client.PutAsJsonAsync(
-                    "/api/user/homeCity",
-                    new SetHomeCityRequest("Boston", -71, 42)
+                    "/api/user/profile",
+                    new UserProfile(new("Boston", -71, 42), [])
                 )
             ).Content.ReadFromJsonAsync<CurrentUserResponse>()
         )!;
@@ -271,7 +329,8 @@ public sealed class OperationTests
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             TimeProvider.System,
-            NullLogger<PlanningWorker>.Instance
+            NullLogger<PlanningWorker>.Instance,
+            null
         );
         while (await worker.ProcessNextAsync()) { }
         Assert.AreEqual(HttpStatusCode.OK, (await client.GetAsync(path)).StatusCode);
@@ -286,8 +345,8 @@ public sealed class OperationTests
         other.DefaultRequestHeaders.Add("X-Test-Subject", "other");
         other.DefaultRequestHeaders.Add("X-Test-Email", "other@example.com");
         await other.PutAsJsonAsync(
-            "/api/user/homeCity",
-            new SetHomeCityRequest("Seattle", -122, 47)
+            "/api/user/profile",
+            new UserProfile(new("Seattle", -122, 47), [])
         );
         Assert.AreEqual(HttpStatusCode.NotFound, (await other.GetAsync(path)).StatusCode);
         Assert.AreEqual(

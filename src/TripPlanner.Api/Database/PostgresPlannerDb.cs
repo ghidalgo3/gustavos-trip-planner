@@ -96,7 +96,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at
+                created_at, updated_at, preferred_airlines, "FeatureFlags"
             FROM users
             WHERE id = $1;
             """
@@ -119,7 +119,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at
+                created_at, updated_at, preferred_airlines, "FeatureFlags"
             FROM users
             WHERE email = $1;
             """
@@ -129,33 +129,50 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         return await reader.ReadAsync(cancellationToken) ? ReadUser(reader) : null;
     }
 
-    public async Task<User> SetHomeCityAsync(
-        AuthenticatedUserProfile profile,
-        string cityName,
-        GeographicPoint location,
+    public async Task<User> SetUserProfileAsync(
+        Guid userId,
+        UserProfile profile,
         CancellationToken cancellationToken = default
     )
     {
-        await GetOrCreateUserAsync(profile, cancellationToken);
-
         await using NpgsqlCommand command = dataSource.CreateCommand(
             """
             UPDATE users
             SET
                 home_city_name = $1,
                 home_city_location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
+                preferred_airlines = $4,
                 updated_at = now()
-            WHERE email = $4;
+            WHERE id = $5;
             """
         );
-        command.Parameters.AddWithValue(cityName);
-        command.Parameters.AddWithValue(location.Longitude);
-        command.Parameters.AddWithValue(location.Latitude);
-        command.Parameters.AddWithValue(profile.Email);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        command.Parameters.AddWithValue(profile.HomeCity!.Name);
+        command.Parameters.AddWithValue(profile.HomeCity.Longitude);
+        command.Parameters.AddWithValue(profile.HomeCity.Latitude);
+        command.Parameters.AddWithValue(profile.PreferredAirlines!);
+        command.Parameters.AddWithValue(userId);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException("The user could not be found.");
 
-        return await FindUserAsync(profile, cancellationToken)
-            ?? throw new InvalidOperationException("The user's home city could not be saved.");
+        return await GetUserAsync(userId, cancellationToken)
+            ?? throw new InvalidOperationException("The user's profile could not be saved.");
+    }
+
+    public async Task<User> SetUserFeatureFlagsAsync(
+        Guid userId,
+        string featureFlags,
+        CancellationToken cancellationToken = default
+    )
+    {
+        await using var command = dataSource.CreateCommand(
+            "UPDATE users SET \"FeatureFlags\" = $1, updated_at = now() WHERE id = $2;"
+        );
+        command.Parameters.AddWithValue(featureFlags);
+        command.Parameters.AddWithValue(userId);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException("The user could not be found.");
+        return await GetUserAsync(userId, cancellationToken)
+            ?? throw new InvalidOperationException("The user could not be found.");
     }
 
     public async Task<IReadOnlyList<Trip>> GetTripsAsync(
@@ -326,7 +343,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at
+                created_at, updated_at, preferred_airlines, "FeatureFlags"
             FROM users
             WHERE email = $1;
             """
@@ -359,8 +376,10 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             reader.GetString(3),
             GetNullableString(reader, 4),
             homeCityLocation,
+            reader.GetFieldValue<string[]>(9),
             reader.GetFieldValue<DateTimeOffset>(7),
-            reader.GetFieldValue<DateTimeOffset>(8)
+            reader.GetFieldValue<DateTimeOffset>(8),
+            reader.GetString(10)
         );
     }
 

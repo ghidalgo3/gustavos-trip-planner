@@ -28,7 +28,10 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 ## Conventions
 
+- The API is RESTful, meaning that routes should modify entire _resources_ at a time, instead of having hundreds of APIs to modify each invidual property of a persisted object.
 - Groups of related REST APIs should go into *Endpoints.cs files, not Program.cs.
+- Avoid over-posting by defining DTO objects separately from the database object we read/write to the database.
+- Put DTO types in a DTO namespace and directory, keep database models in Models namespace/directory.
 - Define C# Options classes for configuration binding instead of resolving configuration values by string key.
 - Keep shell scripts compatible with zsh and preserve `set -euo pipefail`.
 - Format C# with the repository's CSharpier tool before completing changes.
@@ -43,3 +46,9 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 - Tests should verify the code satisfy a requirement, not simply branch coverage.
 - Where possible, write parametrized tests instead of more test functions.
+
+## Database practices
+
+- Until this message is deleted, you are allowed to connect to the database, either locally or in the cloud, and drop all schemas and have them be recreated when making schema changes.
+- Put all new database tables or functions into the 0001_*.sql migration for now, we don't have any users are we are developing the application.
+- Prefer to write C# methods that write or modify an entire database row at a time instead of having many methods to modify column subsets of a row. 

@@ -11,6 +11,19 @@ export type TrackedOperation = {
   updatedAt: string;
   pollingUrl: string;
 };
+
+export type FlightSearchIssue = {
+  code: string;
+  message: string;
+  partyId: string | null;
+  constraintIds: string[];
+};
+
+export class FlightSearchValidationError extends Error {
+  constructor(public readonly issues: FlightSearchIssue[]) {
+    super("Travel dates need attention before searching.");
+  }
+}
 export type FareSegment = {
   departure_airport: string;
   arrival_airport: string;
@@ -59,6 +72,14 @@ export async function startFlightSearch(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requestId }),
   });
+  if (response.status === 400) {
+    const problem = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as { issues?: FlightSearchIssue[] } | null;
+    if (Array.isArray(problem?.issues))
+      throw new FlightSearchValidationError(problem.issues);
+  }
   if (!response.ok) await readTripError(response, "starting the flight search");
   return response.json();
 }
@@ -78,6 +99,19 @@ export async function getOperations(
     cache: "no-store",
   });
   if (!response.ok) await readTripError(response, "checking operations");
+  return response.json();
+}
+
+export async function getOperation(
+  operationId: string,
+  signal?: AbortSignal,
+): Promise<TrackedOperation> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/operations/${encodeURIComponent(operationId)}`,
+    { credentials: "include", signal, cache: "no-store" },
+  );
+  if (!response.ok)
+    await readTripError(response, "checking the trip form fill");
   return response.json();
 }
 

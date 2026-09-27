@@ -171,8 +171,8 @@ public class PlanningEndpointTests
         client.DefaultRequestHeaders.Add("X-Test-Subject", email);
         client.DefaultRequestHeaders.Add("X-Test-Email", email);
         var onboarded = await client.PutAsJsonAsync(
-            "/api/user/homeCity",
-            new SetHomeCityRequest("Boston", -71, 42)
+            "/api/user/profile",
+            new UserProfile(new("Boston", -71, 42), [])
         );
         var user = (await onboarded.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
         var created = await client.PostAsJsonAsync(

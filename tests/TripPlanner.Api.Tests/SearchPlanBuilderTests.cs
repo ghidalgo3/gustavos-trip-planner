@@ -59,6 +59,49 @@ public class SearchPlanBuilderTests
     }
 
     [TestMethod]
+    public void MultiAirportLocations_SearchEveryAirportPairForEachSelectedDate()
+    {
+        var document = Document() with
+        {
+            Destination = new("LHR", "Europe/London", Codes: ["LHR", "LGW"]),
+            Parties =
+            [
+                Document().Parties[0] with
+                {
+                    Origin = new("JFK", "America/New_York", Codes: ["JFK", "EWR"]),
+                    PreferredAirlines = ["BA"],
+                },
+            ],
+        };
+        var party = Builder().Build(document, Parties).Parties.Single();
+        Assert.AreEqual(1, party.EligibleDatePairs);
+        Assert.HasCount(4, party.Requests);
+        CollectionAssert.AreEquivalent(
+            new[] { "JFK-LHR", "JFK-LGW", "EWR-LHR", "EWR-LGW" },
+            party.Requests.Select(r => $"{r.Body.Origin}-{r.Body.Destination}").ToArray()
+        );
+        CollectionAssert.AreEqual(new[] { "BA" }, party.PreferredAirlines.ToArray());
+    }
+
+    [TestMethod]
+    public void MultiAirportLocations_DateLimitDoesNotDiscardAirportCombinations()
+    {
+        var document = Document() with
+        {
+            Destination = new("LHR", "Europe/London", Codes: ["LHR", "LGW"]),
+            Constraints =
+            [
+                Window("departureWindow", new(2030, 1, 5), new(2030, 1, 7)),
+                Window("returnHomeWindow", new(2030, 1, 15), new(2030, 1, 15)),
+            ],
+        };
+        var party = Builder(2).Build(document, Parties).Parties.Single();
+        Assert.AreEqual(3, party.EligibleDatePairs);
+        Assert.HasCount(4, party.Requests);
+        Assert.AreEqual(2, party.Requests.Select(r => r.Body.DepartureDate).Distinct().Count());
+    }
+
+    [TestMethod]
     public void CrossDateLine_PresenceUsesDestinationCalendarInsteadOfDepartureDate()
     {
         var document = Document();
@@ -132,6 +175,33 @@ public class SearchPlanBuilderTests
             issue.ConstraintIds
         );
         Assert.IsEmpty(result.Parties);
+    }
+
+    [TestMethod]
+    public void OldReturnWindow_ExplainsConflictWithNewRequiredStay()
+    {
+        var oldDeparture = Window("departureWindow", new(2030, 11, 28), new(2030, 12, 4));
+        var oldReturn = Window("returnHomeWindow", new(2030, 12, 3), new(2030, 12, 9));
+        var stay = new PlanningConstraint
+        {
+            Id = Guid.NewGuid(),
+            UserId = UserId,
+            Type = "presence",
+            StartDate = new(2031, 1, 6),
+            EndDate = new(2031, 1, 8),
+        };
+        var document = Document() with
+        {
+            TravelDates = new(new(2031, 1, 5), new(2031, 1, 10)),
+            Constraints = [oldDeparture, oldReturn, stay],
+        };
+        var result = Builder().Build(document, Parties);
+        Assert.IsFalse(result.Ready);
+        var issue = result.Issues.Single();
+        StringAssert.Contains(issue.Message, "Dec 3, 2030–Dec 9, 2030");
+        StringAssert.Contains(issue.Message, "Jan 8, 2031");
+        StringAssert.Contains(issue.Message, "return flight must begin on or after");
+        CollectionAssert.AreEquivalent(new[] { oldReturn.Id, stay.Id }, issue.ConstraintIds);
     }
 
     [TestMethod]

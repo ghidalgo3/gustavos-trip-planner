@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
+import { MemoryRouter, useLocation } from "react-router";
 import { expect, test, vi } from "vitest";
 import TripsDashboard from "./TripsDashboard";
 import type { Trip } from "./api";
@@ -10,7 +11,18 @@ const user = {
   id: "d8612b89-4343-4a30-aed4-6b7f2f8c8123",
   name: "Ada Traveler",
   email: "ada@example.com",
+  profile: {
+    homeCity: { name: "Boston", longitude: -71, latitude: 42 },
+    preferredAirlines: [],
+  },
 };
+
+function RouteState() {
+  const location = useLocation();
+  return (
+    <output data-testid="route">{location.pathname + location.search}</output>
+  );
+}
 
 test("creates, edits, and deletes a trip", async () => {
   let storedTrip: Trip | undefined;
@@ -53,12 +65,16 @@ test("creates, edits, and deletes a trip", async () => {
 
   render(
     <FluentProvider theme={webLightTheme}>
-      <TripsDashboard user={user} />
+      <MemoryRouter>
+        <RouteState />
+        <TripsDashboard user={user} />
+      </MemoryRouter>
     </FluentProvider>,
   );
 
   expect(await screen.findByText("No trips yet")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "New trip" }));
+  expect(screen.getByTestId("route")).toHaveTextContent("/?create=1");
   fireEvent.change(screen.getByRole("textbox", { name: "Trip name" }), {
     target: { value: "Lisbon summer" },
   });
@@ -71,6 +87,7 @@ test("creates, edits, and deletes a trip", async () => {
     await screen.findByRole("heading", { name: "Lisbon summer" }),
   ).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  expect(screen.getByTestId("route")).toHaveTextContent("/?edit=trip-1");
   fireEvent.change(screen.getByRole("textbox", { name: "Trip name" }), {
     target: { value: "Lisbon and Porto" },
   });
@@ -84,6 +101,22 @@ test("creates, edits, and deletes a trip", async () => {
   ).toBeVisible();
   expect(screen.getByText("Travel by train")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  expect(screen.getByRole("dialog", { name: "Delete trip?" })).toBeVisible();
+  expect(
+    screen.getByRole("dialog", { name: "Delete trip?" }),
+  ).toHaveTextContent(/Lisbon and Porto.*planning details/);
+  expect(
+    fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+  ).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(
+    screen.queryByRole("dialog", { name: "Delete trip?" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Lisbon and Porto" }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete trip" }));
 
   await waitFor(() =>
     expect(
@@ -91,6 +124,32 @@ test("creates, edits, and deletes a trip", async () => {
     ).not.toBeInTheDocument(),
   );
   expect(fetchMock).toHaveBeenCalledTimes(4);
+});
+
+test("opens an existing trip editor directly from the URL", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [trip("Paris spring", "Museums")],
+    })),
+  );
+
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter initialEntries={["/?edit=trip-1"]}>
+        <TripsDashboard user={user} />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+
+  expect(await screen.findByRole("textbox", { name: "Trip name" })).toHaveValue(
+    "Paris spring",
+  );
+  expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue(
+    "Museums",
+  );
 });
 
 function trip(name: string, description: string): Trip {

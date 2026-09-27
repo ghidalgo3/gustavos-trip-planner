@@ -18,6 +18,13 @@ public sealed class AirportCatalogTests
         Assert.IsEmpty(_catalog.Search("x"));
         Assert.IsEmpty(_catalog.Search(new string('a', 101)));
         Assert.AreEqual("Europe/London", _catalog.Search("LHR")[0].Location.TimeZone);
+        CollectionAssert.Contains(_catalog.Resolve("London")!.AirportCodes.ToArray(), "LHR");
+        CollectionAssert.Contains(_catalog.Resolve("London")!.AirportCodes.ToArray(), "LGW");
+        CollectionAssert.AreEquivalent(
+            new[] { "CDG", "ORY" },
+            _catalog.Resolve("Paris")!.AirportCodes.ToArray()
+        );
+        CollectionAssert.AreEqual(new[] { "LHR" }, _catalog.Resolve("LHR")!.AirportCodes.ToArray());
     }
 
     [TestMethod]
@@ -30,6 +37,7 @@ public sealed class AirportCatalogTests
             "Ada",
             "Boston",
             new(-71.0589, 42.3601),
+            [],
             default,
             default
         );

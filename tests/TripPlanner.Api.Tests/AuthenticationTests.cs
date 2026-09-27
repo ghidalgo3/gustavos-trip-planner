@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Tests;
 
@@ -139,12 +140,16 @@ public class AuthenticationTests
         AddGooglePrincipal(client);
 
         var response = await client.PutAsJsonAsync(
-            "/api/user/homeCity",
+            "/api/user/profile",
             new
             {
-                cityName = "Boston, Massachusetts, United States",
-                longitude = -71.0589,
-                latitude = 42.3601,
+                homeCity = new
+                {
+                    name = "Boston, Massachusetts, United States",
+                    longitude = -71.0589,
+                    latitude = 42.3601,
+                },
+                preferredAirlines = new[] { "DL", "AF" },
             }
         );
         var updatedUser = await response.Content.ReadFromJsonAsync<UserResponse>();
@@ -152,9 +157,66 @@ public class AuthenticationTests
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.IsNotNull(updatedUser);
         Assert.IsTrue(updatedUser.CompletedOnboarding);
-        Assert.AreEqual("Boston, Massachusetts, United States", updatedUser.HomeCityName);
+        Assert.AreEqual("Boston, Massachusetts, United States", updatedUser.Profile.HomeCity?.Name);
+        CollectionAssert.AreEqual(new[] { "DL", "AF" }, updatedUser.Profile.PreferredAirlines);
         Assert.AreEqual(-71.0589, factory.Database.Users.Single().HomeCityLocation?.Longitude);
         Assert.AreEqual(42.3601, factory.Database.Users.Single().HomeCityLocation?.Latitude);
+    }
+
+    [TestMethod]
+    public async Task SetUserProfile_UpdatesCityAndAirlinesTogether()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+
+        var first = await client.PutAsJsonAsync(
+            "/api/user/profile",
+            new UserProfile(new("Boston", -71, 42), ["DL"])
+        );
+        first.EnsureSuccessStatusCode();
+        var updated = await client.PutAsJsonAsync(
+            "/api/user/profile",
+            new UserProfile(new("Paris", 2.35, 48.86), ["af", "DL", "AF"])
+        );
+        var response = await updated.Content.ReadFromJsonAsync<CurrentUserResponse>();
+
+        Assert.AreEqual(HttpStatusCode.OK, updated.StatusCode);
+        Assert.IsNotNull(response);
+        Assert.AreEqual("Paris", response.Profile.HomeCity?.Name);
+        CollectionAssert.AreEqual(new[] { "AF", "DL" }, response.Profile.PreferredAirlines);
+        Assert.HasCount(1, factory.Database.Users);
+        Assert.AreEqual(2.35, factory.Database.Users.Single().HomeCityLocation?.Longitude);
+        CollectionAssert.AreEqual(
+            new[] { "AF", "DL" },
+            factory.Database.Users.Single().PreferredAirlines
+        );
+    }
+
+    [TestMethod]
+    public async Task SetUserProfile_RejectsInvalidAirlinesWithoutChangingCity()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+        (
+            await client.PutAsJsonAsync(
+                "/api/user/profile",
+                new UserProfile(new("Boston", -71, 42), ["DL"])
+            )
+        ).EnsureSuccessStatusCode();
+
+        var response = await client.PutAsJsonAsync(
+            "/api/user/profile",
+            new UserProfile(new("Paris", 2.35, 48.86), ["TOOLONG"])
+        );
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.AreEqual("Boston", factory.Database.Users.Single().HomeCityName);
+        CollectionAssert.AreEqual(
+            new[] { "DL" },
+            factory.Database.Users.Single().PreferredAirlines
+        );
     }
 
     [TestMethod]
@@ -269,7 +331,7 @@ public class AuthenticationTests
         string? Email,
         string? Provider,
         bool CompletedOnboarding,
-        string? HomeCityName
+        UserProfile Profile
     );
 
     private sealed record MapTokenResponse(string Token, string Endpoint, DateTimeOffset ExpiresAt);

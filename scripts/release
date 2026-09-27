@@ -31,7 +31,8 @@ INFRA_DEPLOYMENT_NAME, CONFIG_DEPLOYMENT_NAME, EXPECTED_TENANT_ID,
 NUGET_SOURCE, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
 
 All four authentication credentials must be stored in the deployed Key Vault
-with scripts/secrets set-auth and the Ignav API key with scripts/secrets --set-ignav
+with scripts/secrets set-auth, the Ignav API key with scripts/secrets --set-ignav,
+and the OpenAI API key with scripts/secrets --set-openai
 before releasing.
 USAGE
 }
@@ -96,6 +97,7 @@ vault_secret_names=("${(@f)$(az keyvault secret list \
   --output tsv)}") || die \
   "could not list secrets in Key Vault '$KEY_VAULT_NAME'; verify your RBAC access"
 (( ${vault_secret_names[(Ie)ignav-api-key]} )) || die "Key Vault is missing ignav-api-key; run scripts/secrets --set-ignav"
+(( ${vault_secret_names[(Ie)openai-api-key]} )) || die "Key Vault is missing openai-api-key; run scripts/secrets --set-openai"
 available_auth_secrets=0
 for secret_name in "${required_auth_secrets[@]}"; do
   if (( ${vault_secret_names[(Ie)$secret_name]} )); then

@@ -168,26 +168,18 @@ public static class TripsEndpoints
             return Results.NotFound();
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var editorParties = new List<PlanningParty>();
+        SearchLocation? ownerOrigin = airports.SuggestOrigin([user]);
         foreach (Party party in parties)
         {
             var members = new List<PlanningMember>();
-            var users = new List<User>();
             foreach (Guid memberId in party.UserIds)
             {
                 User? member = await database.GetUserAsync(memberId, context.RequestAborted);
-                if (member is not null)
-                    users.Add(member);
                 members.Add(
                     new(memberId, member?.DisplayName ?? "Unknown traveler", member?.HomeCityName)
                 );
             }
-            editorParties.Add(
-                new(
-                    party.Id,
-                    members,
-                    users.Count == party.UserIds.Count ? airports.SuggestOrigin(users) : null
-                )
-            );
+            editorParties.Add(new(party.Id, members, ownerOrigin));
         }
         return Results.Ok(
             new PlanningEditor(PlanningDocument.FromJson(trip.Constraints), editorParties)

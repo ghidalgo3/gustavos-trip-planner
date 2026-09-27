@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
+import { MemoryRouter, useLocation } from "react-router";
 import { expect, test } from "vitest";
 import FareResults from "./FareResults";
 import type { FareSearchResult } from "./operationsApi";
@@ -116,12 +117,14 @@ const results: FareSearchResult[] = [
 test("highlights three fare categories and places the remainder behind a disclosure", () => {
   render(
     <FluentProvider theme={webLightTheme}>
-      <FareResults
-        tripId="trip"
-        results={results}
-        parties={[party]}
-        partySettings={[settings]}
-      />
+      <MemoryRouter>
+        <FareResults
+          tripId="trip"
+          results={results}
+          parties={[party]}
+          partySettings={[settings]}
+        />
+      </MemoryRouter>
     </FluentProvider>,
   );
 
@@ -145,10 +148,45 @@ test("highlights three fare categories and places the remainder behind a disclos
     ),
   ).toBeVisible();
   expect(screen.getByText("More matching options (1)")).toBeVisible();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("article")[0]).toHaveClass("fare-card");
+  fireEvent.click(screen.getByText("More matching options (1)"));
+  expect(screen.getAllByRole("article")).toHaveLength(4);
 
   expect(screen.getByRole("combobox", { name: "Airline" })).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Arrival time" })).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Stops" })).toBeVisible();
   expect(screen.getByLabelText("Minimum price slider")).toBeVisible();
   expect(screen.getByLabelText("Maximum price slider")).toBeVisible();
+});
+
+test("restores fare filters from the route and updates its query", () => {
+  function RouteQuery() {
+    return <output data-testid="route-query">{useLocation().search}</output>;
+  }
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter initialEntries={["/trips/trip?advanced=1&minPrice=140"]}>
+        <FareResults
+          tripId="trip"
+          results={results}
+          parties={[party]}
+          partySettings={[settings]}
+        />
+        <RouteQuery />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+
+  expect(screen.getByRole("spinbutton", { name: "Minimum price" })).toHaveValue(
+    140,
+  );
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Minimum price" }), {
+    target: { value: "150" },
+  });
+  expect(screen.getByTestId("route-query")).toHaveTextContent("advanced=1");
+  expect(screen.getByTestId("route-query")).toHaveTextContent("minPrice=150");
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.getByTestId("route-query")).toHaveTextContent("advanced=1");
+  expect(screen.getByTestId("route-query")).not.toHaveTextContent("minPrice");
 });

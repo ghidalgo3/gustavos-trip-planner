@@ -34,9 +34,20 @@ public sealed record FareWork(
     int Attempts
 );
 
+public sealed record TripFormWork(
+    Guid OperationId,
+    Guid UserId,
+    Guid TripId,
+    Guid LeaseId,
+    int Attempts,
+    string Input,
+    PlanningDocument Draft
+);
+
 public static class OperationState
 {
     public const string FlightSearch = "flightSearch";
+    public const string TripFormFill = "tripFormFill";
 
     public static string Url(Guid operationId) => $"/api/operations/{operationId}";
 }

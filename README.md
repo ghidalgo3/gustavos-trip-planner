@@ -6,7 +6,7 @@ Starter architecture for a React single-page application and a C# API deployed t
 
 | Path | Purpose |
 | --- | --- |
-| `src/TripPlanner.Web` | React 19 + Vite + TypeScript + Fluent UI web app |
+| `src/TripPlanner.Web` | React 19 + React Router + Vite + TypeScript + Fluent UI web app |
 | `src/TripPlanner.Api` | .NET 10 minimal API |
 | `tests/TripPlanner.Api.Tests` | API integration tests |
 | `infra/main.bicep` | Azure resource definitions used by `scripts/buildout` |
@@ -16,7 +16,7 @@ Starter architecture for a React single-page application and a C# API deployed t
 | `scripts/install` | Restore .NET and frontend project dependencies |
 | `scripts/format` | Format frontend code with Prettier and C# code with CSharpier |
 | `scripts/buildout` | Provision or update Azure resources |
-| `scripts/secrets` | Store and rotate authentication credentials in Azure Key Vault |
+| `scripts/secrets` | Store and rotate authentication, Ignav, and OpenAI credentials in Azure Key Vault |
 | `scripts/server` | Load local auth configuration and start the development containers |
 | `scripts/release` | Test, build, configure, deploy, and verify a release |
 
@@ -39,9 +39,9 @@ After provisioning Azure, storing the provider credentials, and signing in with 
 scripts/server
 ```
 
-The script reads the four authentication values from the deployed Azure Key Vault and issues a two-hour Azure Maps development SAS with a 50 request-per-second limit. It passes those values only to the API container. It does not create an `.env` file or expose provider client secrets to the React application. The browser obtains the short-lived Maps SAS from the authenticated API route. Pass Docker Compose options through the script, for example `scripts/server --detach`; stop detached containers with `docker compose down`.
+The script reads the four authentication values and the Ignav and OpenAI keys from the deployed Azure Key Vault, then issues a two-hour Azure Maps development SAS with a 50 request-per-second limit. It passes those values only to the API container. It does not create an `.env` file or expose provider client secrets to the React application. The browser obtains the short-lived Maps SAS from the authenticated API route. Pass Docker Compose options through the script, for example `scripts/server --detach`; stop detached containers with `docker compose down`.
 
-Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at `http://api:8080`; editing either project triggers HMR or `dotnet watch`. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
+Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at `http://api:8080`; editing either project triggers HMR or `dotnet watch`. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
 
 Useful commands when Node.js and .NET are installed locally:
 
@@ -64,7 +64,9 @@ The API requires `ConnectionStrings:TripPlanner`. Docker Compose supplies a loca
 
 At startup, the API acquires a PostgreSQL advisory transaction lock, creates `schema_migrations` when needed, then loads and sorts the `.sql` files in `src/TripPlanner.Api/migrations`. Migration filenames use `0001_MigrationName.sql`; the four-digit prefix is the unique migration version. Applied versions and filenames are recorded in `schema_migrations`, and startup fails if an applied version has since been renamed. New migration files are copied into build and publish output automatically.
 
-Migration `0001_CreateUsers.sql` enables PostGIS and creates `users`, `trips`, and `parties`. Each application user has a unique UUID and a unique, lowercase email address. Signing in with another provider that supplies the same email reuses the user ID and adds that provider to the row's comma-separated provider list. The table stores one required display name, a display name for the home city, and its location as `geography(Point, 4326)`. Provider subjects, issuer, split given/family names, preferred username, provider verification flags, profile-image URLs, locale, hosted domain, tenant ID, and object ID are not persisted.
+Migration `0001_CreateUsers.sql` enables PostGIS and creates `users`, `trips`, and `parties`. Each application user has a unique UUID and a unique, lowercase email address. Signing in with another provider that supplies the same email reuses the user ID and adds that provider to the row's comma-separated provider list. The table stores one required display name, a display name for the home city, its location as `geography(Point, 4326)`, and an array of preferred airline codes. Provider subjects, issuer, split given/family names, preferred username, provider verification flags, profile-image URLs, locale, hosted domain, tenant ID, and object ID are not persisted.
+
+The same migration installs pg_cron in the configured `tripplanner` database and schedules `tripplanner-purge-fares` hourly. It removes completed or abandoned `fare_searches` rows six hours after retrieval or creation; rows assigned to an active operation are retained. Azure infrastructure allowlists and preloads pg_cron and sets `cron.database_name` to `tripplanner`. `scripts/buildout` restarts PostgreSQL when a server setting is pending restart, so pg_cron is ready before application migrations run. Editing an already applied `0001` file does not rerun it: databases created before these changes need the updated schema applied during a reset or the new SQL applied separately. The local development database received the `preferred_airlines` column without dropping its data.
 
 Each trip has an owning user, name, description, and JSONB constraints document. A new trip and its initial party are inserted in one transaction; the initial party's UUID array contains only the owner. Deleting a trip cascades to all of its parties. Trip routes use a read-only user lookup to verify that the authenticated application user matches the user ID in the URL, and all database mutations also filter by owner ID.
 
@@ -72,34 +74,47 @@ Each trip has an owning user, name, description, and JSONB constraints document.
 
 `GET /api/user/avatar` uses the access token in the current authenticated session to retrieve the profile image from Google UserInfo or Microsoft Graph. The API returns the image without storing its URL or contents; the client falls back to the user's initials when the provider has no image. Microsoft sign-in requests the delegated `User.Read` scope for this lookup.
 
-During onboarding, the client debounces city searches and calls Azure Maps Geocode Autocomplete directly for `PopulatedPlace` results. `GET /api/mapToken` returns an authenticated, short-lived SAS for that browser call. The API creates each SAS with a two-hour lifetime and an approximate limit of 50 requests per second; the browser reuses it until shortly before expiry. Selecting a result and continuing calls `PUT /api/user/homeCity`, which stores the display name and WGS84 point through `IPlannerDb`.
+During onboarding, the client debounces city searches and calls Azure Maps Geocode Autocomplete directly for `PopulatedPlace` results. `GET /api/mapToken` returns an authenticated, short-lived SAS for that browser call. The API creates each SAS with a two-hour lifetime and an approximate limit of 50 requests per second; the browser reuses it until shortly before expiry. Selecting a result and continuing calls `PUT /api/user/profile` with a complete `UserProfile` object. The same route saves home-city and airline changes from `/profile` in one database update. The avatar button opens a menu with **Your profile** and **Sign out**. Preferred airlines initialize the owner's party preferences in newly opened planning documents.
 
 The web client follows the browser's `prefers-color-scheme` setting and updates
 between Fluent UI's light and dark themes when that preference changes.
+React Router keeps the trips dashboard at `/` and each planner at `/trips/{tripId}`.
+The dashboard also uses `/?create=1` and `/?edit={tripId}` for its forms. These
+routes support direct loading, refresh, and browser Back/Forward navigation.
+The planner stores its Advanced disclosure and flight-result filters
+in the query string, so refreshing or sharing the URL restores that view.
 
 Stop local services with `docker compose down`. Add `--volumes` only when you intentionally want to erase the local database and recreate it from migrations.
 
 ## Constraint editor and flight planning
 
-After creating a trip, choose **Plan trip**. Search destinations by city, airport
-name, or IATA code, then choose departure and return-flight dates with the calendar
-inputs. The party's home city suggests a departure airport that can be changed.
+After creating a trip, choose **Find flights**. Search destinations by city, airport
+name, or IATA code. Selecting a city searches its catalog airports; selecting an
+airport searches only that airport. You can also add or remove airports for a
+destination or party origin. Each selected airport combination is searched for
+each selected date pair, so choosing more airports increases Ignav requests.
+Choose departure and return-flight dates with the calendar inputs. The trip
+owner's home city suggests departure airports for every party and can be changed.
+The compact Party selector above the dates searches users
+by name; the trip owner can add or remove members.
 Additional constraints are optional. Departure and return-flight windows allow
 independent flexibility; a window replaces the fixed date for that direction.
 Cabin, pricing market, maximum journey hours, and preferred airlines are under
-**Advanced filters** in the destination-and-dates section, grouped by party.
+**Advanced** in the destination-and-dates section, grouped by party. All
+constraint editors are in this section.
+Preferred airlines affect the ranking and highlighted fares; they do not exclude
+other airlines unless the traveler explicitly uses the results' airline filter.
 That section also lets a party limit the search to nonstop flights, or to one or
 two stops. A nonstop constraint takes precedence over this setting.
 
 **Save planning details** stores the structured document in the existing JSONB
-column. **Plan trip** validates the displayed inputs, prepares the bounded set of
+column. **Find flights** validates the displayed inputs, prepares the bounded set of
 flight searches, and queues the Ignav calls. Invalid planning requests return an
 HTTP 400 response with the issues that must be resolved; accepted requests return
 HTTP 202 with an operation polling URL. Airport suggestions use a bundled catalog
 of scheduled passenger airports, so they require no provider credentials or paid
 requests. Catalog sources, license, refresh details, and home-airport selection rules are in
-[Data/README.md](src/TripPlanner.Api/Data/README.md). Members with different home
-cities must choose a shared origin explicitly.
+[Data/README.md](src/TripPlanner.Api/Data/README.md).
 
 The browser supplies the current user time zone through
 `Intl.DateTimeFormat().resolvedOptions().timeZone`; there is no time-zone input.
@@ -112,13 +127,38 @@ to the provider request's return date. Actual itinerary timing, required presenc
 journey duration, and layover geography still need validation after fare retrieval.
 
 This prototype counts each account holder as an adult passenger.
-Natural-language translation, invitations, itinerary validation, and scoring are subsequent
+For users whose `users."FeatureFlags"` comma-separated value contains `LLM`, the
+planner also offers **Describe your trip**. The browser sends the text and current
+draft to `POST /api/user/{userId}/trips/{tripId}/formProposal`, which returns a
+`tripFormFill` operation with HTTP 202. The shared PostgreSQL-backed planning worker calls OpenAI's
+official .NET SDK for the Responses API with a forced `fill_trip_form` function,
+resolves the destination against its airport catalog, and stores the proposed
+document separately from the generic operation progress row. The browser polls
+`GET /api/operations/{id}` and reads the completed proposal at
+`GET /api/user/{userId}/trips/{tripId}/formProposal/{id}`. This does not save the
+trip; review the populated fields and requirements, then choose **Save planning
+details**. The prompt becomes read-only after a successful fill and explains its
+locked state on hover or tap. **Plan again** confirms before unlocking the
+saved description for editing while keeping the text and trip details. A new AI fill replaces requirements from an earlier AI
+prompt while retaining manually entered requirements. The editor can recover a
+completed proposal when reopened and records its operation ID with the saved draft
+so a discarded proposal is not applied again. The server checks the
+feature flag independently of the browser. Set the OpenAI key with
+`./scripts/secrets --set-openai`; local startup and release read it from Key
+Vault. During development, enable the feature for one user by setting
+`"FeatureFlags" = 'LLM'` on that user's row and refreshing the application.
+For example, `UPDATE users SET "FeatureFlags" = 'LLM' WHERE email = 'you@example.com';`.
+Invitations, itinerary validation, and scoring are subsequent
 steps. See [Milestone 1](docs/milestone_1.md) for limits and
 [later milestones](docs/later_milestones.md) for the deferred trip revision history.
 
+When date requirements leave no flight-date pairs, the API identifies the
+conflicting windows and stay dates. The flight-search card displays the affected
+numbered requirements and can open the editor at the first one.
+
 ## Asynchronous flight planning
 
-**Plan trip** saves the displayed planning document, then starts a flight search and
+**Find flights** saves the displayed planning document, then starts a flight search and
 returns immediately after queueing work. The client polls the generic operation API,
 so searches continue when the page closes and are discovered when it opens again.
 Results show their retrieval time and expiry; they remain provider results until
@@ -210,7 +250,7 @@ After running `scripts/buildout`, store the four provider values in Azure Key Va
 ./scripts/secrets status
 ```
 
-The prompts do not echo secret values. `scripts/release` requires `google-client-id`, `google-client-secret`, `microsoft-client-id`, `microsoft-client-secret`, and `ignav-api-key`. The Web App reads the provider secrets through versionless Key Vault references using its managed identity, so credentials are not copied into Bicep parameters or plain App Service settings. Rotate one value with `./scripts/secrets set microsoft-client-secret` (or another supported name).
+The prompts do not echo secret values. `scripts/release` requires `google-client-id`, `google-client-secret`, `microsoft-client-id`, `microsoft-client-secret`, `ignav-api-key`, and `openai-api-key`. The Web App reads the secrets through versionless Key Vault references using its managed identity, so credentials are not copied into Bicep parameters or plain App Service settings. Rotate one value with `./scripts/secrets set microsoft-client-secret` (or another supported name).
 
 The Microsoft provider is restricted to personal Microsoft accounts through the consumer-account issuer. In the Entra application registration, add both Microsoft callback URLs above to the **Web** platform, leave implicit grant options disabled, and grant the delegated Microsoft Graph `User.Read` permission used to retrieve the profile image. Provider secrets must be rotated before their configured expiration.
 
@@ -264,21 +304,26 @@ There is no GitHub Actions CI/CD configuration. Releases are intentional local o
 | --- | --- | --- |
 | GET | `/health` | App Service liveness probe |
 | GET | `/api` | Service metadata |
-| GET | `/api/user` | Current App Service authenticated profile or anonymous state |
+| GET | `/api/user` | Current authenticated profile, feature flags, or anonymous state |
 | GET | `/api/user/avatar` | Proxy the current user's Google or Microsoft profile image without storing it |
-| PUT | `/api/user/homeCity` | Save the authenticated user's selected home city and coordinates |
+| PUT | `/api/user/profile` | Save the authenticated user's complete profile: home city and preferred airlines |
 | GET | `/api/airports?q={query}` | Airport suggestions by city, name, or IATA code (2–100 characters) |
+| GET | `/api/users?query={name}` | Search other users by display name for party selection |
 | GET | `/api/mapToken` | Issue an authenticated two-hour Azure Maps SAS limited to 50 requests per second |
 | GET | `/api/user/{userId}/trips` | List the authenticated user's trips |
 | POST | `/api/user/{userId}/trips` | Create a trip and its initial one-person party |
 | GET | `/api/user/{userId}/trips/{tripId}` | Fetch an owned trip |
 | PUT | `/api/user/{userId}/trips/{tripId}` | Update an owned trip's name and description |
 | DELETE | `/api/user/{userId}/trips/{tripId}` | Delete an owned trip and cascade its parties |
+| PUT | `/api/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently add a traveler to an owned party |
+| DELETE | `/api/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently remove a traveler from an owned party |
 | POST | `/api/trips/{tripId}/flightSearch` | Queue missing or expired Ignav fare searches; 202 with operation polling URL |
 | GET | `/api/trips/{tripId}/flightSearch` | Read all fresh cached fares required by the trip's current constraints; 404 when incomplete |
 | GET | `/api/operations?top={top}&skip={skip}&type={type}` | List the authenticated user's operations with paging and optional type filtering |
 | GET | `/api/operations/{operationId}` | Read one authorized operation's status and progress |
 | GET | `/api/user/{userId}/trips/{tripId}/planning` | Load saved constraints and current parties for the editor |
 | PUT | `/api/user/{userId}/trips/{tripId}/constraints` | Save a structured constraint draft for an owned trip |
+| POST | `/api/user/{userId}/trips/{tripId}/formProposal` | Start an asynchronous `tripFormFill` operation for an `LLM`-enabled trip owner |
+| GET | `/api/user/{userId}/trips/{tripId}/formProposal/{operationId}` | Read a completed form proposal |
 
 OpenAPI is available at `/openapi/v1.json` in Development.

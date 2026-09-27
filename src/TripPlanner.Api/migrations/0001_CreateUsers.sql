@@ -7,6 +7,8 @@ CREATE TABLE users (
     display_name text NOT NULL,
     home_city_name text,
     home_city_location geography(Point, 4326),
+    preferred_airlines text[] NOT NULL DEFAULT '{}',
+    "FeatureFlags" text NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT users_id_primary_key PRIMARY KEY (id),
@@ -14,6 +16,13 @@ CREATE TABLE users (
     CONSTRAINT users_email_normalized CHECK (email = lower(btrim(email))),
     CONSTRAINT users_provider_supported CHECK (
         provider ~ '^(google|microsoft)(,(google|microsoft))*$'
+    ),
+    CONSTRAINT users_feature_flags_valid CHECK (
+        "FeatureFlags" = '' OR "FeatureFlags" ~ '^[A-Za-z][A-Za-z0-9_-]*(,[A-Za-z][A-Za-z0-9_-]*)*$'
+    ),
+    CONSTRAINT users_preferred_airlines_valid CHECK (
+        array_position(preferred_airlines, NULL) IS NULL
+        AND array_length(preferred_airlines, 1) <= 20
     )
 );
 
@@ -106,3 +115,40 @@ CREATE TABLE fare_searches (
 CREATE INDEX fare_searches_queue_idx
     ON fare_searches (created_at, cache_key)
     WHERE operation_id IS NOT NULL;
+
+CREATE INDEX fare_searches_purge_idx
+    ON fare_searches (COALESCE(fetched_at, created_at))
+    WHERE operation_id IS NULL;
+
+CREATE TABLE trip_form_jobs (
+    operation_id uuid PRIMARY KEY REFERENCES operations(id) ON DELETE CASCADE,
+    input text NOT NULL,
+    draft jsonb NOT NULL,
+    proposal jsonb,
+    error text,
+    lease_id uuid,
+    lease_expires_at timestamptz,
+    attempts integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT trip_form_jobs_attempts_valid CHECK (attempts >= 0)
+);
+
+CREATE INDEX trip_form_jobs_queue_idx ON trip_form_jobs (created_at, operation_id)
+    WHERE proposal IS NULL AND error IS NULL;
+
+-- pg_cron metadata lives in one database per server. Isolated test databases
+-- share the server but must not attempt to install the extension themselves.
+DO $$
+BEGIN
+    IF current_database() = current_setting('cron.database_name', true) THEN
+        CREATE EXTENSION IF NOT EXISTS pg_cron;
+        PERFORM cron.schedule(
+            'tripplanner-purge-fares',
+            '0 * * * *',
+            $job$DELETE FROM public.fare_searches
+                 WHERE operation_id IS NULL
+                   AND COALESCE(fetched_at, created_at) < now() - interval '6 hours'$job$
+        );
+    END IF;
+END;
+$$;

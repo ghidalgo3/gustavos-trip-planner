@@ -97,6 +97,20 @@ read_output() {
     --query "properties.outputs.$1.value" -o tsv
 }
 
+POSTGRES_SERVER_NAME="$(read_output postgresServerName)"
+PENDING_POSTGRES_RESTART="$(az postgres flexible-server parameter list \
+  --resource-group "$RESOURCE_GROUP" \
+  --server-name "$POSTGRES_SERVER_NAME" \
+  --query '[?isConfigPendingRestart == `true`] | length(@)' \
+  --output tsv)"
+if [[ "$PENDING_POSTGRES_RESTART" -gt 0 ]]; then
+  log "Restarting PostgreSQL to activate updated server settings"
+  az postgres flexible-server restart \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$POSTGRES_SERVER_NAME" \
+    --output none
+fi
+
 ACR_NAME="$(read_output acrName)"
 # acr purge requires a tag filter. Use one that cannot match a real tag so the
 # stable :release tag is never removed; --untagged removes superseded manifests.

@@ -16,6 +16,7 @@ namespace TripPlanner.Api.Tests;
 public sealed class TestApplicationFactory : WebApplicationFactory<Program>
 {
     public InMemoryPlannerDb Database { get; } = new();
+    public ITripFormAssistant? FormAssistant { get; set; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -34,6 +35,11 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDatabaseMigrator>();
             services.RemoveAll<IPlannerDb>();
             services.RemoveAll<IMapTokenProvider>();
+            if (FormAssistant is not null)
+            {
+                services.RemoveAll<ITripFormAssistant>();
+                services.AddSingleton(FormAssistant);
+            }
             services.AddSingleton<IDatabaseMigrator, NoOpDatabaseMigrator>();
             services.AddSingleton<IPlannerDb>(Database);
             services.AddSingleton<IMapTokenProvider>(

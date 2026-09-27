@@ -2,7 +2,11 @@ namespace TripPlanner.Api.Models;
 
 public sealed record GeographicPoint(double Longitude, double Latitude);
 
-public sealed record SetHomeCityRequest(string CityName, double Longitude, double Latitude);
+public sealed record ProfileHomeCity(string Name, double Longitude, double Latitude);
+
+public sealed record UserProfile(ProfileHomeCity? HomeCity, string[]? PreferredAirlines);
+
+public sealed record UserSearchResult(Guid Id, string Name, string Email);
 
 public sealed record CurrentUserResponse(
     bool IsAuthenticated,
@@ -11,7 +15,8 @@ public sealed record CurrentUserResponse(
     string? Email,
     string? Provider,
     bool CompletedOnboarding,
-    string? HomeCityName
+    UserProfile Profile,
+    string[]? FeatureFlags = null
 );
 
 public sealed record User(
@@ -21,6 +26,8 @@ public sealed record User(
     string DisplayName,
     string? HomeCityName,
     GeographicPoint? HomeCityLocation,
+    string[] PreferredAirlines,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt
+    DateTimeOffset UpdatedAt,
+    string FeatureFlags = ""
 );

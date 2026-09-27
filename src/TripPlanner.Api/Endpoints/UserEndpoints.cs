@@ -16,7 +16,7 @@ public static class UserEndpoints
         var authenticatedUser = api.MapGroup("/user")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         authenticatedUser.MapGet("/avatar", GetCurrentUserAvatar).WithName("GetCurrentUserAvatar");
-        authenticatedUser.MapPut("/homeCity", SetHomeCity).WithName("SetHomeCity");
+        authenticatedUser.MapPut("/profile", SetUserProfile).WithName("SetUserProfile");
     }
 
     private static async Task<IResult> GetCurrentUser(
@@ -27,7 +27,9 @@ public static class UserEndpoints
     {
         AuthenticatedUserProfile? profile = currentUser.Profile;
         if (profile is null)
-            return Results.Ok(new CurrentUserResponse(false, null, null, null, null, false, null));
+            return Results.Ok(
+                new CurrentUserResponse(false, null, null, null, null, false, new(null, []))
+            );
         User user = await database.GetOrCreateUserAsync(profile, context.RequestAborted);
         return Results.Ok(ToResponse(user));
     }
@@ -60,28 +62,44 @@ public static class UserEndpoints
         );
     }
 
-    private static async Task<IResult> SetHomeCity(
-        SetHomeCityRequest request,
+    private static async Task<IResult> SetUserProfile(
+        UserProfile request,
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser
     )
     {
-        AuthenticatedUserProfile profile = currentUser.Profile!;
         var errors = new Dictionary<string, string[]>();
-        string cityName = request.CityName.Trim();
-        if (string.IsNullOrWhiteSpace(cityName))
-            errors[nameof(request.CityName)] = ["CityName is required."];
-        if (!double.IsFinite(request.Longitude) || request.Longitude is < -180 or > 180)
-            errors[nameof(request.Longitude)] = ["Longitude must be between -180 and 180."];
-        if (!double.IsFinite(request.Latitude) || request.Latitude is < -90 or > 90)
-            errors[nameof(request.Latitude)] = ["Latitude must be between -90 and 90."];
+        ProfileHomeCity? city = request.HomeCity;
+        if (city is null || string.IsNullOrWhiteSpace(city.Name))
+            errors[nameof(request.HomeCity)] = ["Home city is required."];
+        else
+        {
+            if (!double.IsFinite(city.Longitude) || city.Longitude is < -180 or > 180)
+                errors[nameof(city.Longitude)] = ["Longitude must be between -180 and 180."];
+            if (!double.IsFinite(city.Latitude) || city.Latitude is < -90 or > 90)
+                errors[nameof(city.Latitude)] = ["Latitude must be between -90 and 90."];
+        }
+        string[]? submitted = request.PreferredAirlines;
+        if (submitted is null || submitted.Length > 20 || submitted.Any(code => code is null))
+            errors[nameof(request.PreferredAirlines)] = ["Provide up to 20 airline codes."];
+        string[] codes = submitted is null
+            ? []
+            : submitted
+                .Where(code => code is not null)
+                .Select(code => code.Trim().ToUpperInvariant())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        if (codes.Any(code => code.Length != 2 || !code.All(char.IsAsciiLetterOrDigit)))
+            errors[nameof(request.PreferredAirlines)] = ["Use two-character airline codes."];
         if (errors.Count > 0)
             return Results.ValidationProblem(errors);
-        User user = await database.SetHomeCityAsync(
-            profile,
-            cityName,
-            new GeographicPoint(request.Longitude, request.Latitude),
+
+        AuthenticatedUserProfile profile = currentUser.Profile!;
+        User existing = await database.GetOrCreateUserAsync(profile, context.RequestAborted);
+        User user = await database.SetUserProfileAsync(
+            existing.Id,
+            new UserProfile(city! with { Name = city!.Name.Trim() }, codes),
             context.RequestAborted
         );
         return Results.Ok(ToResponse(user));
@@ -147,6 +165,16 @@ public static class UserEndpoints
             user.Email,
             user.Provider,
             user.HomeCityLocation is not null,
-            user.HomeCityName
+            new UserProfile(
+                user.HomeCityLocation is null || user.HomeCityName is null
+                    ? null
+                    : new ProfileHomeCity(
+                        user.HomeCityName,
+                        user.HomeCityLocation.Longitude,
+                        user.HomeCityLocation.Latitude
+                    ),
+                user.PreferredAirlines
+            ),
+            user.FeatureFlags.Split(',', StringSplitOptions.RemoveEmptyEntries)
         );
 }

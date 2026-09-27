@@ -4,6 +4,7 @@ export type SearchLocation = {
   code: string;
   timeZone: string;
   label?: string | null;
+  codes?: string[] | null;
 };
 export type DateWindow = {
   earliest: string | null;
@@ -41,6 +42,9 @@ export type PartySettings = {
 };
 export type PlanningDocument = {
   schemaVersion: number;
+  aiPrompt?: string | null;
+  aiPromptLocked?: boolean | null;
+  aiFormOperationId?: string | null;
   travelDates?: { startDate: string | null; endDate: string | null } | null;
   userTimeZone?: string | null;
   destination: SearchLocation | null;
@@ -56,6 +60,46 @@ export type PlanningEditor = {
   document: PlanningDocument;
   parties: PlanningParty[];
 };
+export type TripFormProposal = {
+  document: PlanningDocument;
+  warnings: string[];
+};
+
+export async function proposeTripForm(
+  userId: string,
+  tripId: string,
+  requestId: string,
+  input: string,
+  draft: PlanningDocument,
+): Promise<import("./operationsApi").TrackedOperation> {
+  const response = await fetch(
+    `${tripResourceUrl(userId, tripId)}/formProposal`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId, input, draft }),
+    },
+  );
+  if (!response.ok) await readTripError(response, "preparing the trip form");
+  return response.json();
+}
+
+export async function getTripFormProposal(
+  userId: string,
+  tripId: string,
+  operationId: string,
+  signal?: AbortSignal,
+): Promise<TripFormProposal> {
+  const response = await fetch(
+    `${tripResourceUrl(userId, tripId)}/formProposal/${encodeURIComponent(operationId)}`,
+    { credentials: "include", cache: "no-store", signal },
+  );
+  if (!response.ok)
+    await readTripError(response, "loading the trip form proposal");
+  return response.json();
+}
+export type UserSearchResult = { id: string; name: string; email: string };
 export type PreparedSearch = {
   body: {
     origin: string;
@@ -82,6 +126,40 @@ export async function getPlanning(
   });
   if (!response.ok) await readTripError(response, "loading planning");
   return response.json();
+}
+
+export async function searchUsers(
+  query: string,
+  signal?: AbortSignal,
+): Promise<UserSearchResult[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/users?query=${encodeURIComponent(query)}`,
+    {
+      credentials: "include",
+      signal,
+    },
+  );
+  if (!response.ok) await readTripError(response, "searching travelers");
+  return response.json();
+}
+
+export async function changePartyMember(
+  userId: string,
+  tripId: string,
+  partyId: string,
+  memberId: string,
+  add: boolean,
+): Promise<void> {
+  const url = `${tripResourceUrl(userId, tripId)}/parties/${encodeURIComponent(partyId)}/members/${encodeURIComponent(memberId)}`;
+  const response = await fetch(url, {
+    method: add ? "PUT" : "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok)
+    await readTripError(
+      response,
+      add ? "adding a traveler" : "removing a traveler",
+    );
 }
 
 export async function saveConstraints(
