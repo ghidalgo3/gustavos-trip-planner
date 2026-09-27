@@ -29,6 +29,8 @@ export default function PlanningRun({
   constraints,
   currentAiPrompt,
   disabled,
+  hasUnsavedChanges,
+  savedVersion,
   onBeforeSearch,
   onReviewRequirements,
 }: {
@@ -38,11 +40,14 @@ export default function PlanningRun({
   constraints: PlanningConstraint[];
   currentAiPrompt?: string | null;
   disabled: boolean;
+  hasUnsavedChanges: boolean;
+  savedVersion: number;
   onBeforeSearch: () => Promise<void>;
   onReviewRequirements: (constraintId?: string) => void;
 }) {
   const [operation, setOperation] = useState<TrackedOperation>();
   const [results, setResults] = useState<FareSearchResult[]>([]);
+  const [resultsKey, setResultsKey] = useState("");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
   const [issues, setIssues] = useState<FlightSearchIssue[]>([]);
@@ -52,6 +57,8 @@ export default function PlanningRun({
   const requestId = useRef<string | undefined>(undefined);
   const active =
     operation?.status === "pending" || operation?.status === "InProgress";
+  const currentResults =
+    resultsKey === `${tripId}:${savedVersion}` ? results : [];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -79,6 +86,7 @@ export default function PlanningRun({
             );
             if (controller.signal.aborted) return;
             setResults(found);
+            setResultsKey(`${tripId}:${savedVersion}`);
             loadedResults = latest.id;
           }
           delay = 15000;
@@ -89,6 +97,7 @@ export default function PlanningRun({
         if (!latest) delay = 15000;
       } catch (reason) {
         if (controller.signal.aborted) return;
+        setResults([]);
         setPollError(
           reason instanceof Error
             ? reason.message
@@ -103,7 +112,7 @@ export default function PlanningRun({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [tripId, refresh]);
+  }, [tripId, refresh, savedVersion]);
 
   async function plan() {
     setStarting(true);
@@ -210,18 +219,21 @@ export default function PlanningRun({
           </Text>
         </>
       )}
-      {results.length > 0 && (
+      {hasUnsavedChanges && currentResults.length > 0 && (
+        <Text>Save planning details to refresh these flight options.</Text>
+      )}
+      {!hasUnsavedChanges && currentResults.length > 0 && (
         <>
           <FareResults
             tripId={tripId}
-            results={results}
+            results={currentResults}
             parties={parties}
             partySettings={partySettings}
           />
           <Text size={200}>
             Prices last retrieved{" "}
-            {new Date(results[0].fetchedAt).toLocaleString()}.{" "}
-            {Date.parse(results[0].expiresAt) <= checkedAt
+            {new Date(currentResults[0].fetchedAt).toLocaleString()}.{" "}
+            {Date.parse(currentResults[0].expiresAt) <= checkedAt
               ? "These results have expired. Plan again to refresh prices."
               : "Prices can change."}
           </Text>

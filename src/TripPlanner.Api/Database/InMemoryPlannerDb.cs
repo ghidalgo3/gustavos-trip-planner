@@ -14,6 +14,26 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
     private readonly ConcurrentDictionary<Guid, Party> _parties = new();
     private readonly object _tripLock = new();
 
+    private bool CanViewTrip(Guid viewerUserId, Trip trip) =>
+        trip.OwnerUserId == viewerUserId
+        || _parties.Values.Any(p => p.TripId == trip.Id && p.UserIds.Contains(viewerUserId));
+
+    public Task<Trip?> GetVisibleTripAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_tripLock)
+        {
+            _trips.TryGetValue(tripId, out var trip);
+            return Task.FromResult(
+                trip is not null && CanViewTrip(viewerUserId, trip) ? trip : null
+            );
+        }
+    }
+
     public IReadOnlyCollection<User> Users => _users.Values.ToArray();
     public IReadOnlyCollection<Trip> Trips => _trips.Values.ToArray();
     public IReadOnlyCollection<Party> Parties => _parties.Values.ToArray();
@@ -28,7 +48,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         lock (_tripLock)
         {
             IReadOnlyList<Party> parties =
-                _trips.TryGetValue(tripId, out var trip) && trip.OwnerUserId == ownerUserId
+                _trips.TryGetValue(tripId, out var trip) && CanViewTrip(ownerUserId, trip)
                     ? _parties.Values.Where(p => p.TripId == tripId).OrderBy(p => p.Id).ToArray()
                     : [];
             return Task.FromResult(parties);
@@ -93,7 +113,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
     {
         cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyList<Trip> trips = _trips
-            .Values.Where(trip => trip.OwnerUserId == ownerUserId)
+            .Values.Where(trip => CanViewTrip(ownerUserId, trip))
             .OrderByDescending(trip => trip.UpdatedAt)
             .ThenBy(trip => trip.Id)
             .ToArray();
@@ -184,6 +204,8 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             }
 
             _trips.TryRemove(tripId, out _);
+            foreach (var key in _selectedFlights.Keys.Where(key => key.TripId == tripId).ToArray())
+                _selectedFlights.Remove(key);
             foreach (
                 Guid partyId in _parties
                     .Values.Where(party => party.TripId == tripId)

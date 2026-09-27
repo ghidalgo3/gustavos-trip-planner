@@ -10,7 +10,7 @@ This document records the agreed product behavior, the proposed planning archite
 
 Build a social travel-planning website where users iteratively define a trip, collaborate with other travelers, express requirements and preferences, and ask a scheduling system to produce ranked flight suggestions using Ignav fare data.
 
-Milestone 1 supports one destination per plan and round-trip flights. It ends at ranked suggestions. Fare results may offer a provider booking link for a selected cached itinerary, but completing a purchase, multi-stop routing, partial-trip travel parties, and planning transport to a shared departure point are outside this milestone.
+Milestone 1 supports one destination per plan and round-trip flights. The initial flight planner is good enough for now; the trip also saves a chosen itinerary per party and shows it in a Plans overview. Fare results may offer a provider booking link, but completing a purchase, multi-stop routing, partial-trip travel parties, and planning transport to a shared departure point are outside this milestone.
 
 ### Users and trips
 
@@ -22,7 +22,7 @@ Milestone 1 supports one destination per plan and round-trip flights. It ends at
 - Trip CRUD is exposed at `/api/user/{userId}/trips`. The authenticated application user must match `{userId}`, and database operations are scoped to that owner. Trip creation is available after home-city onboarding is complete.
 - The initial `trips` representation stores an ID, owner user ID, name, description, and a JSONB `constraints` object. A newly created trip has an empty constraints object.
 - The initial `parties` representation stores an ID, trip ID, and a UUID array of member user IDs. Creating a trip atomically creates one party containing only its owner; deleting the trip cascades to every party belonging to it.
-- The trip owner can search existing users by display name and add or remove them from a party. Membership changes are idempotent. The owner remains in their party, a user belongs to at most one party in a trip, and a party has at most nine travelers.
+- The trip owner can search existing users by display name and add or remove them from a party. Membership changes are idempotent. The owner remains in their party, a user belongs to at most one party in a trip, and a party has at most nine travelers. Adding a user to the owner's party shares the trip; that user can view its plan while only the owner may edit. Removing a user revokes access.
 - A trip owner can invite other users and manage trip membership and membership in travel parties.
 - Constraints are defined per user, per trip. Party membership and shared party preferences supplement those individual constraints.
 - An `LLM` feature flag on the user enables an optional free-form trip description. The server uses an OpenAI Responses API function call to propose destination, dates, preferences, and requirements, then returns an unsaved draft for review in the same editor. The server enforces the flag and resolves airports and party members rather than trusting model-provided IDs.
@@ -226,6 +226,19 @@ Return an ordered list for each party. Independent party ranking is sufficient u
 
 The ranking formula, preference weights, and tie-breaking rules remain open.
 
+The first itinerary validator runs on every flight-search GET, without changing
+the cached Ignav response. It checks requested airports and flight dates,
+destination-local arrival and return-departure dates, every party member's
+date windows and required stay, nonstop and stop limits, total journey duration,
+and excluded layover airports, cities, countries, or explicit region countries.
+Missing provider fields or uncataloged layover geography mark an itinerary
+unverifiable. Only eligible options appear in the current price and airline
+highlights; excluded and unverifiable options remain inspectable with reasons.
+Booking links are refused when an itinerary no longer qualifies under the
+saved requirements. Unsaved edits hide existing suggestions; saving reloads
+their evaluations, or asks for a new search if the required fare cache is missing.
+This is eligibility validation, not the final scoring model.
+
 ### E. Explain outcomes
 
 Distinguish:
@@ -300,9 +313,17 @@ pg_cron job deletes fare-search rows six hours after their successful retrieval,
 or six hours after creation for a request that never produced a response. Rows
 assigned to an active operation are protected until the operation completes.
 
-Raw provider results are available in the GUI and trip flight-search GET API. They are not
-yet classified as constraint-compliant or ranked recommendations; actual flight-time
-validation, layover geography checks, and preference scoring remain follow-up work.
+Raw provider responses remain cached. Flight-search GET adds a transient
+per-itinerary eligibility result and reasons based on the saved trip. Full
+preference scoring and ranked recommendations remain follow-up work.
+
+The trip page now has route-backed Flights, Stays, and Plans tabs. Stays is a
+placeholder; Plans shows the trip description and selected flight for each party.
+The owner may select, replace, or clear one itinerary per party through
+`/api/trips/{tripId}/selectedFlights`. Selecting requires an eligible itinerary
+from the trip's current fresh fare cache. `trips.selected_flights` stores a JSONB snapshot of
+the search request and itinerary independently of cache cleanup. The choice
+remains visible after fares expire and is not a booking.
 
 ### Recommended cache design
 
@@ -335,7 +356,7 @@ complete budget for retries, ancillary API calls, or repeated planning runs.
 | Region definitions | Choose the geographic source, inspectable membership, and versioning behavior for named areas. |
 | Travelers | Must all passengers have accounts? Are guests and children supported? |
 | Accounts and invitations | Google and personal Microsoft accounts are linked by normalized email. Define invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
-| Remaining persistence | Users, trips, parties, and the initial JSONB constraints document are implemented. Planning operations, queue messages, and cached fare responses are now durable. Fare validation and scoring remain to be implemented. |
+| Remaining persistence | Users, trips, parties, the JSONB constraints document, operations, queue messages, and cached fare responses are durable. Eligibility is computed when reading fares; full preference scoring remains to be implemented. |
 | Concurrent edits and history | Trip revisions and persisted input snapshots are deferred to later milestones. Concurrent saves currently use last-write-wins. |
 | Search operations | One-hour cache, six-hour fare-row retention, bounded worker concurrency, timeouts, partial results, and recovery leases are implemented. Define limits across repeated runs. |
 

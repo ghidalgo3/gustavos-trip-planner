@@ -36,6 +36,7 @@ CREATE TABLE trips (
     name text NOT NULL,
     description text NOT NULL DEFAULT '',
     constraints jsonb NOT NULL DEFAULT '{}'::jsonb,
+    selected_flights jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT trips_id_primary_key PRIMARY KEY (id),
@@ -44,7 +45,8 @@ CREATE TABLE trips (
     CONSTRAINT trips_name_not_blank CHECK (name <> '' AND name = btrim(name)),
     CONSTRAINT trips_name_length CHECK (char_length(name) <= 200),
     CONSTRAINT trips_description_length CHECK (char_length(description) <= 4000),
-    CONSTRAINT trips_constraints_object CHECK (jsonb_typeof(constraints) = 'object')
+    CONSTRAINT trips_constraints_object CHECK (jsonb_typeof(constraints) = 'object'),
+    CONSTRAINT trips_selected_flights_object CHECK (jsonb_typeof(selected_flights) = 'object')
 );
 
 CREATE INDEX trips_owner_user_id_idx ON trips (owner_user_id, updated_at DESC);

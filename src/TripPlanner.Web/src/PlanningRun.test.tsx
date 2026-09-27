@@ -57,7 +57,18 @@ function show(
   constraints: PlanningConstraint[] = [],
   currentAiPrompt?: string,
 ) {
-  return render(
+  return render(planningRun(parties, settings, constraints, currentAiPrompt));
+}
+
+function planningRun(
+  parties: PlanningParty[] = [],
+  settings: PartySettings[] = [],
+  constraints: PlanningConstraint[] = [],
+  currentAiPrompt?: string,
+  savedVersion = 0,
+  hasUnsavedChanges = false,
+) {
+  return (
     <FluentProvider theme={webLightTheme}>
       <MemoryRouter>
         <PlanningRun
@@ -67,11 +78,13 @@ function show(
           constraints={constraints}
           currentAiPrompt={currentAiPrompt}
           disabled={false}
+          hasUnsavedChanges={hasUnsavedChanges}
+          savedVersion={savedVersion}
           onBeforeSearch={save}
           onReviewRequirements={reviewRequirements}
         />
       </MemoryRouter>
-    </FluentProvider>,
+    </FluentProvider>
   );
 }
 
@@ -137,6 +150,7 @@ test("reopening a trip discovers its latest operation from the generic list", as
         market: "US",
       },
       response: { itineraries: [] },
+      evaluations: [],
       fetchedAt: "2030-01-01T12:00:00Z",
       expiresAt: "2030-01-01T13:00:00Z",
     },
@@ -155,6 +169,45 @@ test("reopening a trip discovers its latest operation from the generic list", as
   const signal = vi.mocked(getOperations).mock.calls[0][0];
   view.unmount();
   expect(signal.aborted).toBe(true);
+});
+
+test("hides results during edits and reloads their evaluation after saving", async () => {
+  vi.mocked(getOperations).mockResolvedValue([
+    { ...operation, status: "Completed" },
+  ]);
+  vi.mocked(getFlightSearchResults).mockResolvedValue([
+    {
+      partyId: "party",
+      cacheKey: "hash",
+      request: {
+        origin: "BOS",
+        destination: "CDG",
+        departure_date: "2030-01-05",
+        return_date: "2030-01-15",
+        adults: 1,
+        cabin_class: "economy",
+        market: "US",
+      },
+      response: { itineraries: [] },
+      evaluations: [],
+      fetchedAt: "2030-01-01T12:00:00Z",
+      expiresAt: "2030-01-01T13:00:00Z",
+    },
+  ]);
+  const view = show([party], [partySettings]);
+  expect(
+    await screen.findByRole("heading", { name: "Flight options" }),
+  ).toBeVisible();
+  view.rerender(planningRun([party], [partySettings], [], undefined, 0, true));
+  expect(
+    screen.queryByRole("heading", { name: "Flight options" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText(/Save planning details to refresh/)).toBeVisible();
+  view.rerender(planningRun([party], [partySettings], [], undefined, 1));
+  await waitFor(() => expect(getFlightSearchResults).toHaveBeenCalledTimes(2));
+  expect(
+    await screen.findByRole("heading", { name: "Flight options" }),
+  ).toBeVisible();
 });
 
 test("retries uncertain submissions with the same request ID", async () => {

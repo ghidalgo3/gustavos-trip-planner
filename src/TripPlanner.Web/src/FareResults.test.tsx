@@ -1,10 +1,19 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { MemoryRouter, useLocation } from "react-router";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import FareResults from "./FareResults";
 import type { FareSearchResult } from "./operationsApi";
 import type { PartySettings, PlanningParty } from "./planningApi";
+import type { SelectedFlight } from "./selectedFlightsApi";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const party: PlanningParty = {
   id: "party",
@@ -109,6 +118,10 @@ const results: FareSearchResult[] = [
         },
       ],
     },
+    evaluations: Array.from({ length: 4 }, () => ({
+      status: "Eligible" as const,
+      issues: [],
+    })),
     fetchedAt: "2030-01-01T12:00:00Z",
     expiresAt: "2030-01-01T13:00:00Z",
   },
@@ -158,6 +171,138 @@ test("highlights three fare categories and places the remainder behind a disclos
   expect(screen.getByRole("combobox", { name: "Stops" })).toBeVisible();
   expect(screen.getByLabelText("Minimum price slider")).toBeVisible();
   expect(screen.getByLabelText("Maximum price slider")).toBeVisible();
+});
+
+test("never recommends or offers booking for a rejected itinerary", () => {
+  const checked = structuredClone(results);
+  checked[0].evaluations[0] = {
+    status: "Rejected",
+    issues: [
+      {
+        code: "presence",
+        message: "Arrival is after the required stay begins.",
+        constraintIds: ["required-stay"],
+      },
+    ],
+  };
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <FareResults
+          tripId="trip"
+          results={checked}
+          parties={[party]}
+          partySettings={[settings]}
+        />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+  expect(
+    screen.getByText("Cheapest overall").closest("article"),
+  ).toHaveTextContent("USD 130");
+  fireEvent.click(screen.getByText("Excluded or unverified options (1)"));
+  const rejected = screen
+    .getByText("Arrival is after the required stay begins.")
+    .closest("article")!;
+  expect(
+    within(rejected).queryByRole("button", { name: "Book this fare" }),
+  ).not.toBeInTheDocument();
+});
+
+test("selects, replaces, and clears a flight for the party", async () => {
+  let selected: SelectedFlight | undefined;
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        const { cacheKey, itineraryIndex } = JSON.parse(String(init.body)) as {
+          cacheKey: string;
+          itineraryIndex: number;
+        };
+        selected = {
+          tripId: "trip",
+          partyId: "party",
+          cacheKey,
+          itineraryIndex,
+          request: results[0].request,
+          itinerary: results[0].response.itineraries[itineraryIndex],
+          selectedAt: "2030-01-01T12:00:00Z",
+        };
+        return Response.json(selected);
+      }
+      if (init?.method === "DELETE") {
+        selected = undefined;
+        return new Response(null, { status: 204 });
+      }
+      return Response.json(selected ? [selected] : []);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <FareResults
+          tripId="trip"
+          results={results}
+          parties={[party]}
+          partySettings={[settings]}
+        />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+  fireEvent.click(screen.getAllByRole("button", { name: "Select flight" })[0]);
+  await waitFor(() => expect(selected?.itineraryIndex).toBe(0));
+  const alternative = screen.getByText("USD 130").closest("article")!;
+  fireEvent.click(
+    within(alternative).getByRole("button", { name: "Change to this flight" }),
+  );
+  await waitFor(() => expect(selected?.itineraryIndex).toBe(1));
+  fireEvent.click(
+    within(alternative).getByRole("button", { name: "Deselect flight" }),
+  );
+  await waitFor(() => expect(selected).toBeUndefined());
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining("/selectedFlights/party"),
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ cacheKey: "cache", itineraryIndex: 1 }),
+    }),
+  );
+});
+
+test("does not label a different refreshed itinerary as selected", async () => {
+  const selected = {
+    tripId: "trip",
+    partyId: "party",
+    cacheKey: "cache",
+    itineraryIndex: 0,
+    request: results[0].request,
+    itinerary: results[0].response.itineraries[0],
+    selectedAt: "2030-01-01T12:00:00Z",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json([selected])),
+  );
+  const refreshed = structuredClone(results);
+  refreshed[0].response.itineraries[0].ignav_id = "different-fare";
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <FareResults
+          tripId="trip"
+          results={refreshed}
+          parties={[party]}
+          partySettings={[settings]}
+        />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("button", { name: "Change to this flight" }).length,
+    ).toBeGreaterThan(0),
+  );
+  expect(screen.queryByText("Selected for this trip")).not.toBeInTheDocument();
 });
 
 test("restores fare filters from the route and updates its query", () => {

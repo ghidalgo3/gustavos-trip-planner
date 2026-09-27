@@ -6,4 +6,4 @@ RUN dotnet restore src/TripPlanner.Api/TripPlanner.Api.csproj
 
 COPY src/TripPlanner.Api/ src/TripPlanner.Api/
 EXPOSE 8080
-CMD ["dotnet", "watch", "--project", "src/TripPlanner.Api/TripPlanner.Api.csproj", "run", "--no-launch-profile", "--urls", "http://0.0.0.0:8080"]
+CMD ["dotnet", "watch", "--no-hot-reload", "--project", "src/TripPlanner.Api/TripPlanner.Api.csproj", "run", "--no-launch-profile", "--urls", "http://0.0.0.0:8080"]

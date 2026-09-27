@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
 
@@ -63,7 +64,7 @@ public static class TripsEndpoints
         );
         if (error is not null)
             return error;
-        Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
+        Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         return trip is null ? Results.NotFound() : Results.Ok(trip);
     }
 
@@ -163,12 +164,13 @@ public static class TripsEndpoints
         );
         if (error is not null)
             return error;
-        Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
+        Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
             return Results.NotFound();
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var editorParties = new List<PlanningParty>();
-        SearchLocation? ownerOrigin = airports.SuggestOrigin([user]);
+        User? owner = await database.GetUserAsync(trip.OwnerUserId, context.RequestAborted);
+        SearchLocation? ownerOrigin = owner is null ? null : airports.SuggestOrigin([owner]);
         foreach (Party party in parties)
         {
             var members = new List<PlanningMember>();
@@ -277,6 +279,7 @@ public static class TripsEndpoints
         HttpContext context,
         IPlannerDb database,
         ISearchPlanBuilder planner,
+        FareValidator validator,
         ICurrentUser currentUser
     )
     {
@@ -311,7 +314,24 @@ public static class TripsEndpoints
             context.RequestAborted
         );
         context.Response.Headers.CacheControl = "no-store";
-        return results is null ? Results.NotFound() : Results.Ok(results);
+        if (results is null)
+            return Results.NotFound();
+        var document = PlanningDocument.FromJson(trip.Constraints);
+        return Results.Ok(
+            results.Select(result =>
+            {
+                var party = parties.Single(p => p.Id == result.PartyId);
+                return new EvaluatedFareSearchResultDto(
+                    result.PartyId,
+                    result.CacheKey,
+                    result.Request,
+                    result.Response,
+                    result.FetchedAt,
+                    result.ExpiresAt,
+                    validator.Evaluate(result, document, party)
+                );
+            })
+        );
     }
 
     private static async Task<IResult> GetBookingLinks(
@@ -321,6 +341,7 @@ public static class TripsEndpoints
         HttpContext context,
         IPlannerDb database,
         ISearchPlanBuilder planner,
+        FareValidator validator,
         IIgnavClient ignav,
         ICurrentUser currentUser
     )
@@ -351,24 +372,58 @@ public static class TripsEndpoints
             preview,
             context.RequestAborted
         );
-        var fare = fares?.SingleOrDefault(result => result.CacheKey == cacheKey);
-        if (fare is null || !ContainsItinerary(fare.Response, request.IgnavId))
+        var matching = fares
+            ?.Where(result => result.CacheKey == cacheKey)
+            .Select(result => new
+            {
+                Fare = result,
+                Index = ItineraryIndex(result.Response, request.IgnavId),
+            })
+            .Where(candidate => candidate.Index >= 0)
+            .ToArray();
+        if (matching is null || matching.Length == 0)
             return Results.NotFound();
+        var document = PlanningDocument.FromJson(trip.Constraints);
+        if (
+            !matching.Any(candidate =>
+                validator
+                    .Evaluate(
+                        candidate.Fare,
+                        document,
+                        parties.Single(p => p.Id == candidate.Fare.PartyId)
+                    )[candidate.Index]
+                    .Status == "Eligible"
+            )
+        )
+            return Results.Conflict(
+                new { title = "This fare does not satisfy the trip's current requirements." }
+            );
         return Results.Ok(
             await ignav.GetBookingLinksAsync(request.IgnavId, context.RequestAborted)
         );
     }
 
-    private static bool ContainsItinerary(JsonElement response, string ignavId) =>
-        response.TryGetProperty("itineraries", out var itineraries)
-        && itineraries.ValueKind == JsonValueKind.Array
-        && itineraries
-            .EnumerateArray()
-            .Any(itinerary =>
-                itinerary.TryGetProperty("ignav_id", out var id)
+    private static int ItineraryIndex(JsonElement response, string ignavId)
+    {
+        if (
+            !response.TryGetProperty("itineraries", out var itineraries)
+            || itineraries.ValueKind != JsonValueKind.Array
+        )
+            return -1;
+        var index = 0;
+        foreach (var itinerary in itineraries.EnumerateArray())
+        {
+            if (
+                itinerary.ValueKind == JsonValueKind.Object
+                && itinerary.TryGetProperty("ignav_id", out var id)
                 && id.ValueKind == JsonValueKind.String
                 && string.Equals(id.GetString(), ignavId, StringComparison.Ordinal)
-            );
+            )
+                return index;
+            index++;
+        }
+        return -1;
+    }
 
     private static async Task<(User? User, IResult? Error)> AuthorizeOwnerAsync(
         Guid userId,

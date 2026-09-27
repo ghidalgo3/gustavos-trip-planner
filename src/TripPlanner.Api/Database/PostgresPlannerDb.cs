@@ -9,7 +9,7 @@ namespace TripPlanner.Api.Database;
 public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPlannerDb
 {
     public async Task<IReadOnlyList<Party>> GetPartiesAsync(
-        Guid ownerUserId,
+        Guid viewerUserId,
         Guid tripId,
         CancellationToken cancellationToken = default
     )
@@ -18,11 +18,14 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             """
             SELECT p.id, p.trip_id, p.user_ids FROM parties p
             JOIN trips t ON t.id = p.trip_id
-            WHERE t.owner_user_id = $1 AND t.id = $2
+            WHERE t.id = $2 AND (t.owner_user_id = $1 OR EXISTS (
+                SELECT 1 FROM parties membership
+                WHERE membership.trip_id = t.id AND $1 = ANY(membership.user_ids)
+            ))
             ORDER BY p.id;
             """
         );
-        command.Parameters.AddWithValue(ownerUserId);
+        command.Parameters.AddWithValue(viewerUserId);
         command.Parameters.AddWithValue(tripId);
         var parties = new List<Party>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -176,7 +179,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
     }
 
     public async Task<IReadOnlyList<Trip>> GetTripsAsync(
-        Guid ownerUserId,
+        Guid viewerUserId,
         CancellationToken cancellationToken = default
     )
     {
@@ -186,11 +189,14 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 id, owner_user_id, name, description, constraints::text,
                 created_at, updated_at
             FROM trips
-            WHERE owner_user_id = $1
+            WHERE owner_user_id = $1 OR EXISTS (
+                SELECT 1 FROM parties membership
+                WHERE membership.trip_id = trips.id AND $1 = ANY(membership.user_ids)
+            )
             ORDER BY updated_at DESC, id;
             """
         );
-        command.Parameters.AddWithValue(ownerUserId);
+        command.Parameters.AddWithValue(viewerUserId);
 
         var trips = new List<Trip>();
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -200,6 +206,28 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         }
 
         return trips;
+    }
+
+    public async Task<Trip?> GetVisibleTripAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT id, owner_user_id, name, description, constraints::text, created_at, updated_at
+            FROM trips
+            WHERE id = $2 AND (owner_user_id = $1 OR EXISTS (
+                SELECT 1 FROM parties membership
+                WHERE membership.trip_id = trips.id AND $1 = ANY(membership.user_ids)
+            ));
+            """
+        );
+        command.Parameters.AddWithValue(viewerUserId);
+        command.Parameters.AddWithValue(tripId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadTrip(reader) : null;
     }
 
     public async Task<Trip?> GetTripAsync(

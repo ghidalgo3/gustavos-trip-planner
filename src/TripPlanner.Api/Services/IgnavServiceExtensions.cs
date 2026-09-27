@@ -18,6 +18,7 @@ public static class IgnavServiceExtensions
             ?? new();
 
         builder.Services.AddSingleton<ISearchPlanBuilder, SearchPlanBuilder>();
+        builder.Services.AddSingleton<FareValidator>();
         builder
             .Services.AddHttpClient<IIgnavClient, IgnavClient>(client =>
             {

@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
+using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Services;
@@ -16,6 +19,24 @@ public sealed class OperationTests
 {
     private static JsonElement Response =>
         JsonSerializer.SerializeToElement(new { itineraries = Array.Empty<object>() });
+    private static JsonElement SampleItineraryResponse
+    {
+        get
+        {
+            var response = JsonNode.Parse(
+                """
+                {"itineraries":[{"ignav_id":"fare-1","price":{"amount":350,"currency":"USD"},
+                "outbound":{"duration_minutes":600,"segments":[{"departure_airport":"BOS","arrival_airport":"CDG","departure_time_local":"2030-01-05T08:00:00","arrival_time_local":"2030-01-06T01:00:00"}]},
+                "inbound":{"duration_minutes":420,"segments":[{"departure_airport":"CDG","arrival_airport":"BOS","departure_time_local":"2030-01-15T09:00:00","arrival_time_local":"2030-01-15T12:00:00"}]}}]}
+                """
+            )!;
+            var alternative = response["itineraries"]![0]!.DeepClone();
+            alternative["ignav_id"] = "fare-2";
+            alternative["price"]!["amount"] = 450;
+            response["itineraries"]!.AsArray().Add(alternative);
+            return JsonSerializer.SerializeToElement(response);
+        }
+    }
     private static IgnavRoundTripRequest Query =>
         new("BOS", "CDG", new(2030, 1, 5), new(2030, 1, 14), 1, "economy", "US", null);
 
@@ -86,7 +107,10 @@ public sealed class OperationTests
                     """
                     SELECT count(*), to_regclass('public.operations'),
                         to_regclass('public.fare_searches'), to_regclass('public.operation_items'),
-                        to_regclass('public.trip_form_jobs')
+                        to_regclass('public.trip_form_jobs'),
+                        (SELECT count(*) FROM information_schema.columns
+                         WHERE table_schema = 'public' AND table_name = 'trips'
+                           AND column_name = 'selected_flights')
                     FROM schema_migrations;
                     """
                 )
@@ -99,6 +123,7 @@ public sealed class OperationTests
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
                 Assert.IsFalse(reader.IsDBNull(4));
+                Assert.AreEqual(1L, reader.GetInt64(5));
             }
             var db = new PostgresPlannerDb(source);
             await QueueContract(db);
@@ -160,6 +185,59 @@ public sealed class OperationTests
         var results = await db.GetFareSearchResultsAsync(user.Id, trip.Id, cachedPreview);
         Assert.HasCount(1, results!);
         Assert.AreEqual(claims[0]!.CacheKey, results![0].CacheKey);
+
+        var itinerary = JsonSerializer.SerializeToElement(new { ignav_id = "fare-1" });
+        var selected = new SelectedFlight(
+            trip.Id,
+            party.Id,
+            claims[0]!.CacheKey,
+            0,
+            claims[0]!.Request,
+            itinerary,
+            DateTimeOffset.UtcNow
+        );
+        await db.SetSelectedFlightAsync(user.Id, selected);
+        Assert.IsEmpty(await db.GetSelectedFlightsAsync(Guid.NewGuid(), trip.Id));
+        Assert.AreEqual(
+            0,
+            (await db.GetSelectedFlightsAsync(user.Id, trip.Id)).Single().ItineraryIndex
+        );
+        await db.SetSelectedFlightAsync(user.Id, selected with { ItineraryIndex = 1 });
+        Assert.AreEqual(
+            1,
+            (await db.GetSelectedFlightsAsync(user.Id, trip.Id)).Single().ItineraryIndex
+        );
+        var member = await db.GetOrCreateUserAsync(
+            new("google", $"{Guid.NewGuid()}@example.com", "Ben")
+        );
+        Assert.AreEqual(
+            PartyMemberChangeStatus.Success,
+            await db.ChangePartyMemberAsync(user.Id, trip.Id, party.Id, member.Id, true)
+        );
+        Assert.AreEqual(trip.Id, (await db.GetVisibleTripAsync(member.Id, trip.Id))?.Id);
+        Assert.AreEqual(trip.Id, (await db.GetTripsAsync(member.Id)).Single().Id);
+        Assert.HasCount(1, await db.GetPartiesAsync(member.Id, trip.Id));
+        Assert.HasCount(1, await db.GetSelectedFlightsAsync(member.Id, trip.Id));
+        Assert.IsNull(await db.GetTripAsync(member.Id, trip.Id));
+        Assert.AreEqual(
+            PartyMemberChangeStatus.Success,
+            await db.ChangePartyMemberAsync(user.Id, trip.Id, party.Id, member.Id, false)
+        );
+        Assert.IsNull(await db.GetVisibleTripAsync(member.Id, trip.Id));
+        Assert.IsEmpty(await db.GetTripsAsync(member.Id));
+        Assert.IsEmpty(await db.GetSelectedFlightsAsync(member.Id, trip.Id));
+        if (db is InMemoryPlannerDb memory)
+        {
+            var expiredClock = new TestClock();
+            expiredClock.Advance(TimeSpan.FromHours(2));
+            memory.OperationClock = expiredClock;
+            Assert.IsNull(await db.GetFareSearchResultsAsync(user.Id, trip.Id, cachedPreview));
+            Assert.HasCount(1, await db.GetSelectedFlightsAsync(user.Id, trip.Id));
+            memory.OperationClock = TimeProvider.System;
+        }
+        await db.DeleteSelectedFlightAsync(user.Id, trip.Id, party.Id);
+        await db.DeleteSelectedFlightAsync(user.Id, trip.Id, party.Id);
+        Assert.IsEmpty(await db.GetSelectedFlightsAsync(user.Id, trip.Id));
 
         Assert.HasCount(2, await db.GetOperationsAsync(user.Id, "flightSearch", 10, 0));
         Assert.HasCount(1, await db.GetOperationsAsync(user.Id, "flightSearch", 1, 1));
@@ -325,7 +403,7 @@ public sealed class OperationTests
 
         var worker = new PlanningWorker(
             factory.Database,
-            new FakeIgnav(),
+            new FakeIgnav(SampleItineraryResponse),
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             TimeProvider.System,
@@ -333,7 +411,115 @@ public sealed class OperationTests
             null
         );
         while (await worker.ProcessNextAsync()) { }
-        Assert.AreEqual(HttpStatusCode.OK, (await client.GetAsync(path)).StatusCode);
+        using (var fareResponse = await client.GetAsync(path))
+        using (var json = JsonDocument.Parse(await fareResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.AreEqual(HttpStatusCode.OK, fareResponse.StatusCode);
+            Assert.AreEqual(
+                "Eligible",
+                json.RootElement[0].GetProperty("evaluations")[0].GetProperty("status").GetString()
+            );
+        }
+        var evaluated = await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(path);
+        Assert.HasCount(1, evaluated!);
+        Assert.AreEqual("Eligible", evaluated![0].Evaluations[0].Status);
+
+        var selectionPath = $"/api/trips/{trip.Id}/selectedFlights";
+        Assert.IsEmpty((await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!);
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PutAsJsonAsync(
+                    $"{selectionPath}/{party.Id}",
+                    new SelectFlightRequest(null, null)
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await client.PutAsJsonAsync(
+                    $"{selectionPath}/{party.Id}",
+                    new SelectFlightRequest(evaluated[0].CacheKey, 99)
+                )
+            ).StatusCode
+        );
+        var firstSelection = await client.PutAsJsonAsync(
+            $"{selectionPath}/{party.Id}",
+            new SelectFlightRequest(evaluated[0].CacheKey, 0)
+        );
+        Assert.AreEqual(HttpStatusCode.OK, firstSelection.StatusCode);
+        Assert.AreEqual(
+            "fare-1",
+            (await firstSelection.Content.ReadFromJsonAsync<SelectedFlight>())!
+                .Itinerary.GetProperty("ignav_id")
+                .GetString()
+        );
+        var replacement = await client.PutAsJsonAsync(
+            $"{selectionPath}/{party.Id}",
+            new SelectFlightRequest(evaluated[0].CacheKey, 1)
+        );
+        Assert.AreEqual(HttpStatusCode.OK, replacement.StatusCode);
+        var saved = (await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!;
+        Assert.HasCount(1, saved);
+        Assert.AreEqual(1, saved[0].ItineraryIndex);
+        Assert.AreEqual("fare-2", saved[0].Itinerary.GetProperty("ignav_id").GetString());
+
+        var stay = new PlanningConstraint
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id!.Value,
+            Type = "presence",
+            StartDate = new(2030, 1, 5),
+            EndDate = new(2030, 1, 10),
+        };
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (
+                await client.PutAsJsonAsync(
+                    $"/api/user/{user.Id}/trips/{trip.Id}/constraints",
+                    document with
+                    {
+                        Constraints = [stay],
+                    }
+                )
+            ).StatusCode
+        );
+        evaluated = await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(path);
+        Assert.HasCount(1, evaluated!);
+        Assert.AreEqual("Rejected", evaluated![0].Evaluations[0].Status);
+        Assert.AreEqual("presence", evaluated[0].Evaluations[0].Issues.Single().Code);
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (
+                await client.PutAsJsonAsync(
+                    $"{selectionPath}/{party.Id}",
+                    new SelectFlightRequest(evaluated[0].CacheKey, 0)
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            1,
+            (await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))![0].ItineraryIndex
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteAsync($"{selectionPath}/{party.Id}")).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteAsync($"{selectionPath}/{party.Id}")).StatusCode
+        );
+        Assert.IsEmpty((await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!);
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (
+                await client.PostAsJsonAsync(
+                    $"{path}/{evaluated[0].CacheKey}/bookingLinks",
+                    new BookingLinksRequest("fare-1")
+                )
+            ).StatusCode
+        );
 
         using var anonymous = factory.CreateClient();
         Assert.AreEqual(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
@@ -349,6 +535,7 @@ public sealed class OperationTests
             new UserProfile(new("Seattle", -122, 47), [])
         );
         Assert.AreEqual(HttpStatusCode.NotFound, (await other.GetAsync(path)).StatusCode);
+        Assert.AreEqual(HttpStatusCode.NotFound, (await other.GetAsync(selectionPath)).StatusCode);
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (await other.GetAsync(operation.PollingUrl)).StatusCode
@@ -361,7 +548,7 @@ public sealed class OperationTests
         );
     }
 
-    private sealed class FakeIgnav : IIgnavClient
+    private sealed class FakeIgnav(JsonElement? response = null) : IIgnavClient
     {
         public int Calls { get; private set; }
 
@@ -371,7 +558,7 @@ public sealed class OperationTests
         )
         {
             Calls++;
-            return Task.FromResult(Response);
+            return Task.FromResult(response ?? Response);
         }
 
         public Task<JsonElement> GetBookingLinksAsync(

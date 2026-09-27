@@ -7,6 +7,22 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb
 {
+    Task<IReadOnlyList<SelectedFlight>> GetSelectedFlightsAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<SelectedFlight> SetSelectedFlightAsync(
+        Guid ownerUserId,
+        SelectedFlight selectedFlight,
+        CancellationToken cancellationToken = default
+    );
+    Task DeleteSelectedFlightAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        Guid partyId,
+        CancellationToken cancellationToken = default
+    );
     Task<TrackedOperation> CreateTripFormOperationAsync(
         Guid userId,
         Guid tripId,
@@ -93,7 +109,7 @@ public interface IPlannerDb
     );
 
     Task<IReadOnlyList<Party>> GetPartiesAsync(
-        Guid ownerUserId,
+        Guid viewerUserId,
         Guid tripId,
         CancellationToken cancellationToken = default
     );
@@ -118,7 +134,13 @@ public interface IPlannerDb
     );
 
     Task<IReadOnlyList<Trip>> GetTripsAsync(
-        Guid ownerUserId,
+        Guid viewerUserId,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<Trip?> GetVisibleTripAsync(
+        Guid viewerUserId,
+        Guid tripId,
         CancellationToken cancellationToken = default
     );
 

@@ -281,6 +281,23 @@ main {
   margin: 0 auto;
   padding: 32px 0 96px;
 }
+.trip-tab-list {
+  width: min(1060px, calc(100% - 48px));
+  margin: 24px auto 0;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.plans-overview {
+  display: grid;
+  gap: 20px;
+}
+.selected-flight-overview {
+  max-width: 720px;
+}
+.selected-flight-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .planning-intro {
   display: flex;
   flex-direction: column;
@@ -611,6 +628,9 @@ main {
   border-color: var(--colorBrandStroke1);
   background: var(--colorBrandBackground2);
 }
+.selected-fare {
+  outline: 2px solid var(--colorBrandStroke1);
+}
 .fare-card-category {
   color: var(--colorBrandForeground1);
 }
@@ -657,6 +677,16 @@ main {
 }
 .fare-card-footer > :last-child {
   margin-left: auto;
+}
+.fare-card-rejected-footer > :last-child {
+  margin-left: 0;
+}
+.fare-validation-issues ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.excluded-fares .fare-card {
+  border-color: var(--colorPaletteRedBorder2);
 }
 .remaining-fares {
   padding: 12px 0;

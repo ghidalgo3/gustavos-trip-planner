@@ -107,7 +107,7 @@ export default function App() {
             element={<TripsDashboard user={{ ...user, id: user.id }} />}
           />
           <Route
-            path="/trips/:tripId"
+            path="/trips/:tripId/*"
             element={
               <TripPlanningPage
                 userId={user.id}

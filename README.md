@@ -41,7 +41,7 @@ scripts/server
 
 The script reads the four authentication values and the Ignav and OpenAI keys from the deployed Azure Key Vault, then issues a two-hour Azure Maps development SAS with a 50 request-per-second limit. It passes those values only to the API container. It does not create an `.env` file or expose provider client secrets to the React application. The browser obtains the short-lived Maps SAS from the authenticated API route. Pass Docker Compose options through the script, for example `scripts/server --detach`; stop detached containers with `docker compose down`.
 
-Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at `http://api:8080`; editing either project triggers HMR or `dotnet watch`. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
+Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at `http://api:8080`; editing the frontend triggers HMR, while `dotnet watch` rebuilds and restarts the API without interactive hot-reload prompts. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
 
 Useful commands when Node.js and .NET are installed locally:
 
@@ -68,7 +68,7 @@ Migration `0001_CreateUsers.sql` enables PostGIS and creates `users`, `trips`, a
 
 The same migration installs pg_cron in the configured `tripplanner` database and schedules `tripplanner-purge-fares` hourly. It removes completed or abandoned `fare_searches` rows six hours after retrieval or creation; rows assigned to an active operation are retained. Azure infrastructure allowlists and preloads pg_cron and sets `cron.database_name` to `tripplanner`. `scripts/buildout` restarts PostgreSQL when a server setting is pending restart, so pg_cron is ready before application migrations run. Editing an already applied `0001` file does not rerun it: databases created before these changes need the updated schema applied during a reset or the new SQL applied separately. The local development database received the `preferred_airlines` column without dropping its data.
 
-Each trip has an owning user, name, description, and JSONB constraints document. A new trip and its initial party are inserted in one transaction; the initial party's UUID array contains only the owner. Deleting a trip cascades to all of its parties. Trip routes use a read-only user lookup to verify that the authenticated application user matches the user ID in the URL, and all database mutations also filter by owner ID.
+Each trip has an owning user, name, description, JSONB constraints document, and JSONB selected-flight snapshots keyed by party ID. A new trip and its initial party are inserted in one transaction; the initial party's UUID array contains only the owner. Party membership grants read access to the trip and its plan; only the owner can edit it. Adding someone to the owner's party shares the trip with them, and removing them revokes access. Deleting a trip cascades to all of its parties. Trip routes verify that the authenticated application user matches the user ID in the URL, and all database mutations also filter by owner ID.
 
 `GET /api/user` reads the authenticated ASP.NET principal and asks `IPlannerDb` for the user. The database creates the row only when the provider identity is new. The response includes `completedOnboarding`, which becomes true after a home-city geographic point has been stored. Other requests do not write to `users`.
 
@@ -123,8 +123,8 @@ overnight travel and date-line crossings. Calendar values remain date-only strin
 Planning combines party members' requirements, explains missing inputs and
 conflicts, and prepares up to `Planning:DatePairLimit` requests per party (default
 20). The return-flight date is the date the flight home begins and maps directly
-to the provider request's return date. Actual itinerary timing, required presence,
-journey duration, and layover geography still need validation after fare retrieval.
+to the provider request's return date. The API validates actual itinerary timing,
+required presence, journey duration, and layover geography when reading cached fares.
 
 This prototype counts each account holder as an adult passenger.
 For users whose `users."FeatureFlags"` comma-separated value contains `LLM`, the
@@ -148,7 +148,7 @@ feature flag independently of the browser. Set the OpenAI key with
 Vault. During development, enable the feature for one user by setting
 `"FeatureFlags" = 'LLM'` on that user's row and refreshing the application.
 For example, `UPDATE users SET "FeatureFlags" = 'LLM' WHERE email = 'you@example.com';`.
-Invitations, itinerary validation, and scoring are subsequent
+Invitations and full preference scoring are subsequent
 steps. See [Milestone 1](docs/milestone_1.md) for limits and
 [later milestones](docs/later_milestones.md) for the deferred trip revision history.
 
@@ -161,8 +161,10 @@ numbered requirements and can open the editor at the first one.
 **Find flights** saves the displayed planning document, then starts a flight search and
 returns immediately after queueing work. The client polls the generic operation API,
 so searches continue when the page closes and are discovered when it opens again.
-Results show their retrieval time and expiry; they remain provider results until
-itinerary constraints and ranking are implemented.
+Results show their retrieval time and expiry. The API reevaluates each cached
+itinerary against the current mandatory requirements, and the UI recommends only
+eligible flights. Rejected and unverifiable flights remain inspectable with reasons;
+full preference scoring is still pending.
 
 Each fare shows a localized, time-only departure time, the operating flight
 numbers, total outbound and return travel times, and each connection duration.
@@ -170,6 +172,18 @@ Airline, arrival-time, and stop filters support multiple selections; price can
 be set with two range handles or exact minimum and maximum amounts. Selecting
 **Book this fare** obtains an Ignav booking link only for that cached itinerary
 and opens the provider's booking option in a new tab.
+
+The trip page has **Flights**, **Stays**, and **Plans** tabs, each reflected in the
+URL. An eligible fare can be selected, replaced, or deselected for its party.
+`GET /api/trips/{tripId}/selectedFlights` returns the saved choices; `PUT` and
+`DELETE` on `/{partyId}` replace or clear one. The API checks a new choice against
+the current cached search and stores an itinerary snapshot in `trips.selected_flights`,
+so the Plans overview still shows it after the fare cache expires. This is a
+saved planning choice, not a booking. Stays is currently a placeholder.
+
+The JSONB column is part of migration `0001`. Databases that already applied
+`0001` need the column added and any old `selected_flights` rows copied into it
+before dropping that table.
 
 Set the server-only key, then restart local development:
 
@@ -310,9 +324,9 @@ There is no GitHub Actions CI/CD configuration. Releases are intentional local o
 | GET | `/api/airports?q={query}` | Airport suggestions by city, name, or IATA code (2–100 characters) |
 | GET | `/api/users?query={name}` | Search other users by display name for party selection |
 | GET | `/api/mapToken` | Issue an authenticated two-hour Azure Maps SAS limited to 50 requests per second |
-| GET | `/api/user/{userId}/trips` | List the authenticated user's trips |
+| GET | `/api/user/{userId}/trips` | List trips owned by or shared with the authenticated user |
 | POST | `/api/user/{userId}/trips` | Create a trip and its initial one-person party |
-| GET | `/api/user/{userId}/trips/{tripId}` | Fetch an owned trip |
+| GET | `/api/user/{userId}/trips/{tripId}` | Fetch an owned or shared trip |
 | PUT | `/api/user/{userId}/trips/{tripId}` | Update an owned trip's name and description |
 | DELETE | `/api/user/{userId}/trips/{tripId}` | Delete an owned trip and cascade its parties |
 | PUT | `/api/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently add a traveler to an owned party |

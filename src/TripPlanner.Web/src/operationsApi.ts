@@ -49,11 +49,16 @@ export type FareItinerary = {
     segments: FareSegment[];
   };
 };
+export type FareEvaluation = {
+  status: "Eligible" | "Rejected" | "Unverifiable";
+  issues: { code: string; message: string; constraintIds: string[] }[];
+};
 export type FareSearchResult = {
   partyId: string;
   cacheKey: string;
   request: PreparedSearch["body"];
   response: { itineraries: FareItinerary[] };
+  evaluations: FareEvaluation[];
   fetchedAt: string;
   expiresAt: string;
 };
@@ -124,8 +129,32 @@ export async function getFlightSearchResults(
     signal,
     cache: "no-store",
   });
+  if (response.status === 404)
+    throw new Error(
+      "These trip details need a new flight search. Choose Find flights.",
+    );
   if (!response.ok) await readTripError(response, "loading flight results");
-  return response.json();
+  const results: unknown = await response.json();
+  if (
+    !Array.isArray(results) ||
+    !results.every(
+      (result) =>
+        result &&
+        typeof result === "object" &&
+        "response" in result &&
+        result.response &&
+        typeof result.response === "object" &&
+        "itineraries" in result.response &&
+        Array.isArray(result.response.itineraries) &&
+        "evaluations" in result &&
+        Array.isArray(result.evaluations) &&
+        result.evaluations.length === result.response.itineraries.length,
+    )
+  )
+    throw new Error(
+      "The API returned flights without requirement checks. Restart the API service and reload this page.",
+    );
+  return results as FareSearchResult[];
 }
 
 export async function getBookingLinks(

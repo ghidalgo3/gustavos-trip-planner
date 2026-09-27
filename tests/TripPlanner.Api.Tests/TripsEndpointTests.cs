@@ -212,6 +212,34 @@ public class TripsEndpointTests
             factory.Database.Parties.Single().UserIds.ToArray()
         );
 
+        string sharedTripUrl = $"/api/user/{traveler.Id}/trips/{trip.Id}";
+        Trip[]? sharedTrips = await travelerClient.GetFromJsonAsync<Trip[]>(
+            $"/api/user/{traveler.Id}/trips"
+        );
+        Assert.AreEqual(trip.Id, sharedTrips?.Single().Id);
+        Assert.AreEqual(trip.Id, (await travelerClient.GetFromJsonAsync<Trip>(sharedTripUrl))?.Id);
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (await travelerClient.GetAsync($"{sharedTripUrl}/planning")).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (await travelerClient.GetAsync($"/api/trips/{trip.Id}/selectedFlights")).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await travelerClient.PutAsJsonAsync(
+                    sharedTripUrl,
+                    new UpdateTripRequest("Changed by member", "")
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await travelerClient.DeleteAsync(sharedTripUrl)).StatusCode
+        );
+
         PlanningEditor? editor = await ownerClient.GetFromJsonAsync<PlanningEditor>(
             $"/api/user/{owner.Id}/trips/{trip.Id}/planning"
         );
@@ -228,6 +256,10 @@ public class TripsEndpointTests
         CollectionAssert.AreEqual(
             new[] { owner.Id!.Value },
             factory.Database.Parties.Single().UserIds.ToArray()
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await travelerClient.GetAsync(sharedTripUrl)).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,

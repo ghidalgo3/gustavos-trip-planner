@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useSearchParams } from "react-router";
 import {
   Button,
@@ -11,18 +11,27 @@ import {
 } from "@fluentui/react-components";
 import {
   getBookingLinks,
+  type FareEvaluation,
   type FareItinerary,
   type FareSearchResult,
   type FareSegment,
 } from "./operationsApi";
 import type { PartySettings, PlanningParty } from "./planningApi";
+import {
+  deselectFlight,
+  getSelectedFlights,
+  selectFlight,
+  type SelectedFlight,
+} from "./selectedFlightsApi";
 
 type FareOption = {
   id: string;
   partyId: string;
   cacheKey: string;
+  itineraryIndex: number;
   request: FareSearchResult["request"];
   itinerary: FareItinerary;
+  evaluation: FareEvaluation;
 };
 type Filters = {
   minimumPrice: string;
@@ -51,6 +60,56 @@ export default function FareResults({
   parties: PlanningParty[];
   partySettings: PartySettings[];
 }) {
+  const [selectedFlights, setSelectedFlights] = useState<SelectedFlight[]>([]);
+  const [selectionError, setSelectionError] = useState<string>();
+  const [busyParty, setBusyParty] = useState<string>();
+  useEffect(() => {
+    const controller = new AbortController();
+    void getSelectedFlights(tripId, controller.signal)
+      .then((flights) => {
+        if (!controller.signal.aborted) setSelectedFlights(flights);
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted)
+          setSelectionError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load selected flights.",
+          );
+      });
+    return () => controller.abort();
+  }, [tripId]);
+  async function changeSelection(option: FareOption, selected: boolean) {
+    setBusyParty(option.partyId);
+    setSelectionError(undefined);
+    try {
+      if (selected) {
+        await deselectFlight(tripId, option.partyId);
+        setSelectedFlights((flights) =>
+          flights.filter((flight) => flight.partyId !== option.partyId),
+        );
+      } else {
+        const saved = await selectFlight(
+          tripId,
+          option.partyId,
+          option.cacheKey,
+          option.itineraryIndex,
+        );
+        setSelectedFlights((flights) => [
+          ...flights.filter((flight) => flight.partyId !== option.partyId),
+          saved,
+        ]);
+      }
+    } catch (reason) {
+      setSelectionError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to change the selected flight.",
+      );
+    } finally {
+      setBusyParty(undefined);
+    }
+  }
   const [searchParams, setSearchParams] = useSearchParams();
   const filters: Filters = {
     minimumPrice: searchParams.get("minPrice") ?? "",
@@ -88,8 +147,20 @@ export default function FareResults({
           id: `${result.partyId}-${result.cacheKey}-${index}`,
           partyId: result.partyId,
           cacheKey: result.cacheKey,
+          itineraryIndex: index,
           request: result.request,
           itinerary,
+          evaluation: result.evaluations?.[index] ?? {
+            status: "Unverifiable" as const,
+            issues: [
+              {
+                code: "missingData",
+                message:
+                  "This fare has not been checked against trip requirements.",
+                constraintIds: [],
+              },
+            ],
+          },
         })),
       ),
     [results],
@@ -122,9 +193,10 @@ export default function FareResults({
     <section className="fare-results" aria-label="Flight options">
       <Title3 as="h2">Flight options</Title3>
       <Text>
-        These highlights are based on price and the preferences you entered.
-        Itinerary-level constraint scoring will follow.
+        Only flights that pass the trip's required checks appear as suggestions.
+        Prices and airline preferences determine the current highlights.
       </Text>
+      {selectionError && <Text role="alert">{selectionError}</Text>}
       <div className="fare-filters" aria-label="Filter flight options">
         <div className="fare-filters-heading">
           <Text weight="semibold">Filter options</Text>
@@ -245,6 +317,12 @@ export default function FareResults({
         const partyOptions = matching.filter(
           (option) => option.partyId === party.id,
         );
+        const eligible = partyOptions.filter(
+          (option) => option.evaluation.status === "Eligible",
+        );
+        const excluded = partyOptions.filter(
+          (option) => option.evaluation.status !== "Eligible",
+        );
         const preferences =
           partySettings.find((settings) => settings.partyId === party.id)
             ?.preferredAirlines ?? [];
@@ -252,9 +330,15 @@ export default function FareResults({
           <PartyResults
             key={party.id}
             party={party}
-            options={partyOptions}
+            options={eligible}
+            excluded={excluded}
             preferredAirlines={preferences}
             tripId={tripId}
+            selectedFlight={selectedFlights.find(
+              (flight) => flight.partyId === party.id,
+            )}
+            selectionBusy={busyParty === party.id}
+            onChangeSelection={changeSelection}
           />
         );
       })}
@@ -265,13 +349,21 @@ export default function FareResults({
 function PartyResults({
   party,
   options,
+  excluded,
   preferredAirlines,
   tripId,
+  selectedFlight,
+  selectionBusy,
+  onChangeSelection,
 }: {
   party: PlanningParty;
   options: FareOption[];
+  excluded: FareOption[];
   preferredAirlines: string[];
   tripId: string;
+  selectedFlight?: SelectedFlight;
+  selectionBusy: boolean;
+  onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
 }) {
   const cheapest = cheapestOption(options);
   const preferred = preferredAirlines.length
@@ -311,12 +403,21 @@ function PartyResults({
         {party.members.map((member) => member.name).join(", ") ||
           "Travel party"}
       </Title3>
-      {options.length === 0 && <Text>No flights match these filters.</Text>}
+      {options.length === 0 && (
+        <Text>
+          {excluded.length > 0
+            ? "No flights can be recommended under the current requirements. Review the excluded options below."
+            : "No flights match these filters."}
+        </Text>
+      )}
       {cheapest && (
         <HighlightedFare
           title="Cheapest overall"
           option={cheapest}
           tripId={tripId}
+          selectedFlight={selectedFlight}
+          selectionBusy={selectionBusy}
+          onChangeSelection={onChangeSelection}
         />
       )}
       {preferred && (
@@ -324,6 +425,9 @@ function PartyResults({
           title="Cheapest preferred airline"
           option={preferred}
           tripId={tripId}
+          selectedFlight={selectedFlight}
+          selectionBusy={selectionBusy}
+          onChangeSelection={onChangeSelection}
           detail={differenceFromCheapest(preferred, cheapest!)}
         />
       )}
@@ -332,6 +436,9 @@ function PartyResults({
           title="Cheapest nonstop flight"
           option={nonstop}
           tripId={tripId}
+          selectedFlight={selectedFlight}
+          selectionBusy={selectionBusy}
+          onChangeSelection={onChangeSelection}
         />
       )}
       {remainder.length > 0 && (
@@ -339,7 +446,31 @@ function PartyResults({
           <summary>More matching options ({remainder.length})</summary>
           <div className="remaining-fare-list">
             {remainder.map((option) => (
-              <FareCard key={option.id} option={option} tripId={tripId} />
+              <FareCard
+                key={option.id}
+                option={option}
+                tripId={tripId}
+                selectedFlight={selectedFlight}
+                selectionBusy={selectionBusy}
+                onChangeSelection={onChangeSelection}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+      {excluded.length > 0 && (
+        <details className="remaining-fares excluded-fares">
+          <summary>Excluded or unverified options ({excluded.length})</summary>
+          <div className="remaining-fare-list">
+            {excluded.map((option) => (
+              <FareCard
+                key={option.id}
+                option={option}
+                tripId={tripId}
+                selectedFlight={selectedFlight}
+                selectionBusy={selectionBusy}
+                onChangeSelection={onChangeSelection}
+              />
             ))}
           </div>
         </details>
@@ -353,14 +484,29 @@ function HighlightedFare({
   option,
   detail,
   tripId,
+  selectedFlight,
+  selectionBusy,
+  onChangeSelection,
 }: {
   title: string;
   option: FareOption;
   detail?: string;
   tripId: string;
+  selectedFlight?: SelectedFlight;
+  selectionBusy: boolean;
+  onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
 }) {
   return (
-    <FareCard option={option} tripId={tripId} title={title} detail={detail} />
+    <FareCard
+      option={option}
+      tripId={tripId}
+      selectedFlight={selectedFlight}
+      selectionBusy={selectionBusy}
+      onChangeSelection={onChangeSelection}
+      title={title}
+      detail={detail}
+      highlighted
+    />
   );
 }
 
@@ -420,14 +566,26 @@ function FareCard({
   tripId,
   title,
   detail,
+  highlighted = false,
+  selectedFlight,
+  selectionBusy,
+  onChangeSelection,
 }: {
   option: FareOption;
   tripId: string;
   title?: string;
   detail?: string;
+  highlighted?: boolean;
+  selectedFlight?: SelectedFlight;
+  selectionBusy: boolean;
+  onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
 }) {
+  const isSelected = selectedFlight && sameItinerary(selectedFlight, option);
   return (
-    <article className={title ? "fare-card highlighted-fare" : "fare-card"}>
+    <article
+      className={`${highlighted ? "fare-card highlighted-fare" : "fare-card"}${isSelected ? " selected-fare" : ""}`}
+    >
+      {isSelected && <Text weight="semibold">Selected for this trip</Text>}
       {title && (
         <Text className="fare-card-category" weight="semibold" size={200}>
           {title}
@@ -484,12 +642,69 @@ function FareCard({
           </dd>
         </div>
       </dl>
-      <div className="fare-card-footer">
+      <div
+        className={
+          option.evaluation.status === "Eligible"
+            ? "fare-card-footer"
+            : "fare-card-footer fare-card-rejected-footer"
+        }
+      >
         {detail && <Text size={200}>{detail}</Text>}
-        <BookingLink tripId={tripId} option={option} />
+        {option.evaluation.status === "Eligible" ? (
+          <>
+            <Button
+              size="small"
+              disabled={selectionBusy}
+              onClick={() =>
+                void onChangeSelection(option, Boolean(isSelected))
+              }
+            >
+              {isSelected
+                ? "Deselect flight"
+                : selectedFlight
+                  ? "Change to this flight"
+                  : "Select flight"}
+            </Button>
+            <BookingLink tripId={tripId} option={option} />
+          </>
+        ) : (
+          <div className="fare-validation-issues">
+            <Text weight="semibold">
+              {option.evaluation.status === "Rejected"
+                ? "Does not meet requirements"
+                : "Could not verify requirements"}
+            </Text>
+            <ul>
+              {option.evaluation.issues.map((issue, index) => (
+                <li key={`${issue.code}-${index}`}>{issue.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </article>
   );
+}
+
+function sameItinerary(selected: SelectedFlight, option: FareOption): boolean {
+  if (selected.cacheKey !== option.cacheKey) return false;
+  if (selected.itinerary.ignav_id && option.itinerary.ignav_id)
+    return selected.itinerary.ignav_id === option.itinerary.ignav_id;
+  if (selected.itineraryIndex !== option.itineraryIndex) return false;
+  const route = (itinerary: FareItinerary) =>
+    [itinerary.outbound, itinerary.inbound]
+      .flatMap((leg) => leg?.segments ?? [])
+      .map((segment) =>
+        [
+          segment.departure_airport,
+          segment.arrival_airport,
+          segment.departure_time_local,
+          segment.arrival_time_local,
+          segment.flight_number,
+        ].join("|"),
+      )
+      .join(";");
+  return route(selected.itinerary) === route(option.itinerary);
 }
 
 function TravelTime({ option }: { option: FareOption }) {

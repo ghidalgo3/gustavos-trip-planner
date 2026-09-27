@@ -181,7 +181,7 @@ export default function TripsDashboard({ user }: Props) {
         <div className="trip-grid">
           {trips.map((trip) => (
             <Card key={trip.id} className="trip-card">
-              {editingId === trip.id ? (
+              {editingId === trip.id && trip.ownerUserId === user.id ? (
                 <TripForm
                   input={
                     editDraft?.tripId === trip.id
@@ -199,7 +199,10 @@ export default function TripsDashboard({ user }: Props) {
                   <CardHeader
                     header={<Title3 as="h2">{trip.name}</Title3>}
                     description={
-                      <Text>{trip.description || "No description yet."}</Text>
+                      <Text>
+                        {trip.description || "No description yet."}
+                        {trip.ownerUserId !== user.id && " · Shared with you"}
+                      </Text>
                     }
                   />
                   <div className="trip-actions">
@@ -210,27 +213,33 @@ export default function TripsDashboard({ user }: Props) {
                       }
                       disabled={busyId !== undefined}
                     >
-                      Find flights
+                      {trip.ownerUserId === user.id
+                        ? "Find flights"
+                        : "View trip"}
                     </Button>
-                    <Button
-                      appearance="subtle"
-                      icon={<Edit24Regular />}
-                      onClick={() => startEditing(trip)}
-                      disabled={busyId === trip.id}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      appearance="subtle"
-                      icon={<Delete24Regular />}
-                      onClick={() => {
-                        setError(undefined);
-                        setTripToDelete(trip);
-                      }}
-                      disabled={busyId === trip.id}
-                    >
-                      Delete
-                    </Button>
+                    {trip.ownerUserId === user.id && (
+                      <Button
+                        appearance="subtle"
+                        icon={<Edit24Regular />}
+                        onClick={() => startEditing(trip)}
+                        disabled={busyId === trip.id}
+                      >
+                        Edit
+                      </Button>
+                    )}
+                    {trip.ownerUserId === user.id && (
+                      <Button
+                        appearance="subtle"
+                        icon={<Delete24Regular />}
+                        onClick={() => {
+                          setError(undefined);
+                          setTripToDelete(trip);
+                        }}
+                        disabled={busyId === trip.id}
+                      >
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 </>
               )}

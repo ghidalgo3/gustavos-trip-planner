@@ -18,6 +18,16 @@ public sealed record UpdateTripRequest(string Name, string? Description);
 
 public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds);
 
+public sealed record SelectedFlight(
+    Guid TripId,
+    Guid PartyId,
+    string CacheKey,
+    int ItineraryIndex,
+    IgnavRoundTripRequest Request,
+    JsonElement Itinerary,
+    DateTimeOffset SelectedAt
+);
+
 public enum PartyMemberChangeStatus
 {
     Success,

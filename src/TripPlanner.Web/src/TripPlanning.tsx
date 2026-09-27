@@ -59,6 +59,7 @@ type Props = {
   trip: Trip;
   onBack: () => void;
   onSaved: (trip: Trip) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 export default function TripPlanning({
@@ -68,6 +69,7 @@ export default function TripPlanning({
   trip,
   onBack,
   onSaved,
+  onDirtyChange,
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [document, setDocument] = useState<PlanningDocument>();
@@ -77,6 +79,11 @@ export default function TripPlanning({
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+  const [savedVersion, setSavedVersion] = useState(0);
   const [freeform, setFreeform] = useState("");
   const [promptHelpOpen, setPromptHelpOpen] = useState(false);
   const [formOperationId, setFormOperationId] = useState<string>();
@@ -243,6 +250,7 @@ export default function TripPlanning({
     if (!document) return;
     onSaved(await saveConstraints(userId, trip.id, document));
     setDirty(false);
+    if (dirty) setSavedVersion((version) => version + 1);
     if (showNotice) setNotice("Planning details saved.");
   }
   async function save() {
@@ -710,6 +718,8 @@ export default function TripPlanning({
             constraints={document.constraints}
             currentAiPrompt={document.aiPrompt}
             disabled={busy || Boolean(formOperationId)}
+            hasUnsavedChanges={dirty}
+            savedVersion={savedVersion}
             onBeforeSearch={() => persist(false)}
             onReviewRequirements={(constraintId) => {
               setSearchParams((current) => {

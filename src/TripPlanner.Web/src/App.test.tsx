@@ -338,6 +338,8 @@ test("loads a trip from its route and returns to the trips page", async () => {
         };
       if (url.endsWith(`/api/user/${userId}/trips/trip-1`))
         return { ok: true, json: async () => trip };
+      if (url.endsWith("/api/trips/trip-1/selectedFlights"))
+        return { ok: true, json: async () => [] };
       if (url.endsWith(`/api/user/${userId}/trips/trip-1/planning`))
         return {
           ok: true,
@@ -387,4 +389,11 @@ test("loads a trip from its route and returns to the trips page", async () => {
   expect(screen.getByTestId("route")).toHaveTextContent("/");
   fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
   expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
+  fireEvent.click(await screen.findByRole("tab", { name: "Plans" }));
+  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1/plans");
+  expect(
+    await screen.findByRole("heading", { name: "Trip overview" }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: "Stays" }));
+  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1/stays");
 });

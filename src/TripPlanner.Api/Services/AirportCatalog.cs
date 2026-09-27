@@ -23,6 +23,7 @@ public sealed record Airport(
 public sealed class AirportCatalog
 {
     private readonly Airport[] _airports;
+    private readonly IReadOnlyDictionary<string, Airport> _byCode;
     private readonly (Airport Airport, string Text, string City)[] _search;
 
     public AirportCatalog()
@@ -31,6 +32,13 @@ public sealed class AirportCatalog
             "TripPlanner.Api.Data.airports.json"
         )!;
         _airports = JsonSerializer.Deserialize<Airport[]>(stream, JsonSerializerOptions.Web)!;
+        _byCode = _airports
+            .GroupBy(a => a.Code, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First(),
+                StringComparer.OrdinalIgnoreCase
+            );
         _search = _airports
             .Select(a =>
                 (
@@ -73,6 +81,22 @@ public sealed class AirportCatalog
         if (cityAirport is not null)
             return CityLocation(cityAirport);
         return Search(query).FirstOrDefault()?.Location;
+    }
+
+    public Airport? FindByCode(string code) => _byCode.GetValueOrDefault(code);
+
+    public bool IsInCity(string code, string city)
+    {
+        var airport = FindByCode(code);
+        if (airport is null)
+            return false;
+        var parts = city.Split(',', 2, StringSplitOptions.TrimEntries);
+        return MatchesCity(airport.City, Normalize(parts[0]))
+            && (
+                parts.Length < 2
+                || parts[1].Length != 2
+                || string.Equals(airport.Country, parts[1], StringComparison.OrdinalIgnoreCase)
+            );
     }
 
     public SearchLocation? SuggestOrigin(IReadOnlyList<User> members)
