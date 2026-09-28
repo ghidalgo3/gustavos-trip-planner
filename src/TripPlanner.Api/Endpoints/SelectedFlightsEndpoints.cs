@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
 
@@ -15,6 +16,7 @@ public static class SelectedFlightsEndpoints
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         flights.MapGet("/", GetSelectedFlights);
         flights.MapPut("/{partyId:guid}", SelectFlight);
+        flights.MapPut("/{partyId:guid}/purchases", SetPurchases);
         flights.MapDelete("/{partyId:guid}", DeselectFlight);
     }
 
@@ -47,6 +49,7 @@ public static class SelectedFlightsEndpoints
         IPlannerDb database,
         ISearchPlanBuilder planner,
         FareValidator validator,
+        RouteFareComposer routes,
         ICurrentUser currentUser
     )
     {
@@ -89,6 +92,7 @@ public static class SelectedFlightsEndpoints
                     title = "Flight results have expired. Find flights again before selecting one.",
                 }
             );
+        fares = routes.Compose(document, parties, fares);
         FareSearchResult? fare = fares.SingleOrDefault(f =>
             f.PartyId == partyId && f.CacheKey == request.CacheKey
         );
@@ -118,11 +122,87 @@ public static class SelectedFlightsEndpoints
             index,
             fare.Request,
             itineraries[index].Clone(),
-            DateTimeOffset.UtcNow
+            DateTimeOffset.UtcNow,
+            new bool[CountFlightLegs(itineraries[index])]
         );
         return Results.Ok(
             await database.SetSelectedFlightAsync(user.Id, selected, context.RequestAborted)
         );
+    }
+
+    private static async Task<IResult> SetPurchases(
+        Guid tripId,
+        Guid partyId,
+        SetFlightPurchasesRequest request,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser
+    )
+    {
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
+            context,
+            database,
+            currentUser.Profile!
+        );
+        if (error is not null)
+            return error;
+        if (await database.GetTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+            return Results.NotFound();
+        var selected = (
+            await database.GetSelectedFlightsAsync(user.Id, tripId, context.RequestAborted)
+        ).SingleOrDefault(flight => flight.PartyId == partyId);
+        if (selected is null)
+            return Results.NotFound();
+        if (
+            selected.CacheKey != request.CacheKey
+            || selected.ItineraryIndex != request.ItineraryIndex
+        )
+            return Results.Conflict(
+                new
+                {
+                    title = "The selected itinerary changed. Reload it before updating purchases.",
+                }
+            );
+        if (
+            request.PurchasedLegs is null
+            || request.PurchasedLegs.Length != CountFlightLegs(selected.Itinerary)
+        )
+            return Results.BadRequest(
+                new
+                {
+                    title = "Supply one purchase status for every flight in the selected itinerary.",
+                }
+            );
+        return Results.Ok(
+            await database.SetSelectedFlightAsync(
+                user.Id,
+                selected with
+                {
+                    PurchasedLegs = request.PurchasedLegs,
+                },
+                context.RequestAborted
+            )
+        );
+    }
+
+    private static int CountFlightLegs(JsonElement itinerary)
+    {
+        if (itinerary.ValueKind != JsonValueKind.Object)
+            return 0;
+        if (itinerary.TryGetProperty("legs", out var legs) && legs.ValueKind == JsonValueKind.Array)
+            return legs.GetArrayLength();
+        var count =
+            itinerary.TryGetProperty("outbound", out var outbound)
+            && outbound.ValueKind == JsonValueKind.Object
+                ? 1
+                : 0;
+        return count
+            + (
+                itinerary.TryGetProperty("inbound", out var inbound)
+                && inbound.ValueKind == JsonValueKind.Object
+                    ? 1
+                    : 0
+            );
     }
 
     private static async Task<IResult> DeselectFlight(
@@ -152,5 +232,3 @@ public static class SelectedFlightsEndpoints
         return Results.NoContent();
     }
 }
-
-public sealed record SelectFlightRequest(string? CacheKey, int? ItineraryIndex);

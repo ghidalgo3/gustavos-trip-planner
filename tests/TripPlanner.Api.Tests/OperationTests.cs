@@ -37,13 +37,10 @@ public sealed class OperationTests
             return JsonSerializer.SerializeToElement(response);
         }
     }
-    private static IgnavRoundTripRequest Query =>
+    private static IgnavFareRequest Query =>
         new("BOS", "CDG", new(2030, 1, 5), new(2030, 1, 14), 1, "economy", "US", null);
 
-    private static SearchPlanPreview Preview(
-        Guid partyId,
-        params IgnavRoundTripRequest[] requests
-    ) =>
+    private static SearchPlanPreview Preview(Guid partyId, params IgnavFareRequest[] requests) =>
         new(
             true,
             20,
@@ -96,7 +93,11 @@ public sealed class OperationTests
             await create.ExecuteNonQueryAsync();
         try
         {
-            var settings = new NpgsqlConnectionStringBuilder(connectionString) { Database = name };
+            var settings = new NpgsqlConnectionStringBuilder(connectionString)
+            {
+                Database = name,
+                SearchPath = "gustavo_planner,public",
+            };
             await using var source = NpgsqlDataSource.Create(settings.ConnectionString);
             await new DatabaseMigrator(
                 source,
@@ -105,11 +106,11 @@ public sealed class OperationTests
             await using (
                 var schema = source.CreateCommand(
                     """
-                    SELECT count(*), to_regclass('public.operations'),
-                        to_regclass('public.fare_searches'), to_regclass('public.operation_items'),
-                        to_regclass('public.trip_form_jobs'),
+                    SELECT count(*), to_regclass('gustavo_planner.operations'),
+                        to_regclass('gustavo_planner.fare_searches'), to_regclass('gustavo_planner.operation_items'),
+                        to_regclass('gustavo_planner.trip_form_jobs'),
                         (SELECT count(*) FROM information_schema.columns
-                         WHERE table_schema = 'public' AND table_name = 'trips'
+                         WHERE table_schema = 'gustavo_planner' AND table_name = 'trips'
                            AND column_name = 'selected_flights')
                     FROM schema_migrations;
                     """
@@ -202,10 +203,21 @@ public sealed class OperationTests
             0,
             (await db.GetSelectedFlightsAsync(user.Id, trip.Id)).Single().ItineraryIndex
         );
-        await db.SetSelectedFlightAsync(user.Id, selected with { ItineraryIndex = 1 });
+        await db.SetSelectedFlightAsync(
+            user.Id,
+            selected with
+            {
+                ItineraryIndex = 1,
+                PurchasedLegs = [true, false],
+            }
+        );
         Assert.AreEqual(
             1,
             (await db.GetSelectedFlightsAsync(user.Id, trip.Id)).Single().ItineraryIndex
+        );
+        CollectionAssert.AreEqual(
+            new[] { true, false },
+            (await db.GetSelectedFlightsAsync(user.Id, trip.Id)).Single().PurchasedLegs
         );
         var member = await db.GetOrCreateUserAsync(
             new("google", $"{Guid.NewGuid()}@example.com", "Ben")
@@ -464,6 +476,35 @@ public sealed class OperationTests
         Assert.HasCount(1, saved);
         Assert.AreEqual(1, saved[0].ItineraryIndex);
         Assert.AreEqual("fare-2", saved[0].Itinerary.GetProperty("ignav_id").GetString());
+        CollectionAssert.AreEqual(new[] { false, false }, saved[0].PurchasedLegs);
+        var purchasesPath = $"{selectionPath}/{party.Id}/purchases";
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PutAsJsonAsync(
+                    purchasesPath,
+                    new SetFlightPurchasesRequest(evaluated[0].CacheKey, 1, [true])
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (
+                await client.PutAsJsonAsync(
+                    purchasesPath,
+                    new SetFlightPurchasesRequest(evaluated[0].CacheKey, 0, [true, false])
+                )
+            ).StatusCode
+        );
+        var purchaseResponse = await client.PutAsJsonAsync(
+            purchasesPath,
+            new SetFlightPurchasesRequest(evaluated[0].CacheKey, 1, [true, false])
+        );
+        Assert.AreEqual(HttpStatusCode.OK, purchaseResponse.StatusCode);
+        CollectionAssert.AreEqual(
+            new[] { true, false },
+            (await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))![0].PurchasedLegs
+        );
 
         var stay = new PlanningConstraint
         {
@@ -532,7 +573,7 @@ public sealed class OperationTests
         other.DefaultRequestHeaders.Add("X-Test-Email", "other@example.com");
         await other.PutAsJsonAsync(
             "/api/user/profile",
-            new UserProfile(new("Seattle", -122, 47), [])
+            new UserProfile(new("Seattle", -122, 47), [], "SEA")
         );
         Assert.AreEqual(HttpStatusCode.NotFound, (await other.GetAsync(path)).StatusCode);
         Assert.AreEqual(HttpStatusCode.NotFound, (await other.GetAsync(selectionPath)).StatusCode);
@@ -553,7 +594,7 @@ public sealed class OperationTests
         public int Calls { get; private set; }
 
         public Task<JsonElement> SearchAsync(
-            IgnavRoundTripRequest request,
+            IgnavFareRequest request,
             CancellationToken cancellationToken
         )
         {

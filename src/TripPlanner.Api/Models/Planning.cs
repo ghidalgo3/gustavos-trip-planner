@@ -11,6 +11,8 @@ public sealed record PlanningDocument
     public TravelDates? TravelDates { get; init; }
     public string? UserTimeZone { get; init; }
     public SearchLocation? Destination { get; init; }
+    public PlannedVisit[] Visits { get; init; } = [];
+    public RouteSearchLimits SearchLimits { get; init; } = new();
     public PartySearchSettings[] Parties { get; init; } = [];
     public PlanningConstraint[] Constraints { get; init; } = [];
     public string? AiPrompt { get; init; }
@@ -43,6 +45,7 @@ public sealed record PartySearchSettings
     public int MaxJourneyHours { get; init; } = 48;
     public int? MaxStops { get; init; }
     public string[] PreferredAirlines { get; init; } = [];
+    public string? PreferredAirport { get; init; }
 }
 
 public sealed record DateWindow(DateOnly? Earliest, DateOnly? Latest, DateOnly? Preferred = null);
@@ -68,7 +71,8 @@ public sealed record PlanningMember(Guid Id, string Name, string? HomeCity);
 public sealed record PlanningParty(
     Guid Id,
     IReadOnlyList<PlanningMember> Members,
-    SearchLocation? SuggestedOrigin = null
+    SearchLocation? SuggestedOrigin = null,
+    string? PreferredAirport = null
 );
 
 public sealed record PlanningEditor(
@@ -98,13 +102,9 @@ public sealed record PartySearchPreview(
     IReadOnlyList<string> PreferredAirlines
 );
 
-public sealed record PreparedSearch(
-    IgnavRoundTripRequest Body,
-    string CacheKey,
-    double DateDistance
-);
+public sealed record PreparedSearch(IgnavFareRequest Body, string CacheKey, double DateDistance);
 
-public sealed record IgnavRoundTripRequest(
+public sealed record IgnavFareRequest(
     [property: JsonPropertyName("origin")] string Origin,
     [property: JsonPropertyName("destination")] string Destination,
     [property: JsonPropertyName("departure_date")] DateOnly DepartureDate,
@@ -112,6 +112,37 @@ public sealed record IgnavRoundTripRequest(
     [property: JsonPropertyName("adults")] int Adults,
     [property: JsonPropertyName("cabin_class")] string CabinClass,
     [property: JsonPropertyName("market")] string Market,
+    [property:
+        JsonPropertyName("max_stops"),
+        JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)
+    ]
+        int? MaxStops,
+    string SearchKind = "roundTrip",
+    IgnavLegRequest[]? Legs = null,
+    bool AllowSelfTransfer = false
+);
+
+public sealed record PlannedVisit
+{
+    public Guid Id { get; init; }
+    public SearchLocation? Location { get; init; }
+    public int? Nights { get; init; }
+    public DateOnly? PresentFrom { get; init; }
+    public DateOnly? PresentThrough { get; init; }
+    public Guid[] AfterVisitIds { get; init; } = [];
+    public string? OriginalInput { get; init; }
+}
+
+public sealed record RouteSearchLimits
+{
+    public int FlexibilityDays { get; init; } = 5;
+    public int MaxTripDays { get; init; } = 21;
+}
+
+public sealed record IgnavLegRequest(
+    [property: JsonPropertyName("origin")] string Origin,
+    [property: JsonPropertyName("destination")] string Destination,
+    [property: JsonPropertyName("departure_date")] DateOnly DepartureDate,
     [property:
         JsonPropertyName("max_stops"),
         JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)

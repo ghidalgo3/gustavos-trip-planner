@@ -19,6 +19,7 @@ public static class IgnavServiceExtensions
 
         builder.Services.AddSingleton<ISearchPlanBuilder, SearchPlanBuilder>();
         builder.Services.AddSingleton<FareValidator>();
+        builder.Services.AddSingleton<RouteFareComposer>();
         builder
             .Services.AddHttpClient<IIgnavClient, IgnavClient>(client =>
             {

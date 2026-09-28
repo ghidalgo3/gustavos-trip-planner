@@ -8,6 +8,7 @@ import {
   Title1,
 } from "@fluentui/react-components";
 import { useNavigate } from "react-router";
+import HomeAirportPicker from "./HomeAirportPicker";
 import AsyncAutocomplete from "./AsyncAutocomplete";
 import {
   resolveCity,
@@ -43,6 +44,10 @@ export default function ProfilePage({
   const [airlines, setAirlines] = useState(
     user.profile.preferredAirlines.join(", "),
   );
+  const [preferredAirport, setPreferredAirport] = useState<string | null>(
+    user.profile.preferredAirport ?? null,
+  );
+  const [airportsReady, setAirportsReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -83,7 +88,11 @@ export default function ProfilePage({
       const homeCity = selectedCity
         ? { name: selectedCity.label, ...(await resolveCity(selectedCity)) }
         : currentCity;
-      const saved = await saveUserProfile({ homeCity, preferredAirlines });
+      const saved = await saveUserProfile({
+        homeCity,
+        preferredAirlines,
+        preferredAirport,
+      });
       onSaved(saved);
       setCityChanged(false);
       setSelectedCity(
@@ -133,18 +142,26 @@ export default function ProfilePage({
             onInputChange={(value) => {
               setCityQuery(value);
               setSelectedCity(undefined);
+              setPreferredAirport(null);
               setCityChanged(true);
               setError(undefined);
               setNotice(undefined);
             }}
             onOptionSelect={(city) => {
               setSelectedCity(city);
+              setPreferredAirport(null);
               setCityQuery(city.label);
               setCityChanged(true);
               setError(undefined);
               setNotice(undefined);
             }}
             debounceMs={300}
+          />
+          <HomeAirportPicker
+            city={selectedCity}
+            value={preferredAirport}
+            onChange={setPreferredAirport}
+            onReadyChange={setAirportsReady}
           />
           <Field
             label="Preferred airlines"
@@ -160,7 +177,11 @@ export default function ProfilePage({
           </Field>
           {error && <Text role="alert">{error}</Text>}
           {notice && <Text role="status">{notice}</Text>}
-          <Button type="submit" appearance="primary" disabled={saving}>
+          <Button
+            type="submit"
+            appearance="primary"
+            disabled={saving || !airportsReady}
+          >
             {saving ? "Saving…" : "Save profile"}
           </Button>
         </form>

@@ -17,11 +17,29 @@ public sealed record Airport(
     string Keywords
 )
 {
+    public SearchLocation? CityLocation { get; init; }
     public SearchLocation Location => new(Code, TimeZone, $"{City} · {Name} ({Code})");
 }
 
 public sealed class AirportCatalog
 {
+    // Metropolitan catchments cross municipal boundaries (e.g. Narita serves Tokyo).
+    private static readonly Dictionary<string, (string City, string[] Codes)> Metros = new()
+    {
+        ["TYO"] = ("Tokyo", ["HND", "NRT"]),
+        ["NYC"] = ("New York", ["JFK", "LGA", "EWR"]),
+        ["LON"] = ("London", ["LHR", "LGW", "LCY", "LTN", "STN", "SEN"]),
+        ["PAR"] = ("Paris", ["CDG", "ORY", "BVA"]),
+        ["MIL"] = ("Milan", ["MXP", "LIN", "BGY"]),
+        ["WAS"] = ("Washington", ["IAD", "DCA", "BWI"]),
+        ["CHI"] = ("Chicago", ["ORD", "MDW"]),
+        ["SEL"] = ("Seoul", ["ICN", "GMP"]),
+        ["OSA"] = ("Osaka", ["KIX", "ITM", "UKB"]),
+        ["BJS"] = ("Beijing", ["PEK", "PKX"]),
+        ["SHA"] = ("Shanghai", ["SHA", "PVG"]),
+        ["YTO"] = ("Toronto", ["YYZ", "YTZ"]),
+        ["YMQ"] = ("Montreal", ["YUL", "YHU"]),
+    };
     private readonly Airport[] _airports;
     private readonly IReadOnlyDictionary<string, Airport> _byCode;
     private readonly (Airport Airport, string Text, string City)[] _search;
@@ -67,7 +85,7 @@ public sealed class AirportCatalog
             .ThenByDescending(a => a.Airport.Major)
             .ThenBy(a => a.Airport.Code)
             .Take(12)
-            .Select(a => a.Airport)
+            .Select(a => a.Airport with { CityLocation = CityLocation(a.Airport) })
             .ToArray();
     }
 
@@ -77,6 +95,11 @@ public sealed class AirportCatalog
         var exactAirport = _airports.FirstOrDefault(a => Normalize(a.Code) == normalized);
         if (exactAirport is not null)
             return exactAirport.Location;
+        var metro = Metros.FirstOrDefault(m =>
+            Normalize(m.Value.City) == normalized || Normalize(m.Key) == normalized
+        );
+        if (metro.Key is not null)
+            return CityLocation(_byCode[metro.Value.Codes[0]]);
         var cityAirport = _airports.FirstOrDefault(a => MatchesCity(a.City, normalized));
         if (cityAirport is not null)
             return CityLocation(cityAirport);
@@ -85,13 +108,29 @@ public sealed class AirportCatalog
 
     public Airport? FindByCode(string code) => _byCode.GetValueOrDefault(code);
 
+    public string? CityName(string code)
+    {
+        var airport = FindByCode(code);
+        if (airport is null)
+            return null;
+        var metro = Metros.Values.FirstOrDefault(group => group.Codes.Contains(airport.Code));
+        if (metro.City is not null)
+            return metro.City;
+        return airport.City.Split(['(', ','], StringSplitOptions.TrimEntries)[0];
+    }
+
     public bool IsInCity(string code, string city)
     {
         var airport = FindByCode(code);
         if (airport is null)
             return false;
         var parts = city.Split(',', 2, StringSplitOptions.TrimEntries);
-        return MatchesCity(airport.City, Normalize(parts[0]))
+        return (
+                MatchesCity(airport.City, Normalize(parts[0]))
+                || Metros.Values.Any(m =>
+                    Normalize(m.City) == Normalize(parts[0]) && m.Codes.Contains(code)
+                )
+            )
             && (
                 parts.Length < 2
                 || parts[1].Length != 2
@@ -127,10 +166,65 @@ public sealed class AirportCatalog
             : CityLocation(nearest);
     }
 
+    public IReadOnlyList<Airport> HomeAirports(ProfileHomeCity city)
+    {
+        var point = new GeographicPoint(city.Longitude, city.Latitude);
+        var name = Normalize(city.Name.Split(',')[0].Trim());
+        var metro = Metros.FirstOrDefault(m =>
+            Normalize(m.Value.City) == name
+            && m.Value.Codes.Any(code =>
+                _byCode.TryGetValue(code, out var a) && Distance(point, a) <= 250
+            )
+        );
+        if (metro.Key is not null)
+            return metro
+                .Value.Codes.Where(_byCode.ContainsKey)
+                .Select(code => _byCode[code])
+                .ToArray();
+        var matching = _airports
+            .Where(a => MatchesCity(a.City, name) && Distance(point, a) <= 250)
+            .ToArray();
+        if (matching.Length > 0)
+            return matching.OrderBy(a => a.Code).ToArray();
+        var nearest = _airports
+            .Where(a => a.Major)
+            .OrderBy(a => Distance(point, a))
+            .FirstOrDefault();
+        return nearest is null || Distance(point, nearest) > 250
+            ? []
+            : CityLocation(nearest).AirportCodes.Select(c => _byCode[c]).ToArray();
+    }
+
+    public string SearchCode(SearchLocation location)
+    {
+        if (location.AirportCodes.Count == 1)
+            return location.Code;
+        // Use a metro query only when its full catalog group was selected.
+        return Metros
+                .FirstOrDefault(g =>
+                    g.Value.Codes.Where(_byCode.ContainsKey)
+                        .Order()
+                        .SequenceEqual(location.AirportCodes.Order())
+                )
+                .Key
+            ?? location.Code;
+    }
+
     private SearchLocation CityLocation(Airport airport)
     {
         if (string.IsNullOrWhiteSpace(airport.City))
             return airport.Location;
+        var metro = Metros.FirstOrDefault(g => g.Value.Codes.Contains(airport.Code));
+        if (metro.Key is not null)
+        {
+            var group = metro.Value.Codes.Where(_byCode.ContainsKey).ToArray();
+            return new(
+                group[0],
+                airport.TimeZone,
+                $"{metro.Value.City}, {airport.Country} ({string.Join(", ", group)})",
+                group
+            );
+        }
         var codes = _airports
             .Where(a =>
                 MatchesCity(a.City, Normalize(airport.City).Split('(', ',')[0].Trim())

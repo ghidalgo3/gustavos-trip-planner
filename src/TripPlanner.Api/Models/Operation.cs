@@ -20,7 +20,7 @@ public sealed record StartFlightSearchRequest(Guid RequestId);
 public sealed record FareSearchResult(
     Guid PartyId,
     string CacheKey,
-    IgnavRoundTripRequest Request,
+    IgnavFareRequest Request,
     JsonElement Response,
     DateTimeOffset FetchedAt,
     DateTimeOffset ExpiresAt
@@ -28,7 +28,7 @@ public sealed record FareSearchResult(
 
 public sealed record FareWork(
     string CacheKey,
-    IgnavRoundTripRequest Request,
+    IgnavFareRequest Request,
     Guid OperationId,
     Guid LeaseId,
     int Attempts

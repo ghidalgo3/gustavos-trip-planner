@@ -21,10 +21,20 @@ public sealed class AirportCatalogTests
         CollectionAssert.Contains(_catalog.Resolve("London")!.AirportCodes.ToArray(), "LHR");
         CollectionAssert.Contains(_catalog.Resolve("London")!.AirportCodes.ToArray(), "LGW");
         CollectionAssert.AreEquivalent(
-            new[] { "CDG", "ORY" },
+            new[] { "CDG", "ORY", "BVA" },
             _catalog.Resolve("Paris")!.AirportCodes.ToArray()
         );
         CollectionAssert.AreEqual(new[] { "LHR" }, _catalog.Resolve("LHR")!.AirportCodes.ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { "HND", "NRT" },
+            _catalog.Resolve("Tokyo")!.AirportCodes.ToArray()
+        );
+        Assert.IsTrue(_catalog.IsInCity("NRT", "Tokyo"));
+        Assert.AreEqual("TYO", _catalog.SearchCode(_catalog.Resolve("Tokyo")!));
+        CollectionAssert.AreEqual(new[] { "SHA" }, _catalog.Resolve("SHA")!.AirportCodes.ToArray());
+        Assert.AreEqual("Atlanta", _catalog.CityName("ATL"));
+        Assert.AreEqual("Phuket", _catalog.CityName("HKT"));
+        Assert.AreEqual("Tokyo", _catalog.CityName("NRT"));
     }
 
     [TestMethod]

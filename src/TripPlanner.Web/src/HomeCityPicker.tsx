@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@fluentui/react-components";
+import HomeAirportPicker from "./HomeAirportPicker";
 import AsyncAutocomplete from "./AsyncAutocomplete";
 import {
   resolveCity,
@@ -16,6 +17,8 @@ type HomeCityPickerProps = {
 export default function HomeCityPicker({ onSaved }: HomeCityPickerProps) {
   const [query, setQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState<CitySuggestion>();
+  const [preferredAirport, setPreferredAirport] = useState<string | null>(null);
+  const [airportsReady, setAirportsReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -32,6 +35,7 @@ export default function HomeCityPicker({ onSaved }: HomeCityPickerProps) {
         await saveUserProfile({
           homeCity: { name: selectedCity.label, ...location },
           preferredAirlines: [],
+          preferredAirport,
         }),
       );
     } catch (reason) {
@@ -59,19 +63,27 @@ export default function HomeCityPicker({ onSaved }: HomeCityPickerProps) {
         onInputChange={(value) => {
           setQuery(value);
           setSelectedCity(undefined);
+          setPreferredAirport(null);
           setError(undefined);
         }}
         onOptionSelect={(city) => {
           setSelectedCity(city);
+          setPreferredAirport(null);
           setQuery(city.label);
           setError(undefined);
         }}
         error={error}
         debounceMs={300}
       />
+      <HomeAirportPicker
+        city={selectedCity}
+        value={preferredAirport}
+        onChange={setPreferredAirport}
+        onReadyChange={setAirportsReady}
+      />
       <Button
         appearance="primary"
-        disabled={!selectedCity || saving}
+        disabled={!selectedCity || saving || !airportsReady}
         onClick={submit}
       >
         {saving ? "Saving…" : "Continue"}

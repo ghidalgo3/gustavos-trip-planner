@@ -64,6 +64,7 @@ public static class UserEndpoints
 
     private static async Task<IResult> SetUserProfile(
         UserProfile request,
+        AirportCatalog airports,
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser
@@ -92,6 +93,20 @@ public static class UserEndpoints
                 .ToArray();
         if (codes.Any(code => code.Length != 2 || !code.All(char.IsAsciiLetterOrDigit)))
             errors[nameof(request.PreferredAirlines)] = ["Use two-character airline codes."];
+        string? preferredAirport = request.PreferredAirport?.Trim().ToUpperInvariant();
+        if (city is not null && errors.Count == 0)
+        {
+            var choices = airports.HomeAirports(city);
+            if (choices.Count == 1 && preferredAirport is null)
+                preferredAirport = choices[0].Code;
+            if (choices.Count > 1 && preferredAirport is null)
+                errors[nameof(request.PreferredAirport)] = ["Choose your preferred home airport."];
+            if (preferredAirport is not null && !choices.Any(a => a.Code == preferredAirport))
+                errors[nameof(request.PreferredAirport)] =
+                [
+                    "Choose an airport serving your home city.",
+                ];
+        }
         if (errors.Count > 0)
             return Results.ValidationProblem(errors);
 
@@ -99,7 +114,7 @@ public static class UserEndpoints
         User existing = await database.GetOrCreateUserAsync(profile, context.RequestAborted);
         User user = await database.SetUserProfileAsync(
             existing.Id,
-            new UserProfile(city! with { Name = city!.Name.Trim() }, codes),
+            new UserProfile(city! with { Name = city!.Name.Trim() }, codes, preferredAirport),
             context.RequestAborted
         );
         return Results.Ok(ToResponse(user));
@@ -173,7 +188,8 @@ public static class UserEndpoints
                         user.HomeCityLocation.Longitude,
                         user.HomeCityLocation.Latitude
                     ),
-                user.PreferredAirlines
+                user.PreferredAirlines,
+                user.PreferredAirport
             ),
             user.FeatureFlags.Split(',', StringSplitOptions.RemoveEmptyEntries)
         );

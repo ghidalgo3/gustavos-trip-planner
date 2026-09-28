@@ -170,6 +170,8 @@ test("autocompletes and saves the user's home city", async () => {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
+      if (url.includes("/airports/home"))
+        return Response.json([{ code: "BOS", name: "Logan", city: "Boston" }]);
       if (url.endsWith("/api/user")) {
         return {
           ok: true,
@@ -224,6 +226,7 @@ test("autocompletes and saves the user's home city", async () => {
             latitude: 42.3601,
           },
           preferredAirlines: [],
+          preferredAirport: "BOS",
         });
         return {
           ok: true,
@@ -296,6 +299,9 @@ test("autocompletes and saves the user's home city", async () => {
       name: "Boston, Massachusetts, United States",
     }),
   ).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
   expect(await screen.findByText("Welcome back, Ada Traveler.")).toBeVisible();

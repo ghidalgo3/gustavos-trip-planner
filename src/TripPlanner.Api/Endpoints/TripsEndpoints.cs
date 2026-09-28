@@ -181,7 +181,7 @@ public static class TripsEndpoints
                     new(memberId, member?.DisplayName ?? "Unknown traveler", member?.HomeCityName)
                 );
             }
-            editorParties.Add(new(party.Id, members, ownerOrigin));
+            editorParties.Add(new(party.Id, members, ownerOrigin, owner?.PreferredAirport));
         }
         return Results.Ok(
             new PlanningEditor(PlanningDocument.FromJson(trip.Constraints), editorParties)
@@ -280,6 +280,7 @@ public static class TripsEndpoints
         IPlannerDb database,
         ISearchPlanBuilder planner,
         FareValidator validator,
+        RouteFareComposer routes,
         ICurrentUser currentUser
     )
     {
@@ -317,6 +318,7 @@ public static class TripsEndpoints
         if (results is null)
             return Results.NotFound();
         var document = PlanningDocument.FromJson(trip.Constraints);
+        results = routes.Compose(document, parties, results);
         return Results.Ok(
             results.Select(result =>
             {
@@ -342,6 +344,7 @@ public static class TripsEndpoints
         IPlannerDb database,
         ISearchPlanBuilder planner,
         FareValidator validator,
+        RouteFareComposer routes,
         IIgnavClient ignav,
         ICurrentUser currentUser
     )
@@ -372,6 +375,8 @@ public static class TripsEndpoints
             preview,
             context.RequestAborted
         );
+        if (fares is not null)
+            fares = routes.Compose(PlanningDocument.FromJson(trip.Constraints), parties, fares);
         var matching = fares
             ?.Where(result => result.CacheKey == cacheKey)
             .Select(result => new
@@ -415,9 +420,19 @@ public static class TripsEndpoints
         {
             if (
                 itinerary.ValueKind == JsonValueKind.Object
-                && itinerary.TryGetProperty("ignav_id", out var id)
-                && id.ValueKind == JsonValueKind.String
-                && string.Equals(id.GetString(), ignavId, StringComparison.Ordinal)
+                && (
+                    (
+                        itinerary.TryGetProperty("ignav_id", out var id)
+                        && id.ValueKind == JsonValueKind.String
+                        && string.Equals(id.GetString(), ignavId, StringComparison.Ordinal)
+                    )
+                    || (
+                        itinerary.TryGetProperty("bookingOffers", out var offers)
+                        && offers
+                            .EnumerateArray()
+                            .Any(o => o.GetProperty("ignavId").GetString() == ignavId)
+                    )
+                )
             )
                 return index;
             index++;

@@ -164,6 +164,34 @@ public class AuthenticationTests
     }
 
     [TestMethod]
+    public async Task HomeAirport_RequiresChoiceForMultipleAirportsAndPersistsWholeProfile()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+        var city = new ProfileHomeCity("Tokyo", 139.69, 35.68);
+        var missing = await client.PutAsJsonAsync("/api/user/profile", new UserProfile(city, []));
+        Assert.AreEqual(HttpStatusCode.BadRequest, missing.StatusCode);
+        var invalid = await client.PutAsJsonAsync(
+            "/api/user/profile",
+            new UserProfile(city, [], "ATL")
+        );
+        Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+        var saved = await client.PutAsJsonAsync(
+            "/api/user/profile",
+            new UserProfile(city, ["NH"], "HND")
+        );
+        Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
+        var user = await saved.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        Assert.AreEqual("HND", user!.Profile.PreferredAirport);
+        var catalog = new TripPlanner.Api.Services.AirportCatalog();
+        CollectionAssert.AreEquivalent(
+            new[] { "HND", "NRT" },
+            catalog.SuggestOrigin([factory.Database.Users.Single()])!.AirportCodes.ToArray()
+        );
+    }
+
+    [TestMethod]
     public async Task SetUserProfile_UpdatesCityAndAirlinesTogether()
     {
         await using var factory = new TestApplicationFactory();
@@ -177,7 +205,7 @@ public class AuthenticationTests
         first.EnsureSuccessStatusCode();
         var updated = await client.PutAsJsonAsync(
             "/api/user/profile",
-            new UserProfile(new("Paris", 2.35, 48.86), ["af", "DL", "AF"])
+            new UserProfile(new("Paris", 2.35, 48.86), ["af", "DL", "AF"], "CDG")
         );
         var response = await updated.Content.ReadFromJsonAsync<CurrentUserResponse>();
 

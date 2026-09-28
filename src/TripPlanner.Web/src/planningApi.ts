@@ -39,8 +39,20 @@ export type PartySettings = {
   maxJourneyHours: number;
   maxStops: number | null;
   preferredAirlines: string[];
+  preferredAirport?: string | null;
+};
+export type PlannedVisit = {
+  id: string;
+  location: SearchLocation | null;
+  nights: number | null;
+  presentFrom: string | null;
+  presentThrough: string | null;
+  afterVisitIds: string[];
+  originalInput?: string | null;
 };
 export type PlanningDocument = {
+  visits?: PlannedVisit[];
+  searchLimits?: { flexibilityDays: number; maxTripDays: number };
   schemaVersion: number;
   aiPrompt?: string | null;
   aiPromptLocked?: boolean | null;
@@ -54,6 +66,7 @@ export type PlanningDocument = {
 export type PlanningParty = {
   id: string;
   suggestedOrigin?: SearchLocation | null;
+  preferredAirport?: string | null;
   members: { id: string; name: string; homeCity: string | null }[];
 };
 export type PlanningEditor = {
@@ -110,6 +123,7 @@ export type PreparedSearch = {
     cabin_class: string;
     market: string;
     max_stops?: number;
+    searchKind?: string;
   };
   cacheKey: string;
   dateDistance: number;
@@ -181,6 +195,7 @@ export async function saveConstraints(
 }
 
 export type AirportSuggestion = {
+  cityLocation?: SearchLocation | null;
   code: string;
   name: string;
   city: string;

@@ -230,6 +230,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         User updated = existing with
         {
             HomeCityName = profile.HomeCity!.Name,
+            PreferredAirport = profile.PreferredAirport,
             HomeCityLocation = new(profile.HomeCity.Longitude, profile.HomeCity.Latitude),
             PreferredAirlines = profile.PreferredAirlines!,
             UpdatedAt = DateTimeOffset.UtcNow,

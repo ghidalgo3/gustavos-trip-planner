@@ -612,9 +612,6 @@ main {
 .price-range-inputs .fui-Input {
   width: 100%;
 }
-.layover-detail {
-  color: var(--colorNeutralForeground2);
-}
 .fare-card {
   display: grid;
   gap: 10px;
@@ -648,28 +645,14 @@ main {
 .fare-card-price {
   white-space: nowrap;
 }
-.fare-detail-grid {
+.round-trip-flight-legs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px 16px;
-  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.75rem;
 }
-.fare-detail-grid > div {
+.round-trip-flight-legs .flight-information {
   min-width: 0;
-}
-.fare-detail-grid > div:nth-child(3) {
-  grid-column: span 2;
-}
-.fare-detail-grid dt {
-  color: var(--colorNeutralForeground2);
-  font-size: 11px;
-  line-height: 1.3;
-}
-.fare-detail-grid dd {
-  margin: 2px 0 0;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.35;
 }
 .fare-card-footer {
   padding-top: 8px;
@@ -711,11 +694,8 @@ main {
     padding: 12px;
   }
   .fare-filter-grid,
-  .fare-detail-grid {
+  .round-trip-flight-legs {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .fare-detail-grid > div:nth-child(3) {
-    grid-column: auto;
   }
   .fare-card-heading,
   .fare-card-footer {
@@ -725,4 +705,83 @@ main {
   .fare-card-footer > :last-child {
     margin-left: 0;
   }
+}
+
+.route-visits,
+.route-visit,
+.route-result {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.route-leg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--colorNeutralStroke2, #8885);
+}
+.route-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.route-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+}
+.route-segment,
+.route-booking-links,
+.route-chosen-legs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.route-segment {
+  padding-left: 0.75rem;
+}
+.route-chosen-leg,
+.route-saved-choice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.route-booking-links a {
+  width: fit-content;
+}
+.journey-legs,
+.flight-information,
+.flight-segment,
+.flight-information-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.journey-legs {
+  gap: 1.25rem;
+}
+.flight-information > h4 {
+  margin-block: 0;
+}
+.flight-segment {
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--colorNeutralStroke2);
+}
+.flight-information-actions {
+  align-items: flex-start;
+}
+.visit-order {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.visit-order-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }

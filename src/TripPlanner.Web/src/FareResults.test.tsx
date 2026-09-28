@@ -127,7 +127,15 @@ const results: FareSearchResult[] = [
   },
 ];
 
-test("highlights three fare categories and places the remainder behind a disclosure", () => {
+test("uses shared flight cards for both round-trip legs without changing fare controls", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: RequestInfo | URL) =>
+      String(url).includes("/airports/cities")
+        ? Response.json({ BOS: "Boston", CDG: "Paris" })
+        : Response.json([]),
+    ),
+  );
   render(
     <FluentProvider theme={webLightTheme}>
       <MemoryRouter>
@@ -145,21 +153,35 @@ test("highlights three fare categories and places the remainder behind a disclos
   expect(screen.getByText("Cheapest preferred airline")).toBeVisible();
   expect(screen.getByText("Cheapest nonstop flight")).toBeVisible();
   expect(
-    screen.getByText("USD 30 more than the cheapest overall option."),
+    screen.getByText("USD $30 more than the cheapest overall option."),
   ).toBeVisible();
-  expect(screen.getAllByText("Departure time")).not.toHaveLength(0);
-  expect(screen.getAllByText(/DL 123/)).not.toHaveLength(0);
+  const cheapest = screen.getByText("Cheapest overall").closest("article")!;
+  const outbound = within(cheapest)
+    .getByText("Outbound flight")
+    .closest(".flight-information") as HTMLElement;
+  const inbound = within(cheapest)
+    .getByText("Return flight")
+    .closest(".flight-information") as HTMLElement;
+  expect(outbound).toBeVisible();
+  expect(inbound).toBeVisible();
+  expect(within(outbound).getAllByText(/DL 123/)).not.toHaveLength(0);
+  expect(within(outbound).getByText(/Layover in CDG · 1h 0m/)).toBeVisible();
+  expect(outbound).toHaveTextContent("Delta · 1 stop · 5h 0m");
+  await waitFor(() => {
+    expect(
+      within(outbound).getByText("Boston (BOS) → Paris (CDG)"),
+    ).toBeVisible();
+    expect(
+      within(inbound).getByText("Boston (BOS) → Paris (CDG)"),
+    ).toBeVisible();
+  });
   expect(screen.getByRole("button", { name: "Book this fare" })).toBeVisible();
-  expect(screen.getByText("Outbound: 5 hrs")).toBeVisible();
-  expect(screen.getAllByText("(1 hr in CDG)")).not.toHaveLength(0);
-  expect(
-    screen.getByText(
-      new Intl.DateTimeFormat(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(new Date("2030-01-05T08:00")),
-    ),
-  ).toBeVisible();
+  const departureTime = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(2000, 0, 1, 8, 0));
+  expect(outbound).toHaveTextContent(departureTime);
+  expect(outbound).not.toHaveTextContent("2030-01-05");
   expect(screen.getByText("More matching options (1)")).toBeVisible();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
   expect(screen.getAllByRole("article")[0]).toHaveClass("fare-card");
@@ -199,7 +221,7 @@ test("never recommends or offers booking for a rejected itinerary", () => {
   );
   expect(
     screen.getByText("Cheapest overall").closest("article"),
-  ).toHaveTextContent("USD 130");
+  ).toHaveTextContent("USD $130");
   fireEvent.click(screen.getByText("Excluded or unverified options (1)"));
   const rejected = screen
     .getByText("Arrival is after the required stay begins.")
@@ -251,7 +273,7 @@ test("selects, replaces, and clears a flight for the party", async () => {
   );
   fireEvent.click(screen.getAllByRole("button", { name: "Select flight" })[0]);
   await waitFor(() => expect(selected?.itineraryIndex).toBe(0));
-  const alternative = screen.getByText("USD 130").closest("article")!;
+  const alternative = screen.getByText("USD $130").closest("article")!;
   fireEvent.click(
     within(alternative).getByRole("button", { name: "Change to this flight" }),
   );

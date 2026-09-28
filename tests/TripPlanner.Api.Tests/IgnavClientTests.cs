@@ -14,6 +14,82 @@ namespace TripPlanner.Api.Tests;
 public sealed class IgnavClientTests
 {
     [TestMethod]
+    [DataRow("oneWay", "one-way")]
+    [DataRow("flexible", "search")]
+    public async Task RouteRequests_UseProviderContract(string kind, string endpoint)
+    {
+        using var http = new HttpClient(new RouteHandler(kind, endpoint));
+        var client = new IgnavClient(
+            http,
+            Microsoft.Extensions.Options.Options.Create(
+                new IgnavOptions { ApiKey = "fake-test-key" }
+            ),
+            NullLogger<IgnavClient>.Instance
+        );
+        await client.SearchAsync(
+            new(
+                "ATL",
+                "HKT",
+                new(2030, 5, 1),
+                new(2030, 5, 13),
+                2,
+                "economy",
+                "US",
+                1,
+                kind,
+                kind == "flexible"
+                    ?
+                    [
+                        new("ATL", "HKT", new(2030, 5, 1), 1),
+                        new("HND", "ATL", new(2030, 5, 13), 1),
+                    ]
+                    : null
+            ),
+            default
+        );
+    }
+
+    private sealed class RouteHandler(string kind, string endpoint) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken
+        )
+        {
+            Assert.AreEqual(
+                $"https://ignav.com/api/fares/{endpoint}",
+                request.RequestUri!.ToString()
+            );
+            using var json = JsonDocument.Parse(
+                await request.Content!.ReadAsStringAsync(cancellationToken)
+            );
+            var body = json.RootElement;
+            Assert.IsFalse(body.TryGetProperty("SearchKind", out _));
+            Assert.IsFalse(body.TryGetProperty("return_date", out _));
+            Assert.IsFalse(body.GetProperty("allow_self_transfer").GetBoolean());
+            if (kind == "flexible")
+            {
+                Assert.AreEqual(2, body.GetProperty("legs").GetArrayLength());
+                Assert.AreEqual(
+                    "HND",
+                    body.GetProperty("legs")[1].GetProperty("origin").GetString()
+                );
+                Assert.IsFalse(body.TryGetProperty("origin", out _));
+            }
+            else
+                Assert.AreEqual("2030-05-01", body.GetProperty("departure_date").GetString());
+            return new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"itineraries\":[]}",
+                    Encoding.UTF8,
+                    "application/json"
+                ),
+            };
+        }
+    }
+
+    [TestMethod]
     public async Task SendsDocumentedRequestAndKeepsRawResponse()
     {
         using var handler = new Handler();

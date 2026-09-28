@@ -84,6 +84,7 @@ app.MapHealthChecks("/health");
 var api = app.MapGroup("/api");
 
 // These routes remain here until a broader endpoint organization pattern emerges.
+api.MapAirportsEndpoints();
 api.MapGet("/airports", (string q, AirportCatalog airports) => Results.Ok(airports.Search(q)))
     .WithName("SearchAirports");
 api.MapGet(

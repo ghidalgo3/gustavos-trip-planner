@@ -99,7 +99,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at, preferred_airlines, "FeatureFlags"
+                created_at, updated_at, preferred_airlines, "FeatureFlags", preferred_airport
             FROM users
             WHERE id = $1;
             """
@@ -122,7 +122,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at, preferred_airlines, "FeatureFlags"
+                created_at, updated_at, preferred_airlines, "FeatureFlags", preferred_airport
             FROM users
             WHERE email = $1;
             """
@@ -145,6 +145,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name = $1,
                 home_city_location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
                 preferred_airlines = $4,
+                preferred_airport = $6,
                 updated_at = now()
             WHERE id = $5;
             """
@@ -154,6 +155,10 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         command.Parameters.AddWithValue(profile.HomeCity.Latitude);
         command.Parameters.AddWithValue(profile.PreferredAirlines!);
         command.Parameters.AddWithValue(userId);
+        command.Parameters.AddWithValue(
+            NpgsqlDbType.Text,
+            (object?)profile.PreferredAirport ?? DBNull.Value
+        );
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException("The user could not be found.");
 
@@ -371,7 +376,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at, preferred_airlines, "FeatureFlags"
+                created_at, updated_at, preferred_airlines, "FeatureFlags", preferred_airport
             FROM users
             WHERE email = $1;
             """
@@ -407,7 +412,8 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             reader.GetFieldValue<string[]>(9),
             reader.GetFieldValue<DateTimeOffset>(7),
             reader.GetFieldValue<DateTimeOffset>(8),
-            reader.GetString(10)
+            reader.GetString(10),
+            GetNullableString(reader, 11)
         );
     }
 

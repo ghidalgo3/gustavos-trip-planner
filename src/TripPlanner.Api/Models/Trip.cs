@@ -23,9 +23,10 @@ public sealed record SelectedFlight(
     Guid PartyId,
     string CacheKey,
     int ItineraryIndex,
-    IgnavRoundTripRequest Request,
+    IgnavFareRequest Request,
     JsonElement Itinerary,
-    DateTimeOffset SelectedAt
+    DateTimeOffset SelectedAt,
+    bool[]? PurchasedLegs = null
 );
 
 public enum PartyMemberChangeStatus

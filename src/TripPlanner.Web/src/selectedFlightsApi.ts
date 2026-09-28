@@ -9,6 +9,7 @@ export type SelectedFlight = {
   request: FareSearchResult["request"];
   itinerary: FareItinerary;
   selectedAt: string;
+  purchasedLegs?: boolean[] | null;
 };
 
 function selectedFlightsUrl(tripId: string) {
@@ -56,4 +57,24 @@ export async function deselectFlight(
     { method: "DELETE", credentials: "include" },
   );
   if (!response.ok) await readTripError(response, "deselecting the flight");
+}
+
+export async function setFlightPurchases(
+  tripId: string,
+  partyId: string,
+  cacheKey: string,
+  itineraryIndex: number,
+  purchasedLegs: boolean[],
+): Promise<SelectedFlight> {
+  const response = await fetch(
+    `${selectedFlightsUrl(tripId)}/${encodeURIComponent(partyId)}/purchases`,
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cacheKey, itineraryIndex, purchasedLegs }),
+    },
+  );
+  if (!response.ok) await readTripError(response, "saving flight purchases");
+  return response.json();
 }

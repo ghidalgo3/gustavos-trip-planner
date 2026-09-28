@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useSearchParams } from "react-router";
+import FlightInformation from "./FlightInformation";
+import {
+  airportLabel,
+  priceLabel,
+  type AirportCities,
+} from "./flightFormatting";
+import { flightAirportCodes, useAirportCities } from "./airportCities";
 import {
   Button,
   Dropdown,
@@ -14,7 +21,7 @@ import {
   type FareEvaluation,
   type FareItinerary,
   type FareSearchResult,
-  type FareSegment,
+  type FareLeg,
 } from "./operationsApi";
 import type { PartySettings, PlanningParty } from "./planningApi";
 import {
@@ -164,6 +171,15 @@ export default function FareResults({
         })),
       ),
     [results],
+  );
+  const cities = useAirportCities(
+    flightAirportCodes(
+      options.flatMap((option) =>
+        [option.itinerary.outbound, option.itinerary.inbound].filter(
+          (leg): leg is FareLeg => Boolean(leg),
+        ),
+      ),
+    ),
   );
   const airlines = useMemo(
     () => [...new Set(options.flatMap(airlinesFor))].filter(Boolean).sort(),
@@ -333,7 +349,12 @@ export default function FareResults({
             options={eligible}
             excluded={excluded}
             preferredAirlines={preferences}
+            preferredAirport={
+              partySettings.find((settings) => settings.partyId === party.id)
+                ?.preferredAirport
+            }
             tripId={tripId}
+            cities={cities}
             selectedFlight={selectedFlights.find(
               (flight) => flight.partyId === party.id,
             )}
@@ -351,7 +372,9 @@ function PartyResults({
   options,
   excluded,
   preferredAirlines,
+  preferredAirport,
   tripId,
+  cities,
   selectedFlight,
   selectionBusy,
   onChangeSelection,
@@ -360,7 +383,9 @@ function PartyResults({
   options: FareOption[];
   excluded: FareOption[];
   preferredAirlines: string[];
+  preferredAirport?: string | null;
   tripId: string;
+  cities: AirportCities;
   selectedFlight?: SelectedFlight;
   selectionBusy: boolean;
   onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
@@ -389,6 +414,8 @@ function PartyResults({
         Number(usesPreferredAirline(left, preferredAirlines));
       return (
         preferenceDifference ||
+        Number(right.request.origin === preferredAirport) -
+          Number(left.request.origin === preferredAirport) ||
         (left.itinerary.price?.amount ?? Infinity) -
           (right.itinerary.price?.amount ?? Infinity)
       );
@@ -415,6 +442,7 @@ function PartyResults({
           title="Cheapest overall"
           option={cheapest}
           tripId={tripId}
+          cities={cities}
           selectedFlight={selectedFlight}
           selectionBusy={selectionBusy}
           onChangeSelection={onChangeSelection}
@@ -425,6 +453,7 @@ function PartyResults({
           title="Cheapest preferred airline"
           option={preferred}
           tripId={tripId}
+          cities={cities}
           selectedFlight={selectedFlight}
           selectionBusy={selectionBusy}
           onChangeSelection={onChangeSelection}
@@ -436,6 +465,7 @@ function PartyResults({
           title="Cheapest nonstop flight"
           option={nonstop}
           tripId={tripId}
+          cities={cities}
           selectedFlight={selectedFlight}
           selectionBusy={selectionBusy}
           onChangeSelection={onChangeSelection}
@@ -450,6 +480,7 @@ function PartyResults({
                 key={option.id}
                 option={option}
                 tripId={tripId}
+                cities={cities}
                 selectedFlight={selectedFlight}
                 selectionBusy={selectionBusy}
                 onChangeSelection={onChangeSelection}
@@ -467,6 +498,7 @@ function PartyResults({
                 key={option.id}
                 option={option}
                 tripId={tripId}
+                cities={cities}
                 selectedFlight={selectedFlight}
                 selectionBusy={selectionBusy}
                 onChangeSelection={onChangeSelection}
@@ -484,6 +516,7 @@ function HighlightedFare({
   option,
   detail,
   tripId,
+  cities,
   selectedFlight,
   selectionBusy,
   onChangeSelection,
@@ -492,6 +525,7 @@ function HighlightedFare({
   option: FareOption;
   detail?: string;
   tripId: string;
+  cities: AirportCities;
   selectedFlight?: SelectedFlight;
   selectionBusy: boolean;
   onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
@@ -500,6 +534,7 @@ function HighlightedFare({
     <FareCard
       option={option}
       tripId={tripId}
+      cities={cities}
       selectedFlight={selectedFlight}
       selectionBusy={selectionBusy}
       onChangeSelection={onChangeSelection}
@@ -564,6 +599,7 @@ function BookingLink({
 function FareCard({
   option,
   tripId,
+  cities,
   title,
   detail,
   highlighted = false,
@@ -573,6 +609,7 @@ function FareCard({
 }: {
   option: FareOption;
   tripId: string;
+  cities: AirportCities;
   title?: string;
   detail?: string;
   highlighted?: boolean;
@@ -581,6 +618,12 @@ function FareCard({
   onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
 }) {
   const isSelected = selectedFlight && sameItinerary(selectedFlight, option);
+  const outbound = option.itinerary.outbound;
+  const inbound = option.itinerary.inbound;
+  const origin =
+    outbound?.segments[0]?.departure_airport ?? option.request.origin;
+  const destination =
+    outbound?.segments.at(-1)?.arrival_airport ?? option.request.destination;
   return (
     <article
       className={`${highlighted ? "fare-card highlighted-fare" : "fare-card"}${isSelected ? " selected-fare" : ""}`}
@@ -593,7 +636,7 @@ function FareCard({
       )}
       <div className="fare-card-heading">
         <div className="fare-card-route">
-          <strong>{`${option.request.origin} → ${option.request.destination}`}</strong>
+          <strong>{`${airportLabel(origin, cities)} → ${airportLabel(destination, cities)}`}</strong>
           <Text
             size={200}
           >{`${option.request.departure_date} → ${option.request.return_date}`}</Text>
@@ -602,46 +645,24 @@ function FareCard({
           {formatPrice(option)}
         </Text>
       </div>
-      <dl className="fare-detail-grid">
-        <div>
-          <dt>Departure time</dt>
-          <dd>
-            {formatLocalTime(
-              option.itinerary.outbound?.segments.at(0)?.departure_time_local,
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>Flight numbers</dt>
-          <dd>{flightNumbers(option)}</dd>
-        </div>
-        <div>
-          <dt>Total travel time</dt>
-          <dd>
-            <TravelTime option={option} />
-          </dd>
-        </div>
-        <div>
-          <dt>Stops</dt>
-          <dd>{stopLabel(stops(option))}</dd>
-        </div>
-        <div>
-          <dt>Outbound airline</dt>
-          <dd>{option.itinerary.outbound?.carrier ?? "Unknown"}</dd>
-        </div>
-        <div>
-          <dt>Return airline</dt>
-          <dd>{option.itinerary.inbound?.carrier ?? "Unknown"}</dd>
-        </div>
-        <div>
-          <dt>Arrive home</dt>
-          <dd>
-            {formatTime(
-              option.itinerary.inbound?.segments.at(-1)?.arrival_time_local,
-            )}
-          </dd>
-        </div>
-      </dl>
+      <div className="round-trip-flight-legs">
+        {outbound && (
+          <FlightInformation
+            leg={outbound}
+            cities={cities}
+            title="Outbound flight"
+            timeOnly
+          />
+        )}
+        {inbound && (
+          <FlightInformation
+            leg={inbound}
+            cities={cities}
+            title="Return flight"
+            timeOnly
+          />
+        )}
+      </div>
       <div
         className={
           option.evaluation.status === "Eligible"
@@ -705,29 +726,6 @@ function sameItinerary(selected: SelectedFlight, option: FareOption): boolean {
       )
       .join(";");
   return route(selected.itinerary) === route(option.itinerary);
-}
-
-function TravelTime({ option }: { option: FareOption }) {
-  const directions = [
-    ["Outbound", option.itinerary.outbound],
-    ["Return", option.itinerary.inbound],
-  ] as const;
-  return (
-    <>
-      {directions.map(([name, direction]) =>
-        direction?.duration_minutes === undefined ? null : (
-          <div key={name}>
-            {`${name}: ${formatDuration(direction.duration_minutes)}`}
-            {layovers(direction.segments).length > 0 && (
-              <Text as="span" size={200} className="layover-detail">
-                {` (${layovers(direction.segments).join(", ")})`}
-              </Text>
-            )}
-          </div>
-        ),
-      )}
-    </>
-  );
 }
 
 function matches(option: FareOption, filters: Filters) {
@@ -808,68 +806,13 @@ function differenceFromCheapest(option: FareOption, cheapest: FareOption) {
   const difference = price.amount - baseline.amount;
   return difference === 0
     ? "Same price as the cheapest overall option."
-    : `${price.currency} ${difference.toLocaleString()} more than the cheapest overall option.`;
+    : `${priceLabel({ amount: difference, currency: price.currency })} more than the cheapest overall option.`;
 }
 
 function formatPrice(option: FareOption) {
   const price = option.itinerary.price;
   if (!price) return "Unavailable";
-  return `${price.currency} ${price.amount.toLocaleString()}${price.status === "unverified" ? " (unverified)" : ""}`;
-}
-
-function formatLocalTime(value?: string) {
-  if (!value) return "Unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatTime(value?: string) {
-  return value?.replace("T", " ") ?? "Unavailable";
-}
-
-function flightNumbers(option: FareOption) {
-  return (
-    [option.itinerary.outbound, option.itinerary.inbound]
-      .flatMap(
-        (direction) =>
-          direction?.segments.map((segment) =>
-            [segment.marketing_carrier_code, segment.flight_number]
-              .filter(Boolean)
-              .join(" "),
-          ) ?? [],
-      )
-      .filter(Boolean)
-      .join(", ") || "Unavailable"
-  );
-}
-
-function layovers(segments: FareSegment[]) {
-  return segments.slice(0, -1).flatMap((segment, index) => {
-    const next = segments[index + 1];
-    const start = Date.parse(
-      segment.arrival_time_utc ?? segment.arrival_time_local,
-    );
-    const end = Date.parse(
-      next.departure_time_utc ?? next.departure_time_local,
-    );
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
-      return [];
-    return [
-      `${formatDuration(Math.round((end - start) / 60000))} in ${segment.arrival_airport}`,
-    ];
-  });
-}
-
-function formatDuration(minutes: number) {
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return remainder === 0
-    ? `${hours} hr${hours === 1 ? "" : "s"}`
-    : `${hours} hr ${remainder} min`;
+  return `${priceLabel(price)}${price.status === "unverified" ? " (unverified)" : ""}`;
 }
 
 function firstBookingUrl(response: unknown): string | undefined {
@@ -889,10 +832,6 @@ function firstBookingUrl(response: unknown): string | undefined {
     }
   }
   return undefined;
-}
-
-function stopLabel(count: number) {
-  return count === 0 ? "Nonstop" : `${count} stop${count === 1 ? "" : "s"}`;
 }
 
 function number(value: string) {

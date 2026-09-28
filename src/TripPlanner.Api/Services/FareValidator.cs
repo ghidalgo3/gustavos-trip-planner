@@ -20,6 +20,12 @@ public sealed class FareValidator(AirportCatalog airports)
             || itineraries.ValueKind != JsonValueKind.Array
         )
             return [];
+        // These results are assembled and validated from cached offers by RouteFareComposer.
+        if (fare.Request.SearchKind == "itinerary")
+            return itineraries
+                .EnumerateArray()
+                .Select(_ => new FareEvaluationDto("Eligible", []))
+                .ToArray();
         var settings = document.Parties.Single(p => p.PartyId == party.Id);
         var constraints = document
             .Constraints.Where(c => party.UserIds.Contains(c.UserId))
@@ -32,7 +38,7 @@ public sealed class FareValidator(AirportCatalog airports)
 
     private FareEvaluationDto EvaluateItinerary(
         JsonElement itinerary,
-        IgnavRoundTripRequest request,
+        IgnavFareRequest request,
         PartySearchSettings settings,
         IReadOnlyList<PlanningConstraint> constraints
     )

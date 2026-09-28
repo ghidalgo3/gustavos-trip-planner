@@ -79,6 +79,59 @@ public class OpenAiTripFormAssistantTests
     }
 
     [TestMethod]
+    public async Task WeddingPrompt_ExtractsVisitsAndNightsWithoutInventingFlightDates()
+    {
+        const string arguments = """
+            {"destination":null,"origin":"ATL","departureDate":null,"returnDate":null,"cabin":null,"market":null,"maxJourneyHours":null,"maxStops":null,"preferredAirlines":null,"requirements":[],"assumptions":["Dates are in 2030. Four days means four nights."],"visits":[
+              {"location":"Phuket","nights":null,"presentFrom":"2030-05-02","presentThrough":"2030-05-05","after":[],"source":"wedding in Phuket May 2-5"},
+              {"location":"Hong Kong","nights":4,"presentFrom":null,"presentThrough":null,"after":[0],"source":"After Phuket, Hong Kong for 4 days"},
+              {"location":"Tokyo HND","nights":4,"presentFrom":null,"presentThrough":null,"after":[1],"source":"then Tokyo HND for 4 days"}
+            ]}
+            """;
+        var assistant = new OpenAiTripFormAssistant(
+            new HttpClient(new Handler(arguments: arguments)),
+            Microsoft.Extensions.Options.Options.Create(new OpenAiOptions { ApiKey = "test-key" }),
+            new AirportCatalog()
+        );
+        var ownerId = Guid.NewGuid();
+        var partyId = Guid.NewGuid();
+        var owner = new User(
+            ownerId,
+            "google",
+            "ada@example.com",
+            "Ada",
+            "Boston",
+            null,
+            [],
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow
+        );
+        var proposal = await assistant.ProposeAsync(
+            "Wedding trip",
+            new PlanningDocument
+            {
+                TravelDates = new(new(2030, 1, 1), new(2030, 1, 5)),
+                Parties = [new PartySearchSettings { PartyId = partyId }],
+            },
+            owner,
+            [new(partyId, [new(ownerId, "Ada", "Boston")])]
+        );
+        Assert.HasCount(3, proposal.Document.Visits);
+        Assert.IsNull(proposal.Document.TravelDates?.StartDate);
+        Assert.IsNull(proposal.Document.TravelDates?.EndDate);
+        Assert.AreEqual("ATL", proposal.Document.Parties[0].Origin?.Code);
+        Assert.AreEqual("HND", proposal.Document.Visits[2].Location?.Code);
+        Assert.HasCount(1, proposal.Document.Visits[2].Location!.AirportCodes);
+        Assert.AreEqual(4, proposal.Document.Visits[1].Nights);
+        Assert.AreEqual(new DateOnly(2030, 5, 2), proposal.Document.Visits[0].PresentFrom);
+        Assert.AreEqual(
+            proposal.Document.Visits[0].Id,
+            proposal.Document.Visits[1].AfterVisitIds.Single()
+        );
+        Assert.IsTrue(proposal.Warnings.Any(w => w.Contains("nights")));
+    }
+
+    [TestMethod]
     public async Task ProviderFailure_IsReportedAsHttpRequestException()
     {
         var assistant = new OpenAiTripFormAssistant(

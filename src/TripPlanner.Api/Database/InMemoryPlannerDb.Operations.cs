@@ -28,9 +28,9 @@ public sealed partial class InMemoryPlannerDb
         public DateTimeOffset UpdatedAt { get; set; } = createdAt;
     }
 
-    private sealed class MemorySearch(IgnavRoundTripRequest request)
+    private sealed class MemorySearch(IgnavFareRequest request)
     {
-        public IgnavRoundTripRequest Request { get; set; } = request;
+        public IgnavFareRequest Request { get; set; } = request;
         public Guid? OperationId { get; set; }
         public Guid? LeaseId { get; set; }
         public DateTimeOffset? LeaseExpiresAt { get; set; }

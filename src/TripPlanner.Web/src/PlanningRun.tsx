@@ -11,6 +11,7 @@ import type {
   PlanningParty,
   PartySettings,
 } from "./planningApi";
+import RouteFareResults from "./RouteFareResults";
 import FareResults from "./FareResults";
 import {
   getFlightSearchResults,
@@ -224,12 +225,20 @@ export default function PlanningRun({
       )}
       {!hasUnsavedChanges && currentResults.length > 0 && (
         <>
-          <FareResults
-            tripId={tripId}
-            results={currentResults}
-            parties={parties}
-            partySettings={partySettings}
-          />
+          {currentResults.some((r) => r.request.searchKind === "itinerary") ? (
+            <RouteFareResults
+              tripId={tripId}
+              results={currentResults}
+              parties={parties}
+            />
+          ) : (
+            <FareResults
+              tripId={tripId}
+              results={currentResults}
+              parties={parties}
+              partySettings={partySettings}
+            />
+          )}
           <Text size={200}>
             Prices last retrieved{" "}
             {new Date(currentResults[0].fetchedAt).toLocaleString()}.{" "}

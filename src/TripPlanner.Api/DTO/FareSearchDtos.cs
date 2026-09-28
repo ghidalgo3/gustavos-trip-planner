@@ -10,7 +10,7 @@ public sealed record FareEvaluationDto(string Status, IReadOnlyList<FareValidati
 public sealed record EvaluatedFareSearchResultDto(
     Guid PartyId,
     string CacheKey,
-    IgnavRoundTripRequest Request,
+    IgnavFareRequest Request,
     JsonElement Response,
     DateTimeOffset FetchedAt,
     DateTimeOffset ExpiresAt,

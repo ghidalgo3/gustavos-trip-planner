@@ -24,6 +24,7 @@ import type { Trip } from "./api";
 import AirportPicker from "./AirportPicker";
 import FlightAirportPicker from "./FlightAirportPicker";
 import PartySelector from "./PartySelector";
+import RouteVisitsEditor from "./RouteVisitsEditor";
 import PlanningRun from "./PlanningRun";
 import {
   getPlanning,
@@ -126,6 +127,7 @@ export default function TripPlanning({
                 ? (preferredAirlines ?? [])
                 : [],
               ...saved,
+              preferredAirport: party.preferredAirport ?? null,
               origin: saved?.origin ?? party.suggestedOrigin ?? null,
             };
           }),
@@ -440,15 +442,24 @@ export default function TripPlanning({
             ))}
             <Card className="planning-card">
               <Title3 as="h2">Where and when?</Title3>
-              <FlightAirportPicker
-                label="Destination"
-                value={document.destination}
-                onChange={(destination) => change({ ...document, destination })}
-              />
+              <RouteVisitsEditor document={document} onChange={change} />
+              {!document.visits?.length && (
+                <FlightAirportPicker
+                  label="Destination"
+                  value={document.destination}
+                  onChange={(destination) =>
+                    change({ ...document, destination })
+                  }
+                />
+              )}
               <div className="planning-row">
                 <Field
                   label="Departure date"
-                  hint="The day your outbound flight starts"
+                  hint={
+                    document.visits?.length
+                      ? "Optional when a required stay anchors the trip"
+                      : "The day your outbound flight starts"
+                  }
                 >
                   <Input
                     type="date"
@@ -466,7 +477,11 @@ export default function TripPlanning({
                 </Field>
                 <Field
                   label="Return flight date"
-                  hint="The day your flight home begins"
+                  hint={
+                    document.visits?.length
+                      ? "Optional; the planner can choose when the flight home begins"
+                      : "The day your flight home begins"
+                  }
                 >
                   <Input
                     type="date"

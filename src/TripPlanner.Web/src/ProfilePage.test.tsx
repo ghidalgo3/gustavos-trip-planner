@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
@@ -20,10 +20,13 @@ const user: CurrentUser = {
 test("saves the complete profile when airline preferences change", async () => {
   const fetchMock = vi.fn(
     async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(_input).includes("/airports/home"))
+        return Response.json([{ code: "BOS", name: "Logan", city: "Boston" }]);
       expect(init?.method).toBe("PUT");
       expect(JSON.parse(init?.body as string)).toEqual({
         homeCity: { name: "Boston", longitude: -71, latitude: 42 },
         preferredAirlines: ["AF", "DL"],
+        preferredAirport: "BOS",
       });
       return {
         ok: true,
@@ -54,6 +57,9 @@ test("saves the complete profile when airline preferences change", async () => {
       target: { value: "af, dl, AF" },
     },
   );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled(),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
   expect(await screen.findByText("Profile saved.")).toBeVisible();
@@ -62,4 +68,45 @@ test("saves the complete profile when airline preferences change", async () => {
     expect.objectContaining({ method: "PUT" }),
   );
   expect(onSaved).toHaveBeenCalledOnce();
+});
+
+test("requires a preferred airport when the home city has multiple airports", async () => {
+  const tokyo = {
+    ...user,
+    profile: {
+      ...user.profile,
+      homeCity: { name: "Tokyo", longitude: 139.69, latitude: 35.68 },
+    },
+  };
+  const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PUT") {
+      expect(JSON.parse(init.body as string).preferredAirport).toBe("HND");
+      return Response.json({
+        ...tokyo,
+        profile: { ...tokyo.profile, preferredAirport: "HND" },
+      });
+    }
+    return Response.json([
+      { code: "HND", name: "Haneda" },
+      { code: "NRT", name: "Narita" },
+    ]);
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <ProfilePage user={tokyo} onSaved={vi.fn()} />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+  const airport = await screen.findByRole("combobox", {
+    name: "Preferred home airport",
+  });
+  expect(screen.getByRole("button", { name: "Save profile" })).toBeDisabled();
+  fireEvent.change(airport, { target: { value: "HND" } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+  expect(await screen.findByText("Profile saved.")).toBeVisible();
 });

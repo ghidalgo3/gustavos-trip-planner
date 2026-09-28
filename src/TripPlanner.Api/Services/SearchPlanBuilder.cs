@@ -23,9 +23,17 @@ public interface ISearchPlanBuilder
     );
 }
 
-public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimeProvider clock)
-    : ISearchPlanBuilder
+public sealed class SearchPlanBuilder(
+    IOptions<PlanningOptions> options,
+    TimeProvider clock,
+    AirportCatalog? airports = null
+) : ISearchPlanBuilder
 {
+    private readonly MultiCityPlanner _routes = new(
+        airports ?? new AirportCatalog(),
+        clock,
+        Math.Clamp(options.Value.FareRequestLimit, 1, 200)
+    );
     private readonly int _limit = Math.Clamp(options.Value.DatePairLimit, 1, 200);
     private static readonly string[] Types =
     [
@@ -43,6 +51,10 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
         bool complete
     )
     {
+        if (document.Visits is null)
+            return [new("invalidInput", "Visits must be an array.", null, [])];
+        if (document.Visits is { Length: > 0 })
+            return _routes.Validate(document, parties, complete);
         var issues = new List<PlanningIssue>();
         void Issue(string message, Guid? party = null, params Guid[] ids) =>
             issues.Add(new("invalidInput", message, party, ids));
@@ -283,6 +295,8 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
         CancellationToken cancellationToken = default
     )
     {
+        if (document.Visits is { Length: > 0 })
+            return _routes.Build(document, parties, cancellationToken);
         var issues = Validate(document, parties, true).ToList();
         if (issues.Count > 0)
             return new(false, _limit, issues, []);
@@ -383,7 +397,7 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
                     {
                         if (originCode == destinationCode)
                             continue;
-                        var body = new IgnavRoundTripRequest(
+                        var body = new IgnavFareRequest(
                             originCode,
                             destinationCode,
                             departure,
@@ -505,6 +519,7 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
                         .SelectMany(group =>
                             group.OrderBy(c => c.Body.Origin).ThenBy(c => c.Body.Destination)
                         )
+                        .Take(Math.Clamp(options.Value.FareRequestLimit, 1, 200))
                         .Select(c => c with { CacheKey = CacheKey(c.Body) })
                         .ToArray(),
                     checks,
@@ -515,12 +530,17 @@ public sealed class SearchPlanBuilder(IOptions<PlanningOptions> options, TimePro
         return new(issues.Count == 0, _limit, issues, previews);
     }
 
-    public static string CacheKey(IgnavRoundTripRequest request) =>
+    public static string CacheKey(IgnavFareRequest request) =>
         Convert.ToHexStringLower(
             SHA256.HashData(
                 Encoding.UTF8.GetBytes(
-                    "POST https://ignav.com/api/fares/round-trip\n"
-                        + JsonSerializer.Serialize(request, JsonSerializerOptions.Web)
+                    "POST https://ignav.com/api/fares/"
+                        + IgnavClient.Endpoint(request)
+                        + "\n"
+                        + JsonSerializer.Serialize(
+                            IgnavClient.Body(request),
+                            JsonSerializerOptions.Web
+                        )
                 )
             )
         );

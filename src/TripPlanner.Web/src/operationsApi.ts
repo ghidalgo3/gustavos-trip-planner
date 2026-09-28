@@ -32,10 +32,23 @@ export type FareSegment = {
   departure_time_utc?: string;
   arrival_time_utc?: string;
   marketing_carrier_code?: string;
+  operating_carrier_name?: string;
   flight_number?: string;
   duration_minutes?: number;
 };
+export type FareLeg = {
+  carrier?: string;
+  duration_minutes?: number;
+  segments: FareSegment[];
+};
 export type FareItinerary = {
+  legs?: FareLeg[];
+  bookingOffers?: { ignavId: string; legIndexes: number[] }[];
+  stops?: number;
+  durationMinutes?: number;
+  preferredAirlineSegments?: number;
+  preferredHomeAirport?: boolean;
+  separateTickets?: boolean;
   price?: { amount: number; currency: string; status?: string };
   ignav_id?: string;
   outbound?: {
@@ -171,6 +184,10 @@ export async function getBookingLinks(
       body: JSON.stringify({ ignavId }),
     },
   );
+  if (response.status === 404)
+    throw new Error(
+      "These flight results have expired. Find flights again to refresh airline booking options.",
+    );
   if (!response.ok) await readTripError(response, "getting a booking link");
   return response.json();
 }

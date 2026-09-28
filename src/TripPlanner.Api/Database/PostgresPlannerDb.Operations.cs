@@ -308,7 +308,7 @@ public sealed partial class PostgresPlannerDb
             work = await reader.ReadAsync(cancellationToken)
                 ? new(
                     reader.GetString(0),
-                    JsonSerializer.Deserialize<IgnavRoundTripRequest>(reader.GetString(1))!,
+                    JsonSerializer.Deserialize<IgnavFareRequest>(reader.GetString(1))!,
                     reader.GetGuid(2),
                     leaseId,
                     reader.GetInt32(3)

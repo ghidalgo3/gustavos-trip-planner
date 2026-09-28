@@ -9,12 +9,32 @@ import {
 } from "@fluentui/react-components";
 import type { Trip } from "./api";
 import { getPlanning, type PlanningParty } from "./planningApi";
+import { JourneyLegs } from "./RouteFareResults";
+import { priceLabel } from "./flightFormatting";
+import { flightAirportCodes, useAirportCities } from "./airportCities";
+import type { FareItinerary, FareLeg } from "./operationsApi";
 import PartySelector from "./PartySelector";
 import {
   deselectFlight,
   getSelectedFlights,
+  setFlightPurchases,
   type SelectedFlight,
 } from "./selectedFlightsApi";
+
+function displayLegs(itinerary: FareItinerary): FareLeg[] {
+  const legs =
+    itinerary.legs ??
+    [itinerary.outbound, itinerary.inbound].filter((leg): leg is FareLeg =>
+      Boolean(leg),
+    );
+  return legs.every((leg) =>
+    leg.segments.every(
+      (segment) => segment.departure_airport && segment.arrival_airport,
+    ),
+  )
+    ? legs
+    : [];
+}
 
 export default function PlansOverview({
   trip,
@@ -32,6 +52,11 @@ export default function PlansOverview({
   const [loading, setLoading] = useState(true);
   const [busyParty, setBusyParty] = useState<string>();
   const [error, setError] = useState<string>();
+  const cities = useAirportCities(
+    flightAirportCodes(
+      flights.flatMap((flight) => displayLegs(flight.itinerary)),
+    ),
+  );
   async function refreshParties() {
     const planning = await getPlanning(userId, trip.id);
     setParties(planning.parties);
@@ -74,6 +99,41 @@ export default function PlansOverview({
         reason instanceof Error
           ? reason.message
           : "Unable to deselect the flight.",
+      );
+    } finally {
+      setBusyParty(undefined);
+    }
+  }
+
+  async function changePurchase(
+    flight: SelectedFlight,
+    index: number,
+    purchased: boolean,
+  ) {
+    const count = displayLegs(flight.itinerary).length;
+    const statuses = Array.from(
+      { length: count },
+      (_, position) => flight.purchasedLegs?.[position] ?? false,
+    );
+    statuses[index] = purchased;
+    setBusyParty(flight.partyId);
+    setError(undefined);
+    try {
+      const saved = await setFlightPurchases(
+        trip.id,
+        flight.partyId,
+        flight.cacheKey,
+        flight.itineraryIndex,
+        statuses,
+      );
+      setFlights((current) =>
+        current.map((item) => (item.partyId === flight.partyId ? saved : item)),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to save purchase status.",
       );
     } finally {
       setBusyParty(undefined);
@@ -148,20 +208,41 @@ export default function PlansOverview({
               key={flight.partyId}
             >
               <Title3 as="h3">{travelers}</Title3>
-              <Text weight="semibold">
-                {flight.request.origin} → {flight.request.destination} →{" "}
-                {flight.request.origin}
-              </Text>
-              <Text>
-                Depart {flight.request.departure_date} · Return flight{" "}
-                {flight.request.return_date}
-              </Text>
-              {amount && (
-                <Text>
-                  Price when selected: {amount.currency}{" "}
-                  {amount.amount.toLocaleString()}
-                </Text>
+              {displayLegs(flight.itinerary).length > 0 ? (
+                <JourneyLegs
+                  legs={displayLegs(flight.itinerary)}
+                  cities={cities}
+                  purchasedLegs={flight.purchasedLegs ?? []}
+                  onPurchaseChange={
+                    readOnly
+                      ? undefined
+                      : (index, purchased) =>
+                          void changePurchase(flight, index, purchased)
+                  }
+                  purchaseBusy={busyParty === flight.partyId}
+                  booking={
+                    readOnly
+                      ? undefined
+                      : {
+                          tripId: trip.id,
+                          cacheKey: flight.cacheKey,
+                          itinerary: flight.itinerary,
+                        }
+                  }
+                />
+              ) : (
+                <>
+                  <Text weight="semibold">
+                    {flight.request.origin} → {flight.request.destination} →{" "}
+                    {flight.request.origin}
+                  </Text>
+                  <Text>
+                    Depart {flight.request.departure_date} · Return flight{" "}
+                    {flight.request.return_date}
+                  </Text>
+                </>
               )}
+              {amount && <Text>Price when selected: {priceLabel(amount)}</Text>}
               <Text size={200}>Flight numbers: {flightNumbers(flight)}</Text>
               <Text size={200}>
                 Selected {new Date(flight.selectedAt).toLocaleString()}. This is
@@ -194,6 +275,7 @@ export default function PlansOverview({
 
 function flightNumbers(flight: SelectedFlight) {
   const segments = [
+    ...(flight.itinerary.legs?.flatMap((leg) => leg.segments) ?? []),
     ...(flight.itinerary.outbound?.segments ?? []),
     ...(flight.itinerary.inbound?.segments ?? []),
   ];

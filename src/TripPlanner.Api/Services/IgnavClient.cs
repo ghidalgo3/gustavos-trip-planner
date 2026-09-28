@@ -8,10 +8,7 @@ namespace TripPlanner.Api.Services;
 
 public interface IIgnavClient
 {
-    Task<JsonElement> SearchAsync(
-        IgnavRoundTripRequest request,
-        CancellationToken cancellationToken
-    );
+    Task<JsonElement> SearchAsync(IgnavFareRequest request, CancellationToken cancellationToken);
     Task<JsonElement> GetBookingLinksAsync(string ignavId, CancellationToken cancellationToken);
 }
 
@@ -21,8 +18,41 @@ public sealed class IgnavClient(
     ILogger<IgnavClient> logger
 ) : IIgnavClient
 {
+    public static string Endpoint(IgnavFareRequest request) =>
+        request.SearchKind switch
+        {
+            "oneWay" => "one-way",
+            "flexible" => "search",
+            "roundTrip" => "round-trip",
+            _ => throw new InvalidOperationException("Unsupported fare request kind."),
+        };
+
+    internal static object Body(IgnavFareRequest r)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["adults"] = r.Adults,
+            ["cabin_class"] = r.CabinClass,
+            ["market"] = r.Market,
+            ["allow_self_transfer"] = r.AllowSelfTransfer,
+        };
+        if (r.SearchKind == "flexible")
+            body["legs"] = r.Legs;
+        else
+        {
+            body["origin"] = r.Origin;
+            body["destination"] = r.Destination;
+            body["departure_date"] = r.DepartureDate;
+            if (r.MaxStops is not null)
+                body["max_stops"] = r.MaxStops;
+            if (r.SearchKind == "roundTrip")
+                body["return_date"] = r.ReturnDate;
+        }
+        return body;
+    }
+
     public async Task<JsonElement> SearchAsync(
-        IgnavRoundTripRequest request,
+        IgnavFareRequest request,
         CancellationToken cancellationToken
     )
     {
@@ -34,10 +64,10 @@ public sealed class IgnavClient(
             throw new InvalidOperationException("Ignav is not configured.");
         using var message = new HttpRequestMessage(
             HttpMethod.Post,
-            "https://ignav.com/api/fares/round-trip"
+            "https://ignav.com/api/fares/" + Endpoint(request)
         )
         {
-            Content = JsonContent.Create(request),
+            Content = JsonContent.Create(Body(request)),
         };
         message.Headers.Add("X-Api-Key", key);
         using var response = await client.SendAsync(message, cancellationToken);

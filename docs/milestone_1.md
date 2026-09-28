@@ -2,7 +2,7 @@
 
 Status: Living design document; implementation is in progress.
 
-Last updated: 2026-09-22.
+Last updated: 2026-09-27.
 
 This document records the agreed product behavior, the proposed planning architecture, and unresolved questions. Confirmed decisions are requirements. Recommendations and open questions are explicitly labeled and should not be treated as settled behavior.
 
@@ -10,11 +10,11 @@ This document records the agreed product behavior, the proposed planning archite
 
 Build a social travel-planning website where users iteratively define a trip, collaborate with other travelers, express requirements and preferences, and ask a scheduling system to produce ranked flight suggestions using Ignav fare data.
 
-Milestone 1 supports one destination per plan and round-trip flights. The initial flight planner is good enough for now; the trip also saves a chosen itinerary per party and shows it in a Plans overview. Fare results may offer a provider booking link, but completing a purchase, multi-stop routing, partial-trip travel parties, and planning transport to a shared departure point are outside this milestone.
+Milestone 1 supports the original round-trip search and routes with up to three destination visits. The initial flight planner is good enough for now; the trip also saves a chosen itinerary per party and shows it in a Plans overview. Fare results may offer a provider booking link, but completing a purchase, partial-trip travel parties, and planning transport to a shared departure point are outside this milestone.
 
 ### Users and trips
 
-- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point. The user profile page edits the home city and preferred airlines together through `PUT /api/user/profile`; the avatar menu opens that page and contains Sign out.
+- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point. If that city has multiple passenger airports, require a preferred airport; a single airport is selected automatically. The preferred airport ranks results and does not restrict city searches. The user profile page edits the home city, preferred airport, and preferred airlines together through `PUT /api/user/profile`; the avatar menu opens that page and contains Sign out.
 - Treat the normalized email supplied by Google or Microsoft as the unique application identity. If the same email signs in through another provider, reuse the user ID and append the provider to that user's provider list.
 - Start with sign-in through Google and personal Microsoft accounts.
 - Sign in with Apple is outside this milestone and may be reconsidered later.
@@ -26,7 +26,7 @@ Milestone 1 supports one destination per plan and round-trip flights. The initia
 - A trip owner can invite other users and manage trip membership and membership in travel parties.
 - Constraints are defined per user, per trip. Party membership and shared party preferences supplement those individual constraints.
 - An `LLM` feature flag on the user enables an optional free-form trip description. The server uses an OpenAI Responses API function call to propose destination, dates, preferences, and requirements, then returns an unsaved draft for review in the same editor. The server enforces the flag and resolves airports and party members rather than trusting model-provided IDs.
-- A trip needs a destination, departure date, return-flight date, and a resolved origin to prepare searches. Additional constraints are optional; calendar selections provide bounded dates without requiring departure/return constraints.
+- A round-trip search needs a destination, departure date, return-flight date, and a resolved origin. A route can instead use destination visits with required stay dates and nights; departure and return dates may remain unspecified when a required stay anchors the route.
 
 ### Initial sign-in provider setup
 
@@ -214,7 +214,7 @@ required for this initial finite search.
 
 ### C. Search and persist fares
 
-For each selected date pair and travel party, call the Ignav round-trip fare API unless suitable fresh cached results already exist.
+For each selected request and travel party, call the appropriate Ignav round-trip, one-way, or flexible fare API unless suitable fresh cached results already exist.
 
 Persist fare-search requests and responses separately from their party-specific evaluation and scores. This allows reuse and rescoring when changed constraints do not require different fare data.
 
@@ -253,26 +253,40 @@ When suggesting a relaxation, identify the affected requirements and users and h
 
 ## 4. Search-cost policy — agreed initial behavior
 
-- Default to **20 date pairs per travel party per planning run**. Make the limit configurable so it can be raised or lowered later.
-- Filter out pairs violating known date constraints before applying the cap.
-- If more pairs remain, select those closest to the preferred departure and return dates. Distance is the sum of the absolute departure and return deviations in days.
-- For explicit windows without preferred dates, use the selected travel dates as ranking anchors, falling back to window midpoints for legacy documents.
-- A selected pair with sufficiently fresh cached fares counts toward the 20-pair coverage limit but requires no new fare-search call. The cap limits searched pairs, not just cache misses.
-- Show coverage, for example: “Searched 20 of 81 eligible date pairs.” Distinguish selected, completed, and failed searches where necessary.
-- Date proximity chooses which pairs to search. It does not by itself determine the final ranking of returned fares.
+The budget is now **40 unique fare-search requests per party per run**, configurable with `Planning:FareRequestLimit` (1–200). This supersedes the original 20-date-pair policy. Round-trip date candidates also have a `Planning:DatePairLimit` of 40 before airport expansion and the final request cap.
 
-Five possible departure dates and four possible return dates produce 20 pairs. Flexibility of ±4 days at both ends produces 9 × 9 = 81 pairs before filtering; ±5 days produces 121. Wider flexibility remains allowed, but only the closest pairs up to the cap are searched.
+- Filter impossible schedules before requesting prices. Share identical dated legs across route candidates by hashing the endpoint and normalized request body.
+- The implementation conservatively caps all selected requests, including fresh cache hits. Consequently it issues at most 40 unique uncached requests; it does not yet spend the saved cache budget on additional candidates.
+- Round-trip candidates prefer dates nearest the selected dates. Route candidates interleave permitted visit orders and dated schedules so the first order does not consume the whole budget.
+- Reuse fresh responses without calling Ignav. Ranking preferences do not change the request hash.
+- Report that results are the best options found within the budget. Neither date sampling nor bounded fare composition proves a global cheapest itinerary.
+- Worker retries, booking-link retrieval, and repeated runs are separate from this unique-search budget. Automatic replacement of empty searches is not implemented.
 
-This policy can miss cheaper fares farther from the preferred dates. The interface must describe results as the best options found within the searched subset, not an exhaustive optimum.
+### Destination visits and route composition
 
-For the prototype, proximity sums deviations from each member's preferred dates
-(or selected travel dates, falling back to window midpoints for legacy drafts).
-Ties use outbound departure date, then return departure date, ascending.
-The configured `Planning:DatePairLimit` defaults to 20 and is bounded to 1–200.
-The cap applies to distinct provider date pairs. Each selected date pair expands
-into one Ignav request per distinct origin/destination airport combination;
-multi-airport choices therefore increase the request count and cache entries.
-Automatic replacement of failed or empty searches is not yet specified.
+Confirmed defaults from user testing:
+
+- Support up to three destination visits initially. Interpret “four days” as **four nights**, measured between local arrival and departure dates.
+- Required presence in a city from X through Y means arrival on or before X and departure on or after Y. When flexibility is unspecified, search up to five days earlier and five days later. The editor permits narrowing this to zero through five days.
+- Use a default maximum trip duration of 21 days, editable up to 60. Exact flight dates remain optional when a required stay anchors the route. Explicit departure/return windows replace fixed dates independently.
+- Preserve explicit order such as “after Phuket, Hong Kong, then Tokyo.” Where no order is required, enumerate feasible orders. Reject cycles and conflicting stay lengths.
+- Resolve city names to their airport groups; explicit airport codes restrict that visit. The home airport is a ranking preference, and the home city still supplies all its airports.
+- Allow separate tickets between destination stays. Exclude flight connections requiring self-transfer. The user sees which flights must be booked separately.
+
+The AI translator produces visit cards with locations, nights, required stay dates, precedence, and the original wording. It does not invent exact flight dates from event dates. Missing years are interpreted as the next occurrence and disclosed as an assumption. Users can review and edit the structured visits before finding flights. A route without any date anchor receives an actionable validation error.
+
+The visit editor uses a multi-select combobox to choose which other visits must precede each visit. Removable tags above the combobox show its current selections. Leaving it empty lets the planner choose the order.
+
+The planner represents a route as dated edges shared across candidate schedules. It requests one-way prices for those edges and also checks paired outbound/homebound offers with Ignav's flexible endpoint. Flexible search accepts one or two **dated** legs; it is not an unrestricted date-range or whole-route optimizer. A paired open-jaw price is indivisible: it can be combined with intermediate flights but cannot be split into independently priced edges.
+
+After retrieval, the composer checks actual airport-local dates and UTC chronology, exact nights, required stays, flight windows, stops, journey duration, connection continuity, and layover exclusions. It never adds prices in different currencies. It retains bounded alternatives (30 offers per query and a 200-path beam), then ranks complete routes by total price, stops, preferred-airline usage, preferred home airport, and travel time. These bounds may omit feasible or cheaper combinations; an empty sampled result does not establish an impossible trip.
+
+Route results ask the owner to choose one flight at a time. Each choice narrows the bounded set of complete, feasible itineraries; changing an earlier flight restores the compatible options. Every option has a title, airline names, flight numbers, connection airports and layover durations. The displayed price is always the **complete route price**: paired offers cannot safely be divided into per-leg prices. Price, outbound flight date, and homebound flight date filters narrow complete itineraries and are stored in the route query string. After the last choice, the owner reviews the total and saves the complete itinerary snapshot in the existing trips JSONB selected-flight field. Intermediate choices remain browser state until that save. The existing asynchronous operation, cache, worker, and authorization model are reused; no route-specific operation table is added.
+
+Flight cards display city plus airport code, local segment times, airline and flight number, and connections. The completed route separates flights with a divider showing nights from the previous flight's local arrival date to the next flight's local departure date. The earlier chosen flights are available from an **Edit flights** menu. The final flight step shows all compatible return options, including airlines that are not among the first three. A prior choice can still exclude a return because of route constraints or an indivisible paired fare. Amounts display both code and symbol, such as USD $900.
+
+Each flight offers booking-link lookup for the provider offer that contains it. Show only HTTPS links that Ignav identifies with `provider_type: "airline"`; omit third-party seller links. A paired offer can cover two flights, so the UI identifies every flight covered by its link. The link may be unavailable or the provider price may have changed by the time the user opens it. In particular, selecting one flight can limit later choices when required stay dates or a paired fare tie legs together.
+The Plans overview retains the chosen flights and offers the same airline-link lookup while the fare search remains fresh. After the cache expires, the owner must run Find flights again for current booking links.
 
 ## 5. Ignav integration and caching
 
@@ -284,7 +298,7 @@ The following findings were checked against Ignav's public documentation on 2026
 
 ### Implemented asynchronous search execution
 
-The Plan action now saves the current constraints, queues real Ignav round-trip calls,
+The Plan action now saves the current constraints, queues real Ignav fare calls,
 and returns HTTP 202 with a polling URL. Operations belong to their initiating user
 and identify the trip as their resource; client polling is internal to the interface.
 The browser displays progress and can recover work when the trip is reopened. Types
@@ -324,6 +338,7 @@ The owner may select, replace, or clear one itinerary per party through
 from the trip's current fresh fare cache. `trips.selected_flights` stores a JSONB snapshot of
 the search request and itinerary independently of cache cleanup. The choice
 remains visible after fares expire and is not a booking.
+Each selected flight stores one purchase boolean per leg in the same JSONB snapshot. Only the owner may update these statuses through `PUT /api/trips/{tripId}/selectedFlights/{partyId}/purchases`; shared members may read them. Selecting a different itinerary resets the statuses to false. Purchase tracking records the user's report and does not verify a booking with an airline.
 
 ### Recommended cache design
 
@@ -337,7 +352,7 @@ remains visible after fares expire and is not a booking.
 Cache freshness is one hour and row retention is six hours, cleaned hourly by
 pg_cron. Initial worker concurrency and recovery behavior are defined above.
 Richer retry policies, provider-filter strategy, and handling of parties larger
-than the provider's passenger limit remain open. The 20-pair cap is not a
+than the provider's passenger limit remain open. The 40-query cap is not a
 complete budget for retries, ancillary API calls, or repeated planning runs.
 
 ## 6. Remaining decisions
@@ -367,7 +382,7 @@ complete budget for retries, ancillary API calls, or repeated planning runs.
 - Suggest the trip owner's home airport for every party without planning members' positioning travel.
 - Convert both date-input styles into bounded ranges and apply departure and return flexibility independently.
 - Reject an overnight flight that arrives after X even when its departure date appeared acceptable.
-- Select the nearest 20 eligible pairs, reuse cached selected pairs, and disclose limited coverage.
+- Stay within 40 unique fare queries, reuse cached searches, and disclose limited coverage.
 - Re-score after a preference change without a new fare call when cached data remains suitable; search again when the needed request changes.
 - Enforce nonstop and airport/city/country/region layover exclusions using actual itinerary segments.
 - Keep contradictory requirements, no returned matches, and provider failures as distinct outcomes.

@@ -13,3 +13,11 @@ airports.json is bundled into the API. No runtime network request or API key is 
 Refresh this snapshot periodically; airport metadata is not a guarantee of current routes.
 Home-airport suggestions prefer a large airport within 75 km; otherwise they use the
 nearest scheduled passenger airport within 250 km. Users can change this suggestion.
+
+Metropolitan groups in `AirportCatalog` explicitly include airports outside the
+administrative city (for example, Tokyo includes HND and NRT). Other cities use
+matching catalog city names. Home-city profile selection also checks geographic
+proximity and falls back to a nearby major airport when needed. Multi-airport
+cities require a preferred airport in the profile, while flight searches retain
+the entire city group. Exact airport-code selections remain specific. Curated
+groups should be reviewed alongside catalog refreshes.

@@ -14,6 +14,7 @@ type Suggestion =
       city: string;
       country: string;
       airports: AirportSuggestion[];
+      location?: SearchLocation;
     };
 
 export default function FlightAirportPicker({
@@ -63,6 +64,39 @@ export default function FlightAirportPicker({
               country: group[0].country,
               airports: group,
             }));
+          if (
+            !airports.some(
+              (a) => a.code.toLowerCase() === input.trim().toLowerCase(),
+            )
+          ) {
+            for (const airport of airports) {
+              const location = airport.cityLocation;
+              if (!location?.codes || location.codes.length < 2) continue;
+              if (
+                cities.some(
+                  (c) =>
+                    c.kind === "city" && c.location?.code === location.code,
+                )
+              )
+                continue;
+              const city = location.label?.split(",")[0] ?? airport.city;
+              const existing = cities.findIndex(
+                (c) =>
+                  c.kind === "city" &&
+                  c.city.toLowerCase() === city.toLowerCase(),
+              );
+              if (existing >= 0) cities.splice(existing, 1);
+              cities.push({
+                kind: "city",
+                city,
+                country: airport.country,
+                airports: airports.filter((a) =>
+                  location.codes!.includes(a.code),
+                ),
+                location,
+              });
+            }
+          }
           return [
             ...cities,
             ...airports.map((airport): Suggestion => ({
@@ -83,13 +117,15 @@ export default function FlightAirportPicker({
         }
         renderOption={(option) =>
           option.kind === "city"
-            ? `${option.city}, ${option.country} · all airports (${option.airports.map((airport) => airport.code).join(", ")})`
+            ? `${option.city}, ${option.country} · all airports (${(option.location?.codes ?? option.airports.map((airport) => airport.code)).join(", ")})`
             : `${option.airport.location.label} · ${option.airport.country}`
         }
         onInputChange={setQuery}
         onOptionSelect={(option) => {
           if (option.kind === "city") {
-            const airportCodes = option.airports.map((airport) => airport.code);
+            const airportCodes =
+              option.location?.codes ??
+              option.airports.map((airport) => airport.code);
             onChange({
               code: airportCodes[0],
               codes: airportCodes,

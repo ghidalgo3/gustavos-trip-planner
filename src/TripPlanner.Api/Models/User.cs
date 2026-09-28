@@ -4,7 +4,11 @@ public sealed record GeographicPoint(double Longitude, double Latitude);
 
 public sealed record ProfileHomeCity(string Name, double Longitude, double Latitude);
 
-public sealed record UserProfile(ProfileHomeCity? HomeCity, string[]? PreferredAirlines);
+public sealed record UserProfile(
+    ProfileHomeCity? HomeCity,
+    string[]? PreferredAirlines,
+    string? PreferredAirport = null
+);
 
 public sealed record UserSearchResult(Guid Id, string Name, string Email);
 
@@ -29,5 +33,6 @@ public sealed record User(
     string[] PreferredAirlines,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    string FeatureFlags = ""
+    string FeatureFlags = "",
+    string? PreferredAirport = null
 );

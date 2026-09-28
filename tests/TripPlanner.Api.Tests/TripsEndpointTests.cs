@@ -181,7 +181,7 @@ public class TripsEndpointTests
             await (
                 await travelerClient.PutAsJsonAsync(
                     "/api/user/profile",
-                    new UserProfile(new("Seattle", -122.33, 47.61), [])
+                    new UserProfile(new("Seattle", -122.33, 47.61), [], "SEA")
                 )
             ).Content.ReadFromJsonAsync<CurrentUserResponse>()
         )!;

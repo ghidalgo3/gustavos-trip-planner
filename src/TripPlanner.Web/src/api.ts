@@ -12,6 +12,7 @@ export type CurrentUser = {
 export type UserProfile = {
   homeCity: { name: string; longitude: number; latitude: number } | null;
   preferredAirlines: string[];
+  preferredAirport?: string | null;
 };
 
 export type CitySuggestion = {

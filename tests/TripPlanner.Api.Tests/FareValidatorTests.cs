@@ -12,7 +12,7 @@ public sealed class FareValidatorTests
     private static readonly Guid PartyId = Guid.NewGuid();
     private static readonly Party Party = new(PartyId, Guid.NewGuid(), [UserId]);
     private static readonly FareValidator Validator = new(new AirportCatalog());
-    private static readonly IgnavRoundTripRequest Request = new(
+    private static readonly IgnavFareRequest Request = new(
         "BOS",
         "CDG",
         new(2030, 1, 5),

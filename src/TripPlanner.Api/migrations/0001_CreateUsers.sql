@@ -11,6 +11,7 @@ CREATE TABLE users (
     display_name text NOT NULL,
     home_city_name text,
     home_city_location geography(Point, 4326),
+    preferred_airport text CHECK (preferred_airport ~ '^[A-Z0-9]{3}$'),
     preferred_airlines text[] NOT NULL DEFAULT '{}',
     "FeatureFlags" text NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now(),
