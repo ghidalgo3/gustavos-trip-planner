@@ -281,7 +281,7 @@ resource postgresRoleSetup 'Microsoft.Resources/deploymentScripts@2023-08-01' = 
       printf '%s' '__ROLE_SETUP_B64__' | base64 -d > /tmp/postgres-role-setup.py
       python3 /tmp/postgres-role-setup.py
     ''', '__ROLE_SETUP_B64__', base64(loadTextContent('./postgres-role-setup.py')))
-    forceUpdateTag: 'gustavo-planner-contributor-v7'
+    forceUpdateTag: 'gustavo-planner-contributor-v8'
   }
   dependsOn: [
     postgresDatabase

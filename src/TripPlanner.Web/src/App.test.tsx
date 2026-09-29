@@ -221,7 +221,7 @@ test("autocompletes and saves the user's home city", async () => {
         expect(init?.method).toBe("PUT");
         expect(JSON.parse(init?.body as string)).toEqual({
           homeCity: {
-            name: "Boston, Massachusetts, United States",
+            name: "Boston, MA, United States",
             longitude: -71.0589,
             latitude: 42.3601,
           },
@@ -238,7 +238,7 @@ test("autocompletes and saves the user's home city", async () => {
             completedOnboarding: true,
             profile: {
               homeCity: {
-                name: "Boston, Massachusetts, United States",
+                name: "Boston, MA, United States",
                 longitude: -71.0589,
                 latitude: 42.3601,
               },
@@ -283,20 +283,20 @@ test("autocompletes and saves the user's home city", async () => {
   );
   fireEvent.click(
     await screen.findByRole("option", {
-      name: "Boston, Massachusetts, United States",
+      name: "Boston, MA, United States",
     }),
   );
   const openHomeCity = screen.getByRole("button", {
     name: "Open Home city",
   });
   fireEvent.mouseDown(openHomeCity);
-  expect(input).toHaveValue("Boston, Massachusetts, United States");
+  expect(input).toHaveValue("Boston, MA, United States");
   expect(
     screen.getByRole("heading", { name: "Where do you call home?" }),
   ).toBeVisible();
   expect(
     screen.getByRole("option", {
-      name: "Boston, Massachusetts, United States",
+      name: "Boston, MA, United States",
     }),
   ).toBeVisible();
   await waitFor(() =>

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Card, Switch, Text, Title3 } from "@fluentui/react-components";
-import type { FareLeg } from "./operationsApi";
+import type { FareItinerary, FareLeg } from "./operationsApi";
 import { airportLabel, type AirportCities } from "./flightFormatting";
+import { priceLabel } from "./flightFormatting";
 
 function displayTime(value?: string, timeOnly = false): string {
   if (!value) return "Time unavailable";
@@ -39,6 +40,8 @@ export default function FlightInformation({
   onPurchasedChange,
   purchaseBusy = false,
   timeOnly = false,
+  price,
+  priceContext,
 }: {
   leg: FareLeg;
   cities?: AirportCities;
@@ -49,6 +52,8 @@ export default function FlightInformation({
   onPurchasedChange?: (value: boolean) => void;
   purchaseBusy?: boolean;
   timeOnly?: boolean;
+  price?: FareItinerary["price"];
+  priceContext?: string;
 }) {
   const first = leg.segments[0];
   const last = leg.segments.at(-1);
@@ -58,9 +63,52 @@ export default function FlightInformation({
     first.operating_carrier_name ||
     first.marketing_carrier_code ||
     "Airline unavailable";
+  const departureDate = first.departure_time_local?.slice(0, 10);
+  const departureDay = departureDate
+    ? new Date(`${departureDate}T12:00:00Z`).getUTCDay()
+    : -1;
+  const weekdays = [
+    { label: "M", day: 1 },
+    { label: "T", day: 2 },
+    { label: "W", day: 3 },
+    { label: "Th", day: 4 },
+    { label: "F", day: 5 },
+    { label: "Sa", day: 6 },
+    { label: "Su", day: 0 },
+  ];
   return (
     <Card className="flight-information">
-      {title && <Title3 as="h4">{title}</Title3>}
+      {(title || price) && (
+        <div className="flight-information-heading">
+          {title && <Title3 as="h4">{title}</Title3>}
+          {price && (
+            <div className="flight-information-price">
+              {priceContext && <Text size={200}>{priceContext}</Text>}
+              <Text weight="semibold">{priceLabel(price)}</Text>
+            </div>
+          )}
+        </div>
+      )}
+      {departureDay >= 0 && (
+        <div
+          className="flight-weekdays"
+          aria-label={`Flight leaves on ${new Intl.DateTimeFormat(undefined, { weekday: "long", timeZone: "UTC" }).format(new Date(`${departureDate}T12:00:00Z`))}`}
+        >
+          {weekdays.map(({ label, day }) => (
+            <span
+              key={label}
+              className={
+                day === departureDay
+                  ? "flight-weekday is-active"
+                  : "flight-weekday"
+              }
+              aria-current={day === departureDay ? "date" : undefined}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+      )}
       <Text weight="semibold" size={400}>
         {airportLabel(first.departure_airport, cities)} →{" "}
         {airportLabel(last.arrival_airport, cities)}

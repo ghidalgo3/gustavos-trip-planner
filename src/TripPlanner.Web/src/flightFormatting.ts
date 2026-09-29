@@ -2,6 +2,19 @@ import type { FareItinerary, FareLeg } from "./operationsApi";
 
 export type AirportCities = Record<string, string>;
 
+export function legKey(leg?: FareLeg): string {
+  return JSON.stringify(
+    leg?.segments.map((segment) => [
+      segment.departure_airport,
+      segment.arrival_airport,
+      segment.departure_time_utc ?? segment.departure_time_local,
+      segment.arrival_time_utc ?? segment.arrival_time_local,
+      segment.marketing_carrier_code,
+      segment.flight_number,
+    ]) ?? [],
+  );
+}
+
 export function airportLabel(code: string, cities: AirportCities = {}): string {
   const city = cities[code];
   return city ? `${city} (${code})` : code;

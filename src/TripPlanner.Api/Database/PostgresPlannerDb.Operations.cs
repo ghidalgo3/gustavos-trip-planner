@@ -251,23 +251,24 @@ public sealed partial class PostgresPlannerDb
                     )
                 );
         }
-        if (cached.Count != keys.Length)
+        if (cached.Count == 0)
             return null;
 
         return preview
             .Parties.SelectMany(p =>
-                p.Requests.Select(search =>
-                {
-                    var fare = cached[search.CacheKey];
-                    return new FareSearchResult(
-                        p.PartyId,
-                        search.CacheKey,
-                        search.Body,
-                        fare.Response,
-                        fare.FetchedAt,
-                        fare.ExpiresAt
-                    );
-                })
+                p.Requests.Where(search => cached.ContainsKey(search.CacheKey))
+                    .Select(search =>
+                    {
+                        var fare = cached[search.CacheKey];
+                        return new FareSearchResult(
+                            p.PartyId,
+                            search.CacheKey,
+                            search.Body,
+                            fare.Response,
+                            fare.FetchedAt,
+                            fare.ExpiresAt
+                        );
+                    })
             )
             .ToArray();
     }
@@ -286,9 +287,23 @@ public sealed partial class PostgresPlannerDb
                 SELECT f.cache_key
                 FROM fare_searches f
                 JOIN operations o ON o.id=f.operation_id
+                JOIN trips t ON t.id=o.resource_id
                 WHERE o.status IN ('pending', 'InProgress')
                     AND (f.lease_expires_at IS NULL OR f.lease_expires_at <= now())
-                ORDER BY f.created_at, f.cache_key
+                ORDER BY CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM jsonb_each(t.flight_choices) choice
+                        CROSS JOIN LATERAL jsonb_array_elements_text(choice.value->'nextOrigins') origin
+                        WHERE origin.value = f.request->>'origin'
+                            AND f.request->>'SearchKind' = 'oneWay'
+                    ) THEN 0
+                    WHEN EXISTS (
+                        SELECT 1 FROM jsonb_each(t.flight_choices) choice
+                        CROSS JOIN LATERAL jsonb_array_elements_text(choice.value->'nextOrigins') origin
+                    ) THEN 2
+                    ELSE COALESCE((f.request->>'SearchPriority')::integer, 1)
+                END,
+                    f.created_at, f.cache_key
                 FOR UPDATE OF f SKIP LOCKED LIMIT 1
             )
             UPDATE fare_searches f
@@ -330,6 +345,27 @@ public sealed partial class PostgresPlannerDb
         }
         await transaction.CommitAsync(cancellationToken);
         return work;
+    }
+
+    public async Task<bool> RetryFareWorkAsync(
+        FareWork work,
+        TimeSpan delay,
+        CancellationToken cancellationToken = default
+    )
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            UPDATE fare_searches
+            SET lease_id=NULL, lease_expires_at=now()+$4
+            WHERE cache_key=$1 AND operation_id=$2 AND lease_id=$3
+                AND lease_expires_at > now();
+            """
+        );
+        command.Parameters.AddWithValue(work.CacheKey);
+        command.Parameters.AddWithValue(work.OperationId);
+        command.Parameters.AddWithValue(work.LeaseId);
+        command.Parameters.AddWithValue(delay);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     public async Task<bool> CompleteFareWorkAsync(

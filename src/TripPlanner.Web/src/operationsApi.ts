@@ -43,7 +43,11 @@ export type FareLeg = {
 };
 export type FareItinerary = {
   legs?: FareLeg[];
-  bookingOffers?: { ignavId: string; legIndexes: number[] }[];
+  bookingOffers?: {
+    ignavId: string;
+    legIndexes: number[];
+    price?: { amount: number; currency: string };
+  }[];
   stops?: number;
   durationMinutes?: number;
   preferredAirlineSegments?: number;

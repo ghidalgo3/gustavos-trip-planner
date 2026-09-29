@@ -7,6 +7,17 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb
 {
+    Task<IReadOnlyList<FlightChoiceProgress>> GetFlightChoicesAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<FlightChoiceProgress> SetFlightChoicesAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        FlightChoiceProgress choices,
+        CancellationToken cancellationToken = default
+    );
     Task<IReadOnlyList<SelectedFlight>> GetSelectedFlightsAsync(
         Guid viewerUserId,
         Guid tripId,
@@ -74,6 +85,11 @@ public interface IPlannerDb
     );
     Task<FareWork?> ClaimFareWorkAsync(
         TimeSpan leaseDuration,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> RetryFareWorkAsync(
+        FareWork work,
+        TimeSpan delay,
         CancellationToken cancellationToken = default
     );
     Task<bool> CompleteFareWorkAsync(

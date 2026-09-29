@@ -6,7 +6,7 @@ public sealed class PlanningOptions
 
     public int DatePairLimit { get; init; } = 40;
 
-    public int FareRequestLimit { get; init; } = 40;
+    public int FareRequestLimit { get; init; } = 160;
 
     public int WorkerConcurrency { get; init; } = 2;
 

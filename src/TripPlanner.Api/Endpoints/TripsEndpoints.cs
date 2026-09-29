@@ -318,7 +318,21 @@ public static class TripsEndpoints
         if (results is null)
             return Results.NotFound();
         var document = PlanningDocument.FromJson(trip.Constraints);
-        results = routes.Compose(document, parties, results);
+        if (document.Visits.Length > 0)
+        {
+            var assembled = routes.Compose(
+                document,
+                parties,
+                results,
+                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+            );
+            if (
+                assembled.Any(result =>
+                    result.Response.GetProperty("itineraries").GetArrayLength() > 0
+                )
+            )
+                results = assembled;
+        }
         return Results.Ok(
             results.Select(result =>
             {
@@ -376,7 +390,12 @@ public static class TripsEndpoints
             context.RequestAborted
         );
         if (fares is not null)
-            fares = routes.Compose(PlanningDocument.FromJson(trip.Constraints), parties, fares);
+            fares = routes.Compose(
+                PlanningDocument.FromJson(trip.Constraints),
+                parties,
+                fares,
+                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+            );
         var matching = fares
             ?.Where(result => result.CacheKey == cacheKey)
             .Select(result => new

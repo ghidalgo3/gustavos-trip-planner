@@ -119,7 +119,8 @@ public sealed record IgnavFareRequest(
         int? MaxStops,
     string SearchKind = "roundTrip",
     IgnavLegRequest[]? Legs = null,
-    bool AllowSelfTransfer = false
+    bool AllowSelfTransfer = false,
+    int SearchPriority = 1
 );
 
 public sealed record PlannedVisit

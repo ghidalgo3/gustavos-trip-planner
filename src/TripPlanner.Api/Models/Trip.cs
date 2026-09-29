@@ -29,6 +29,8 @@ public sealed record SelectedFlight(
     bool[]? PurchasedLegs = null
 );
 
+public sealed record FlightChoiceProgress(Guid PartyId, string[] LegKeys, string[] NextOrigins);
+
 public enum PartyMemberChangeStatus
 {
     Success,

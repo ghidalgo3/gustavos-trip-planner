@@ -22,6 +22,70 @@ export type CitySuggestion = {
   latitude?: number;
 };
 
+const usStates: Record<string, string> = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
+  "district of columbia": "DC",
+};
+const usStateCodes = new Set(Object.values(usStates));
+
+export function formatCityLabel(label: string, countryCode?: string): string {
+  if (countryCode && countryCode.toUpperCase() !== "US") return label;
+  const parts = label.split(",").map((part) => part.trim());
+  const state = parts[1]?.replace(/\.$/, "").toLowerCase();
+  const code = state && (usStates[state] ?? state.toUpperCase());
+  if (code && usStateCodes.has(code)) parts[1] = code;
+  return parts.join(", ");
+}
+
 export type Trip = {
   id: string;
   ownerUserId: string;
@@ -51,6 +115,7 @@ type MapsFeature = {
     address?: {
       locality?: string;
       formattedAddress?: string;
+      countryRegionISO2?: string;
     };
   };
 };
@@ -144,7 +209,10 @@ export async function searchCities(
     return [
       {
         id: feature.id ?? `${label}-${index}`,
-        label,
+        label: formatCityLabel(
+          label,
+          feature.properties?.address?.countryRegionISO2,
+        ),
         longitude: coordinates?.[0],
         latitude: coordinates?.[1],
       },

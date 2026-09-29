@@ -64,7 +64,7 @@ export default function RouteVisitsEditor({
           });
         }}
       >
-        Plan destination visits
+        Plan destinations
       </Button>
     );
   return (
@@ -77,13 +77,13 @@ export default function RouteVisitsEditor({
       {visits.map((visit, index) => (
         <Card key={visit.id} className="route-visit">
           <FlightAirportPicker
-            label={`Visit ${index + 1}`}
+            label={`Destination ${index + 1}`}
             value={visit.location}
             onChange={(location) => update(visit.id, { location })}
           />
           <div className="planning-row">
             <Field
-              label={`Visit ${index + 1} nights`}
+              label={`Destination ${index + 1} nights`}
               hint="Leave blank if the required stay determines the duration"
             >
               <Input
@@ -99,7 +99,7 @@ export default function RouteVisitsEditor({
               />
             </Field>
             <Field
-              label={`Visit ${index + 1} required from`}
+              label={`Destination ${index + 1} required from`}
               hint="Arrive on or before this date"
             >
               <Input
@@ -111,7 +111,7 @@ export default function RouteVisitsEditor({
               />
             </Field>
             <Field
-              label={`Visit ${index + 1} required through`}
+              label={`Destination ${index + 1} required through`}
               hint="Leave on or after this date"
             >
               <Input
@@ -152,7 +152,7 @@ export default function RouteVisitsEditor({
               })
             }
           >
-            Remove visit {index + 1}
+            Remove destination {index + 1}
           </Button>
         </Card>
       ))}
@@ -242,14 +242,14 @@ function VisitOrderPicker({
     visit.afterVisitIds.includes(candidate.id),
   );
   const labelFor = (candidate: PlannedVisit) =>
-    `Visit ${visits.indexOf(candidate) + 1}: ${candidate.location?.label ?? "Destination not set"}`;
+    `Destination ${visits.indexOf(candidate) + 1}: ${candidate.location?.label ?? "Not set"}`;
 
   return (
     <div className="visit-order">
       {selected.length > 0 && (
         <TagGroup
           className="visit-order-tags"
-          aria-label={`Selected visits before visit ${index + 1}`}
+          aria-label={`Selected destinations before destination ${index + 1}`}
           dismissible
           onDismiss={(_, data) =>
             onChange(visit.afterVisitIds.filter((id) => id !== data.value))
@@ -263,14 +263,14 @@ function VisitOrderPicker({
         </TagGroup>
       )}
       <Field
-        label={`Visits before visit ${index + 1}`}
-        hint="Choose visits that must happen first. Leave empty to let the planner choose the order."
+        label={`Destinations before destination ${index + 1}`}
+        hint="Choose destinations that must happen first. Leave empty to let the planner choose the order."
       >
         <Combobox
           multiselect
           inlinePopup
-          aria-label={`Visits before visit ${index + 1}`}
-          placeholder="Choose earlier visits"
+          aria-label={`Destinations before destination ${index + 1}`}
+          placeholder="Choose earlier destinations"
           value={query}
           selectedOptions={selected.map((candidate) => candidate.id)}
           onChange={(event) => setQuery(event.target.value)}

@@ -1,15 +1,9 @@
 import { FormEvent, useState } from "react";
-import {
-  Button,
-  Card,
-  Field,
-  Input,
-  Text,
-  Title1,
-} from "@fluentui/react-components";
+import { Button, Card, Field, Text, Title1 } from "@fluentui/react-components";
 import { useNavigate } from "react-router";
 import HomeAirportPicker from "./HomeAirportPicker";
 import AsyncAutocomplete from "./AsyncAutocomplete";
+import AirlineCombobox from "./AirlineCombobox";
 import {
   resolveCity,
   saveUserProfile,
@@ -41,9 +35,7 @@ export default function ProfilePage({
     },
   );
   const [cityChanged, setCityChanged] = useState(false);
-  const [airlines, setAirlines] = useState(
-    user.profile.preferredAirlines.join(", "),
-  );
+  const [airlines, setAirlines] = useState(user.profile.preferredAirlines);
   const [preferredAirport, setPreferredAirport] = useState<string | null>(
     user.profile.preferredAirport ?? null,
   );
@@ -66,18 +58,17 @@ export default function ProfilePage({
     const preferredAirlines = [
       ...new Set(
         airlines
-          .toUpperCase()
-          .split(",")
           .map((code) => code.trim())
+          .map((code) => code.toUpperCase())
           .filter(Boolean),
       ),
-    ];
+    ].sort();
     if (
       preferredAirlines.length > 20 ||
       preferredAirlines.some((code) => !/^[A-Z0-9]{2}$/.test(code))
     ) {
       setError(
-        "Enter up to 20 two-character airline codes, separated by commas.",
+        "Choose up to 20 airlines, or enter a two-character airline code.",
       );
       return;
     }
@@ -106,7 +97,7 @@ export default function ProfilePage({
           : undefined,
       );
       setCityQuery(saved.profile.homeCity?.name ?? "");
-      setAirlines(saved.profile.preferredAirlines.join(", "));
+      setAirlines(saved.profile.preferredAirlines);
       setNotice("Profile saved.");
     } catch (reason) {
       setError(
@@ -165,12 +156,12 @@ export default function ProfilePage({
           />
           <Field
             label="Preferred airlines"
-            hint="Airline codes separated by commas, for example DL, AF. These are preferences, not exclusions."
+            hint="Search by airline name or code. These are preferences, not exclusions."
           >
-            <Input
+            <AirlineCombobox
               value={airlines}
-              onChange={(_, data) => {
-                setAirlines(data.value);
+              onChange={(codes) => {
+                setAirlines(codes);
                 setNotice(undefined);
               }}
             />

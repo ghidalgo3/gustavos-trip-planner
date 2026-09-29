@@ -200,6 +200,77 @@ test("builds a feasible route one flight at a time and saves the chosen complete
   );
 });
 
+test("uses saved partial flight choices after the route view reloads", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json([])),
+  );
+  let stored: string[] = [];
+  const save = vi.fn(async (_party: string, keys: string[]) => {
+    stored = keys;
+    return true;
+  });
+  const view = render(
+    <MemoryRouter>
+      <FluentProvider theme={webLightTheme}>
+        <RouteFareResults
+          tripId="trip"
+          results={[result]}
+          parties={[]}
+          savedChoices={{ party: stored }}
+          onChangeChoices={save}
+        />
+      </FluentProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith("party", [expect.any(String)]),
+  );
+  view.unmount();
+  render(
+    <MemoryRouter>
+      <FluentProvider theme={webLightTheme}>
+        <RouteFareResults
+          tripId="trip"
+          results={[result]}
+          parties={[]}
+          savedChoices={{ party: stored }}
+          onChangeChoices={save}
+        />
+      </FluentProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByText(/Flight 2 of 2: choose/)).toBeVisible();
+});
+
+test("shows a failed flight-choice save beside the picker", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json([])),
+  );
+  render(
+    <MemoryRouter>
+      <FluentProvider theme={webLightTheme}>
+        <RouteFareResults
+          tripId="trip"
+          results={[result]}
+          parties={[]}
+          savedChoices={{ party: [] }}
+          onChangeChoices={vi
+            .fn()
+            .mockRejectedValue(new Error("The chosen flight cannot be saved."))}
+        />
+      </FluentProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
+  expect(
+    await screen.findByText("The chosen flight cannot be saved."),
+  ).toBeVisible();
+  expect(screen.getByText(/Flight 1 of 2: choose/)).toBeVisible();
+});
+
 test("filters complete routes by total price and outbound and return flight dates", async () => {
   vi.stubGlobal(
     "fetch",

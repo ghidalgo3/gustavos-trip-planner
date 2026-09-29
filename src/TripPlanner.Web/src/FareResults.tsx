@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useSearchParams } from "react-router";
 import FlightInformation from "./FlightInformation";
+import AirlineCombobox from "./AirlineCombobox";
 import {
   airportLabel,
   priceLabel,
@@ -284,20 +285,20 @@ export default function FareResults({
             </div>
           </fieldset>
           <Field label="Airline">
-            <Dropdown
-              multiselect
-              placeholder="Any airline"
-              selectedOptions={filters.airlines}
-              onOptionSelect={(_, data) =>
-                setFilters({ ...filters, airlines: data.selectedOptions })
+            <AirlineCombobox
+              value={filters.airlines}
+              onChange={(selected) =>
+                setFilters({ ...filters, airlines: selected })
               }
-            >
-              {airlines.map((airline) => (
-                <Option key={airline} value={airline}>
-                  {airline}
-                </Option>
-              ))}
-            </Dropdown>
+              options={airlines.map((airline) => ({
+                value: airline,
+                label: airline,
+              }))}
+              allowCustomCode={false}
+              ariaLabel="Airline"
+              tagsLabel="Filtered airlines"
+              placeholder="Search airlines"
+            />
           </Field>
           <Field label="Arrival time">
             <Dropdown
@@ -651,6 +652,8 @@ function FareCard({
             leg={outbound}
             cities={cities}
             title="Outbound flight"
+            price={option.itinerary.price}
+            priceContext="Round-trip total"
             timeOnly
           />
         )}
@@ -659,6 +662,8 @@ function FareCard({
             leg={inbound}
             cities={cities}
             title="Return flight"
+            price={option.itinerary.price}
+            priceContext="Round-trip total"
             timeOnly
           />
         )}

@@ -25,6 +25,7 @@ import AirportPicker from "./AirportPicker";
 import FlightAirportPicker from "./FlightAirportPicker";
 import PartySelector from "./PartySelector";
 import RouteVisitsEditor from "./RouteVisitsEditor";
+import AirlineCombobox from "./AirlineCombobox";
 import PlanningRun from "./PlanningRun";
 import {
   getPlanning,
@@ -638,9 +639,9 @@ export default function TripPlanning({
                         </div>
                         <Field
                           label="Preferred airlines"
-                          hint="Optional airline codes separated by commas, e.g. DL, AF. Preferences won't exclude other airlines."
+                          hint="Search airline names or codes. Preferences won't exclude other airlines."
                         >
-                          <CodeList
+                          <AirlineCombobox
                             value={settings.preferredAirlines}
                             onChange={(preferredAirlines) =>
                               updatePartySettings(party.id, {
@@ -732,6 +733,8 @@ export default function TripPlanning({
             partySettings={document.parties}
             constraints={document.constraints}
             currentAiPrompt={document.aiPrompt}
+            multiCity={Boolean(document.visits?.length)}
+            visitCount={document.visits?.length ?? 0}
             disabled={busy || Boolean(formOperationId)}
             hasUnsavedChanges={dirty}
             savedVersion={savedVersion}

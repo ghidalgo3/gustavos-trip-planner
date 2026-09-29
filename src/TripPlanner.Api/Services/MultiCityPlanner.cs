@@ -10,7 +10,7 @@ namespace TripPlanner.Api.Services;
 public sealed class MultiCityPlanner(
     AirportCatalog airports,
     TimeProvider clock,
-    int queryLimit = 40
+    int queryLimit = 160
 )
 {
     public IReadOnlyList<PlanningIssue> Validate(
@@ -26,11 +26,11 @@ public sealed class MultiCityPlanner(
             Issue("Unsupported constraint document format.");
         if (document.Visits.Any(v => v is null))
         {
-            Issue("Visits must be objects.");
+            Issue("Destinations must be objects.");
             return issues;
         }
         if (document.Visits.Length is < 1 or > 3)
-            Issue("Plan between one and three destination visits.");
+            Issue("Plan between one and three destinations.");
         if (
             document.SearchLimits is null
             || document.SearchLimits.FlexibilityDays is < 0 or > 5
@@ -41,11 +41,11 @@ public sealed class MultiCityPlanner(
             document.Visits.Select(v => v.Id).Distinct().Count() != document.Visits.Length
             || document.Visits.Any(v => v.Id == Guid.Empty)
         )
-            Issue("Each visit needs a distinct ID.");
+            Issue("Each destination needs a distinct ID.");
         foreach (var visit in document.Visits)
         {
             if (complete && visit.Location is null)
-                Issue("Choose a city or airport for every visit.", visit.Id);
+                Issue("Choose a city or airport for every destination.", visit.Id);
             if (
                 visit.Location is { } location
                 && (
@@ -55,7 +55,7 @@ public sealed class MultiCityPlanner(
                     )
                 )
             )
-                Issue("Choose recognized airports for each visit.", visit.Id);
+                Issue("Choose recognized airports for each destination.", visit.Id);
             if (
                 visit.PresentFrom?.Year is < 2000 or > 2100
                 || visit.PresentThrough?.Year is < 2000 or > 2100
@@ -69,7 +69,7 @@ public sealed class MultiCityPlanner(
             )
                 Issue("A required stay needs a start and end date in order.", visit.Id);
             if (complete && visit.Nights is null && visit.PresentFrom is null)
-                Issue("Specify nights or a required stay for each visit.", visit.Id);
+                Issue("Specify nights or a required stay for each destination.", visit.Id);
             if (
                 visit.PresentFrom is { } from
                 && visit.PresentThrough is { } through
@@ -83,10 +83,13 @@ public sealed class MultiCityPlanner(
                     id == visit.Id || !document.Visits.Any(v => v.Id == id)
                 )
             )
-                Issue("Visit ordering must reference other visits in this trip.", visit.Id);
+                Issue(
+                    "Destination ordering must reference other destinations in this trip.",
+                    visit.Id
+                );
         }
         if (issues.Count == 0 && !Orders(document.Visits).Any())
-            Issue("The visit order contains a cycle.");
+            Issue("The destination order contains a cycle.");
         if (
             complete
             && document.TravelDates?.StartDate is null
@@ -172,7 +175,7 @@ public sealed class MultiCityPlanner(
             if (!parties.Any(p => p.UserIds.Contains(c.UserId)))
                 Issue("A requirement refers to a traveler outside the trip.", c.Id);
             if (c.Type == "presence")
-                Issue("Put required stays on their destination visit for a multi-city trip.", c.Id);
+                Issue("Put required stays on their destination for a multi-city trip.", c.Id);
             if (
                 c.Type is "departureWindow" or "returnHomeWindow"
                 && (
@@ -255,7 +258,29 @@ public sealed class MultiCityPlanner(
                         .GetEnumerator()
                 )
                 .ToArray();
-            var requests = new Dictionary<string, PreparedSearch>();
+            // Reserve coverage for every leg before spending requests on paired fares.
+            // A schedule can expand to many airport combinations, so admitting it as
+            // one all-or-nothing batch starves later legs and nearby dates.
+            var legCount = document.Visits.Length + 1;
+            if (queryLimit < legCount)
+            {
+                issues.Add(
+                    new(
+                        "invalidInput",
+                        $"The fare request limit must allow at least {legCount} searches for this route.",
+                        party.Id,
+                        []
+                    )
+                );
+                continue;
+            }
+            var oneWayBudget = Math.Max(legCount, queryLimit * 7 / 8);
+            var perLegBudget = Math.Max(1, oneWayBudget / legCount);
+            var legRequests = Enumerable
+                .Range(0, legCount)
+                .Select(_ => new Dictionary<string, PreparedSearch>())
+                .ToArray();
+            var pairedRequests = new Dictionary<string, PreparedSearch>();
             var considered = 0;
             // Round-robin orders so a cheaper-looking prefix cannot consume the budget for all orders.
             bool moved;
@@ -294,21 +319,21 @@ public sealed class MultiCityPlanner(
                                     )
                                         ? 0
                                         : settings.MaxStops,
-                                    "oneWay"
+                                    "oneWay",
+                                    SearchPriority: i == 0 ? 0 : 1
                                 )
                             ).ToArray()
                         )
                         .ToArray();
                     if (options.Any(p => p.Length == 0))
                         continue;
-                    var additions = options
-                        .SelectMany(p => p)
-                        .Select(r => new PreparedSearch(
-                            r,
-                            SearchPlanBuilder.CacheKey(r),
-                            considered
-                        ))
-                        .ToList();
+                    for (int leg = 0; leg < options.Length; leg++)
+                        foreach (var request in options[leg])
+                        {
+                            var key = SearchPlanBuilder.CacheKey(request);
+                            if (legRequests[leg].Count < perLegBudget)
+                                legRequests[leg].TryAdd(key, new(request, key, considered));
+                        }
                     foreach (var first in options[0])
                     foreach (var last in options[^1])
                     {
@@ -316,6 +341,7 @@ public sealed class MultiCityPlanner(
                         {
                             SearchKind = "flexible",
                             ReturnDate = last.DepartureDate,
+                            SearchPriority = 2,
                             Legs =
                             [
                                 new(
@@ -332,24 +358,33 @@ public sealed class MultiCityPlanner(
                                 ),
                             ],
                         };
-                        additions.Add(new(pair, SearchPlanBuilder.CacheKey(pair), considered));
+                        if (pairedRequests.Count < queryLimit - perLegBudget * legCount)
+                        {
+                            var key = SearchPlanBuilder.CacheKey(pair);
+                            pairedRequests.TryAdd(key, new(pair, key, considered));
+                        }
                     }
-                    var unique = additions
-                        .DistinctBy(p => p.CacheKey)
-                        .Where(p => !requests.ContainsKey(p.CacheKey))
-                        .ToArray();
-                    if (requests.Count + unique.Length <= queryLimit)
-                        foreach (var request in unique)
-                            requests.Add(request.CacheKey, request);
                 }
-            } while (moved && considered < 6000 && requests.Count < queryLimit);
+            } while (
+                moved
+                && considered < 6000
+                && (
+                    legRequests.Any(requests => requests.Count < perLegBudget)
+                    || pairedRequests.Count < queryLimit - perLegBudget * legCount
+                )
+            );
+            var requests = legRequests
+                .SelectMany(group => group.Values)
+                .Concat(pairedRequests.Values)
+                .DistinctBy(request => request.CacheKey)
+                .ToArray();
             foreach (var schedule in schedules)
                 schedule.Dispose();
-            if (requests.Count == 0)
+            if (requests.Length == 0)
                 issues.Add(
                     new(
                         "conflict",
-                        "No complete route fits the required stays, nights, dates, and search limits. Review the visit cards or increase the maximum trip length.",
+                        "No complete route fits the required stays, nights, dates, and search limits. Review the destination cards or increase the maximum trip length.",
                         party.Id,
                         document.Visits.Select(v => v.Id).ToArray()
                     )
@@ -358,7 +393,7 @@ public sealed class MultiCityPlanner(
                 new(
                     party.Id,
                     considered,
-                    requests.Values.ToArray(),
+                    requests,
                     [
                         $"Searching a bounded sample with at most {queryLimit} fare requests; cached responses are reused.",
                         "Separate tickets between stays are allowed. Connections requiring self-transfer are excluded.",

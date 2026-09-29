@@ -76,6 +76,7 @@ public sealed class OperationTests
     {
         var db = new InMemoryPlannerDb();
         await QueueContract(db);
+        await QueuePriorityContract(db);
         await TripFormQueueContract(db);
     }
 
@@ -119,7 +120,7 @@ public sealed class OperationTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(1L, reader.GetInt64(0));
+                Assert.AreEqual(2L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
@@ -128,6 +129,7 @@ public sealed class OperationTests
             }
             var db = new PostgresPlannerDb(source);
             await QueueContract(db);
+            await QueuePriorityContract(db);
             await TripFormQueueContract(db);
         }
         finally
@@ -140,7 +142,15 @@ public sealed class OperationTests
     private static async Task QueueContract(IPlannerDb db)
     {
         var (user, trip, party) = await Seed(db);
-        var preview = Preview(party.Id, Query, Query with { ReturnDate = new(2030, 1, 15) });
+        var preview = Preview(
+            party.Id,
+            Query,
+            Query with
+            {
+                ReturnDate = new(2030, 1, 15),
+                SearchPriority = 0,
+            }
+        );
         var id = Guid.NewGuid();
         var operation = await db.CreateFlightSearchOperationAsync(user.Id, trip.Id, id, preview);
         Assert.AreEqual(OperationState.FlightSearch, operation.Type);
@@ -171,7 +181,9 @@ public sealed class OperationTests
         operation = (await db.GetOperationAsync(user.Id, id))!;
         Assert.AreEqual("Failed", operation.Status);
         Assert.AreEqual(new OperationProgress(2, 1, 1), operation.Progress);
-        Assert.IsNull(await db.GetFareSearchResultsAsync(user.Id, trip.Id, preview));
+        var partial = await db.GetFareSearchResultsAsync(user.Id, trip.Id, preview);
+        Assert.HasCount(1, partial!);
+        Assert.AreEqual(claims[0]!.CacheKey, partial![0].CacheKey);
 
         var cachedPreview = Preview(party.Id, claims[0]!.Request);
         var cachedOperation = await db.CreateFlightSearchOperationAsync(
@@ -254,6 +266,61 @@ public sealed class OperationTests
         Assert.HasCount(2, await db.GetOperationsAsync(user.Id, "flightSearch", 10, 0));
         Assert.HasCount(1, await db.GetOperationsAsync(user.Id, "flightSearch", 1, 1));
         Assert.IsEmpty(await db.GetOperationsAsync(user.Id, "anotherType", 10, 0));
+    }
+
+    private static async Task QueuePriorityContract(IPlannerDb db)
+    {
+        var (user, trip, party) = await Seed(db);
+        var first = Query with
+        {
+            DepartureDate = new(2031, 6, 1),
+            ReturnDate = new(2031, 6, 1),
+            SearchKind = "oneWay",
+            SearchPriority = 0,
+        };
+        var next = first with
+        {
+            Origin = "CDG",
+            Destination = "NRT",
+            DepartureDate = new(2031, 6, 5),
+            ReturnDate = new(2031, 6, 5),
+            SearchPriority = 1,
+        };
+        var later = next with
+        {
+            Origin = "NRT",
+            Destination = "BOS",
+            DepartureDate = new(2031, 6, 9),
+            ReturnDate = new(2031, 6, 9),
+        };
+        await db.CreateFlightSearchOperationAsync(
+            user.Id,
+            trip.Id,
+            Guid.NewGuid(),
+            Preview(party.Id, first, next, later)
+        );
+        var saved = await db.SetFlightChoicesAsync(
+            user.Id,
+            trip.Id,
+            new(party.Id, ["selected-first-flight"], ["CDG"])
+        );
+        CollectionAssert.Contains(saved.NextOrigins, "CDG");
+        CollectionAssert.Contains(
+            (await db.GetFlightChoicesAsync(user.Id, trip.Id)).Single().NextOrigins,
+            "CDG"
+        );
+        Assert.IsEmpty(await db.GetFlightChoicesAsync(Guid.NewGuid(), trip.Id));
+        var claimed = await db.ClaimFareWorkAsync(TimeSpan.FromMinutes(2));
+        Assert.IsNotNull(claimed);
+        Assert.AreEqual("CDG", claimed.Request.Origin);
+        await db.SetFlightChoicesAsync(
+            user.Id,
+            trip.Id,
+            new(party.Id, ["first", "second"], ["NRT"])
+        );
+        claimed = await db.ClaimFareWorkAsync(TimeSpan.FromMinutes(2));
+        Assert.IsNotNull(claimed);
+        Assert.AreEqual("NRT", claimed.Request.Origin);
     }
 
     private static async Task TripFormQueueContract(IPlannerDb db)
@@ -346,6 +413,63 @@ public sealed class OperationTests
         Assert.AreEqual("pending", refresh.Status);
         Assert.IsTrue(await worker.ProcessNextAsync());
         Assert.AreEqual(2, client.Calls);
+    }
+
+    [TestMethod]
+    public async Task Worker_RetriesTransientProviderFailureWithoutFailingOperation()
+    {
+        var clock = new TestClock();
+        var db = new InMemoryPlannerDb { OperationClock = clock };
+        var (user, trip, party) = await Seed(db);
+        var client = new FakeIgnav(transientFailures: 1);
+        var worker = new PlanningWorker(
+            db,
+            client,
+            Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
+            Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
+            clock,
+            NullLogger<PlanningWorker>.Instance,
+            null
+        );
+        var operation = await db.CreateFlightSearchOperationAsync(
+            user.Id,
+            trip.Id,
+            Guid.NewGuid(),
+            Preview(party.Id, Query)
+        );
+        Assert.IsTrue(await worker.ProcessNextAsync());
+        var retrying = (await db.GetOperationAsync(user.Id, operation.Id))!;
+        Assert.AreEqual("InProgress", retrying.Status);
+        Assert.AreEqual(new OperationProgress(1, 0, 0), retrying.Progress);
+        Assert.IsFalse(await worker.ProcessNextAsync());
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.IsTrue(await worker.ProcessNextAsync());
+        Assert.AreEqual("Completed", (await db.GetOperationAsync(user.Id, operation.Id))!.Status);
+        Assert.AreEqual(2, client.Calls);
+    }
+
+    [TestMethod]
+    public async Task Queue_ClaimsFirstLegBeforeLaterSearches()
+    {
+        var db = new InMemoryPlannerDb();
+        var (user, trip, party) = await Seed(db);
+        await db.CreateFlightSearchOperationAsync(
+            user.Id,
+            trip.Id,
+            Guid.NewGuid(),
+            Preview(
+                party.Id,
+                Query,
+                Query with
+                {
+                    ReturnDate = new(2030, 1, 15),
+                    SearchPriority = 0,
+                }
+            )
+        );
+        var claimed = await db.ClaimFareWorkAsync(TimeSpan.FromMinutes(2));
+        Assert.IsNotNull(claimed);
+        Assert.AreEqual(0, claimed.Request.SearchPriority);
     }
 
     [TestMethod]
@@ -589,7 +713,8 @@ public sealed class OperationTests
         );
     }
 
-    private sealed class FakeIgnav(JsonElement? response = null) : IIgnavClient
+    private sealed class FakeIgnav(JsonElement? response = null, int transientFailures = 0)
+        : IIgnavClient
     {
         public int Calls { get; private set; }
 
@@ -599,6 +724,10 @@ public sealed class OperationTests
         )
         {
             Calls++;
+            if (Calls <= transientFailures)
+                return Task.FromException<JsonElement>(
+                    new HttpRequestException("Temporary provider failure")
+                );
             return Task.FromResult(response ?? Response);
         }
 

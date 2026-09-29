@@ -19,6 +19,7 @@ import { useSearchParams } from "react-router";
 import FlightInformation from "./FlightInformation";
 import {
   airportLabel,
+  legKey,
   priceLabel,
   stayNights,
   type AirportCities,
@@ -40,6 +41,7 @@ import {
 import type { PlanningParty } from "./planningApi";
 
 type IndexedItinerary = { index: number; itinerary: FareItinerary };
+const emptyChoices: string[] = [];
 type LegChoice = {
   key: string;
   leg: FareLeg;
@@ -48,19 +50,6 @@ type LegChoice = {
 
 function localDate(value?: string): string {
   return value?.slice(0, 10) ?? "";
-}
-
-function legKey(leg?: FareLeg): string {
-  return JSON.stringify(
-    leg?.segments.map((segment) => [
-      segment.departure_airport,
-      segment.arrival_airport,
-      segment.departure_time_utc ?? segment.departure_time_local,
-      segment.arrival_time_utc ?? segment.arrival_time_local,
-      segment.marketing_carrier_code,
-      segment.flight_number,
-    ]) ?? [],
-  );
 }
 
 function legName(leg: FareLeg, index: number, cities: AirportCities): string {
@@ -81,6 +70,7 @@ function returnFlightStart(itinerary: FareItinerary): string {
 export function JourneyLegs({
   legs,
   booking,
+  itinerary,
   cities = {},
   purchasedLegs,
   onPurchaseChange,
@@ -88,6 +78,7 @@ export function JourneyLegs({
 }: {
   legs: FareLeg[];
   booking?: { tripId: string; cacheKey: string; itinerary: FareItinerary };
+  itinerary?: FareItinerary;
   cities?: AirportCities;
   purchasedLegs?: boolean[];
   onPurchaseChange?: (index: number, purchased: boolean) => void;
@@ -97,6 +88,10 @@ export function JourneyLegs({
     <div className="journey-legs">
       {legs.map((leg, index) => {
         const nights = index > 0 ? stayNights(legs[index - 1], leg) : null;
+        const fare = itinerary ?? booking?.itinerary;
+        const legBooking = fare?.bookingOffers?.find((offer) =>
+          offer.legIndexes.includes(index),
+        );
         return (
           <Fragment key={index}>
             {index > 0 && (
@@ -110,6 +105,16 @@ export function JourneyLegs({
               leg={leg}
               cities={cities}
               title={`Flight ${index + 1}`}
+              price={legBooking?.price ?? fare?.price}
+              priceContext={
+                legBooking?.price
+                  ? legBooking.legIndexes.length > 1
+                    ? "Paired fare"
+                    : "This flight"
+                  : fare?.price
+                    ? "Trip total"
+                    : undefined
+              }
               purchased={
                 purchasedLegs?.[index] ?? (purchasedLegs ? false : undefined)
               }
@@ -141,10 +146,14 @@ export default function RouteFareResults({
   tripId,
   results,
   parties,
+  savedChoices = {},
+  onChangeChoices,
 }: {
   tripId: string;
   results: FareSearchResult[];
   parties: PlanningParty[];
+  savedChoices?: Record<string, string[]>;
+  onChangeChoices?: (partyId: string, keys: string[]) => Promise<boolean>;
 }) {
   const [selected, setSelected] = useState<SelectedFlight[]>([]);
   const [busyParty, setBusyParty] = useState<string>();
@@ -253,6 +262,8 @@ export default function RouteFareResults({
           key={`${result.partyId}:${result.cacheKey}`}
           tripId={tripId}
           result={result}
+          savedChoices={savedChoices[result.partyId] ?? emptyChoices}
+          onChangeChoices={onChangeChoices}
           partyName={
             parties
               .find((party) => party.id === result.partyId)
@@ -277,6 +288,8 @@ export default function RouteFareResults({
 function RoutePartyResults({
   tripId,
   result,
+  savedChoices,
+  onChangeChoices,
   partyName,
   selected,
   cities,
@@ -286,6 +299,8 @@ function RoutePartyResults({
 }: {
   tripId: string;
   result: FareSearchResult;
+  savedChoices: string[];
+  onChangeChoices?: (partyId: string, keys: string[]) => Promise<boolean>;
   partyName: string;
   selected?: SelectedFlight;
   cities: AirportCities;
@@ -294,7 +309,31 @@ function RoutePartyResults({
   onPurchaseChange: (index: number, purchased: boolean) => Promise<void>;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [chosen, setChosen] = useState<string[]>([]);
+  const [localChosen, setLocalChosen] = useState<string[]>(savedChoices);
+  const chosen = onChangeChoices ? savedChoices : localChosen;
+  const [choiceBusy, setChoiceBusy] = useState(false);
+  const [choiceError, setChoiceError] = useState<string>();
+  async function changeChosen(keys: string[]) {
+    if (!onChangeChoices) {
+      setLocalChosen(keys);
+      return;
+    }
+    setChoiceBusy(true);
+    try {
+      const saved = await onChangeChoices(result.partyId, keys);
+      setChoiceError(
+        saved ? undefined : "Could not save this flight. Please try again.",
+      );
+    } catch (reason) {
+      setChoiceError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not save this flight. Please try again.",
+      );
+    } finally {
+      setChoiceBusy(false);
+    }
+  }
   const minimum = searchParams.get("routeMinPrice") ?? "";
   const maximum = searchParams.get("routeMaxPrice") ?? "";
   const startDate = searchParams.get("routeStartDate") ?? "";
@@ -365,6 +404,8 @@ function RoutePartyResults({
       aria-label={`${partyName} flight choices`}
     >
       <Title3 as="h3">{partyName}</Title3>
+      {choiceError && <Text role="alert">{choiceError}</Text>}
+      {choiceBusy && <Text role="status">Saving flight choice…</Text>}
       {selected && (
         <div className="route-saved-choice">
           <Text weight="semibold">
@@ -455,7 +496,8 @@ function RoutePartyResults({
                 return (
                   <MenuItem
                     key={index}
-                    onClick={() => setChosen(chosen.slice(0, index))}
+                    disabled={choiceBusy}
+                    onClick={() => void changeChosen(chosen.slice(0, index))}
                   >
                     Flight {index + 1}:{" "}
                     {leg ? legName(leg, index, cities) : "Unknown flight"}
@@ -518,6 +560,7 @@ function RoutePartyResults({
           </Text>
           <JourneyLegs
             legs={best.itinerary.legs ?? []}
+            itinerary={best.itinerary}
             cities={cities}
             booking={{
               tripId,
@@ -571,11 +614,24 @@ function RoutePartyResults({
         cities={cities}
         title={`Option ${index + 1} · ${airline}${index === 0 ? " · Cheapest complete route" : candidate.preferredAirlineSegments ? " · Preferred airline route" : candidate.stops === 0 ? " · Nonstop route" : ""}`}
         summary={`Complete trip from ${priceLabel(candidate.price)}. This flight may share a booking with another leg.`}
+        price={
+          candidate.bookingOffers?.find((offer) =>
+            offer.legIndexes.includes(step),
+          )?.price ?? candidate.price
+        }
+        priceContext={
+          candidate.bookingOffers?.some(
+            (offer) => offer.legIndexes.includes(step) && offer.price,
+          )
+            ? "Flight fare"
+            : "Trip total"
+        }
         actions={
           <>
             <Button
               appearance="primary"
-              onClick={() => setChosen([...chosen, choice.key])}
+              disabled={choiceBusy}
+              onClick={() => void changeChosen([...chosen, choice.key])}
             >
               Choose flight {step + 1}
             </Button>

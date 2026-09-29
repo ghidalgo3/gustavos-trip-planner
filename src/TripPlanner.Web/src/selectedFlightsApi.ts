@@ -12,6 +12,47 @@ export type SelectedFlight = {
   purchasedLegs?: boolean[] | null;
 };
 
+export type FlightChoiceProgress = {
+  partyId: string;
+  legKeys: string[];
+  nextOrigins: string[];
+};
+
+function flightChoicesUrl(tripId: string) {
+  return `${apiBaseUrl}/api/trips/${encodeURIComponent(tripId)}/flightChoices`;
+}
+
+export async function getFlightChoices(
+  tripId: string,
+  signal?: AbortSignal,
+): Promise<FlightChoiceProgress[]> {
+  const response = await fetch(flightChoicesUrl(tripId), {
+    credentials: "include",
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) await readTripError(response, "loading flight choices");
+  return response.json();
+}
+
+export async function setFlightChoices(
+  tripId: string,
+  partyId: string,
+  legKeys: string[],
+): Promise<FlightChoiceProgress> {
+  const response = await fetch(
+    `${flightChoicesUrl(tripId)}/${encodeURIComponent(partyId)}`,
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ legKeys }),
+    },
+  );
+  if (!response.ok) await readTripError(response, "saving flight choices");
+  return response.json();
+}
+
 function selectedFlightsUrl(tripId: string) {
   return `${apiBaseUrl}/api/trips/${encodeURIComponent(tripId)}/selectedFlights`;
 }

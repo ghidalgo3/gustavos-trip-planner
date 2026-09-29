@@ -92,6 +92,36 @@ public sealed class DatabaseMigrator(NpgsqlDataSource dataSource, ILogger<Databa
             await recordCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        // DROP SCHEMA removes both table grants and schema-scoped default
+        // privileges. Restore contributor access whenever startup recreates it.
+        await ExecuteAsync(
+            connection,
+            transaction,
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_roles WHERE rolname = 'gustavo_planner_contributor'
+                ) THEN
+                    GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+                        ON ALL TABLES IN SCHEMA gustavo_planner
+                        TO gustavo_planner_contributor;
+                    GRANT USAGE, SELECT, UPDATE
+                        ON ALL SEQUENCES IN SCHEMA gustavo_planner
+                        TO gustavo_planner_contributor;
+                    ALTER DEFAULT PRIVILEGES IN SCHEMA gustavo_planner
+                        GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+                        ON TABLES TO gustavo_planner_contributor;
+                    ALTER DEFAULT PRIVILEGES IN SCHEMA gustavo_planner
+                        GRANT USAGE, SELECT, UPDATE
+                        ON SEQUENCES TO gustavo_planner_contributor;
+                END IF;
+            END;
+            $$;
+            """,
+            cancellationToken
+        );
+
         await transaction.CommitAsync(cancellationToken);
     }
 

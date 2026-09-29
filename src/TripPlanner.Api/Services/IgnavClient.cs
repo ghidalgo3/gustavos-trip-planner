@@ -18,6 +18,10 @@ public sealed class IgnavClient(
     ILogger<IgnavClient> logger
 ) : IIgnavClient
 {
+    private readonly SemaphoreSlim _requests = new(
+        Math.Clamp(options.Value.MaxConcurrentRequests, 1, 32)
+    );
+
     public static string Endpoint(IgnavFareRequest request) =>
         request.SearchKind switch
         {
@@ -70,35 +74,43 @@ public sealed class IgnavClient(
             Content = JsonContent.Create(Body(request)),
         };
         message.Headers.Add("X-Api-Key", key);
-        using var response = await client.SendAsync(message, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        await _requests.WaitAsync(cancellationToken);
+        try
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            logger.LogError(
-                "Ignav POST {Endpoint} failed with HTTP {StatusCode} ({ReasonPhrase}). Search {CacheKey}. Response: {ResponseBody}",
-                message.RequestUri,
-                (int)response.StatusCode,
-                Sanitize(response.ReasonPhrase ?? "", key),
-                SearchPlanBuilder.CacheKey(request),
-                string.IsNullOrWhiteSpace(body) ? "(empty response body)" : Sanitize(body, key)
+            using var response = await client.SendAsync(message, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                logger.LogError(
+                    "Ignav POST {Endpoint} failed with HTTP {StatusCode} ({ReasonPhrase}). Search {CacheKey}. Response: {ResponseBody}",
+                    message.RequestUri,
+                    (int)response.StatusCode,
+                    Sanitize(response.ReasonPhrase ?? "", key),
+                    SearchPlanBuilder.CacheKey(request),
+                    string.IsNullOrWhiteSpace(body) ? "(empty response body)" : Sanitize(body, key)
+                );
+                throw new HttpRequestException(
+                    $"Ignav returned HTTP {(int)response.StatusCode}.",
+                    null,
+                    response.StatusCode
+                );
+            }
+            using var json = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken),
+                cancellationToken: cancellationToken
             );
-            throw new HttpRequestException(
-                $"Ignav returned HTTP {(int)response.StatusCode}.",
-                null,
-                response.StatusCode
-            );
+            if (
+                json.RootElement.ValueKind != JsonValueKind.Object
+                || !json.RootElement.TryGetProperty("itineraries", out var itineraries)
+                || itineraries.ValueKind != JsonValueKind.Array
+            )
+                throw new JsonException("Ignav returned an invalid fare response.");
+            return json.RootElement.Clone();
         }
-        using var json = await JsonDocument.ParseAsync(
-            await response.Content.ReadAsStreamAsync(cancellationToken),
-            cancellationToken: cancellationToken
-        );
-        if (
-            json.RootElement.ValueKind != JsonValueKind.Object
-            || !json.RootElement.TryGetProperty("itineraries", out var itineraries)
-            || itineraries.ValueKind != JsonValueKind.Array
-        )
-            throw new JsonException("Ignav returned an invalid fare response.");
-        return json.RootElement.Clone();
+        finally
+        {
+            _requests.Release();
+        }
     }
 
     public async Task<JsonElement> GetBookingLinksAsync(
@@ -120,18 +132,26 @@ public sealed class IgnavClient(
             Content = JsonContent.Create(new { ignav_id = ignavId }),
         };
         message.Headers.Add("X-Api-Key", key);
-        using var response = await client.SendAsync(message, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException(
-                $"Ignav booking links returned HTTP {(int)response.StatusCode}.",
-                null,
-                response.StatusCode
+        await _requests.WaitAsync(cancellationToken);
+        try
+        {
+            using var response = await client.SendAsync(message, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException(
+                    $"Ignav booking links returned HTTP {(int)response.StatusCode}.",
+                    null,
+                    response.StatusCode
+                );
+            using var json = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken),
+                cancellationToken: cancellationToken
             );
-        using var json = await JsonDocument.ParseAsync(
-            await response.Content.ReadAsStreamAsync(cancellationToken),
-            cancellationToken: cancellationToken
-        );
-        return json.RootElement.Clone();
+            return json.RootElement.Clone();
+        }
+        finally
+        {
+            _requests.Release();
+        }
     }
 
     private static string Sanitize(string value, string key)

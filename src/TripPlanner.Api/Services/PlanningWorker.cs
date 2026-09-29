@@ -132,6 +132,34 @@ public sealed class PlanningWorker(
                         or InvalidOperationException
             )
         {
+            var transient =
+                exception is OperationCanceledException or System.Text.Json.JsonException
+                || exception is HttpRequestException { StatusCode: null }
+                || exception
+                    is HttpRequestException { StatusCode: System.Net.HttpStatusCode.RequestTimeout }
+                || exception
+                    is HttpRequestException
+                    {
+                        StatusCode: System.Net.HttpStatusCode.TooManyRequests
+                    }
+                || exception
+                    is HttpRequestException
+                    {
+                        StatusCode: >= System.Net.HttpStatusCode.InternalServerError
+                    };
+            if (transient && work.Attempts < 3)
+            {
+                var delay = TimeSpan.FromSeconds(2 * (1 << (work.Attempts - 1)));
+                logger.LogWarning(
+                    exception,
+                    "Retrying fare search {CacheKey} after attempt {Attempt} in {DelaySeconds} seconds.",
+                    work.CacheKey,
+                    work.Attempts,
+                    delay.TotalSeconds
+                );
+                await database.RetryFareWorkAsync(work, delay, cancellationToken);
+                return true;
+            }
             var error = exception switch
             {
                 OperationCanceledException => "The flight search timed out. Try planning again.",

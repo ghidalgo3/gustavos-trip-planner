@@ -124,6 +124,7 @@ export type PreparedSearch = {
     market: string;
     max_stops?: number;
     searchKind?: string;
+    searchPriority?: number;
   };
   cacheKey: string;
   dateDistance: number;

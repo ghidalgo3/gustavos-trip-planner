@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using TripPlanner.Api.Models;
 
@@ -33,7 +34,8 @@ public sealed class RouteFareComposer(AirportCatalog airports)
     public IReadOnlyList<FareSearchResult> Compose(
         PlanningDocument document,
         IReadOnlyList<Party> parties,
-        IReadOnlyList<FareSearchResult> fares
+        IReadOnlyList<FareSearchResult> fares,
+        IReadOnlyList<FlightChoiceProgress>? savedChoices = null
     )
     {
         if (document.Visits.Length == 0)
@@ -41,12 +43,21 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         var results = new List<FareSearchResult>();
         foreach (var party in parties)
         {
+            var chosen =
+                savedChoices?.FirstOrDefault(choice => choice.PartyId == party.Id)?.LegKeys ?? [];
             var settings = document.Parties.Single(p => p.PartyId == party.Id);
             var raw = fares.Where(f => f.PartyId == party.Id).OrderBy(f => f.CacheKey).ToArray();
             if (raw.Length == 0)
                 continue;
             var offers = raw.SelectMany(f =>
-                    ReadOffers(f, document, party, settings).OrderBy(o => o.Price).Take(30)
+                    ReadOffers(f, document, party, settings)
+                        .GroupBy(o =>
+                            Text(o.Legs[0].Segments[0], "operating_carrier_name")
+                            ?? Text(o.Legs[0].Segments[0], "marketing_carrier_code")
+                        )
+                        .SelectMany(carrier => carrier.OrderBy(o => o.Price).Take(12))
+                        .OrderBy(o => o.Price)
+                        .Take(100)
                 )
                 .ToArray();
             var complete = new List<Path>();
@@ -75,6 +86,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                             new
                             {
                                 ignavId = o.Id,
+                                price = new { amount = o.Price, currency = o.Currency },
                                 legIndexes = o.Legs.Length == 1
                                     ? new[] { 0 }
                                     : new[] { 0, order.Length },
@@ -89,6 +101,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                         )
                         || p.Legs[0].DepartureDate == document.TravelDates.StartDate
                     )
+                    .Where(p => chosen.Length == 0 || FlightKey(p.Legs[0]) == chosen[0])
                     .ToArray();
                 for (int step = 1; step <= order.Length; step++)
                 {
@@ -100,7 +113,10 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                     {
                         if (step == order.Length && path.ReservedReturn is { } reserved)
                         {
-                            if (StayFits(path.Legs[^1], reserved, visit, document))
+                            if (
+                                StayFits(path.Legs[^1], reserved, visit, document)
+                                && (step >= chosen.Length || FlightKey(reserved) == chosen[step])
+                            )
                                 next.Add(path with { Legs = [.. path.Legs, reserved] });
                             continue;
                         }
@@ -110,6 +126,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                                 && o.Currency == path.Currency
                                 && visit.Location!.AirportCodes.Contains(o.Legs[0].Origin)
                                 && nextAirports.Contains(o.Legs[0].Destination)
+                                && (step >= chosen.Length || FlightKey(o.Legs[0]) == chosen[step])
                             )
                         )
                         {
@@ -123,24 +140,29 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                                     Bookings =
                                     [
                                         .. path.Bookings,
-                                        new { ignavId = offer.Id, legIndexes = new[] { step } },
+                                        new
+                                        {
+                                            ignavId = offer.Id,
+                                            price = new
+                                            {
+                                                amount = offer.Price,
+                                                currency = offer.Currency,
+                                            },
+                                            legIndexes = new[] { step },
+                                        },
                                     ],
                                 }
                             );
                         }
                     }
-                    // Bounded beam retaining alternatives by arrival time, so cheap late arrivals don't erase feasible earlier ones.
-                    states = next.GroupBy(p =>
-                            (
-                                p.Legs[^1].Arrival,
-                                p.Legs[^1].Destination,
-                                p.ReservedReturn?.Departure,
-                                p.Currency
-                            )
+                    // Keep several ways to reach each distinct next flight. Otherwise
+                    // cheap prefixes can crowd an airline or middle leg out of the beam.
+                    states = Rank(next, settings)
+                        .GroupBy(p =>
+                            (LegSignature(p.Legs[^1]), p.ReservedReturn?.Departure, p.Currency)
                         )
-                        .SelectMany(g => Rank(g, settings).Take(8))
-                        .OrderBy(p => p.Price)
-                        .Take(200)
+                        .SelectMany(g => g.Take(5))
+                        .Take(300)
                         .ToArray();
                 }
                 complete.AddRange(
@@ -159,7 +181,18 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                     )
                 );
             }
-            var ranked = Rank(complete, settings).DistinctBy(Signature).Take(100).ToArray();
+            // Keeping only the cheapest full routes can hide every alternative
+            // for a middle leg. Include the cheapest route containing each
+            // distinct flight before filling the rest by total price.
+            var ordered = Rank(complete, settings).DistinctBy(Signature).ToArray();
+            var diverse = Enumerable
+                .Range(0, document.Visits.Length + 1)
+                .SelectMany(index =>
+                    ordered.DistinctBy(path => LegSignature(path.Legs[index])).Take(25)
+                )
+                .DistinctBy(Signature)
+                .ToArray();
+            var ranked = diverse.Concat(ordered).DistinctBy(Signature).Take(200).ToArray();
             var response = JsonSerializer.SerializeToElement(
                 new
                 {
@@ -182,6 +215,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
             );
             var provenance =
                 JsonSerializer.Serialize(document)
+                + JsonSerializer.Serialize(chosen)
                 + string.Join("|", raw.Select(f => $"{f.CacheKey}:{f.FetchedAt:O}"));
             var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(provenance)));
             results.Add(
@@ -230,8 +264,39 @@ public sealed class RouteFareComposer(AirportCatalog airports)
             "|",
             p.Legs.SelectMany(l => l.Segments)
                 .Select(s =>
-                    $"{Text(s, "departure_airport")}:{Text(s, "arrival_airport")}:{Text(s, "departure_time_local")}:{Text(s, "flight_number")}"
+                    $"{Text(s, "departure_airport")}:{Text(s, "arrival_airport")}:{Text(s, "departure_time_local")}:{Text(s, "marketing_carrier_code")}:{Text(s, "flight_number")}"
                 )
+        );
+
+    private static string LegSignature(Leg leg) =>
+        string.Join(
+            "|",
+            leg.Segments.Select(s =>
+                $"{Text(s, "departure_airport")}:{Text(s, "arrival_airport")}:{Text(s, "departure_time_local")}:{Text(s, "marketing_carrier_code")}:{Text(s, "flight_number")}"
+            )
+        );
+
+    // Match JSON.stringify in the browser. The default .NET encoder escapes
+    // '+' in UTC offsets, which would make the same flight compare unequal.
+    private static readonly JsonSerializerOptions FlightKeyJson = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    private static string FlightKey(Leg leg) =>
+        JsonSerializer.Serialize(
+            leg.Segments.Select(segment =>
+                new string?[]
+                {
+                    Text(segment, "departure_airport"),
+                    Text(segment, "arrival_airport"),
+                    Text(segment, "departure_time_utc") ?? Text(segment, "departure_time_local"),
+                    Text(segment, "arrival_time_utc") ?? Text(segment, "arrival_time_local"),
+                    Text(segment, "marketing_carrier_code"),
+                    Text(segment, "flight_number"),
+                }
+            ),
+            FlightKeyJson
         );
 
     private static bool StayFits(

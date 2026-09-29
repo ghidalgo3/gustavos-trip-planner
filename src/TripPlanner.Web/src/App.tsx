@@ -33,6 +33,7 @@ import HomeCityPicker from "./HomeCityPicker";
 import ProfilePage from "./ProfilePage";
 import TripsDashboard from "./TripsDashboard";
 import TripPlanningPage from "./TripPlanningPage";
+import ScrollPositionRestoration from "./ScrollPositionRestoration";
 
 const emptyProfile: UserProfile = { homeCity: null, preferredAirlines: [] };
 
@@ -68,6 +69,7 @@ export default function App() {
 
   return (
     <main>
+      <ScrollPositionRestoration />
       <header className="topbar">
         <div className="brand">
           <Location24Regular />

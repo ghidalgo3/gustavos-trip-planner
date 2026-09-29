@@ -18,6 +18,100 @@ public static class SelectedFlightsEndpoints
         flights.MapPut("/{partyId:guid}", SelectFlight);
         flights.MapPut("/{partyId:guid}/purchases", SetPurchases);
         flights.MapDelete("/{partyId:guid}", DeselectFlight);
+        var choices = api.MapGroup("/trips/{tripId:guid}/flightChoices")
+            .WithTags("Flight Choices")
+            .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+        choices.MapGet("/", GetFlightChoices);
+        choices.MapPut("/{partyId:guid}", SetFlightChoices);
+    }
+
+    private static async Task<IResult> GetFlightChoices(
+        Guid tripId,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser
+    )
+    {
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
+            context,
+            database,
+            currentUser.Profile!
+        );
+        if (error is not null)
+            return error;
+        if (await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+            return Results.NotFound();
+        return Results.Ok(
+            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+        );
+    }
+
+    private static async Task<IResult> SetFlightChoices(
+        Guid tripId,
+        Guid partyId,
+        SetFlightChoicesRequest request,
+        HttpContext context,
+        IPlannerDb database,
+        ISearchPlanBuilder planner,
+        AirportCatalog airports,
+        ICurrentUser currentUser
+    )
+    {
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
+            context,
+            database,
+            currentUser.Profile!
+        );
+        if (error is not null)
+            return error;
+        var trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
+        if (trip is null)
+            return Results.NotFound();
+        var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
+        if (!parties.Any(p => p.Id == partyId))
+            return Results.NotFound();
+        var document = PlanningDocument.FromJson(trip.Constraints);
+        var keys = request.LegKeys;
+        if (
+            keys is null
+            || keys.Length > document.Visits.Length + 1
+            || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 4096)
+        )
+            return Results.BadRequest(
+                new { title = "Provide a valid flight choice for each selected leg." }
+            );
+        IReadOnlyList<FareSearchResult> fares = [];
+        if (keys.Length > 0)
+        {
+            var preview = planner.Build(document, parties, context.RequestAborted);
+            if (!preview.Ready)
+                return Results.Conflict(
+                    new { title = "The trip's current planning details need attention." }
+                );
+            fares =
+                await database.GetFareSearchResultsAsync(
+                    user.Id,
+                    tripId,
+                    preview,
+                    context.RequestAborted
+                ) ?? [];
+        }
+        var nextOrigins = FlightChoiceRoute.NextOrigins(document, partyId, keys, fares, airports);
+        if (nextOrigins is null)
+            return Results.BadRequest(
+                new
+                {
+                    title = "This flight is no longer available in the current search or does not follow the trip's destination order. Refresh the flight results and choose again.",
+                }
+            );
+        return Results.Ok(
+            await database.SetFlightChoicesAsync(
+                user.Id,
+                tripId,
+                new(partyId, keys, nextOrigins),
+                context.RequestAborted
+            )
+        );
     }
 
     private static async Task<IResult> GetSelectedFlights(
@@ -92,7 +186,12 @@ public static class SelectedFlightsEndpoints
                     title = "Flight results have expired. Find flights again before selecting one.",
                 }
             );
-        fares = routes.Compose(document, parties, fares);
+        fares = routes.Compose(
+            document,
+            parties,
+            fares,
+            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+        );
         FareSearchResult? fare = fares.SingleOrDefault(f =>
             f.PartyId == partyId && f.CacheKey == request.CacheKey
         );

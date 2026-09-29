@@ -64,7 +64,7 @@ The API requires `ConnectionStrings:TripPlanner`. Docker Compose supplies a loca
 
 At startup, the API acquires a PostgreSQL advisory transaction lock, creates the `gustavo_planner` schema when needed, then creates `gustavo_planner.schema_migrations` and loads and sorts the `.sql` files in `src/TripPlanner.Api/migrations`. Application connections use `gustavo_planner` as their search path, so all application tables and indexes live in that schema. Migration filenames use `0001_MigrationName.sql`; the four-digit prefix is the unique migration version. Applied versions and filenames are recorded in `gustavo_planner.schema_migrations`, and startup fails if an applied version has since been renamed. New migration files are copied into build and publish output automatically.
 
-Run `scripts/drop_db` to permanently drop the production `gustavo_planner` schema. It authenticates with the signed-in user's Microsoft Entra token and requires typing `drop gustavo_planner` before executing the drop. The API recreates the schema and its objects at its next startup.
+Run `scripts/drop_db` to permanently drop the production `gustavo_planner` schema. It authenticates with the signed-in user's Microsoft Entra token and requires typing `drop gustavo_planner` before executing the drop. The API recreates the schema and its objects at its next startup, then restores contributor table grants and default privileges. Dropping the schema removes those grants from the old objects; role membership alone does not grant access to tables created afterward.
 
 Migration `0001_CreateUsers.sql` enables PostGIS and creates `users`, `trips`, and `parties`. Each application user has a unique UUID and a unique, lowercase email address. Signing in with another provider that supplies the same email reuses the user ID and adds that provider to the row's comma-separated provider list. The table stores one required display name, a display name for the home city, its location as `geography(Point, 4326)`, and an array of preferred airline codes. Provider subjects, issuer, split given/family names, preferred username, provider verification flags, profile-image URLs, locale, hosted domain, tenant ID, and object ID are not persisted.
 
@@ -79,6 +79,8 @@ Each trip has an owning user, name, description, JSONB constraints document, and
 `GET /api/user/avatar` uses the access token in the current authenticated session to retrieve the profile image from Google UserInfo or Microsoft Graph. The API returns the image without storing its URL or contents; the client falls back to the user's initials when the provider has no image. Microsoft sign-in requests the delegated `User.Read` scope for this lookup.
 
 During onboarding, the client debounces city searches and calls Azure Maps Geocode Autocomplete directly for `PopulatedPlace` results. `GET /api/mapToken` returns an authenticated, short-lived SAS for that browser call. The API creates each SAS with a two-hour lifetime and an approximate limit of 50 requests per second; the browser reuses it until shortly before expiry. Selecting a result and continuing calls `PUT /api/user/profile` with a complete `UserProfile` object. If the city has multiple passenger airports, the profile requires a preferred airport; a sole airport is selected automatically. `GET /api/airports/home` resolves that list from the bundled catalog. City flight searches still include all airports, with the saved airport used as a ranking preference. The same route saves home-city, preferred-airport, and airline changes from `/profile` in one database update. The avatar button opens a menu with **Your profile** and **Sign out**. Preferred airlines initialize the owner's party preferences in newly opened planning documents.
+
+Airline preferences in the profile and advanced search, and the airline filter in flight results, use the same searchable multi-select combobox. Chosen airlines appear as removable tags; profile and planning preferences persist airline codes, while result filters preserve carrier names in the route query.
 
 The web client follows the browser's `prefers-color-scheme` setting and updates
 between Fluent UI's light and dark themes when that preference changes.
@@ -126,7 +128,8 @@ Airport time zones come from the catalog and are used internally to handle
 overnight travel and date-line crossings. Calendar values remain date-only strings.
 Planning combines party members' requirements, explains missing inputs and
 conflicts, and prepares at most `Planning:FareRequestLimit` unique fare requests per
-party (default 40). `Planning:DatePairLimit` also defaults to 40 for round-trip date
+party (default 160). Multi-destination searches reserve request slots across
+all legs before paired fares. `Planning:DatePairLimit` defaults to 40 for round-trip date
 candidates before airport expansion. Fresh cache hits conservatively count toward
 the request cap, so actual provider calls can be fewer. The return-flight date is the date the flight home begins and maps directly
 to the provider request's return date. The API validates actual itinerary timing,
@@ -143,6 +146,9 @@ maximum trip length defaults to 21 days. Both limits are visible in the editor.
 
 Route planning shares dated legs across candidates and queries one-way fares plus
 paired outbound/homebound open-jaw fares through Ignav's flexible endpoint. It
+prioritizes first-leg searches and displays their fares while later-leg searches
+continue. A first-leg choice carries into the complete-route picker when a
+compatible itinerary is found. It
 combines complete offers, validates actual flight times and all stays, and ranks
 complete itineraries by price, stops, preferred airlines, home airport, and travel
 time. Separate tickets between stays are allowed and labeled; self-transfer
@@ -151,7 +157,15 @@ cheapest possible itinerary. The same asynchronous flight-search operation,
 one-hour cache, and selected-flight JSONB snapshot serve both planning modes.
 Route results present one flight at a time, showing airline names, flight
 numbers, layover airports and durations, and airline booking options for the
-current flight. Choosing a flight narrows the complete routes still available.
+current flight. While searches run, choosing a flight advances the picker to the
+next leg as its fares arrive. If saving that choice fails, the picker returns to
+the previous leg and shows the server's error beside it. Each saved choice also
+recomposes complete routes around
+the chosen flights from cached fares, so the global result cap does not hide
+later-leg alternatives. This does not make another Ignav request while the
+cache is fresh. The server verifies each choice against its cached fare and
+uses that fare's searched cities to identify and prioritize the next leg, even
+when Ignav returns a different airport within a city.
 The reusable flight card labels each endpoint with its city and airport code,
 for example Atlanta (ATL) → Phuket (HKT). The return step displays every
 compatible airline; **Edit flights** opens the earlier choices when a paired
@@ -228,6 +242,10 @@ saved planning choice, not a booking. Stays is currently a placeholder.
 `PUT /api/trips/{tripId}/selectedFlights/{partyId}/purchases` saves one
 purchase boolean per selected flight. `GET /api/airports/cities` resolves
 airport codes to the city labels used by the flight cards.
+Partial route choices are saved in `trips.flight_choices` through
+`/api/trips/{tripId}/flightChoices`, so they survive a page refresh and can
+prioritize pending searches for the next leg. Migration `0002` adds this column
+without clearing existing trips or purchases.
 
 The JSONB column is part of migration `0001`. Databases that already applied
 `0001` need the column added and any old `selected_flights` rows copied into it
@@ -251,8 +269,10 @@ never receives it. No live fare searches are performed by the automated tests.
   `Retry-After: 2`, and the operation. Reuse a request ID when retrying an uncertain
   submission.
 - `GET /api/trips/{tripId}/flightSearch` derives the required cache keys from the
-  current saved constraints and returns their fresh Ignav responses. It returns 404
-  when any required result is absent or expired, signaling that POST must be run.
+  current saved constraints and returns available fresh Ignav responses. It returns
+  404 when none are available, signaling that POST must be run. Multi-city results
+  are composed into complete routes as soon as cached searches permit; later
+  search results expand the available routes.
 - `POST /api/trips/{tripId}/flightSearch/{cacheKey}/bookingLinks` accepts a cached
   itinerary's `ignavId` and returns the provider booking options. It rejects a
   cache key or itinerary that does not belong to the authenticated owner's current
@@ -277,11 +297,14 @@ never receives it. No live fare searches are performed by the automated tests.
   JSON responses (including empty results) are reusable for **one hour from retrieval**.
   Hits do not extend expiry; failures are not cached. Expired cache rows are replaced
   on the next search.
-- Two searches run concurrently per API instance by default (`Planning:WorkerConcurrency`,
-  1–8). Provider timeout defaults to 480 seconds (`Ignav:TimeoutSeconds`, 1–1800).
+- Two workers run concurrently per API instance by default (`Planning:WorkerConcurrency`,
+  1–8). A shared semaphore in the singleton Ignav client limits all provider requests,
+  including booking links, to two per instance (`Ignav:MaxConcurrentRequests`, 1–32).
+  Provider timeout defaults to 480 seconds (`Ignav:TimeoutSeconds`, 1–1800).
   A lease lasts the timeout plus two minutes. Shutdown/crash recovery resumes after
-  lease expiry, with at most three provider attempts after worker interruptions.
-  Ordinary provider errors/timeouts finish the item as failed; a user can plan again.
+  lease expiry. Transient network errors, timeouts, invalid provider JSON, HTTP 408,
+  429, and 5xx responses retry up to three total attempts with short backoff; other
+  provider errors finish the item as failed.
   Processing is at least once: a crash after a paid call but before its database commit
   can require repeating that call. No PostgreSQL transaction is held during HTTP calls.
 

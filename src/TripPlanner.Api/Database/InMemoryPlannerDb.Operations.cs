@@ -158,7 +158,7 @@ public sealed partial class InMemoryPlannerDb
                     || search.FetchedAt is null
                     || search.FetchedAt.Value.AddHours(1) <= now
                 )
-                    return Task.FromResult<IReadOnlyList<FareSearchResult>?>(null);
+                    continue;
                 results.Add(
                     new(
                         party.PartyId,
@@ -170,7 +170,9 @@ public sealed partial class InMemoryPlannerDb
                     )
                 );
             }
-            return Task.FromResult<IReadOnlyList<FareSearchResult>?>(results);
+            return Task.FromResult<IReadOnlyList<FareSearchResult>?>(
+                results.Count == 0 ? null : results
+            );
         }
     }
 
@@ -182,7 +184,29 @@ public sealed partial class InMemoryPlannerDb
         lock (_tripLock)
         {
             var now = OperationClock.GetUtcNow();
-            foreach (var (key, search) in _searches.OrderBy(pair => pair.Key))
+            foreach (
+                var (key, search) in _searches
+                    .OrderBy(pair =>
+                    {
+                        if (
+                            pair.Value.OperationId is not { } operationId
+                            || !_operations.TryGetValue(operationId, out var operation)
+                        )
+                            return pair.Value.Request.SearchPriority;
+                        var nextOrigins = _flightChoices
+                            .Where(choice => choice.Key.TripId == operation.ResourceId)
+                            .SelectMany(choice => choice.Value.NextOrigins)
+                            .ToArray();
+                        if (nextOrigins.Length == 0)
+                            return pair.Value.Request.SearchPriority;
+                        return
+                            pair.Value.Request.SearchKind == "oneWay"
+                            && nextOrigins.Contains(pair.Value.Request.Origin)
+                            ? 0
+                            : 2;
+                    })
+                    .ThenBy(pair => pair.Key)
+            )
             {
                 if (
                     search.OperationId is not { } operationId
@@ -201,6 +225,28 @@ public sealed partial class InMemoryPlannerDb
                 );
             }
             return Task.FromResult<FareWork?>(null);
+        }
+    }
+
+    public Task<bool> RetryFareWorkAsync(
+        FareWork work,
+        TimeSpan delay,
+        CancellationToken cancellationToken = default
+    )
+    {
+        lock (_tripLock)
+        {
+            var now = OperationClock.GetUtcNow();
+            if (
+                !_searches.TryGetValue(work.CacheKey, out var search)
+                || search.OperationId != work.OperationId
+                || search.LeaseId != work.LeaseId
+                || search.LeaseExpiresAt <= now
+            )
+                return Task.FromResult(false);
+            search.LeaseId = null;
+            search.LeaseExpiresAt = now + delay;
+            return Task.FromResult(true);
         }
     }
 

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Models;
@@ -87,6 +89,57 @@ public sealed class MultiCityPlannerTests
         var operation = (await response.Content.ReadFromJsonAsync<TrackedOperation>())!;
         var available = Fares()
             .ToDictionary(f => SearchPlanBuilder.CacheKey(f.Request), f => f.Response);
+        var firstCacheKey = SearchPlanBuilder.CacheKey(Fares()[0].Request);
+        var choiceKey = BrowserLegKey(
+            Fares()[0].Response.GetProperty("itineraries")[0].GetProperty("outbound")
+        );
+        var firstFareReady = false;
+        while (await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2)) is { } work)
+        {
+            await factory.Database.CompleteFareWorkAsync(
+                work,
+                available.GetValueOrDefault(
+                    work.CacheKey,
+                    JsonSerializer.SerializeToElement(new { itineraries = Array.Empty<object>() })
+                ),
+                DateTimeOffset.UtcNow,
+                null
+            );
+            if (work.CacheKey == firstCacheKey)
+            {
+                firstFareReady = true;
+                break;
+            }
+        }
+        Assert.IsTrue(firstFareReady);
+        var choicesPath = $"/api/trips/{trip.Id}/flightChoices/{party.Id}";
+        var choiceResponse = await client.PutAsJsonAsync(
+            choicesPath,
+            new SetFlightChoicesRequest([choiceKey])
+        );
+        Assert.AreEqual(HttpStatusCode.OK, choiceResponse.StatusCode);
+        CollectionAssert.Contains(
+            (
+                await client.GetFromJsonAsync<FlightChoiceProgress[]>(
+                    $"/api/trips/{trip.Id}/flightChoices"
+                )
+            )!
+                .Single()
+                .NextOrigins,
+            "HKT"
+        );
+        var prioritized = await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2));
+        Assert.IsNotNull(prioritized);
+        Assert.AreEqual("HKT", prioritized.Request.Origin);
+        await factory.Database.CompleteFareWorkAsync(
+            prioritized,
+            available.GetValueOrDefault(
+                prioritized.CacheKey,
+                JsonSerializer.SerializeToElement(new { itineraries = Array.Empty<object>() })
+            ),
+            DateTimeOffset.UtcNow,
+            null
+        );
         while (await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2)) is { } work)
         {
             var result = available.GetValueOrDefault(
@@ -157,6 +210,286 @@ public sealed class MultiCityPlannerTests
                 $"Missing {edge}"
             );
         Assert.IsNull(document.TravelDates);
+    }
+
+    [TestMethod]
+    public void RouteBudgetSpreadsAcrossAllLegs()
+    {
+        var requests = new MultiCityPlanner(_airports, TimeProvider.System, 160)
+            .Build(Wedding(), [Party], default)
+            .Parties.Single()
+            .Requests;
+        Assert.IsGreaterThan(40, requests.Count);
+        foreach (
+            var (origin, destination) in new[]
+            {
+                ("ATL", "HKT"),
+                ("HKT", "HKG"),
+                ("HKG", "HND"),
+                ("HND", "ATL"),
+            }
+        )
+            Assert.IsGreaterThan(
+                1,
+                requests.Count(q =>
+                    q.Body.SearchKind == "oneWay"
+                    && q.Body.Origin == origin
+                    && q.Body.Destination == destination
+                ),
+                $"Expected more than one dated search for {origin} to {destination}."
+            );
+    }
+
+    [TestMethod]
+    public void FlightChoiceUsesDestinationAirportsEvenWhenSearchCoverageIsIncomplete()
+    {
+        var newYork = new PlannedVisit
+        {
+            Id = Guid.NewGuid(),
+            Location = _airports.Resolve("New York"),
+            Nights = 3,
+        };
+        var hongKong = new PlannedVisit
+        {
+            Id = Guid.NewGuid(),
+            Location = _airports.Resolve("HKG"),
+            Nights = 3,
+            AfterVisitIds = [newYork.Id],
+        };
+        var document = new PlanningDocument
+        {
+            Visits = [newYork, hongKong],
+            Parties = [new() { PartyId = _party, Origin = _airports.Resolve("ATL") }],
+        };
+        FareSearchResult Fare(
+            string searchedOrigin,
+            string searchedDestination,
+            string actualOrigin,
+            string actualDestination
+        ) =>
+            new(
+                _party,
+                Guid.NewGuid().ToString(),
+                new(
+                    searchedOrigin,
+                    searchedDestination,
+                    new(2030, 5, 1),
+                    new(2030, 5, 1),
+                    1,
+                    "economy",
+                    "US",
+                    null,
+                    "oneWay"
+                ),
+                JsonSerializer.SerializeToElement(
+                    new
+                    {
+                        itineraries = new[]
+                        {
+                            new
+                            {
+                                outbound = new
+                                {
+                                    segments = new[]
+                                    {
+                                        new
+                                        {
+                                            departure_airport = actualOrigin,
+                                            arrival_airport = actualDestination,
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }
+                ),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1)
+            );
+        var fares = new[]
+        {
+            Fare("ATL", "NYC", "PDK", "JFK"),
+            Fare("NYC", "HKG", "LGA", "HKG"),
+            Fare("HKG", "ATL", "HKG", "ATL"),
+        };
+        var keys = fares
+            .Select(f =>
+                BrowserLegKey(f.Response.GetProperty("itineraries")[0].GetProperty("outbound"))
+            )
+            .ToArray();
+
+        var next = FlightChoiceRoute.NextOrigins(document, _party, [keys[0]], fares, _airports);
+        Assert.IsNotNull(next);
+        CollectionAssert.IsSubsetOf(new[] { "JFK", "LGA", "EWR", "NYC" }, next);
+        CollectionAssert.AreEqual(
+            new[] { "HKG" },
+            FlightChoiceRoute.NextOrigins(document, _party, keys[..2], fares, _airports)
+        );
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            FlightChoiceRoute.NextOrigins(document, _party, keys, fares, _airports)
+        );
+        Assert.IsNull(FlightChoiceRoute.NextOrigins(document, _party, [keys[1]], fares, _airports));
+
+        var paired = fares[0] with
+        {
+            Request = fares[0].Request with
+            {
+                SearchKind = "flexible",
+                Legs =
+                [
+                    new("ATL", "NYC", new(2030, 5, 1), null),
+                    new("HKG", "ATL", new(2030, 5, 1), null),
+                ],
+            },
+            Response = JsonSerializer.SerializeToElement(
+                new
+                {
+                    itineraries = new[]
+                    {
+                        new
+                        {
+                            legs = new[]
+                            {
+                                fares[0]
+                                    .Response.GetProperty("itineraries")[0]
+                                    .GetProperty("outbound"),
+                                fares[2]
+                                    .Response.GetProperty("itineraries")[0]
+                                    .GetProperty("outbound"),
+                            },
+                        },
+                    },
+                }
+            ),
+        };
+        CollectionAssert.Contains(
+            FlightChoiceRoute.NextOrigins(document, _party, [keys[0]], [paired], _airports)!,
+            "NYC"
+        );
+    }
+
+    [TestMethod]
+    public async Task FlightChoiceAcceptsMetroArrivalWithoutAnAirportSpecificNextSearch()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Subject", "metro-owner");
+        client.DefaultRequestHeaders.Add("X-Test-Email", "metro-owner@example.com");
+        var profile = await client.PutAsJsonAsync(
+            "/api/user/profile",
+            new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
+        );
+        profile.EnsureSuccessStatusCode();
+        var user = (await profile.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
+        var created = await client.PostAsJsonAsync(
+            $"/api/user/{user.Id}/trips",
+            new CreateTripRequest("Metro connection", "")
+        );
+        created.EnsureSuccessStatusCode();
+        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        var party = factory.Database.Parties.Single();
+        var firstVisit = new PlannedVisit
+        {
+            Id = Guid.NewGuid(),
+            Location = _airports.Resolve("New York"),
+            Nights = 3,
+        };
+        var document = new PlanningDocument
+        {
+            TravelDates = new(new(2030, 5, 1), null),
+            Visits =
+            [
+                firstVisit,
+                new PlannedVisit
+                {
+                    Id = Guid.NewGuid(),
+                    Location = _airports.Resolve("HKG"),
+                    Nights = 3,
+                    AfterVisitIds = [firstVisit.Id],
+                },
+            ],
+            Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
+        };
+        (
+            await client.PutAsJsonAsync(
+                $"/api/user/{user.Id}/trips/{trip.Id}/constraints",
+                document
+            )
+        ).EnsureSuccessStatusCode();
+        var preview = new MultiCityPlanner(_airports, TimeProvider.System).Build(
+            document,
+            [party],
+            default
+        );
+        var firstRequest = preview
+            .Parties.Single()
+            .Requests.First(search =>
+                search.Body.SearchKind == "oneWay"
+                && search.Body.Origin == "ATL"
+                && search.Body.Destination == "NYC"
+                && search.Body.SearchPriority == 0
+            );
+        var searchResponse = await client.PostAsJsonAsync(
+            $"/api/trips/{trip.Id}/flightSearch",
+            new StartFlightSearchRequest(Guid.NewGuid())
+        );
+        Assert.AreEqual(HttpStatusCode.Accepted, searchResponse.StatusCode);
+        var fareResponse = JsonSerializer.SerializeToElement(
+            new
+            {
+                itineraries = new[]
+                {
+                    new
+                    {
+                        price = new { amount = 150, currency = "USD" },
+                        outbound = new
+                        {
+                            segments = new[]
+                            {
+                                new
+                                {
+                                    departure_airport = "PDK",
+                                    arrival_airport = "JFK",
+                                    departure_time_local = "2030-05-01T09:00:00",
+                                    arrival_time_local = "2030-05-01T12:00:00",
+                                    marketing_carrier_code = "DL",
+                                    flight_number = "DL1",
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        );
+        var firstFareReady = false;
+        while (await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2)) is { } work)
+        {
+            await factory.Database.CompleteFareWorkAsync(
+                work,
+                work.CacheKey == firstRequest.CacheKey
+                    ? fareResponse
+                    : JsonSerializer.SerializeToElement(
+                        new { itineraries = Array.Empty<object>() }
+                    ),
+                DateTimeOffset.UtcNow,
+                null
+            );
+            if (work.CacheKey == firstRequest.CacheKey)
+            {
+                firstFareReady = true;
+                break;
+            }
+        }
+        Assert.IsTrue(firstFareReady);
+        var key = BrowserLegKey(fareResponse.GetProperty("itineraries")[0].GetProperty("outbound"));
+        var response = await client.PutAsJsonAsync(
+            $"/api/trips/{trip.Id}/flightChoices/{party.Id}",
+            new SetFlightChoicesRequest([key])
+        );
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var saved = (await response.Content.ReadFromJsonAsync<FlightChoiceProgress>())!;
+        CollectionAssert.Contains(saved.NextOrigins, "NYC");
     }
 
     [TestMethod]
@@ -321,6 +654,54 @@ public sealed class MultiCityPlannerTests
         Assert.IsGreaterThan(0, result.Response.GetProperty("itineraries").GetArrayLength());
     }
 
+    [TestMethod]
+    public void ChosenRoutePrefixKeepsAlternativesForTheNextLeg()
+    {
+        var document = Wedding();
+        var fares = Fares();
+        var firstResponse = JsonNode.Parse(fares[0].Response.GetRawText())!;
+        firstResponse["itineraries"]![0]!["outbound"]!["segments"]![0]!["departure_time_utc"] =
+            "2030-05-01T13:00:00+00:00";
+        fares[0] = fares[0] with { Response = JsonSerializer.SerializeToElement(firstResponse) };
+        var pairedResponse = JsonNode.Parse(fares[4].Response.GetRawText())!;
+        pairedResponse["itineraries"]![0]!["legs"]![0]!["segments"]![0]!["departure_time_utc"] =
+            "2030-05-01T13:00:00+00:00";
+        fares[4] = fares[4] with { Response = JsonSerializer.SerializeToElement(pairedResponse) };
+        var alternateResponse = JsonNode.Parse(fares[1].Response.GetRawText())!;
+        var alternate = alternateResponse["itineraries"]![0]!.DeepClone();
+        alternate["ignav_id"] = "fare-middle-alternate";
+        alternate["price"]!["amount"] = 150;
+        alternate["outbound"]!["segments"]![0]!["flight_number"] = "AA2";
+        alternateResponse["itineraries"]!.AsArray().Add(alternate);
+        fares[1] = fares[1] with
+        {
+            Response = JsonSerializer.SerializeToElement(alternateResponse),
+        };
+
+        var composer = new RouteFareComposer(_airports);
+        var initial = composer.Compose(document, [Party], fares).Single();
+        var first = initial.Response.GetProperty("itineraries")[0].GetProperty("legs")[0];
+        var key = BrowserLegKey(first);
+        StringAssert.Contains(key, "+00:00");
+        var focused = composer
+            .Compose(document, [Party], fares, [new FlightChoiceProgress(_party, [key], [])])
+            .Single();
+        Assert.AreNotEqual(initial.CacheKey, focused.CacheKey);
+        var secondFlights = focused
+            .Response.GetProperty("itineraries")
+            .EnumerateArray()
+            .Select(itinerary =>
+                itinerary
+                    .GetProperty("legs")[1]
+                    .GetProperty("segments")[0]
+                    .GetProperty("flight_number")
+                    .GetString()
+            )
+            .Distinct()
+            .ToArray();
+        CollectionAssert.AreEquivalent(new[] { "AA1", "AA2" }, secondFlights);
+    }
+
     private FareSearchResult[] Fares()
     {
         object Leg(
@@ -431,5 +812,28 @@ public sealed class MultiCityPlannerTests
             )
         );
         return results.ToArray();
+    }
+
+    private static string BrowserLegKey(JsonElement leg)
+    {
+        static string? Text(JsonElement segment, string name) =>
+            segment.TryGetProperty(name, out var value) ? value.GetString() : null;
+        return JsonSerializer.Serialize(
+            leg.GetProperty("segments")
+                .EnumerateArray()
+                .Select(segment =>
+                    new string?[]
+                    {
+                        Text(segment, "departure_airport"),
+                        Text(segment, "arrival_airport"),
+                        Text(segment, "departure_time_utc")
+                            ?? Text(segment, "departure_time_local"),
+                        Text(segment, "arrival_time_utc") ?? Text(segment, "arrival_time_local"),
+                        Text(segment, "marketing_carrier_code"),
+                        Text(segment, "flight_number"),
+                    }
+                ),
+            new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }
+        );
     }
 }

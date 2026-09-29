@@ -273,7 +273,7 @@ test("selects, replaces, and clears a flight for the party", async () => {
   );
   fireEvent.click(screen.getAllByRole("button", { name: "Select flight" })[0]);
   await waitFor(() => expect(selected?.itineraryIndex).toBe(0));
-  const alternative = screen.getByText("USD $130").closest("article")!;
+  const alternative = screen.getAllByText("USD $130")[0].closest("article")!;
   fireEvent.click(
     within(alternative).getByRole("button", { name: "Change to this flight" }),
   );
@@ -327,7 +327,7 @@ test("does not label a different refreshed itinerary as selected", async () => {
   expect(screen.queryByText("Selected for this trip")).not.toBeInTheDocument();
 });
 
-test("restores fare filters from the route and updates its query", () => {
+test("restores fare filters from the route and updates its query", async () => {
   function RouteQuery() {
     return <output data-testid="route-query">{useLocation().search}</output>;
   }
@@ -356,4 +356,11 @@ test("restores fare filters from the route and updates its query", () => {
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
   expect(screen.getByTestId("route-query")).toHaveTextContent("advanced=1");
   expect(screen.getByTestId("route-query")).not.toHaveTextContent("minPrice");
+  const airline = screen.getByRole("combobox", { name: "Airline" });
+  fireEvent.change(airline, { target: { value: "Delta" } });
+  fireEvent.click(airline);
+  fireEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Delta" }),
+  );
+  expect(screen.getByTestId("route-query")).toHaveTextContent("airline=Delta");
 });

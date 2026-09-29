@@ -211,6 +211,7 @@ export default function PlansOverview({
               {displayLegs(flight.itinerary).length > 0 ? (
                 <JourneyLegs
                   legs={displayLegs(flight.itinerary)}
+                  itinerary={flight.itinerary}
                   cities={cities}
                   purchasedLegs={flight.purchasedLegs ?? []}
                   onPurchaseChange={

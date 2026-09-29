@@ -12,6 +12,7 @@ import type {
   PartySettings,
 } from "./planningApi";
 import RouteFareResults from "./RouteFareResults";
+import FirstLegResults from "./FirstLegResults";
 import FareResults from "./FareResults";
 import {
   getFlightSearchResults,
@@ -22,6 +23,11 @@ import {
   type FareSearchResult,
   type TrackedOperation,
 } from "./operationsApi";
+import {
+  getFlightChoices,
+  setFlightChoices,
+  type FlightChoiceProgress,
+} from "./selectedFlightsApi";
 
 export default function PlanningRun({
   tripId,
@@ -29,6 +35,8 @@ export default function PlanningRun({
   partySettings,
   constraints,
   currentAiPrompt,
+  multiCity = false,
+  visitCount = 0,
   disabled,
   hasUnsavedChanges,
   savedVersion,
@@ -40,6 +48,8 @@ export default function PlanningRun({
   partySettings: PartySettings[];
   constraints: PlanningConstraint[];
   currentAiPrompt?: string | null;
+  multiCity?: boolean;
+  visitCount?: number;
   disabled: boolean;
   hasUnsavedChanges: boolean;
   savedVersion: number;
@@ -49,6 +59,9 @@ export default function PlanningRun({
   const [operation, setOperation] = useState<TrackedOperation>();
   const [results, setResults] = useState<FareSearchResult[]>([]);
   const [resultsKey, setResultsKey] = useState("");
+  const [flightChoices, setFlightChoicesState] = useState<
+    Record<string, FlightChoiceProgress>
+  >({});
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
   const [issues, setIssues] = useState<FlightSearchIssue[]>([]);
@@ -56,10 +69,72 @@ export default function PlanningRun({
   const [refresh, setRefresh] = useState(0);
   const [checkedAt, setCheckedAt] = useState(() => Date.now());
   const requestId = useRef<string | undefined>(undefined);
+  const choiceMutation = useRef(0);
   const active =
     operation?.status === "pending" || operation?.status === "InProgress";
   const currentResults =
     resultsKey === `${tripId}:${savedVersion}` ? results : [];
+
+  useEffect(() => {
+    if (!multiCity) return;
+    const controller = new AbortController();
+    const version = choiceMutation.current;
+    void getFlightChoices(tripId, controller.signal)
+      .then((saved) => {
+        if (!controller.signal.aborted && version === choiceMutation.current)
+          setFlightChoicesState(
+            Object.fromEntries(saved.map((choice) => [choice.partyId, choice])),
+          );
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted)
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load flight choices.",
+          );
+      });
+    return () => controller.abort();
+  }, [tripId, multiCity]);
+
+  async function saveFlightChoices(
+    partyId: string,
+    legKeys: string[],
+  ): Promise<boolean> {
+    choiceMutation.current += 1;
+    const previous = flightChoices[partyId];
+    setFlightChoicesState((current) => ({
+      ...current,
+      [partyId]: {
+        partyId,
+        legKeys,
+        nextOrigins: nextOriginFromKey(legKeys.at(-1)),
+      },
+    }));
+    try {
+      const saved = await setFlightChoices(tripId, partyId, legKeys);
+      if (!Array.isArray(saved.legKeys) || !Array.isArray(saved.nextOrigins))
+        throw new Error("The server returned an invalid flight choice.");
+      setFlightChoicesState((previous) => ({
+        ...previous,
+        [partyId]: saved,
+      }));
+      setRefresh((value) => value + 1);
+      setError(undefined);
+      return true;
+    } catch (reason) {
+      setFlightChoicesState((current) => ({
+        ...current,
+        [partyId]: previous ?? { partyId, legKeys: [], nextOrigins: [] },
+      }));
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to save flight choices.",
+      );
+      throw reason;
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -78,9 +153,9 @@ export default function PlanningRun({
         setPollError(undefined);
         if (
           latest &&
-          (latest.status === "Completed" || latest.status === "Failed")
+          (latest.progress.completedItems > 0 || latest.status === "Completed")
         ) {
-          if (latest.status === "Completed" && loadedResults !== latest.id) {
+          if (latest.status !== "Completed" || loadedResults !== latest.id) {
             const found = await getFlightSearchResults(
               tripId,
               controller.signal,
@@ -88,8 +163,10 @@ export default function PlanningRun({
             if (controller.signal.aborted) return;
             setResults(found);
             setResultsKey(`${tripId}:${savedVersion}`);
-            loadedResults = latest.id;
+            if (latest.status === "Completed") loadedResults = latest.id;
           }
+          if (latest.status === "Completed") delay = 15000;
+        } else if (latest?.status === "Failed") {
           delay = 15000;
         } else {
           setResults([]);
@@ -139,7 +216,11 @@ export default function PlanningRun({
   }
 
   return (
-    <Card className="planning-card" aria-label="Flight search">
+    <Card
+      id="flight-search"
+      className="planning-card"
+      aria-label="Flight search"
+    >
       <div className="planning-section-heading">
         <Title3 as="h2">Find flights</Title3>
         <Button
@@ -230,6 +311,22 @@ export default function PlanningRun({
               tripId={tripId}
               results={currentResults}
               parties={parties}
+              savedChoices={Object.fromEntries(
+                Object.entries(flightChoices).map(([partyId, choice]) => [
+                  partyId,
+                  choice.legKeys,
+                ]),
+              )}
+              onChangeChoices={saveFlightChoices}
+            />
+          ) : multiCity ? (
+            <FirstLegResults
+              results={currentResults}
+              parties={parties}
+              choices={flightChoices}
+              legCount={visitCount + 1}
+              searching={active}
+              onChoose={saveFlightChoices}
             />
           ) : (
             <FareResults
@@ -250,6 +347,18 @@ export default function PlanningRun({
       )}
     </Card>
   );
+}
+
+function nextOriginFromKey(key?: string): string[] {
+  if (!key) return [];
+  try {
+    const segments: unknown = JSON.parse(key);
+    if (!Array.isArray(segments)) return [];
+    const last: unknown = segments.at(-1);
+    return Array.isArray(last) && typeof last[1] === "string" ? [last[1]] : [];
+  } catch {
+    return [];
+  }
 }
 
 function describeRequirement(

@@ -1,0 +1,222 @@
+import { useState } from "react";
+import { Button, Text, Title3 } from "@fluentui/react-components";
+import FlightInformation from "./FlightInformation";
+import { legKey } from "./flightFormatting";
+import { flightAirportCodes, useAirportCities } from "./airportCities";
+import type { FareSearchResult } from "./operationsApi";
+import type { PlanningParty } from "./planningApi";
+import type { FlightChoiceProgress } from "./selectedFlightsApi";
+
+export default function FirstLegResults({
+  results,
+  parties,
+  choices,
+  legCount,
+  onChoose,
+  searching = true,
+}: {
+  results: FareSearchResult[];
+  parties: PlanningParty[];
+  choices: Record<string, FlightChoiceProgress>;
+  legCount: number;
+  onChoose: (partyId: string, keys: string[]) => Promise<boolean>;
+  searching?: boolean;
+}) {
+  const [busyParty, setBusyParty] = useState<string>();
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
+  async function choose(partyId: string, keys: string[]) {
+    setBusyParty(partyId);
+    try {
+      const saved = await onChoose(partyId, keys);
+      setSaveErrors((errors) => ({
+        ...errors,
+        [partyId]: saved ? "" : "Could not save this flight. Please try again.",
+      }));
+    } catch (reason) {
+      setSaveErrors((errors) => ({
+        ...errors,
+        [partyId]:
+          reason instanceof Error
+            ? reason.message
+            : "Could not save this flight. Please try again.",
+      }));
+    } finally {
+      setBusyParty(undefined);
+    }
+  }
+  const options = results.flatMap((result) =>
+    result.request.searchKind !== "oneWay"
+      ? []
+      : result.response.itineraries.flatMap((itinerary, index) => {
+          const leg = itinerary.outbound;
+          if (!leg || result.evaluations[index]?.status === "Rejected")
+            return [];
+          return [
+            {
+              partyId: result.partyId,
+              leg,
+              itinerary,
+              request: result.request,
+            },
+          ];
+        }),
+  );
+  const cities = useAirportCities(
+    flightAirportCodes(options.map((option) => option.leg)),
+  );
+  return (
+    <div className="first-leg-results">
+      {parties.map((party) => {
+        const chosen = choices[party.id]?.legKeys ?? [];
+        const step = chosen.length;
+        const nextOrigins = choices[party.id]?.nextOrigins ?? [];
+        const unique = new Map<string, (typeof options)[number]>();
+        for (const option of options
+          .filter(
+            (option) =>
+              option.partyId === party.id &&
+              (step === 0
+                ? option.request.searchPriority === 0
+                : nextOrigins.includes(option.request.origin)),
+          )
+          .sort(
+            (a, b) =>
+              (a.itinerary.price?.amount ?? Infinity) -
+              (b.itinerary.price?.amount ?? Infinity),
+          )) {
+          const key = legKey(option.leg);
+          if (!unique.has(key)) unique.set(key, option);
+        }
+        const choicesForParty = [...unique.values()];
+        const byAirline = new Map<string, (typeof options)[number]>();
+        for (const option of choicesForParty) {
+          const carrier =
+            option.leg.carrier ||
+            option.leg.segments[0]?.operating_carrier_name ||
+            option.leg.segments[0]?.marketing_carrier_code ||
+            "Unknown airline";
+          if (!byAirline.has(carrier)) byAirline.set(carrier, option);
+        }
+        const featured = [
+          ...new Map(
+            [choicesForParty[0], ...byAirline.values(), ...choicesForParty]
+              .filter((option): option is (typeof options)[number] =>
+                Boolean(option),
+              )
+              .map((option) => [legKey(option.leg), option] as const),
+          ).values(),
+        ];
+        return (
+          <section
+            key={party.id}
+            aria-label={`First flights for ${party.members.map((member) => member.name).join(", ")}`}
+          >
+            <Title3 as="h3">
+              Flight {Math.min(step + 1, legCount)} of {legCount} ·{" "}
+              {party.members.map((member) => member.name).join(", ")}
+            </Title3>
+            {saveErrors[party.id] && (
+              <Text role="alert">{saveErrors[party.id]}</Text>
+            )}
+            {busyParty === party.id && (
+              <Text role="status">Saving flight choice…</Text>
+            )}
+            {chosen.length > 0 && (
+              <div className="route-saved-choice">
+                <Text>{chosen.length} flight(s) chosen</Text>
+                {chosen.map((_, index) => (
+                  <Button
+                    key={index}
+                    size="small"
+                    disabled={busyParty === party.id}
+                    onClick={() =>
+                      void choose(party.id, chosen.slice(0, index))
+                    }
+                  >
+                    Change flight {index + 1}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {step >= legCount ? (
+              <Text role="status">
+                {searching
+                  ? "Checking the complete route as searches finish…"
+                  : "No complete route matches these flights. Change an earlier flight."}
+              </Text>
+            ) : choicesForParty.length === 0 ? (
+              <Text role="status">
+                {searching
+                  ? `Searching flights for flight ${step + 1}…`
+                  : `No flight ${step + 1} options are available for these choices. Change an earlier flight or search again.`}
+              </Text>
+            ) : (
+              <>
+                <Text role="status">
+                  {searching
+                    ? "Available flights are shown as searches finish. Complete routes may change these choices."
+                    : "Choose the next flight from the available search results."}
+                </Text>
+                {featured.slice(0, 6).map((option, index) => {
+                  const key = legKey(option.leg);
+                  return (
+                    <FlightInformation
+                      key={key}
+                      leg={option.leg}
+                      cities={cities}
+                      title={`Option ${index + 1}`}
+                      price={option.itinerary.price}
+                      priceContext="This flight"
+                      actions={
+                        <Button
+                          appearance="primary"
+                          disabled={busyParty === party.id}
+                          onClick={() =>
+                            void choose(party.id, [...chosen, key])
+                          }
+                        >
+                          Choose flight {step + 1}
+                        </Button>
+                      }
+                    />
+                  );
+                })}
+              </>
+            )}
+            {step < legCount && featured.length > 6 && (
+              <details>
+                <summary>
+                  More flight {step + 1} options ({featured.length - 6})
+                </summary>
+                {featured.slice(6).map((option, index) => {
+                  const key = legKey(option.leg);
+                  return (
+                    <FlightInformation
+                      key={key}
+                      leg={option.leg}
+                      cities={cities}
+                      title={`Option ${index + 7}`}
+                      price={option.itinerary.price}
+                      priceContext="This flight"
+                      actions={
+                        <Button
+                          appearance="primary"
+                          disabled={busyParty === party.id}
+                          onClick={() =>
+                            void choose(party.id, [...chosen, key])
+                          }
+                        >
+                          Choose flight {step + 1}
+                        </Button>
+                      }
+                    />
+                  );
+                })}
+              </details>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}

@@ -51,11 +51,13 @@ test("saves the complete profile when airline preferences change", async () => {
   expect(screen.getByRole("combobox", { name: "Home city" })).toHaveValue(
     "Boston",
   );
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Preferred airlines" }),
-    {
-      target: { value: "af, dl, AF" },
-    },
+  const airlineSearch = screen.getByRole("combobox", {
+    name: "Search preferred airlines",
+  });
+  fireEvent.change(airlineSearch, { target: { value: "Air France" } });
+  fireEvent.click(airlineSearch);
+  fireEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Air France (AF)" }),
   );
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled(),
