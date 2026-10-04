@@ -28,7 +28,7 @@ import RouteVisitsEditor from "./RouteVisitsEditor";
 import AirlineCombobox from "./AirlineCombobox";
 import PlanningRun from "./PlanningRun";
 import {
-  getPlanning,
+  getTripFlightPlanningData,
   getTripFormProposal,
   proposeTripForm,
   saveConstraints,
@@ -100,7 +100,7 @@ export default function TripPlanning({
 
   useEffect(() => {
     const controller = new AbortController();
-    getPlanning(userId, trip.id, controller.signal)
+    getTripFlightPlanningData(trip.id, controller.signal)
       .then((editor) => {
         if (controller.signal.aborted) return;
         setParties(editor.parties);
@@ -182,7 +182,6 @@ export default function TripPlanning({
         if (controller.signal.aborted) return;
         if (operation.status === "Completed") {
           const proposal = await getTripFormProposal(
-            userId,
             trip.id,
             formOperationId!,
             controller.signal,
@@ -251,7 +250,8 @@ export default function TripPlanning({
   }
   async function persist(showNotice: boolean) {
     if (!document) return;
-    onSaved(await saveConstraints(userId, trip.id, document));
+    const saved = await saveConstraints(trip.id, document);
+    onSaved({ ...trip, constraints: saved as unknown as Trip["constraints"] });
     setDirty(false);
     if (dirty) setSavedVersion((version) => version + 1);
     if (showNotice) setNotice("Planning details saved.");
@@ -274,7 +274,6 @@ export default function TripPlanning({
     setError(undefined);
     try {
       const operation = await proposeTripForm(
-        userId,
         trip.id,
         crypto.randomUUID(),
         freeform.trim(),
@@ -299,7 +298,11 @@ export default function TripPlanning({
     setBusy(true);
     setError(undefined);
     try {
-      onSaved(await saveConstraints(userId, trip.id, unlocked));
+      const saved = await saveConstraints(trip.id, unlocked);
+      onSaved({
+        ...trip,
+        constraints: saved as unknown as Trip["constraints"],
+      });
       setDocument(unlocked);
       setDirty(false);
       setPromptHelpOpen(false);
@@ -436,7 +439,7 @@ export default function TripPlanning({
                 party={party}
                 index={index}
                 onChanged={async () => {
-                  const editor = await getPlanning(userId, trip.id);
+                  const editor = await getTripFlightPlanningData(trip.id);
                   setParties(editor.parties);
                 }}
               />

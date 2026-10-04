@@ -50,5 +50,4 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 ## Database practices
 
 - Until this message is deleted, you are allowed to connect to the database, either locally or in the cloud, and drop all schemas and have them be recreated when making schema changes.
-- Put all new database tables or functions into the 0001_*.sql migration for now, we don't have any users are we are developing the application.
 - Prefer to write C# methods that write or modify an entire database row at a time instead of having many methods to modify column subsets of a row. 

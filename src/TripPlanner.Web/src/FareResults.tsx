@@ -1,22 +1,13 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useMemo, useState } from "react";
 import FlightInformation from "./FlightInformation";
-import AirlineCombobox from "./AirlineCombobox";
 import {
   airportLabel,
+  legUsesPreferredAirline,
   priceLabel,
   type AirportCities,
 } from "./flightFormatting";
 import { flightAirportCodes, useAirportCities } from "./airportCities";
-import {
-  Button,
-  Dropdown,
-  Field,
-  Input,
-  Option,
-  Text,
-  Title3,
-} from "@fluentui/react-components";
+import { Button, Text, Title3 } from "@fluentui/react-components";
 import {
   getBookingLinks,
   type FareEvaluation,
@@ -41,22 +32,6 @@ type FareOption = {
   itinerary: FareItinerary;
   evaluation: FareEvaluation;
 };
-type Filters = {
-  minimumPrice: string;
-  maximumPrice: string;
-  airlines: string[];
-  arrivals: string[];
-  stops: string[];
-};
-
-const initialFilters: Filters = {
-  minimumPrice: "",
-  maximumPrice: "",
-  airlines: [],
-  arrivals: [],
-  stops: [],
-};
-
 export default function FareResults({
   tripId,
   results,
@@ -118,36 +93,6 @@ export default function FareResults({
       setBusyParty(undefined);
     }
   }
-  const [searchParams, setSearchParams] = useSearchParams();
-  const filters: Filters = {
-    minimumPrice: searchParams.get("minPrice") ?? "",
-    maximumPrice: searchParams.get("maxPrice") ?? "",
-    airlines: searchParams.getAll("airline"),
-    arrivals: searchParams.getAll("arrival"),
-    stops: searchParams.getAll("stops"),
-  };
-  function setFilters(next: Filters) {
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current);
-        for (const key of [
-          "minPrice",
-          "maxPrice",
-          "airline",
-          "arrival",
-          "stops",
-        ])
-          params.delete(key);
-        if (next.minimumPrice) params.set("minPrice", next.minimumPrice);
-        if (next.maximumPrice) params.set("maxPrice", next.maximumPrice);
-        for (const airline of next.airlines) params.append("airline", airline);
-        for (const arrival of next.arrivals) params.append("arrival", arrival);
-        for (const stops of next.stops) params.append("stops", stops);
-        return params;
-      },
-      { replace: true },
-    );
-  }
   const options = useMemo(
     () =>
       results.flatMap((result) =>
@@ -182,30 +127,6 @@ export default function FareResults({
       ),
     ),
   );
-  const airlines = useMemo(
-    () => [...new Set(options.flatMap(airlinesFor))].filter(Boolean).sort(),
-    [options],
-  );
-  const prices = options
-    .flatMap((option) => option.itinerary.price?.amount ?? [])
-    .filter(Number.isFinite);
-  const priceMinimum = prices.length ? Math.min(...prices) : 0;
-  const priceMaximum = prices.length ? Math.max(...prices) : 0;
-  const selectedMinimum = Math.max(
-    priceMinimum,
-    Math.min(priceMaximum, number(filters.minimumPrice) ?? priceMinimum),
-  );
-  const selectedMaximum = Math.max(
-    priceMinimum,
-    Math.min(priceMaximum, number(filters.maximumPrice) ?? priceMaximum),
-  );
-  const priceSpan = priceMaximum - priceMinimum || 1;
-  const rangeStyle = {
-    "--range-start": `${((selectedMinimum - priceMinimum) / priceSpan) * 100}%`,
-    "--range-end": `${((selectedMaximum - priceMinimum) / priceSpan) * 100}%`,
-  } as CSSProperties;
-  const matching = options.filter((option) => matches(option, filters));
-
   return (
     <section className="fare-results" aria-label="Flight options">
       <Title3 as="h2">Flight options</Title3>
@@ -214,124 +135,8 @@ export default function FareResults({
         Prices and airline preferences determine the current highlights.
       </Text>
       {selectionError && <Text role="alert">{selectionError}</Text>}
-      <div className="fare-filters" aria-label="Filter flight options">
-        <div className="fare-filters-heading">
-          <Text weight="semibold">Filter options</Text>
-          <Button
-            appearance="subtle"
-            onClick={() => setFilters(initialFilters)}
-          >
-            Clear filters
-          </Button>
-        </div>
-        <div className="fare-filter-grid">
-          <fieldset className="price-range-filter">
-            <legend>Price range</legend>
-            <div className="price-range-sliders" style={rangeStyle}>
-              <input
-                aria-label="Minimum price slider"
-                type="range"
-                min={priceMinimum}
-                max={priceMaximum}
-                value={selectedMinimum}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    minimumPrice: String(
-                      Math.min(Number(event.target.value), selectedMaximum),
-                    ),
-                  })
-                }
-              />
-              <input
-                aria-label="Maximum price slider"
-                type="range"
-                min={priceMinimum}
-                max={priceMaximum}
-                value={selectedMaximum}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    maximumPrice: String(
-                      Math.max(Number(event.target.value), selectedMinimum),
-                    ),
-                  })
-                }
-              />
-            </div>
-            <div className="price-range-inputs">
-              <Field label="Minimum">
-                <Input
-                  aria-label="Minimum price"
-                  type="number"
-                  min={0}
-                  value={filters.minimumPrice}
-                  onChange={(_, data) =>
-                    setFilters({ ...filters, minimumPrice: data.value })
-                  }
-                />
-              </Field>
-              <Field label="Maximum">
-                <Input
-                  aria-label="Maximum price"
-                  type="number"
-                  min={0}
-                  value={filters.maximumPrice}
-                  onChange={(_, data) =>
-                    setFilters({ ...filters, maximumPrice: data.value })
-                  }
-                />
-              </Field>
-            </div>
-          </fieldset>
-          <Field label="Airline">
-            <AirlineCombobox
-              value={filters.airlines}
-              onChange={(selected) =>
-                setFilters({ ...filters, airlines: selected })
-              }
-              options={airlines.map((airline) => ({
-                value: airline,
-                label: airline,
-              }))}
-              allowCustomCode={false}
-              ariaLabel="Airline"
-              tagsLabel="Filtered airlines"
-              placeholder="Search airlines"
-            />
-          </Field>
-          <Field label="Arrival time">
-            <Dropdown
-              multiselect
-              placeholder="Any time"
-              selectedOptions={filters.arrivals}
-              onOptionSelect={(_, data) =>
-                setFilters({ ...filters, arrivals: data.selectedOptions })
-              }
-            >
-              <Option value="morning">Before noon</Option>
-              <Option value="afternoon">Noon–6 PM</Option>
-              <Option value="evening">After 6 PM</Option>
-            </Dropdown>
-          </Field>
-          <Field label="Stops">
-            <Dropdown
-              multiselect
-              placeholder="Any number"
-              selectedOptions={filters.stops}
-              onOptionSelect={(_, data) =>
-                setFilters({ ...filters, stops: data.selectedOptions })
-              }
-            >
-              <Option value="0">Nonstop</Option>
-              <Option value="1">1 stop</Option>
-              <Option value="2">2 stops</Option>
-            </Dropdown>
-          </Field>
-        </div>
-      </div>
       {parties.map((party) => {
-        const partyOptions = matching.filter(
+        const partyOptions = options.filter(
           (option) => option.partyId === party.id,
         );
         const eligible = partyOptions.filter(
@@ -435,7 +240,7 @@ function PartyResults({
         <Text>
           {excluded.length > 0
             ? "No flights can be recommended under the current requirements. Review the excluded options below."
-            : "No flights match these filters."}
+            : "No flight options are available yet."}
         </Text>
       )}
       {cheapest && (
@@ -444,6 +249,7 @@ function PartyResults({
           option={cheapest}
           tripId={tripId}
           cities={cities}
+          preferredAirlines={preferredAirlines}
           selectedFlight={selectedFlight}
           selectionBusy={selectionBusy}
           onChangeSelection={onChangeSelection}
@@ -455,6 +261,7 @@ function PartyResults({
           option={preferred}
           tripId={tripId}
           cities={cities}
+          preferredAirlines={preferredAirlines}
           selectedFlight={selectedFlight}
           selectionBusy={selectionBusy}
           onChangeSelection={onChangeSelection}
@@ -467,6 +274,7 @@ function PartyResults({
           option={nonstop}
           tripId={tripId}
           cities={cities}
+          preferredAirlines={preferredAirlines}
           selectedFlight={selectedFlight}
           selectionBusy={selectionBusy}
           onChangeSelection={onChangeSelection}
@@ -482,6 +290,7 @@ function PartyResults({
                 option={option}
                 tripId={tripId}
                 cities={cities}
+                preferredAirlines={preferredAirlines}
                 selectedFlight={selectedFlight}
                 selectionBusy={selectionBusy}
                 onChangeSelection={onChangeSelection}
@@ -500,6 +309,7 @@ function PartyResults({
                 option={option}
                 tripId={tripId}
                 cities={cities}
+                preferredAirlines={preferredAirlines}
                 selectedFlight={selectedFlight}
                 selectionBusy={selectionBusy}
                 onChangeSelection={onChangeSelection}
@@ -518,6 +328,7 @@ function HighlightedFare({
   detail,
   tripId,
   cities,
+  preferredAirlines,
   selectedFlight,
   selectionBusy,
   onChangeSelection,
@@ -527,6 +338,7 @@ function HighlightedFare({
   detail?: string;
   tripId: string;
   cities: AirportCities;
+  preferredAirlines: string[];
   selectedFlight?: SelectedFlight;
   selectionBusy: boolean;
   onChangeSelection: (option: FareOption, selected: boolean) => Promise<void>;
@@ -536,6 +348,7 @@ function HighlightedFare({
       option={option}
       tripId={tripId}
       cities={cities}
+      preferredAirlines={preferredAirlines}
       selectedFlight={selectedFlight}
       selectionBusy={selectionBusy}
       onChangeSelection={onChangeSelection}
@@ -601,6 +414,7 @@ function FareCard({
   option,
   tripId,
   cities,
+  preferredAirlines,
   title,
   detail,
   highlighted = false,
@@ -611,6 +425,7 @@ function FareCard({
   option: FareOption;
   tripId: string;
   cities: AirportCities;
+  preferredAirlines: string[];
   title?: string;
   detail?: string;
   highlighted?: boolean;
@@ -651,7 +466,7 @@ function FareCard({
           <FlightInformation
             leg={outbound}
             cities={cities}
-            title="Outbound flight"
+            preferredAirlines={preferredAirlines}
             price={option.itinerary.price}
             priceContext="Round-trip total"
             timeOnly
@@ -661,7 +476,7 @@ function FareCard({
           <FlightInformation
             leg={inbound}
             cities={cities}
-            title="Return flight"
+            preferredAirlines={preferredAirlines}
             price={option.itinerary.price}
             priceContext="Round-trip total"
             timeOnly
@@ -733,32 +548,6 @@ function sameItinerary(selected: SelectedFlight, option: FareOption): boolean {
   return route(selected.itinerary) === route(option.itinerary);
 }
 
-function matches(option: FareOption, filters: Filters) {
-  const price = option.itinerary.price?.amount;
-  const minimum = number(filters.minimumPrice);
-  const maximum = number(filters.maximumPrice);
-  if (minimum !== undefined && (price === undefined || price < minimum))
-    return false;
-  if (maximum !== undefined && (price === undefined || price > maximum))
-    return false;
-  if (
-    filters.airlines.length > 0 &&
-    !filters.airlines.some((airline) => airlinesFor(option).includes(airline))
-  )
-    return false;
-  if (
-    filters.stops.length > 0 &&
-    !filters.stops.includes(String(stops(option)))
-  )
-    return false;
-  if (
-    filters.arrivals.length > 0 &&
-    !filters.arrivals.includes(arrivalPeriod(option))
-  )
-    return false;
-  return true;
-}
-
 function cheapestOption(options: FareOption[]) {
   return [...options]
     .filter((option) => option.itinerary.price !== undefined)
@@ -768,22 +557,10 @@ function cheapestOption(options: FareOption[]) {
     )[0];
 }
 
-function airlinesFor(option: FareOption) {
-  return [
-    option.itinerary.outbound?.carrier,
-    option.itinerary.inbound?.carrier,
-  ].filter((carrier): carrier is string => !!carrier);
-}
-
 function usesPreferredAirline(option: FareOption, preferredAirlines: string[]) {
-  const preferred = new Set(
-    preferredAirlines.map((airline) => airline.toUpperCase()),
-  );
   return [option.itinerary.outbound, option.itinerary.inbound].some(
     (direction) =>
-      direction?.segments.some((segment) =>
-        preferred.has(segment.marketing_carrier_code?.toUpperCase() ?? ""),
-      ),
+      direction && legUsesPreferredAirline(direction, preferredAirlines),
   );
 }
 
@@ -792,15 +569,6 @@ function stops(option: FareOption) {
     Math.max(0, (option.itinerary.outbound?.segments.length ?? 1) - 1),
     Math.max(0, (option.itinerary.inbound?.segments.length ?? 1) - 1),
   );
-}
-
-function arrivalPeriod(option: FareOption) {
-  const time = option.itinerary.inbound?.segments.at(-1)?.arrival_time_local;
-  const hour = time ? Number(time.slice(11, 13)) : Number.NaN;
-  if (!Number.isFinite(hour)) return "";
-  if (hour < 12) return "morning";
-  if (hour < 18) return "afternoon";
-  return "evening";
 }
 
 function differenceFromCheapest(option: FareOption, cheapest: FareOption) {
@@ -837,8 +605,4 @@ function firstBookingUrl(response: unknown): string | undefined {
     }
   }
   return undefined;
-}
-
-function number(value: string) {
-  return value === "" ? undefined : Number(value);
 }

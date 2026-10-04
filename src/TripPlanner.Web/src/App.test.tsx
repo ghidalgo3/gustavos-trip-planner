@@ -40,7 +40,7 @@ test("opens the profile route from the user menu and keeps sign out there", asyn
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).endsWith("/api/user")) {
+      if (String(input).endsWith("/user")) {
         userReads += 1;
         return {
           ok: true,
@@ -160,7 +160,7 @@ test("asks a newly created user for their home city", async () => {
   expect(
     await screen.findByRole("heading", { name: "Where do you call home?" }),
   ).toBeVisible();
-  expect(document.querySelector('img[src="/api/user/avatar"]')).not.toBeNull();
+  expect(document.querySelector('img[src="/user/avatar"]')).not.toBeNull();
   expect(
     screen.queryByRole("button", { name: "Plan a trip" }),
   ).not.toBeInTheDocument();
@@ -172,7 +172,7 @@ test("autocompletes and saves the user's home city", async () => {
       const url = input.toString();
       if (url.includes("/airports/home"))
         return Response.json([{ code: "BOS", name: "Logan", city: "Boston" }]);
-      if (url.endsWith("/api/user")) {
+      if (url.endsWith("/user")) {
         return {
           ok: true,
           json: async () => ({
@@ -184,7 +184,7 @@ test("autocompletes and saves the user's home city", async () => {
           }),
         };
       }
-      if (url.endsWith("/api/mapToken")) {
+      if (url.endsWith("/mapToken")) {
         return {
           ok: true,
           json: async () => ({
@@ -217,7 +217,7 @@ test("autocompletes and saves the user's home city", async () => {
           }),
         };
       }
-      if (url.endsWith("/api/user/profile")) {
+      if (url.endsWith("/user/profile")) {
         expect(init?.method).toBe("PUT");
         expect(JSON.parse(init?.body as string)).toEqual({
           homeCity: {
@@ -248,7 +248,7 @@ test("autocompletes and saves the user's home city", async () => {
         };
       }
       if (
-        url.endsWith("/api/user/d8612b89-4343-4a30-aed4-6b7f2f8c8123/trips") &&
+        url.endsWith("/user/d8612b89-4343-4a30-aed4-6b7f2f8c8123/trips") &&
         !init?.method
       ) {
         return { ok: true, json: async () => [] };
@@ -307,7 +307,7 @@ test("autocompletes and saves the user's home city", async () => {
   expect(await screen.findByText("Welcome back, Ada Traveler.")).toBeVisible();
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/user/profile"),
+      expect.stringContaining("/user/profile"),
       expect.objectContaining({ method: "PUT" }),
     ),
   );
@@ -328,7 +328,7 @@ test("loads a trip from its route and returns to the trips page", async () => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
-      if (url.endsWith("/api/user"))
+      if (url.endsWith("/user"))
         return {
           ok: true,
           json: async () => ({
@@ -342,11 +342,11 @@ test("loads a trip from its route and returns to the trips page", async () => {
             },
           }),
         };
-      if (url.endsWith(`/api/user/${userId}/trips/trip-1`))
+      if (url.endsWith(`/user/${userId}/trips/trip-1`))
         return { ok: true, json: async () => trip };
-      if (url.endsWith("/api/trips/trip-1/selectedFlights"))
-        return { ok: true, json: async () => [] };
-      if (url.endsWith(`/api/user/${userId}/trips/trip-1/planning`))
+      if (url.endsWith("/trips/trip-1/flights"))
+        return { ok: true, status: 204 };
+      if (url.endsWith("/trips/trip-1/flights/constraints"))
         return {
           ok: true,
           json: async () => ({
@@ -357,14 +357,18 @@ test("loads a trip from its route and returns to the trips page", async () => {
               parties: [],
               constraints: [],
             },
-            parties: [
-              { id: "party-1", members: [{ id: userId, name: "Ada" }] },
-            ],
           }),
         };
-      if (url.endsWith(`/api/user/${userId}/trips`))
+      if (url.endsWith("/trips/trip-1/parties"))
+        return {
+          ok: true,
+          json: async () => [
+            { id: "party-1", members: [{ id: userId, name: "Ada" }] },
+          ],
+        };
+      if (url.endsWith(`/user/${userId}/trips`))
         return { ok: true, json: async () => [trip] };
-      if (url.includes("/api/operations?"))
+      if (url.includes("/operations?"))
         return { ok: true, json: async () => [] };
       throw new Error(`Unexpected request: ${url}`);
     }),

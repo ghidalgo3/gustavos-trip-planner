@@ -13,11 +13,14 @@ public class PlanningEndpointTests
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
         var (user, trip) = await CreateAsync(client);
-        string path = $"/api/user/{user.Id}/trips/{trip.Id}";
-        var editor = await client.GetFromJsonAsync<PlanningEditor>($"{path}/planning");
-        Assert.IsNotNull(editor);
-        Assert.HasCount(1, editor.Parties);
-        Assert.AreEqual("BOS", editor.Parties[0].SuggestedOrigin?.Code);
+        string path = $"/trips/{trip.Id}/flights/constraints";
+        var current = await client.GetFromJsonAsync<PlanningDocument>(path);
+        PlanningParty[] parties = (
+            await client.GetFromJsonAsync<PlanningParty[]>($"/trips/{trip.Id}/parties")
+        )!;
+        Assert.IsNotNull(current);
+        Assert.HasCount(1, parties);
+        Assert.AreEqual("BOS", parties[0].SuggestedOrigin?.Code);
         var document = new PlanningDocument
         {
             Destination = new("CDG", "Europe/Paris"),
@@ -25,7 +28,7 @@ public class PlanningEndpointTests
             [
                 new()
                 {
-                    PartyId = editor.Parties[0].Id,
+                    PartyId = parties[0].Id,
                     Origin = new("BOS", "America/New_York"),
                     PreferredAirlines = ["DL"],
                 },
@@ -48,11 +51,11 @@ public class PlanningEndpointTests
                 },
             ],
         };
-        var saved = await client.PutAsJsonAsync($"{path}/constraints", document);
+        var saved = await client.PutAsJsonAsync(path, document);
         Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
-        var reloaded = await client.GetFromJsonAsync<PlanningEditor>($"{path}/planning");
-        Assert.AreEqual("CDG", reloaded?.Document.Destination?.Code);
-        Assert.AreEqual(document.Constraints[0].Id, reloaded?.Document.Constraints[0].Id);
+        var reloaded = await client.GetFromJsonAsync<PlanningDocument>(path);
+        Assert.AreEqual("CDG", reloaded?.Destination?.Code);
+        Assert.AreEqual(document.Constraints[0].Id, reloaded?.Constraints[0].Id);
         var beforeUpdate = factory.Database.Trips.Single().Constraints.GetRawText();
         // Editing a trip's description must not erase planning details.
         await client.PutAsJsonAsync(path, new UpdateTripRequest("Renamed", "New description"));
@@ -66,25 +69,15 @@ public class PlanningEndpointTests
         using var ownerClient = factory.CreateClient();
         var (owner, trip) = await CreateAsync(ownerClient);
         using var otherClient = factory.CreateClient();
-        var (other, _) = await CreateAsync(otherClient);
-        string ownerPath = $"/api/user/{owner.Id}/trips/{trip.Id}";
-        string otherPath = $"/api/user/{other.Id}/trips/{trip.Id}";
-        foreach (var path in new[] { ownerPath, otherPath })
-        {
-            var expected = path == ownerPath ? HttpStatusCode.Forbidden : HttpStatusCode.NotFound;
-            Assert.AreEqual(expected, (await otherClient.GetAsync($"{path}/planning")).StatusCode);
-            Assert.AreEqual(
-                expected,
-                (
-                    await otherClient.PutAsJsonAsync($"{path}/constraints", new PlanningDocument())
-                ).StatusCode
-            );
-        }
-        using var anonymous = factory.CreateClient();
+        _ = await CreateAsync(otherClient);
+        string path = $"/trips/{trip.Id}/flights/constraints";
+        Assert.AreEqual(HttpStatusCode.NotFound, (await otherClient.GetAsync(path)).StatusCode);
         Assert.AreEqual(
-            HttpStatusCode.Unauthorized,
-            (await anonymous.GetAsync($"{ownerPath}/planning")).StatusCode
+            HttpStatusCode.NotFound,
+            (await otherClient.PutAsJsonAsync(path, new PlanningDocument())).StatusCode
         );
+        using var anonymous = factory.CreateClient();
+        Assert.AreEqual(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
     }
 
     [TestMethod]
@@ -93,7 +86,7 @@ public class PlanningEndpointTests
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
         var (user, trip) = await CreateAsync(client);
-        string path = $"/api/user/{user.Id}/trips/{trip.Id}/constraints";
+        string path = $"/trips/{trip.Id}/flights/constraints";
         var invalid = new PlanningDocument
         {
             Constraints =
@@ -135,31 +128,26 @@ public class PlanningEndpointTests
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
         var (user, trip) = await CreateAsync(client);
-        var path = $"/api/user/{user.Id}/trips/{trip.Id}";
-        var editor = (await client.GetFromJsonAsync<PlanningEditor>($"{path}/planning"))!;
+        var path = $"/user/{user.Id}/trips/{trip.Id}";
+        var parties = (
+            await client.GetFromJsonAsync<PlanningParty[]>($"/trips/{trip.Id}/parties")
+        )!;
         var airports = (
-            await client.GetFromJsonAsync<TripPlanner.Api.Services.Airport[]>("/api/airports?q=CDG")
+            await client.GetFromJsonAsync<TripPlanner.Api.Services.Airport[]>("/airports?q=CDG")
         )!;
         Assert.AreEqual("CDG", airports[0].Code);
         var document = new PlanningDocument
         {
             Destination = airports[0].Location,
             TravelDates = new(new(2030, 1, 5), new(2030, 1, 15)),
-            Parties =
-            [
-                new()
-                {
-                    PartyId = editor.Parties[0].Id,
-                    Origin = editor.Parties[0].SuggestedOrigin,
-                },
-            ],
+            Parties = [new() { PartyId = parties[0].Id, Origin = parties[0].SuggestedOrigin }],
         };
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync($"{path}/constraints", document)).StatusCode
+            (await client.PutAsJsonAsync(path, document)).StatusCode
         );
         var response = await client.PostAsJsonAsync(
-            $"/api/trips/{trip.Id}/flightSearch",
+            $"/trips/{trip.Id}/flights:search",
             new StartFlightSearchRequest(Guid.NewGuid())
         );
         Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode);
@@ -171,12 +159,12 @@ public class PlanningEndpointTests
         client.DefaultRequestHeaders.Add("X-Test-Subject", email);
         client.DefaultRequestHeaders.Add("X-Test-Email", email);
         var onboarded = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Boston", -71, 42), [])
         );
         var user = (await onboarded.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
         var created = await client.PostAsJsonAsync(
-            $"/api/user/{user.Id}/trips",
+            $"/user/{user.Id}/trips",
             new CreateTripRequest("Test trip", "")
         );
         return (user, (await created.Content.ReadFromJsonAsync<Trip>())!);

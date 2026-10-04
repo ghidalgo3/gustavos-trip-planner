@@ -15,7 +15,7 @@ public class AuthenticationTests
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
 
-        var user = await client.GetFromJsonAsync<UserResponse>("/api/user");
+        var user = await client.GetFromJsonAsync<UserResponse>("/user");
 
         Assert.IsNotNull(user);
         Assert.IsFalse(user.IsAuthenticated);
@@ -28,7 +28,7 @@ public class AuthenticationTests
         using var client = factory.CreateClient();
         AddTestPrincipal(client, "google-ada-123", "Ada Traveler", "ada@example.com");
 
-        var response = await client.GetAsync("/api/user");
+        var response = await client.GetAsync("/user");
         var user = await response.Content.ReadFromJsonAsync<UserResponse>();
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
@@ -42,7 +42,7 @@ public class AuthenticationTests
         Assert.HasCount(1, factory.Database.Users);
         Assert.AreEqual("ada@example.com", factory.Database.Users.Single().Email);
 
-        var repeatedUser = await client.GetFromJsonAsync<UserResponse>("/api/user");
+        var repeatedUser = await client.GetFromJsonAsync<UserResponse>("/user");
         Assert.IsNotNull(repeatedUser);
         Assert.AreEqual(user.Id, repeatedUser.Id);
         Assert.HasCount(1, factory.Database.Users);
@@ -55,7 +55,7 @@ public class AuthenticationTests
         using var googleClient = factory.CreateClient();
         AddTestPrincipal(googleClient, "google-ada-123", "Ada Traveler", "Ada@Example.com");
 
-        var googleUser = await googleClient.GetFromJsonAsync<UserResponse>("/api/user");
+        var googleUser = await googleClient.GetFromJsonAsync<UserResponse>("/user");
 
         using var microsoftClient = factory.CreateClient();
         AddTestPrincipal(
@@ -66,7 +66,7 @@ public class AuthenticationTests
             "microsoft"
         );
 
-        var microsoftUser = await microsoftClient.GetFromJsonAsync<UserResponse>("/api/user");
+        var microsoftUser = await microsoftClient.GetFromJsonAsync<UserResponse>("/user");
 
         Assert.IsNotNull(googleUser);
         Assert.IsNotNull(microsoftUser);
@@ -84,7 +84,7 @@ public class AuthenticationTests
         using var client = factory.CreateClient();
         AddTestPrincipal(client, "not-provisioned");
 
-        var response = await client.GetAsync("/api");
+        var response = await client.GetAsync("/service");
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.IsEmpty(factory.Database.Users);
@@ -96,7 +96,7 @@ public class AuthenticationTests
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/mapToken");
+        var response = await client.GetAsync("/mapToken");
 
         Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -108,7 +108,7 @@ public class AuthenticationTests
         using var client = factory.CreateClient();
         AddGooglePrincipal(client);
 
-        var response = await client.GetAsync("/api/user/avatar");
+        var response = await client.GetAsync("/user/avatar");
 
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
         Assert.IsEmpty(factory.Database.Users);
@@ -121,7 +121,7 @@ public class AuthenticationTests
         using var client = factory.CreateClient();
         AddGooglePrincipal(client);
 
-        var response = await client.GetAsync("/api/mapToken");
+        var response = await client.GetAsync("/mapToken");
         var token = await response.Content.ReadFromJsonAsync<MapTokenResponse>();
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
@@ -140,7 +140,7 @@ public class AuthenticationTests
         AddGooglePrincipal(client);
 
         var response = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new
             {
                 homeCity = new
@@ -170,15 +170,15 @@ public class AuthenticationTests
         using var client = factory.CreateClient();
         AddGooglePrincipal(client);
         var city = new ProfileHomeCity("Tokyo", 139.69, 35.68);
-        var missing = await client.PutAsJsonAsync("/api/user/profile", new UserProfile(city, []));
+        var missing = await client.PutAsJsonAsync("/user/profile", new UserProfile(city, []));
         Assert.AreEqual(HttpStatusCode.BadRequest, missing.StatusCode);
         var invalid = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(city, [], "ATL")
         );
         Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
         var saved = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(city, ["NH"], "HND")
         );
         Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
@@ -199,12 +199,12 @@ public class AuthenticationTests
         AddGooglePrincipal(client);
 
         var first = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Boston", -71, 42), ["DL"])
         );
         first.EnsureSuccessStatusCode();
         var updated = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Paris", 2.35, 48.86), ["af", "DL", "AF"], "CDG")
         );
         var response = await updated.Content.ReadFromJsonAsync<CurrentUserResponse>();
@@ -229,13 +229,13 @@ public class AuthenticationTests
         AddGooglePrincipal(client);
         (
             await client.PutAsJsonAsync(
-                "/api/user/profile",
+                "/user/profile",
                 new UserProfile(new("Boston", -71, 42), ["DL"])
             )
         ).EnsureSuccessStatusCode();
 
         var response = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Paris", 2.35, 48.86), ["TOOLONG"])
         );
 

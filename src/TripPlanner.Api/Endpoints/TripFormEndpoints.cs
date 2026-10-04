@@ -9,21 +9,23 @@ public static class TripFormEndpoints
 {
     public static void MapTripFormEndpoints(this RouteGroupBuilder api)
     {
-        api.MapPost("/user/{userId:guid}/trips/{tripId:guid}/formProposal", Propose)
-            .WithName("StartTripFormFill")
+        api.MapPost("/trips/{tripId:guid}/flights:prompt", Propose)
+            .WithName("StartFlightConstraintPrompt")
+            .WithTags("Flight Constraints")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
-        api.MapGet(
-                "/user/{userId:guid}/trips/{tripId:guid}/formProposal/{operationId:guid}",
-                GetProposal
-            )
-            .WithName("GetTripFormProposal")
+        api.MapGet("/trips/{tripId:guid}/flights/prompts/{operationId:guid}", GetProposal)
+            .WithName("GetFlightConstraintPrompt")
+            .WithTags("Flight Constraints")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
     }
 
-    private sealed record ProposalRequest(Guid RequestId, string Input, PlanningDocument Draft);
+    private sealed record ProposalRequest(
+        Guid RequestId,
+        string Input,
+        PlanningDocument Constraints
+    );
 
     private static async Task<IResult> Propose(
-        Guid userId,
         Guid tripId,
         ProposalRequest request,
         HttpContext context,
@@ -39,9 +41,7 @@ public static class TripFormEndpoints
         );
         if (error is not null)
             return error;
-        if (user!.Id != userId)
-            return Results.Forbid();
-        if (!user.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        if (user is null || !user.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
             return Results.Forbid();
         if (string.IsNullOrWhiteSpace(request.Input) || request.Input.Length > 4000)
             return Results.ValidationProblem(
@@ -50,9 +50,12 @@ public static class TripFormEndpoints
                     ["input"] = ["Describe the trip in 1 to 4000 characters."],
                 }
             );
-        if (request.Draft is null)
+        if (request.Constraints is null)
             return Results.ValidationProblem(
-                new Dictionary<string, string[]> { ["draft"] = ["A planning draft is required."] }
+                new Dictionary<string, string[]>
+                {
+                    ["constraints"] = ["Flight constraints are required."],
+                }
             );
         if (request.RequestId == Guid.Empty)
             return Results.ValidationProblem(
@@ -75,16 +78,16 @@ public static class TripFormEndpoints
             editorParties.Add(new(party.Id, members, airports.SuggestOrigin([user])));
         }
         // Keep only the trip's real parties; client-supplied IDs cannot create new parties.
-        PlanningDocument draft = request.Draft with
+        PlanningDocument draft = request.Constraints with
         {
             Parties = editorParties
                 .Select(p =>
-                    request.Draft.Parties.FirstOrDefault(saved => saved.PartyId == p.Id)
+                    request.Constraints.Parties.FirstOrDefault(saved => saved.PartyId == p.Id)
                     ?? new PartySearchSettings { PartyId = p.Id, Origin = p.SuggestedOrigin }
                 )
                 .ToArray(),
             Constraints = request
-                .Draft.Constraints.Where(c =>
+                .Constraints.Constraints.Where(c =>
                     editorParties.Any(p => p.Members.Any(m => m.Id == c.UserId))
                 )
                 .ToArray(),
@@ -109,7 +112,6 @@ public static class TripFormEndpoints
     }
 
     private static async Task<IResult> GetProposal(
-        Guid userId,
         Guid tripId,
         Guid operationId,
         HttpContext context,
@@ -124,9 +126,7 @@ public static class TripFormEndpoints
         );
         if (error is not null)
             return error;
-        if (user!.Id != userId)
-            return Results.Forbid();
-        if (!user.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        if (user is null || !user.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
             return Results.Forbid();
         context.Response.Headers.CacheControl = "no-store";
         TripFormProposal? proposal = await database.GetTripFormProposalAsync(

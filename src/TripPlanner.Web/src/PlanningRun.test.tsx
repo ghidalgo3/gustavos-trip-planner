@@ -42,7 +42,7 @@ const operation: TrackedOperation = {
   progress: { items: 2, completedItems: 0, failedItems: 0 },
   createdAt: "2030-01-01T12:00:00Z",
   updatedAt: "2030-01-01T12:00:00Z",
-  pollingUrl: "/api/operations/operation",
+  pollingUrl: "/operations/operation",
 };
 const save = vi.fn(async () => undefined);
 
@@ -195,7 +195,12 @@ test("a saved first flight advances to the second flight after search completes"
     await screen.findByRole("button", { name: "Choose flight 1" }),
   );
   await waitFor(() => expect(setFlightChoices).toHaveBeenCalledOnce());
-  expect(await screen.findByText(/Flight 2 of 2: choose/)).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    ),
+  );
   expect(screen.getByText("Saving flight choice…")).toBeVisible();
   finishSave?.();
   await waitFor(() =>
@@ -283,7 +288,10 @@ test("a saved first flight advances while later route searches continue", async 
     await screen.findByRole("button", { name: "Choose flight 1" }),
   );
   await waitFor(() => expect(setFlightChoices).toHaveBeenCalledOnce());
-  expect(await screen.findByText(/Flight 2 of 3/)).toBeVisible();
+  expect(await screen.findByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   expect(screen.getByRole("button", { name: "Choose flight 2" })).toBeVisible();
 });
 

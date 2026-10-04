@@ -41,7 +41,7 @@ scripts/server
 
 The script reads the four authentication values and the Ignav and OpenAI keys from the deployed Azure Key Vault, then issues a two-hour Azure Maps development SAS with a 50 request-per-second limit. It passes those values only to the API container. It does not create an `.env` file or expose provider client secrets to the React application. The browser obtains the short-lived Maps SAS from the authenticated API route. Pass Docker Compose options through the script, for example `scripts/server --detach`; stop detached containers with `docker compose down`.
 
-Open <http://localhost:5173>. Vite proxies `/api` calls to the API container at `http://api:8080`; editing the frontend triggers HMR, while `dotnet watch` rebuilds and restarts the API without interactive hot-reload prompts. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
+Open <http://localhost:5173>. Vite proxies application API calls to the API container at `http://api:8080`; editing the frontend triggers HMR, while `dotnet watch` rebuilds and restarts the API without interactive hot-reload prompts. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
 
 Useful commands when Node.js and .NET are installed locally:
 
@@ -74,11 +74,11 @@ Infrastructure deployment maps the App Service managed identity and a dedicated 
 
 Each trip has an owning user, name, description, JSONB constraints document, and JSONB selected-flight snapshots keyed by party ID. A new trip and its initial party are inserted in one transaction; the initial party's UUID array contains only the owner. Party membership grants read access to the trip and its plan; only the owner can edit it. Adding someone to the owner's party shares the trip with them, and removing them revokes access. Deleting a trip cascades to all of its parties. Trip routes verify that the authenticated application user matches the user ID in the URL, and all database mutations also filter by owner ID.
 
-`GET /api/user` reads the authenticated ASP.NET principal and asks `IPlannerDb` for the user. The database creates the row only when the provider identity is new. The response includes `completedOnboarding`, which becomes true after a home-city geographic point has been stored. Other requests do not write to `users`.
+`GET /user` reads the authenticated ASP.NET principal and asks `IPlannerDb` for the user. The database creates the row only when the provider identity is new. The response includes `completedOnboarding`, which becomes true after a home-city geographic point has been stored. Other requests do not write to `users`.
 
-`GET /api/user/avatar` uses the access token in the current authenticated session to retrieve the profile image from Google UserInfo or Microsoft Graph. The API returns the image without storing its URL or contents; the client falls back to the user's initials when the provider has no image. Microsoft sign-in requests the delegated `User.Read` scope for this lookup.
+`GET /user/avatar` uses the access token in the current authenticated session to retrieve the profile image from Google UserInfo or Microsoft Graph. The API returns the image without storing its URL or contents; the client falls back to the user's initials when the provider has no image. Microsoft sign-in requests the delegated `User.Read` scope for this lookup.
 
-During onboarding, the client debounces city searches and calls Azure Maps Geocode Autocomplete directly for `PopulatedPlace` results. `GET /api/mapToken` returns an authenticated, short-lived SAS for that browser call. The API creates each SAS with a two-hour lifetime and an approximate limit of 50 requests per second; the browser reuses it until shortly before expiry. Selecting a result and continuing calls `PUT /api/user/profile` with a complete `UserProfile` object. If the city has multiple passenger airports, the profile requires a preferred airport; a sole airport is selected automatically. `GET /api/airports/home` resolves that list from the bundled catalog. City flight searches still include all airports, with the saved airport used as a ranking preference. The same route saves home-city, preferred-airport, and airline changes from `/profile` in one database update. The avatar button opens a menu with **Your profile** and **Sign out**. Preferred airlines initialize the owner's party preferences in newly opened planning documents.
+During onboarding, the client debounces city searches and calls Azure Maps Geocode Autocomplete directly for `PopulatedPlace` results. `GET /mapToken` returns an authenticated, short-lived SAS for that browser call. The API creates each SAS with a two-hour lifetime and an approximate limit of 50 requests per second; the browser reuses it until shortly before expiry. Selecting a result and continuing calls `PUT /user/profile` with a complete `UserProfile` object. If the city has multiple passenger airports, the profile requires a preferred airport; a sole airport is selected automatically. `GET /airports/home` resolves that list from the bundled catalog. City flight searches still include all airports, with the saved airport used as a ranking preference. The same route saves home-city, preferred-airport, and airline changes from `/profile` in one database update. The avatar button opens a menu with **Your profile** and **Sign out**. Preferred airlines initialize the owner's party preferences in newly opened planning documents.
 
 Airline preferences in the profile and advanced search, and the airline filter in flight results, use the same searchable multi-select combobox. Chosen airlines appear as removable tags; profile and planning preferences persist airline codes, while result filters preserve carrier names in the route query.
 
@@ -167,15 +167,19 @@ cache is fresh. The server verifies each choice against its cached fare and
 uses that fare's searched cities to identify and prioritize the next leg, even
 when Ignav returns a different airport within a city.
 The reusable flight card labels each endpoint with its city and airport code,
-for example Atlanta (ATL) → Phuket (HKT). The return step displays every
-compatible airline; **Edit flights** opens the earlier choices when a paired
-fare or route constraint narrows the returns. The completed route separates
-flights with the number of nights between local arrival and departure dates.
+for example Atlanta (ATL) → Phuket (HKT). A flight-step TabList shows the
+current leg, chosen legs, and upcoming legs. Known legs show their airport
+codes. Earlier tabs reopen those choices when a paired fare or route constraint
+narrows the returns. The completed route separates flights with the number of
+nights between local arrival and departure dates.
 The route price shown with each option is the total trip price; paired fares
-cannot be priced leg by leg. Filter complete routes by total price, outbound
-flight date, and return-flight date. After choosing the last flight, review the
-route and save the complete itinerary. Only HTTPS airline-direct links returned
-by Ignav are shown; third-party seller links are omitted.
+cannot be priced leg by leg. Cards on the cheapest complete route carry a
+badge; any flight leg using a travel party's preferred airline carries a
+separate **Preferred Airline** badge. After choosing the last flight, review
+the route and save the complete itinerary. **Deselect itinerary** below the
+save action clears the saved itinerary and flight choices so selection restarts
+at the first flight using the available results. Only HTTPS airline-direct
+links returned by Ignav are shown; third-party seller links are omitted.
 The Plans overview also shows airline booking options for each leg of a saved
 route while its original fare search is fresh. When that search expires, run
 **Find flights** again to obtain current links.
@@ -187,13 +191,13 @@ currency symbol alongside the currency code, such as USD $900.
 This prototype counts each account holder as an adult passenger.
 For users whose `users."FeatureFlags"` comma-separated value contains `LLM`, the
 planner also offers **Describe your trip**. The browser sends the text and current
-draft to `POST /api/user/{userId}/trips/{tripId}/formProposal`, which returns a
+draft to `POST /trips/{tripId}/flights:prompt`, which returns a
 `tripFormFill` operation with HTTP 202. The shared PostgreSQL-backed planning worker calls OpenAI's
 official .NET SDK for the Responses API with a forced `fill_trip_form` function,
 resolves destinations and visit order against its airport catalog, and stores the proposed
 document separately from the generic operation progress row. The browser polls
-`GET /api/operations/{id}` and reads the completed proposal at
-`GET /api/user/{userId}/trips/{tripId}/formProposal/{id}`. This does not save the
+`GET /operations/{id}` and reads the completed proposal at
+`GET /trips/{tripId}/flights/prompts/{operationId}`. This does not save the
 trip; review the populated fields and requirements, then choose **Save planning
 details**. The prompt becomes read-only after a successful fill and explains its
 locked state on hover or tap. **Plan again** confirms before unlocking the
@@ -227,23 +231,21 @@ full preference scoring is still pending.
 Each round-trip fare reuses the flight-information card for its outbound and
 return legs. The cards show city and airport names, localized time-only segment
 times, flight numbers, travel times, and connection durations.
-Airline, arrival-time, and stop filters support multiple selections; price can
-be set with two range handles or exact minimum and maximum amounts. Selecting
 **Book this fare** obtains an Ignav booking link only for that cached itinerary
 and opens the provider's booking option in a new tab.
 
 The trip page has **Flights**, **Stays**, and **Plans** tabs, each reflected in the
 URL. An eligible fare can be selected, replaced, or deselected for its party.
-`GET /api/trips/{tripId}/selectedFlights` returns the saved choices; `PUT` and
-`DELETE` on `/{partyId}` replace or clear one. The API checks a new choice against
+`GET /trips/{tripId}/flights` returns saved choices, or 204 when none have been
+selected; `PUT` and `DELETE` on `/{partyId}` replace or clear one. The API checks a new choice against
 the current cached search and stores an itinerary snapshot in `trips.selected_flights`,
 so the Plans overview still shows it after the fare cache expires. This is a
 saved planning choice, not a booking. Stays is currently a placeholder.
-`PUT /api/trips/{tripId}/selectedFlights/{partyId}/purchases` saves one
-purchase boolean per selected flight. `GET /api/airports/cities` resolves
+`PUT /trips/{tripId}/flights/{partyId}/purchases` saves one
+purchase boolean per selected flight. `GET /airports/cities` resolves
 airport codes to the city labels used by the flight cards.
 Partial route choices are saved in `trips.flight_choices` through
-`/api/trips/{tripId}/flightChoices`, so they survive a page refresh and can
+`/trips/{tripId}/flights/choices`, so they survive a page refresh and can
 prioritize pending searches for the next leg. Migration `0002` adds this column
 without clearing existing trips or purchases.
 
@@ -264,21 +266,21 @@ into the API container. Release config supplies `Ignav__ApiKey` using a managed-
 Key Vault reference, and `scripts/release` checks that the secret exists. The browser
 never receives it. No live fare searches are performed by the automated tests.
 
-- `POST /api/trips/{tripId}/flightSearch` accepts `{ requestId: "UUID" }`, reads the
+- `POST /trips/{tripId}/flights:search` accepts `{ requestId: "UUID" }`, reads the
   trip's saved constraints, and returns **202**, a `Location` polling URL,
   `Retry-After: 2`, and the operation. Reuse a request ID when retrying an uncertain
   submission.
-- `GET /api/trips/{tripId}/flightSearch` derives the required cache keys from the
+- `GET /trips/{tripId}/flights/search` derives the required cache keys from the
   current saved constraints and returns available fresh Ignav responses. It returns
   404 when none are available, signaling that POST must be run. Multi-city results
   are composed into complete routes as soon as cached searches permit; later
   search results expand the available routes.
-- `POST /api/trips/{tripId}/flightSearch/{cacheKey}/bookingLinks` accepts a cached
+- `POST /trips/{tripId}/flights/search/{cacheKey}/bookingLinks` accepts a cached
   itinerary's `ignavId` and returns the provider booking options. It rejects a
   cache key or itinerary that does not belong to the authenticated owner's current
   trip results.
-- `GET /api/operations?top=50&skip=0&type=flightSearch` lists the authenticated
-  user's operations in reverse chronological order. `GET /api/operations/{id}`
+- `GET /operations?top=50&skip=0&type=flightSearch` lists the authenticated
+  user's operations in reverse chronological order. `GET /operations/{id}`
   returns one operation belonging to that user.
 - Operations have `type: "flightSearch"`, `status` (`pending`, `InProgress`,
   `Completed`, or `Failed`), and `progress: { items, completedItems, failedItems }`.
@@ -388,28 +390,39 @@ There is no GitHub Actions CI/CD configuration. Releases are intentional local o
 | Method | Route | Notes |
 | --- | --- | --- |
 | GET | `/health` | App Service liveness probe |
-| GET | `/api` | Service metadata |
-| GET | `/api/user` | Current authenticated profile, feature flags, or anonymous state |
-| GET | `/api/user/avatar` | Proxy the current user's Google or Microsoft profile image without storing it |
-| PUT | `/api/user/profile` | Save the authenticated user's complete profile: home city and preferred airlines |
-| GET | `/api/airports/home?city={name}&longitude={longitude}&latitude={latitude}` | Resolve home-city passenger airports for profile selection |
-| GET | `/api/airports?q={query}` | Airport suggestions by city, name, or IATA code (2–100 characters) |
-| GET | `/api/users?query={name}` | Search other users by display name for party selection |
-| GET | `/api/mapToken` | Issue an authenticated two-hour Azure Maps SAS limited to 50 requests per second |
-| GET | `/api/user/{userId}/trips` | List trips owned by or shared with the authenticated user |
-| POST | `/api/user/{userId}/trips` | Create a trip and its initial one-person party |
-| GET | `/api/user/{userId}/trips/{tripId}` | Fetch an owned or shared trip |
-| PUT | `/api/user/{userId}/trips/{tripId}` | Update an owned trip's name and description |
-| DELETE | `/api/user/{userId}/trips/{tripId}` | Delete an owned trip and cascade its parties |
-| PUT | `/api/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently add a traveler to an owned party |
-| DELETE | `/api/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently remove a traveler from an owned party |
-| POST | `/api/trips/{tripId}/flightSearch` | Queue missing or expired Ignav fare searches; 202 with operation polling URL |
-| GET | `/api/trips/{tripId}/flightSearch` | Read all fresh cached fares required by the trip's current constraints; 404 when incomplete |
-| GET | `/api/operations?top={top}&skip={skip}&type={type}` | List the authenticated user's operations with paging and optional type filtering |
-| GET | `/api/operations/{operationId}` | Read one authorized operation's status and progress |
-| GET | `/api/user/{userId}/trips/{tripId}/planning` | Load saved constraints and current parties for the editor |
-| PUT | `/api/user/{userId}/trips/{tripId}/constraints` | Save a structured constraint draft for an owned trip |
-| POST | `/api/user/{userId}/trips/{tripId}/formProposal` | Start an asynchronous `tripFormFill` operation for an `LLM`-enabled trip owner |
-| GET | `/api/user/{userId}/trips/{tripId}/formProposal/{operationId}` | Read a completed form proposal |
+| GET | `/service` | Service metadata |
+| GET | `/user` | Current authenticated profile, feature flags, or anonymous state |
+| GET | `/user/avatar` | Proxy the current user's Google or Microsoft profile image without storing it |
+| PUT | `/user/profile` | Save the authenticated user's complete profile: home city and preferred airlines |
+| GET | `/airports/home?city={name}&longitude={longitude}&latitude={latitude}` | Resolve home-city passenger airports for profile selection |
+| GET | `/airports?q={query}` | Airport suggestions by city, name, or IATA code (2–100 characters) |
+| GET | `/users?query={name}` | Search other users by display name for party selection |
+| GET | `/mapToken` | Issue an authenticated two-hour Azure Maps SAS limited to 50 requests per second |
+| GET | `/user/{userId}/trips` | List trips owned by or shared with the authenticated user |
+| POST | `/user/{userId}/trips` | Create a trip and its initial one-person party |
+| GET | `/user/{userId}/trips/{tripId}` | Fetch an owned or shared trip |
+| PUT | `/user/{userId}/trips/{tripId}` | Update an owned trip's name and description |
+| DELETE | `/user/{userId}/trips/{tripId}` | Delete an owned trip and cascade its parties |
+| PUT | `/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently add a traveler to an owned party |
+| DELETE | `/user/{userId}/trips/{tripId}/parties/{partyId}/members/{memberId}` | Idempotently remove a traveler from an owned party |
+| GET | `/trips/{tripId}/parties` | Read the trip's parties and members |
+| GET | `/trips/{tripId}/flights/constraints` | Read the trip's saved flight constraints |
+| PUT | `/trips/{tripId}/flights/constraints` | Replace the trip's complete flight constraints |
+| POST | `/trips/{tripId}/flights:prompt` | Translate a free-form prompt into proposed constraints asynchronously |
+| GET | `/trips/{tripId}/flights/prompts/{operationId}` | Read the completed prompt result for review |
+| POST | `/trips/{tripId}/flights:search` | Queue missing or expired Ignav fare searches; 202 with operation polling URL |
+| GET | `/trips/{tripId}/flights/search` | Read fresh cached fare results, each identified by cache key; 404 when incomplete |
+| POST | `/trips/{tripId}/flights/search/{cacheKey}/bookingLinks` | Read airline booking options for one cached fare |
+| GET | `/trips/{tripId}/flights` | Read selected trip flights; 204 until a flight has been selected |
+| PUT | `/trips/{tripId}/flights/{partyId}` | Select or replace a fare by cache key and itinerary index |
+| DELETE | `/trips/{tripId}/flights/{partyId}` | Deselect a party's flight |
+| PUT | `/trips/{tripId}/flights/{partyId}/purchases` | Save purchase status for the selected flight's legs |
+| GET | `/trips/{tripId}/flights/choices` | Read in-progress route choices |
+| PUT | `/trips/{tripId}/flights/choices/{partyId}` | Save in-progress route choices by cache key |
+| GET | `/operations?top={top}&skip={skip}&type={type}` | List the authenticated user's operations with paging and optional type filtering |
+| GET | `/operations/{operationId}` | Read one authorized operation's status and progress |
 
-OpenAPI is available at `/openapi/v1.json` in Development.
+In Development, review the interactive API reference at
+`http://localhost:5173/scalar` through Vite's API proxy, or directly at
+`http://localhost:8080/scalar`. The underlying OpenAPI document remains at
+`/openapi/v1.json`.

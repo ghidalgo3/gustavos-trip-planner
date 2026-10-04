@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { afterEach, expect, test, vi } from "vitest";
 import FirstLegResults from "./FirstLegResults";
@@ -61,12 +61,34 @@ test("shows a first-leg fare while the rest of a route is searching", async () =
           },
         ]}
         choices={{}}
+        partySettings={[
+          {
+            partyId: "party",
+            origin: null,
+            cabin: "economy",
+            market: "US",
+            maxJourneyHours: 48,
+            maxStops: null,
+            preferredAirlines: ["DL"],
+          },
+        ]}
         legCount={4}
         onChoose={choose}
       />
     </FluentProvider>,
   );
-  expect(screen.getByText(/Flight 1 of 4/)).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    screen.getByRole("tablist", { name: "Ada flight steps" }),
+  ).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveTextContent(
+    "ATL → HKT",
+  );
+  expect(screen.getByRole("tab", { name: /Flight 2/ })).toBeDisabled();
+  expect(screen.getByText("Preferred Airline")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
   expect(choose).toHaveBeenCalledWith("party", [expect.any(String)]);
 });
@@ -127,11 +149,13 @@ test("features different airlines before repeating cheaper airline options", () 
     </FluentProvider>,
   );
   expect(
-    screen.getByText("Option 2").closest(".flight-information"),
-  ).toHaveTextContent("Turkish Airlines");
+    screen
+      .getByText(/Turkish Airlines · Nonstop/)
+      .closest(".flight-information"),
+  ).toBeVisible();
 });
 
-test("shows the next cached leg after the first flight is saved", () => {
+test("shows the next cached leg after the first flight is saved", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
   const first = {
     segments: [
@@ -203,9 +227,17 @@ test("shows the next cached leg after the first flight is saved", () => {
       />
     </FluentProvider>,
   );
-  expect(screen.getByText(/Flight 2 of 4/)).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   fireEvent.click(screen.getByRole("button", { name: "Choose flight 2" }));
   expect(choose).toHaveBeenCalledWith("party", [legKey(first), legKey(second)]);
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: /Flight 1/ })).not.toBeDisabled(),
+  );
+  fireEvent.click(screen.getByRole("tab", { name: /Flight 1/ }));
+  expect(choose).toHaveBeenCalledWith("party", []);
 });
 
 test("moves to a waiting second leg when its search has not finished", () => {
@@ -233,6 +265,9 @@ test("moves to a waiting second leg when its search has not finished", () => {
       />
     </FluentProvider>,
   );
-  expect(screen.getByText(/Flight 2 of 4/)).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   expect(screen.getByText("Searching flights for flight 2…")).toBeVisible();
 });

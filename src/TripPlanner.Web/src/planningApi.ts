@@ -1,4 +1,4 @@
-import { apiBaseUrl, tripResourceUrl, readTripError, type Trip } from "./api";
+import { apiBaseUrl, tripResourceUrl, readTripError } from "./api";
 
 export type SearchLocation = {
   code: string;
@@ -69,7 +69,7 @@ export type PlanningParty = {
   preferredAirport?: string | null;
   members: { id: string; name: string; homeCity: string | null }[];
 };
-export type PlanningEditor = {
+export type TripFlightPlanningData = {
   document: PlanningDocument;
   parties: PlanningParty[];
 };
@@ -79,37 +79,35 @@ export type TripFormProposal = {
 };
 
 export async function proposeTripForm(
-  userId: string,
   tripId: string,
   requestId: string,
   input: string,
-  draft: PlanningDocument,
+  constraints: PlanningDocument,
 ): Promise<import("./operationsApi").TrackedOperation> {
   const response = await fetch(
-    `${tripResourceUrl(userId, tripId)}/formProposal`,
+    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights:prompt`,
     {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId, input, draft }),
+      body: JSON.stringify({ requestId, input, constraints }),
     },
   );
-  if (!response.ok) await readTripError(response, "preparing the trip form");
+  if (!response.ok) await readTripError(response, "translating the trip prompt");
   return response.json();
 }
 
 export async function getTripFormProposal(
-  userId: string,
   tripId: string,
   operationId: string,
   signal?: AbortSignal,
 ): Promise<TripFormProposal> {
   const response = await fetch(
-    `${tripResourceUrl(userId, tripId)}/formProposal/${encodeURIComponent(operationId)}`,
+    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/prompts/${encodeURIComponent(operationId)}`,
     { credentials: "include", cache: "no-store", signal },
   );
   if (!response.ok)
-    await readTripError(response, "loading the trip form proposal");
+    await readTripError(response, "loading the prompt result");
   return response.json();
 }
 export type UserSearchResult = { id: string; name: string; email: string };
@@ -130,17 +128,31 @@ export type PreparedSearch = {
   dateDistance: number;
 };
 
-export async function getPlanning(
-  userId: string,
+export async function getTripFlightPlanningData(
   tripId: string,
   signal?: AbortSignal,
-): Promise<PlanningEditor> {
-  const response = await fetch(`${tripResourceUrl(userId, tripId)}/planning`, {
-    credentials: "include",
-    signal,
-  });
-  if (!response.ok) await readTripError(response, "loading planning");
-  return response.json();
+): Promise<TripFlightPlanningData> {
+  const base = `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}`;
+  const [constraintsResponse, partiesResponse] = await Promise.all([
+    fetch(`${base}/flights/constraints`, {
+      credentials: "include",
+      signal,
+      cache: "no-store",
+    }),
+    fetch(`${base}/parties`, {
+      credentials: "include",
+      signal,
+      cache: "no-store",
+    }),
+  ]);
+  if (!constraintsResponse.ok)
+    await readTripError(constraintsResponse, "loading flight constraints");
+  if (!partiesResponse.ok)
+    await readTripError(partiesResponse, "loading trip parties");
+  return {
+    document: await constraintsResponse.json(),
+    parties: await partiesResponse.json(),
+  };
 }
 
 export async function searchUsers(
@@ -148,7 +160,7 @@ export async function searchUsers(
   signal?: AbortSignal,
 ): Promise<UserSearchResult[]> {
   const response = await fetch(
-    `${apiBaseUrl}/api/users?query=${encodeURIComponent(query)}`,
+    `${apiBaseUrl}/users?query=${encodeURIComponent(query)}`,
     {
       credentials: "include",
       signal,
@@ -178,12 +190,11 @@ export async function changePartyMember(
 }
 
 export async function saveConstraints(
-  userId: string,
   tripId: string,
   document: PlanningDocument,
-): Promise<Trip> {
+): Promise<PlanningDocument> {
   const response = await fetch(
-    `${tripResourceUrl(userId, tripId)}/constraints`,
+    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/constraints`,
     {
       method: "PUT",
       credentials: "include",
@@ -191,7 +202,7 @@ export async function saveConstraints(
       body: JSON.stringify(document),
     },
   );
-  if (!response.ok) await readTripError(response, "saving constraints");
+  if (!response.ok) await readTripError(response, "saving flight constraints");
   return response.json();
 }
 
@@ -212,7 +223,7 @@ export async function searchAirports(
   const cached = airportCache.get(key);
   if (cached) return cached;
   const response = await fetch(
-    `${apiBaseUrl}/api/airports?q=${encodeURIComponent(key)}`,
+    `${apiBaseUrl}/airports?q=${encodeURIComponent(key)}`,
     { credentials: "include", signal },
   );
   if (!response.ok)

@@ -30,10 +30,10 @@ export default function HomeAirportPicker({
             longitude: String(point.longitude),
             latitude: String(point.latitude),
           });
-          const response = await fetch(
-            `${apiBaseUrl}/api/airports/home?${query}`,
-            { credentials: "include", signal: controller.signal },
-          );
+          const response = await fetch(`${apiBaseUrl}/airports/home?${query}`, {
+            credentials: "include",
+            signal: controller.signal,
+          });
           if (!response.ok)
             throw new Error(
               "Unable to load your home airports. Select the city again to retry.",

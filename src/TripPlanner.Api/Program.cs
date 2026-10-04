@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
+using Scalar.AspNetCore;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Options;
@@ -59,7 +60,10 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 await app.Services.GetRequiredService<IDatabaseMigrator>().MigrateAsync();
 if (app.Environment.IsDevelopment())
+{
     app.MapOpenApi();
+    app.MapScalarApiReference();
+}
 
 // No UseHttpsRedirection: the container serves HTTP and App Service terminates TLS.
 app.UseForwardedHeaders();
@@ -81,14 +85,14 @@ app.UseAuthorization();
 app.MapAuthenticationEndpoints(authenticationEnabled);
 app.MapHealthChecks("/health");
 
-var api = app.MapGroup("/api");
+var api = app.MapGroup("");
 
 // These routes remain here until a broader endpoint organization pattern emerges.
 api.MapAirportsEndpoints();
 api.MapGet("/airports", (string q, AirportCatalog airports) => Results.Ok(airports.Search(q)))
     .WithName("SearchAirports");
 api.MapGet(
-        "/",
+        "/service",
         () =>
             Results.Ok(
                 new

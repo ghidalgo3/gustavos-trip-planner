@@ -131,7 +131,7 @@ let cachedMapToken: MapToken | undefined;
 export async function getCurrentUser(
   signal?: AbortSignal,
 ): Promise<CurrentUser> {
-  const response = await fetch(`${apiBaseUrl}/api/user`, {
+  const response = await fetch(`${apiBaseUrl}/user`, {
     credentials: "include",
     signal,
   });
@@ -151,7 +151,7 @@ async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
     return cachedMapToken;
   }
 
-  const response = await fetch(`${apiBaseUrl}/api/mapToken`, {
+  const response = await fetch(`${apiBaseUrl}/mapToken`, {
     credentials: "include",
     signal,
   });
@@ -249,7 +249,7 @@ export async function saveUserProfile(
   profile: UserProfile,
   signal?: AbortSignal,
 ): Promise<CurrentUser> {
-  const response = await fetch(`${apiBaseUrl}/api/user/profile`, {
+  const response = await fetch(`${apiBaseUrl}/user/profile`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -266,7 +266,7 @@ export async function saveUserProfile(
 }
 
 export function tripResourceUrl(userId: string, tripId?: string): string {
-  const collection = `${apiBaseUrl}/api/user/${encodeURIComponent(userId)}/trips`;
+  const collection = `${apiBaseUrl}/user/${encodeURIComponent(userId)}/trips`;
   return tripId ? `${collection}/${encodeURIComponent(tripId)}` : collection;
 }
 
@@ -376,5 +376,5 @@ export function logoutUrl(): string {
 }
 
 export function profileImageUrl(): string {
-  return `${apiBaseUrl}/api/user/avatar`;
+  return `${apiBaseUrl}/user/avatar`;
 }

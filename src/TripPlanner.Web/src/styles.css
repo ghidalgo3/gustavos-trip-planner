@@ -503,115 +503,6 @@ main {
   border-top: 1px solid var(--colorNeutralStroke2);
   min-width: 0;
 }
-.fare-filters {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 12px;
-  background: var(--colorNeutralBackground2);
-}
-.fare-filters-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.fare-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  align-items: end;
-}
-.fare-filter-grid > .fui-Field {
-  min-width: 0;
-}
-.fare-filter-grid .fui-Dropdown {
-  width: 100%;
-  min-width: 0;
-}
-.price-range-filter {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.price-range-filter legend {
-  padding: 0;
-  font-weight: 600;
-}
-.price-range-sliders,
-.price-range-inputs {
-  display: grid;
-}
-.price-range-sliders {
-  position: relative;
-  height: 28px;
-  margin: 0 8px;
-}
-.price-range-sliders::before,
-.price-range-sliders::after {
-  content: "";
-  position: absolute;
-  top: 12px;
-  height: 4px;
-  border-radius: 4px;
-}
-.price-range-sliders::before {
-  left: 0;
-  right: 0;
-  background: var(--colorNeutralStroke2);
-}
-.price-range-sliders::after {
-  left: var(--range-start);
-  right: calc(100% - var(--range-end));
-  background: var(--colorBrandForeground1);
-}
-.price-range-sliders input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 28px;
-  margin: 0;
-  appearance: none;
-  background: transparent;
-  pointer-events: none;
-}
-.price-range-sliders input::-webkit-slider-runnable-track {
-  background: transparent;
-}
-.price-range-sliders input::-moz-range-track {
-  background: transparent;
-}
-.price-range-sliders input::-webkit-slider-thumb {
-  width: 18px;
-  height: 18px;
-  appearance: none;
-  border: 2px solid var(--colorBrandForeground1);
-  border-radius: 50%;
-  background: var(--colorNeutralBackground1);
-  pointer-events: auto;
-  cursor: grab;
-}
-.price-range-sliders input::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--colorBrandForeground1);
-  border-radius: 50%;
-  background: var(--colorNeutralBackground1);
-  pointer-events: auto;
-  cursor: grab;
-}
-.price-range-inputs {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.price-range-inputs .fui-Input {
-  width: 100%;
-}
 .fare-card {
   display: grid;
   gap: 10px;
@@ -695,16 +586,7 @@ main {
   gap: 10px;
   padding-top: 12px;
 }
-@media (max-width: 800px) {
-  .fare-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 @media (max-width: 600px) {
-  .fare-filters {
-    padding: 12px;
-  }
-  .fare-filter-grid,
   .round-trip-flight-legs {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -725,6 +607,24 @@ main {
   flex-direction: column;
   gap: 1rem;
 }
+.flight-leg-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  justify-content: flex-start;
+}
+.flight-leg-tabs .fui-Tab {
+  flex: 0 0 auto;
+}
+.flight-leg-tab-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  white-space: nowrap;
+}
+.flight-leg-tab-detail {
+  font-size: 0.75rem;
+  color: var(--colorNeutralForeground2);
+}
 .route-leg {
   display: flex;
   flex-direction: column;
@@ -734,16 +634,9 @@ main {
 }
 .route-result-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.5rem;
-}
-.route-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
-  border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 8px;
 }
 .route-segment,
 .route-booking-links,
@@ -787,6 +680,21 @@ main {
 }
 .flight-information-heading h4 {
   margin: 0;
+}
+.flight-information-heading-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.flight-information-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.flight-information-badges .fui-Badge {
+  white-space: normal;
 }
 .flight-information-price {
   display: flex;

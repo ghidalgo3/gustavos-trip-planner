@@ -81,14 +81,18 @@ export type FareSearchResult = {
 };
 
 function flightSearchUrl(tripId: string) {
-  return `${apiBaseUrl}/api/trips/${encodeURIComponent(tripId)}/flightSearch`;
+  return `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/search`;
+}
+
+function startFlightSearchUrl(tripId: string) {
+  return `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights:search`;
 }
 
 export async function startFlightSearch(
   tripId: string,
   requestId: string,
 ): Promise<TrackedOperation> {
-  const response = await fetch(flightSearchUrl(tripId), {
+  const response = await fetch(startFlightSearchUrl(tripId), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -115,7 +119,7 @@ export async function getOperations(
     skip: String(options.skip ?? 0),
   });
   if (options.type) query.set("type", options.type);
-  const response = await fetch(`${apiBaseUrl}/api/operations?${query}`, {
+  const response = await fetch(`${apiBaseUrl}/operations?${query}`, {
     credentials: "include",
     signal,
     cache: "no-store",
@@ -129,7 +133,7 @@ export async function getOperation(
   signal?: AbortSignal,
 ): Promise<TrackedOperation> {
   const response = await fetch(
-    `${apiBaseUrl}/api/operations/${encodeURIComponent(operationId)}`,
+    `${apiBaseUrl}/operations/${encodeURIComponent(operationId)}`,
     { credentials: "include", signal, cache: "no-store" },
   );
   if (!response.ok)

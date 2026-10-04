@@ -14,12 +14,12 @@ Milestone 1 supports the original round-trip search and routes with up to three 
 
 ### Users and trips
 
-- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point. If that city has multiple passenger airports, require a preferred airport; a single airport is selected automatically. The preferred airport ranks results and does not restrict city searches. The user profile page edits the home city, preferred airport, and preferred airlines together through `PUT /api/user/profile`; the avatar menu opens that page and contains Sign out.
+- Maintain a persistent PostgreSQL database of users. After first sign-in, collect each user's home city as the default starting point for planning. Autocomplete populated places in the browser with Azure Maps, using a two-hour SAS issued by the authenticated API and limited to 50 requests per second. Store the selected city as a PostGIS geographic point. If that city has multiple passenger airports, require a preferred airport; a single airport is selected automatically. The preferred airport ranks results and does not restrict city searches. The user profile page edits the home city, preferred airport, and preferred airlines together through `PUT /user/profile`; the avatar menu opens that page and contains Sign out.
 - Treat the normalized email supplied by Google or Microsoft as the unique application identity. If the same email signs in through another provider, reuse the user ID and append the provider to that user's provider list.
 - Start with sign-in through Google and personal Microsoft accounts.
 - Sign in with Apple is outside this milestone and may be reconsidered later.
 - Users can create, read, update, and delete their trips. A newly created trip needs only a name; destinations and constraints are added iteratively.
-- Trip CRUD is exposed at `/api/user/{userId}/trips`. The authenticated application user must match `{userId}`, and database operations are scoped to that owner. Trip creation is available after home-city onboarding is complete.
+- Trip CRUD is exposed at `/user/{userId}/trips`. The authenticated application user must match `{userId}`, and database operations are scoped to that owner. Trip creation is available after home-city onboarding is complete.
 - The initial `trips` representation stores an ID, owner user ID, name, description, and a JSONB `constraints` object. A newly created trip has an empty constraints object.
 - The initial `parties` representation stores an ID, trip ID, and a UUID array of member user IDs. Creating a trip atomically creates one party containing only its owner; deleting the trip cascades to every party belonging to it.
 - The trip owner can search existing users by display name and add or remove them from a party. Membership changes are idempotent. The owner remains in their party, a user belongs to at most one party in a trip, and a party has at most nine travelers. Adding a user to the owner's party shares the trip; that user can view its plan while only the owner may edit. Removing a user revokes access.
@@ -335,11 +335,11 @@ preference scoring and ranked recommendations remain follow-up work.
 The trip page now has route-backed Flights, Stays, and Plans tabs. Stays is a
 placeholder; Plans shows the trip description and selected flight for each party.
 The owner may select, replace, or clear one itinerary per party through
-`/api/trips/{tripId}/selectedFlights`. Selecting requires an eligible itinerary
+`/trips/{tripId}/flights`. Selecting requires an eligible itinerary
 from the trip's current fresh fare cache. `trips.selected_flights` stores a JSONB snapshot of
 the search request and itinerary independently of cache cleanup. The choice
 remains visible after fares expire and is not a booking.
-Each selected flight stores one purchase boolean per leg in the same JSONB snapshot. Only the owner may update these statuses through `PUT /api/trips/{tripId}/selectedFlights/{partyId}/purchases`; shared members may read them. Selecting a different itinerary resets the statuses to false. Purchase tracking records the user's report and does not verify a booking with an airline.
+Each selected flight stores one purchase boolean per leg in the same JSONB snapshot. Only the owner may update these statuses through `PUT /trips/{tripId}/flights/{partyId}/purchases`; shared members may read them. Selecting a different itinerary resets the statuses to false. Purchase tracking records the user's report and does not verify a booking with an airline.
 Partial route choices are stored in `trips.flight_choices` and reloaded after refresh. The additive `0002_AddFlightChoices.sql` migration preserves existing trips and selected-flight purchases.
 
 ### Recommended cache design

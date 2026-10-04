@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
+import { useState } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import RouteFareResults from "./RouteFareResults";
@@ -144,34 +145,68 @@ test("builds a feasible route one flight at a time and saves the chosen complete
   vi.stubGlobal("fetch", fetch);
   show();
   expect(
-    await screen.findByText(
-      "Flight 1 of 2: choose Atlanta (ATL) → Phuket (HKT)",
-    ),
+    await screen.findByRole("heading", {
+      name: "Choose Atlanta (ATL) → Phuket (HKT)",
+    }),
   ).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveTextContent(
+    "ATL → HKT",
+  );
+  expect(screen.getByRole("tab", { name: /Flight 2/ })).toBeDisabled();
   expect(screen.getByText("Layover in Amsterdam (AMS) · 1h 30m")).toBeVisible();
-  expect(screen.getByText(/Option 1 · American Airlines/)).toBeVisible();
   expect(
-    screen.queryByRole("button", { name: "Edit flights" }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("heading", { name: "Atlanta (ATL) → Phuket (HKT)" }),
+  ).toBeVisible();
+  expect(
+    screen.getByText("This flight is on the cheapest route"),
+  ).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
   expect(
-    screen.getByText("Flight 2 of 2: choose Phuket (HKT) → Atlanta (ATL)"),
+    screen.getByRole("heading", {
+      name: "Choose Phuket (HKT) → Atlanta (ATL)",
+    }),
   ).toBeVisible();
-  expect(screen.getByRole("button", { name: "Edit flights" })).toBeVisible();
-  expect(screen.getByText(/Option 2 · American Airlines/)).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    screen.getAllByRole("heading", { name: "Phuket (HKT) → Atlanta (ATL)" }),
+  ).toHaveLength(2);
   fireEvent.click(
     screen.getAllByRole("button", { name: "Choose flight 2" })[1],
   );
   expect(screen.getByLabelText("Completed itinerary")).toHaveTextContent(
     "USD $1,100",
   );
+  expect(screen.getByRole("tab", { name: "Review route" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    within(screen.getByLabelText("Completed itinerary")).queryByText(
+      "This flight is on the cheapest route",
+    ),
+  ).toBeNull();
   expect(screen.getByText("12 night stay")).toBeVisible();
+  const actions = screen.getByRole("button", {
+    name: "Save complete itinerary",
+  }).parentElement!;
+  expect(
+    within(actions)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["Save complete itinerary", "Start over"]);
   fireEvent.click(
     screen.getByRole("button", { name: "Save complete itinerary" }),
   );
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/selectedFlights/party"),
+      expect.stringContaining("/flights/party"),
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ cacheKey: "assembled", itineraryIndex: 1 }),
@@ -187,7 +222,7 @@ test("builds a feasible route one flight at a time and saves the chosen complete
   fireEvent.click(switches[1]);
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/selectedFlights/party/purchases"),
+      expect.stringContaining("/flights/party/purchases"),
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -198,6 +233,98 @@ test("builds a feasible route one flight at a time and saves the chosen complete
       }),
     ),
   );
+});
+
+test("deselecting a saved itinerary clears the choices and restarts at flight one", async () => {
+  const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).includes("/airports/cities"))
+      return Response.json({ ATL: "Atlanta", HKT: "Phuket" });
+    if (init?.method === "PUT")
+      return Response.json({
+        tripId: "trip",
+        partyId: "party",
+        cacheKey: "assembled",
+        itineraryIndex: 0,
+        request: result.request,
+        itinerary: itineraries[0],
+        selectedAt: "2030-01-01T00:00:00Z",
+        purchasedLegs: [false, false],
+      });
+    if (init?.method === "DELETE") return new Response(null, { status: 204 });
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const saveChoices = vi.fn(async (party: string, keys: string[]) => {
+    expect(party).toBe("party");
+    expect(Array.isArray(keys)).toBe(true);
+    return true;
+  });
+  function ControlledResults() {
+    const [keys, setKeys] = useState<string[]>([]);
+    return (
+      <MemoryRouter>
+        <FluentProvider theme={webLightTheme}>
+          <RouteFareResults
+            tripId="trip"
+            results={[result]}
+            parties={[]}
+            savedChoices={{ party: keys }}
+            onChangeChoices={async (party, next) => {
+              const saved = await saveChoices(party, next);
+              if (saved) setKeys(next);
+              return saved;
+            }}
+          />
+        </FluentProvider>
+      </MemoryRouter>
+    );
+  }
+  render(<ControlledResults />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    ),
+  );
+  fireEvent.click(
+    screen.getAllByRole("button", { name: "Choose flight 2" })[0],
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Completed itinerary")).toBeVisible(),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save complete itinerary" }),
+  );
+  expect(
+    await screen.findByText("Selected itinerary · USD $900"),
+  ).toBeVisible();
+  const completed = screen.getByLabelText("Completed itinerary");
+  expect(
+    within(completed).getAllByText("This flight is on the cheapest route"),
+  ).toHaveLength(2);
+  const actions = screen.getByRole("button", {
+    name: "Deselect itinerary",
+  }).parentElement!;
+  expect(
+    within(actions)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["Itinerary selected", "Deselect itinerary"]);
+  fireEvent.click(screen.getByRole("button", { name: "Deselect itinerary" }));
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    ),
+  );
+  expect(screen.queryByLabelText("Completed itinerary")).toBeNull();
+  expect(screen.queryByText("Selected itinerary · USD $900")).toBeNull();
+  expect(fetch).toHaveBeenCalledWith(
+    expect.stringContaining("/flights/party"),
+    expect.objectContaining({ method: "DELETE" }),
+  );
+  expect(saveChoices).toHaveBeenLastCalledWith("party", []);
 });
 
 test("uses saved partial flight choices after the route view reloads", async () => {
@@ -241,7 +368,10 @@ test("uses saved partial flight choices after the route view reloads", async () 
       </FluentProvider>
     </MemoryRouter>,
   );
-  expect(screen.getByText(/Flight 2 of 2: choose/)).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 2/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 });
 
 test("shows a failed flight-choice save beside the picker", async () => {
@@ -268,38 +398,111 @@ test("shows a failed flight-choice save beside the picker", async () => {
   expect(
     await screen.findByText("The chosen flight cannot be saved."),
   ).toBeVisible();
-  expect(screen.getByText(/Flight 1 of 2: choose/)).toBeVisible();
+  expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 });
 
-test("filters complete routes by total price and outbound and return flight dates", async () => {
+test("offers all compatible routes without a result-filter panel", () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => Response.json([])),
   );
   show();
-  fireEvent.change(screen.getByLabelText("Minimum total price (USD)"), {
-    target: { value: "1000" },
-  });
-  expect(screen.getByText(/Complete trip from USD \$1,100/)).toBeVisible();
+  expect(screen.queryByLabelText("Minimum total price (USD)")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
   expect(
-    screen.queryByText(/Complete trip from USD \$900/),
-  ).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Return flight date"), {
-    target: { value: "2030-05-13" },
-  });
-  expect(
-    screen.getByText(/No complete routes match these price and date filters/),
-  ).toBeVisible();
-  fireEvent.change(screen.getByLabelText("Return flight date"), {
-    target: { value: "2030-05-14" },
-  });
-  fireEvent.change(screen.getByLabelText("Trip start date"), {
-    target: { value: "2030-05-01" },
-  });
-  expect(screen.getByText(/Complete trip from USD \$1,100/)).toBeVisible();
+    screen.getAllByRole("button", { name: "Choose flight 2" }),
+  ).toHaveLength(2);
 });
 
-test("shows every compatible return airline and keeps earlier flights in Edit flights", async () => {
+test("marks the cheapest route even when fares arrive out of price order", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json([])),
+  );
+  render(
+    <MemoryRouter>
+      <FluentProvider theme={webLightTheme}>
+        <RouteFareResults
+          tripId="trip"
+          results={[
+            {
+              ...result,
+              response: { itineraries: [...itineraries].reverse() },
+            },
+          ]}
+          parties={[]}
+        />
+      </FluentProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
+  const returnButtons = screen.getAllByRole("button", {
+    name: "Choose flight 2",
+  });
+  expect(returnButtons[0].closest(".flight-information")).not.toHaveTextContent(
+    "This flight is on the cheapest route",
+  );
+  expect(returnButtons[1].closest(".flight-information")).toHaveTextContent(
+    "This flight is on the cheapest route",
+  );
+});
+
+test("marks preferred-airline flights independently of the cheapest-route badge", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json([])),
+  );
+  render(
+    <MemoryRouter>
+      <FluentProvider theme={webLightTheme}>
+        <RouteFareResults
+          tripId="trip"
+          results={[result]}
+          parties={[]}
+          partySettings={[
+            {
+              partyId: "party",
+              origin: null,
+              cabin: "economy",
+              market: "US",
+              maxJourneyHours: 48,
+              maxStops: null,
+              preferredAirlines: ["AA"],
+            },
+          ]}
+        />
+      </FluentProvider>
+    </MemoryRouter>,
+  );
+  const outboundCard = screen
+    .getByRole("button", {
+      name: "Choose flight 1",
+    })
+    .closest(".flight-information")!;
+  expect(
+    within(outboundCard as HTMLElement).getByText("Preferred Airline"),
+  ).toBeVisible();
+  expect(
+    within(outboundCard as HTMLElement).getByText(
+      "This flight is on the cheapest route",
+    ),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Choose flight 1" }));
+  const returnButtons = screen.getAllByRole("button", {
+    name: "Choose flight 2",
+  });
+  expect(returnButtons[0].closest(".flight-information")).not.toHaveTextContent(
+    "Preferred Airline",
+  );
+  expect(returnButtons[1].closest(".flight-information")).toHaveTextContent(
+    "Preferred Airline",
+  );
+});
+
+test("shows every compatible return airline and revisits earlier flights via tabs", async () => {
   const extraReturns = [
     {
       ...returns[0],
@@ -354,13 +557,14 @@ test("shows every compatible return airline and keeps earlier flights in Edit fl
   expect(
     screen.getAllByRole("button", { name: "Choose flight 2" }),
   ).toHaveLength(4);
-  expect(screen.getByText(/Option 3 · Delta Air Lines/)).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Edit flights" }));
-  expect(
-    await screen.findByRole("menuitem", {
-      name: /Flight 1: Atlanta \(ATL\) → Phuket \(HKT\)/,
-    }),
-  ).toBeVisible();
+  expect(screen.getByText("Delta Air Lines · Nonstop · 13h 0m")).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: /Flight 1/ }));
+  expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "Choose flight 1" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Choose flight 2" })).toBeNull();
 });
 
 test("shows only Ignav-classified airline booking links for the relevant leg", async () => {
@@ -395,8 +599,10 @@ test("shows only Ignav-classified airline booking links for the relevant leg", a
   vi.stubGlobal("fetch", fetch);
   show();
   const firstOption = screen
-    .getByText(/Option 1 · American Airlines/)
-    .closest("div")?.parentElement;
+    .getByRole("button", {
+      name: "Choose flight 1",
+    })
+    .closest<HTMLElement>(".flight-information");
   expect(firstOption).toBeTruthy();
   fireEvent.click(
     within(firstOption!).getByRole("button", {

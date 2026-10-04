@@ -11,18 +11,20 @@ public static class SelectedFlightsEndpoints
 {
     public static void MapSelectedFlightsEndpoints(this RouteGroupBuilder api)
     {
-        var flights = api.MapGroup("/trips/{tripId:guid}/selectedFlights")
-            .WithTags("Selected Flights")
+        var flights = api.MapGroup("/trips/{tripId:guid}/flights")
+            .WithTags("Trip Flights")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
-        flights.MapGet("/", GetSelectedFlights);
-        flights.MapPut("/{partyId:guid}", SelectFlight);
-        flights.MapPut("/{partyId:guid}/purchases", SetPurchases);
-        flights.MapDelete("/{partyId:guid}", DeselectFlight);
-        var choices = api.MapGroup("/trips/{tripId:guid}/flightChoices")
+        flights.MapGet("", GetSelectedFlights).WithName("GetTripFlights");
+        flights.MapPut("/{partyId:guid}", SelectFlight).WithName("SelectTripFlight");
+        flights
+            .MapPut("/{partyId:guid}/purchases", SetPurchases)
+            .WithName("SetTripFlightPurchases");
+        flights.MapDelete("/{partyId:guid}", DeselectFlight).WithName("DeselectTripFlight");
+        var choices = api.MapGroup("/trips/{tripId:guid}/flights/choices")
             .WithTags("Flight Choices")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
-        choices.MapGet("/", GetFlightChoices);
-        choices.MapPut("/{partyId:guid}", SetFlightChoices);
+        choices.MapGet("", GetFlightChoices).WithName("GetFlightChoices");
+        choices.MapPut("/{partyId:guid}", SetFlightChoices).WithName("SetFlightChoices");
     }
 
     private static async Task<IResult> GetFlightChoices(
@@ -130,9 +132,12 @@ public static class SelectedFlightsEndpoints
             return error;
         if (await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted) is null)
             return Results.NotFound();
-        return Results.Ok(
-            await database.GetSelectedFlightsAsync(user.Id, tripId, context.RequestAborted)
+        IReadOnlyList<SelectedFlight> selected = await database.GetSelectedFlightsAsync(
+            user.Id,
+            tripId,
+            context.RequestAborted
         );
+        return selected.Count == 0 ? Results.NoContent() : Results.Ok(selected);
     }
 
     private static async Task<IResult> SelectFlight(

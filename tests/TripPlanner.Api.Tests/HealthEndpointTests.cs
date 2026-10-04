@@ -26,13 +26,25 @@ public class HealthEndpointTests
     }
 
     [TestMethod]
-    public async Task Root_ReturnsServiceInfo()
+    public async Task Service_ReturnsServiceInfo()
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api");
+        var response = await client.GetAsync("/service");
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         StringAssert.Contains(await response.Content.ReadAsStringAsync(), "TripPlanner.Api");
+    }
+
+    [TestMethod]
+    public async Task Scalar_RendersInteractiveApiReference()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/scalar");
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("text/html", response.Content.Headers.ContentType?.MediaType);
+        StringAssert.Contains(await response.Content.ReadAsStringAsync(), "scalar");
     }
 }

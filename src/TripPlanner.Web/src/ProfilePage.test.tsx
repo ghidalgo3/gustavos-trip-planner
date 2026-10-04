@@ -66,7 +66,7 @@ test("saves the complete profile when airline preferences change", async () => {
 
   expect(await screen.findByText("Profile saved.")).toBeVisible();
   expect(fetchMock).toHaveBeenCalledWith(
-    expect.stringContaining("/api/user/profile"),
+    expect.stringContaining("/user/profile"),
     expect.objectContaining({ method: "PUT" }),
   );
   expect(onSaved).toHaveBeenCalledOnce();

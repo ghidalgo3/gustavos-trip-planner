@@ -3,23 +3,15 @@ import {
   Button,
   Card,
   Divider,
-  Field,
-  Input,
-  Menu,
-  MenuButton,
-  MenuItem,
-  MenuList,
-  MenuPopover,
-  MenuTrigger,
-  Select,
   Text,
   Title3,
 } from "@fluentui/react-components";
-import { useSearchParams } from "react-router";
 import FlightInformation from "./FlightInformation";
+import FlightLegTabs from "./FlightLegTabs";
 import {
   airportLabel,
   legKey,
+  legRoute,
   priceLabel,
   stayNights,
   type AirportCities,
@@ -38,7 +30,7 @@ import {
   setFlightPurchases,
   type SelectedFlight,
 } from "./selectedFlightsApi";
-import type { PlanningParty } from "./planningApi";
+import type { PartySettings, PlanningParty } from "./planningApi";
 
 type IndexedItinerary = { index: number; itinerary: FareItinerary };
 const emptyChoices: string[] = [];
@@ -48,23 +40,11 @@ type LegChoice = {
   representative: IndexedItinerary;
 };
 
-function localDate(value?: string): string {
-  return value?.slice(0, 10) ?? "";
-}
-
 function legName(leg: FareLeg, index: number, cities: AirportCities): string {
   const first = leg.segments[0];
   const last = leg.segments.at(-1);
   if (!first || !last) return `Flight ${index + 1}`;
   return `${airportLabel(first.departure_airport, cities)} → ${airportLabel(last.arrival_airport, cities)}`;
-}
-
-function tripStart(itinerary: FareItinerary): string {
-  return localDate(itinerary.legs?.[0]?.segments[0]?.departure_time_local);
-}
-
-function returnFlightStart(itinerary: FareItinerary): string {
-  return localDate(itinerary.legs?.at(-1)?.segments[0]?.departure_time_local);
 }
 
 export function JourneyLegs({
@@ -75,6 +55,8 @@ export function JourneyLegs({
   purchasedLegs,
   onPurchaseChange,
   purchaseBusy = false,
+  cheapestRoute = false,
+  preferredAirlines = [],
 }: {
   legs: FareLeg[];
   booking?: { tripId: string; cacheKey: string; itinerary: FareItinerary };
@@ -83,6 +65,8 @@ export function JourneyLegs({
   purchasedLegs?: boolean[];
   onPurchaseChange?: (index: number, purchased: boolean) => void;
   purchaseBusy?: boolean;
+  cheapestRoute?: boolean;
+  preferredAirlines?: string[];
 }) {
   return (
     <div className="journey-legs">
@@ -104,13 +88,18 @@ export function JourneyLegs({
             <FlightInformation
               leg={leg}
               cities={cities}
-              title={`Flight ${index + 1}`}
+              preferredAirlines={preferredAirlines}
+              badge={
+                cheapestRoute
+                  ? "This flight is on the cheapest route"
+                  : undefined
+              }
               price={legBooking?.price ?? fare?.price}
               priceContext={
                 legBooking?.price
                   ? legBooking.legIndexes.length > 1
                     ? "Paired fare"
-                    : "This flight"
+                    : undefined
                   : fare?.price
                     ? "Trip total"
                     : undefined
@@ -146,12 +135,14 @@ export default function RouteFareResults({
   tripId,
   results,
   parties,
+  partySettings = [],
   savedChoices = {},
   onChangeChoices,
 }: {
   tripId: string;
   results: FareSearchResult[];
   parties: PlanningParty[];
+  partySettings?: PartySettings[];
   savedChoices?: Record<string, string[]>;
   onChangeChoices?: (partyId: string, keys: string[]) => Promise<boolean>;
 }) {
@@ -200,10 +191,12 @@ export default function RouteFareResults({
           saved,
         ]);
       }
+      return true;
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to save itinerary.",
       );
+      return false;
     } finally {
       setBusyParty(undefined);
     }
@@ -274,6 +267,11 @@ export default function RouteFareResults({
             (flight) => flight.partyId === result.partyId,
           )}
           cities={cities}
+          preferredAirlines={
+            partySettings.find(
+              (settings) => settings.partyId === result.partyId,
+            )?.preferredAirlines ?? []
+          }
           busy={busyParty === result.partyId}
           onChoose={(index) => choose(result, index)}
           onPurchaseChange={(index, purchased) =>
@@ -293,6 +291,7 @@ function RoutePartyResults({
   partyName,
   selected,
   cities,
+  preferredAirlines,
   busy,
   onChoose,
   onPurchaseChange,
@@ -304,11 +303,11 @@ function RoutePartyResults({
   partyName: string;
   selected?: SelectedFlight;
   cities: AirportCities;
+  preferredAirlines: string[];
   busy: boolean;
-  onChoose: (index: number | null) => Promise<void>;
+  onChoose: (index: number | null) => Promise<boolean>;
   onPurchaseChange: (index: number, purchased: boolean) => Promise<void>;
 }) {
-  const [searchParams, setSearchParams] = useSearchParams();
   const [localChosen, setLocalChosen] = useState<string[]>(savedChoices);
   const chosen = onChangeChoices ? savedChoices : localChosen;
   const [choiceBusy, setChoiceBusy] = useState(false);
@@ -334,44 +333,31 @@ function RoutePartyResults({
       setChoiceBusy(false);
     }
   }
-  const minimum = searchParams.get("routeMinPrice") ?? "";
-  const maximum = searchParams.get("routeMaxPrice") ?? "";
-  const startDate = searchParams.get("routeStartDate") ?? "";
-  const endDate = searchParams.get("routeEndDate") ?? "";
+  async function restartChoices() {
+    setChoiceBusy(true);
+    setChoiceError(undefined);
+    try {
+      if (!(await onChoose(null))) return;
+      if (onChangeChoices) {
+        const cleared = await onChangeChoices(result.partyId, []);
+        if (!cleared) throw new Error("Could not restart flight choices.");
+      } else {
+        setLocalChosen([]);
+      }
+    } catch (reason) {
+      setChoiceError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not restart flight choices.",
+      );
+    } finally {
+      setChoiceBusy(false);
+    }
+  }
   const options = result.response.itineraries
     .map((itinerary, index) => ({ itinerary, index }))
     .filter((item) => item.itinerary.legs?.length);
-  const currencies = [
-    ...new Set(
-      options
-        .map((item) => item.itinerary.price?.currency)
-        .filter((currency): currency is string => Boolean(currency)),
-    ),
-  ];
-  const currency = searchParams.get("routeCurrency") || currencies[0] || "";
-  const startDates = [
-    ...new Set(
-      options.map((item) => tripStart(item.itinerary)).filter(Boolean),
-    ),
-  ].sort();
-  const endDates = [
-    ...new Set(
-      options.map((item) => returnFlightStart(item.itinerary)).filter(Boolean),
-    ),
-  ].sort();
-  const filtered = options.filter(({ itinerary }) => {
-    const price = itinerary.price;
-    return (
-      (!currency || price?.currency === currency) &&
-      (!minimum ||
-        (price?.amount != null && price.amount >= Number(minimum))) &&
-      (!maximum ||
-        (price?.amount != null && price.amount <= Number(maximum))) &&
-      (!startDate || tripStart(itinerary) === startDate) &&
-      (!endDate || returnFlightStart(itinerary) === endDate)
-    );
-  });
-  const matches = filtered.filter(({ itinerary }) =>
+  const matches = options.filter(({ itinerary }) =>
     chosen.every((key, index) => legKey(itinerary.legs?.[index]) === key),
   );
   const step = chosen.length;
@@ -390,20 +376,40 @@ function RoutePartyResults({
     return [...byLeg.values()];
   })();
   const best = complete ? matches[0] : undefined;
-  const changeFilter = (name: string, value: string) => {
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      if (value) next.set(name, value);
-      else next.delete(name);
-      return next;
-    });
-  };
+  const tabRoutes = Array.from({ length: legCount }, (_, index) => {
+    const leg =
+      index < chosen.length
+        ? options.find(
+            (option) =>
+              legKey(option.itinerary.legs?.[index]) === chosen[index],
+          )?.itinerary.legs?.[index]
+        : matches[0]?.itinerary.legs?.[index];
+    return legRoute(leg);
+  });
+  const cheapestRoute = options
+    .filter((option) => Number.isFinite(option.itinerary.price?.amount))
+    .sort((left, right) => {
+      const leftPrice = left.itinerary.price!;
+      const rightPrice = right.itinerary.price!;
+      return (
+        leftPrice.currency.localeCompare(rightPrice.currency) ||
+        leftPrice.amount - rightPrice.amount
+      );
+    })[0];
   return (
     <section
       className="route-visits"
       aria-label={`${partyName} flight choices`}
     >
       <Title3 as="h3">{partyName}</Title3>
+      <FlightLegTabs
+        legCount={legCount}
+        step={step}
+        label={partyName}
+        routes={tabRoutes}
+        busy={choiceBusy}
+        onRevisit={(index) => void changeChosen(chosen.slice(0, index))}
+      />
       {choiceError && <Text role="alert">{choiceError}</Text>}
       {choiceBusy && <Text role="status">Saving flight choice…</Text>}
       {selected && (
@@ -415,133 +421,37 @@ function RoutePartyResults({
             You can build another route below and save it to replace this
             choice.
           </Text>
-          <Button
-            size="small"
-            disabled={busy}
-            onClick={() => void onChoose(null)}
-          >
-            Deselect itinerary
-          </Button>
         </div>
       )}
-      <div className="route-filters" aria-label="Itinerary filters">
-        {currencies.length > 1 && (
-          <Field label="Price currency">
-            <Select
-              value={currency}
-              onChange={(_, data) => changeFilter("routeCurrency", data.value)}
-            >
-              {currencies.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-        <Field label={`Minimum total price${currency ? ` (${currency})` : ""}`}>
-          <Input
-            type="number"
-            min={0}
-            value={minimum}
-            onChange={(_, data) => changeFilter("routeMinPrice", data.value)}
-          />
-        </Field>
-        <Field label={`Maximum total price${currency ? ` (${currency})` : ""}`}>
-          <Input
-            type="number"
-            min={0}
-            value={maximum}
-            onChange={(_, data) => changeFilter("routeMaxPrice", data.value)}
-          />
-        </Field>
-        <Field label="Trip start date">
-          <Select
-            value={startDate}
-            onChange={(_, data) => changeFilter("routeStartDate", data.value)}
-          >
-            <option value="">Any date</option>
-            {startDates.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Return flight date">
-          <Select
-            value={endDate}
-            onChange={(_, data) => changeFilter("routeEndDate", data.value)}
-          >
-            <option value="">Any date</option>
-            {endDates.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      {chosen.length > 0 && (
-        <Menu>
-          <MenuTrigger disableButtonEnhancement>
-            <MenuButton appearance="subtle">Edit flights</MenuButton>
-          </MenuTrigger>
-          <MenuPopover>
-            <MenuList>
-              {chosen.map((key, index) => {
-                const leg = options.find(
-                  (item) => legKey(item.itinerary.legs?.[index]) === key,
-                )?.itinerary.legs?.[index];
-                return (
-                  <MenuItem
-                    key={index}
-                    disabled={choiceBusy}
-                    onClick={() => void changeChosen(chosen.slice(0, index))}
-                  >
-                    Flight {index + 1}:{" "}
-                    {leg ? legName(leg, index, cities) : "Unknown flight"}
-                  </MenuItem>
-                );
-              })}
-            </MenuList>
-          </MenuPopover>
-        </Menu>
+      {options.length === 0 && (
+        <Text role="status">No complete routes are available yet.</Text>
       )}
-      {filtered.length === 0 && (
+      {options.length > 0 && matches.length === 0 && (
         <Text role="status">
-          No complete routes match these price and date filters. Clear a filter
-          to see more options.
-        </Text>
-      )}
-      {filtered.length > 0 && matches.length === 0 && (
-        <Text role="status">
-          No complete route remains with these filters and flight choices.
-          Change an earlier flight or a filter.
+          No complete route remains with these flight choices. Change an earlier
+          flight.
         </Text>
       )}
       {!complete && matches.length > 0 && (
         <>
           <Title3 as="h4">
-            Flight {step + 1} of {legCount}: choose{" "}
+            Choose{" "}
             {choices[0] ? legName(choices[0].leg, step, cities) : "a flight"}
           </Title3>
           {step === legCount - 1 && (
             <Text size={200}>
               All compatible return airlines are shown below. An earlier flight
-              or paired fare can limit the available returns; use Edit flights
-              to change it.
+              or paired fare can limit the available returns; use an earlier
+              flight tab to change it.
             </Text>
           )}
           {choices
             .slice(0, step === legCount - 1 ? choices.length : 3)
-            .map((choice, index) => renderChoice(choice, index))}
+            .map(renderChoice)}
           {step !== legCount - 1 && choices.length > 3 && (
             <details>
               <summary>More flight options ({choices.length - 3})</summary>
-              {choices
-                .slice(3)
-                .map((choice, index) => renderChoice(choice, index + 3))}
+              {choices.slice(3).map(renderChoice)}
             </details>
           )}
         </>
@@ -562,6 +472,7 @@ function RoutePartyResults({
             legs={best.itinerary.legs ?? []}
             itinerary={best.itinerary}
             cities={cities}
+            preferredAirlines={preferredAirlines}
             booking={{
               tripId,
               cacheKey: result.cacheKey,
@@ -580,39 +491,48 @@ function RoutePartyResults({
                 : undefined
             }
             purchaseBusy={busy}
+            cheapestRoute={best.index === cheapestRoute?.index}
           />
-          <Button
-            appearance="primary"
-            disabled={
-              busy ||
-              (selected?.cacheKey === result.cacheKey &&
-                selected.itineraryIndex === best.index)
-            }
-            onClick={() => void onChoose(best.index)}
-          >
-            {selected?.cacheKey === result.cacheKey &&
-            selected.itineraryIndex === best.index
-              ? "Itinerary selected"
-              : "Save complete itinerary"}
-          </Button>
+          <div className="route-result-actions">
+            <Button
+              appearance="primary"
+              disabled={
+                busy ||
+                (selected?.cacheKey === result.cacheKey &&
+                  selected.itineraryIndex === best.index)
+              }
+              onClick={() => void onChoose(best.index)}
+            >
+              {selected?.cacheKey === result.cacheKey &&
+              selected.itineraryIndex === best.index
+                ? "Itinerary selected"
+                : "Save complete itinerary"}
+            </Button>
+            <Button
+              disabled={busy || choiceBusy}
+              onClick={() => void restartChoices()}
+            >
+              {selected ? "Deselect itinerary" : "Start over"}
+            </Button>
+          </div>
         </Card>
       )}
     </section>
   );
 
-  function renderChoice(choice: LegChoice, index: number) {
+  function renderChoice(choice: LegChoice) {
     const candidate = choice.representative.itinerary;
-    const airline =
-      choice.leg.carrier ||
-      choice.leg.segments[0]?.operating_carrier_name ||
-      choice.leg.segments[0]?.marketing_carrier_code ||
-      "Airline unavailable";
     return (
       <FlightInformation
         key={choice.key}
         leg={choice.leg}
         cities={cities}
-        title={`Option ${index + 1} · ${airline}${index === 0 ? " · Cheapest complete route" : candidate.preferredAirlineSegments ? " · Preferred airline route" : candidate.stops === 0 ? " · Nonstop route" : ""}`}
+        preferredAirlines={preferredAirlines}
+        badge={
+          choice.key === legKey(cheapestRoute?.itinerary.legs?.[step])
+            ? "This flight is on the cheapest route"
+            : undefined
+        }
         summary={`Complete trip from ${priceLabel(candidate.price)}. This flight may share a booking with another leg.`}
         price={
           candidate.bookingOffers?.find((offer) =>

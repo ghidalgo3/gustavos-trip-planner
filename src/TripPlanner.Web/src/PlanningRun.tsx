@@ -311,6 +311,7 @@ export default function PlanningRun({
               tripId={tripId}
               results={currentResults}
               parties={parties}
+              partySettings={partySettings}
               savedChoices={Object.fromEntries(
                 Object.entries(flightChoices).map(([partyId, choice]) => [
                   partyId,
@@ -323,6 +324,7 @@ export default function PlanningRun({
             <FirstLegResults
               results={currentResults}
               parties={parties}
+              partySettings={partySettings}
               choices={flightChoices}
               legCount={visitCount + 1}
               searching={active}

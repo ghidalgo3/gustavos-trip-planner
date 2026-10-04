@@ -69,18 +69,29 @@ function show(
   onOperationListRequest?: (url: string) => void,
 ) {
   const fetchMock = globalThis.fetch;
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url.includes("/api/operations?")) {
-      onOperationListRequest?.(url);
-      return Promise.resolve({
-        ok: true,
-        json: async () =>
-          url.includes("type=tripFormFill") ? formOperations : [],
-      });
-    }
-    return fetchMock(input, init);
-  });
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/operations?")) {
+        onOperationListRequest?.(url);
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            url.includes("type=tripFormFill") ? formOperations : [],
+        });
+      }
+      const response = await fetchMock(input, init);
+      if (url.endsWith("/flights/constraints") || url.endsWith("/parties")) {
+        const payload = await response.json();
+        const body = url.endsWith("/parties")
+          ? ((payload as { parties?: unknown[] }).parties ?? payload)
+          : ((payload as { document?: unknown }).document ?? payload);
+        return { ...response, json: async () => body };
+      }
+      return response;
+    },
+  );
   return render(
     <FluentProvider theme={webLightTheme}>
       <MemoryRouter initialEntries={[route]}>
@@ -112,19 +123,19 @@ test("AI form fill is flag gated and leaves a reviewable unsaved draft", async (
   };
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).endsWith("/formProposal")) {
+      if (String(input).endsWith("/flights:prompt")) {
         expect(init?.method).toBe("POST");
         return {
           ok: true,
           json: async () => ({ id: "operation-1", status: "pending" }),
         };
       }
-      if (String(input).endsWith("/api/operations/operation-1"))
+      if (String(input).endsWith("/operations/operation-1"))
         return {
           ok: true,
           json: async () => ({ id: "operation-1", status: "Completed" }),
         };
-      if (String(input).endsWith("/formProposal/operation-1"))
+      if (String(input).endsWith("/flights/prompts/operation-1"))
         return {
           ok: true,
           json: async () => ({
@@ -229,12 +240,12 @@ test("shows a spinner while the AI form operation is running", async () => {
     "fetch",
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/formProposal") && init?.method === "POST")
+      if (url.endsWith("/flights:prompt") && init?.method === "POST")
         return {
           ok: true,
           json: async () => ({ id: "operation-1", status: "pending" }),
         };
-      if (url.endsWith("/api/operations/operation-1"))
+      if (url.endsWith("/operations/operation-1"))
         return {
           ok: true,
           json: async () => ({ id: "operation-1", status: "InProgress" }),
@@ -262,12 +273,12 @@ test("restores a completed form fill after returning to the trip", async () => {
   };
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/api/operations/operation-1"))
+    if (url.endsWith("/operations/operation-1"))
       return {
         ok: true,
         json: async () => ({ id: "operation-1", status: "Completed" }),
       };
-    if (url.endsWith("/formProposal/operation-1"))
+    if (url.endsWith("/flights/prompts/operation-1"))
       return {
         ok: true,
         json: async () => ({ document: filled, warnings: [] }),
@@ -365,7 +376,7 @@ test("loads and saves an airport suggestion", async () => {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
-      if (url.includes("/api/airports?"))
+      if (url.includes("/airports?"))
         return {
           ok: true,
           json: async () => [
@@ -382,9 +393,11 @@ test("loads and saves an airport suggestion", async () => {
             },
           ],
         };
-      expect(url).toContain("/api/user/" + userId + "/trips/trip/");
-      if (url.endsWith("/planning"))
-        return { ok: true, json: async () => ({ document: stored, parties }) };
+      expect(url).toContain("/trips/trip/");
+      if (url.endsWith("/flights/constraints"))
+        return { ok: true, json: async () => stored };
+      if (url.endsWith("/parties"))
+        return { ok: true, json: async () => parties };
       if (url.endsWith("/constraints")) {
         expect(init?.method).toBe("PUT");
         stored = JSON.parse(init?.body as string);
@@ -438,7 +451,7 @@ test("selecting a city searches all its airports and allows removing one", async
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes("/api/airports?"))
+      if (url.includes("/airports?"))
         return {
           ok: true,
           json: async () =>
@@ -699,7 +712,7 @@ test("searches users by name and adds and removes a party member", async () => {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes("/api/users?query="))
+      if (url.includes("/users?query="))
         return { ok: true, json: async () => [traveler] };
       if (url.endsWith(`/members/${traveler.id}`)) {
         if (init?.method === "PUT")
@@ -711,14 +724,13 @@ test("searches users by name and adds and removes a party member", async () => {
           members = members.filter((member) => member.id !== traveler.id);
         return { ok: true, status: 204 };
       }
-      if (url.endsWith("/planning"))
+      if (url.endsWith("/flights/constraints"))
         return {
           ok: true,
-          json: async () => ({
-            document,
-            parties: [{ ...parties[0], members }],
-          }),
+          json: async () => document,
         };
+      if (url.endsWith("/parties"))
+        return { ok: true, json: async () => [{ ...parties[0], members }] };
       throw new Error(`Unexpected request: ${url}`);
     },
   );

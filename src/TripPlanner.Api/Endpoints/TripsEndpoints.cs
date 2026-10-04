@@ -19,17 +19,24 @@ public static class TripsEndpoints
         trips.MapPost("/", CreateTrip).WithName("CreateUserTrip");
         trips.MapPut("/{tripId:guid}", UpdateTrip).WithName("UpdateUserTrip");
         trips.MapDelete("/{tripId:guid}", DeleteTrip).WithName("DeleteUserTrip");
-        trips.MapGet("/{tripId:guid}/planning", GetPlanning).WithName("GetTripPlanning");
-        trips.MapPut("/{tripId:guid}/constraints", SaveConstraints).WithName("SaveTripConstraints");
+        var flightConstraints = api.MapGroup("/trips/{tripId:guid}/flights/constraints")
+            .WithTags("Flight Constraints")
+            .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+        flightConstraints.MapGet("", GetConstraints).WithName("GetTripFlightConstraints");
+        flightConstraints.MapPut("", SaveConstraints).WithName("SaveTripFlightConstraints");
 
-        var flightSearch = api.MapGroup("/trips/{tripId:guid}/flightSearch")
+        api.MapPost("/trips/{tripId:guid}/flights:search", StartFlightSearch)
+            .WithName("StartTripFlightSearch")
             .WithTags("Flight Search")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
-        flightSearch.MapPost("/", StartFlightSearch).WithName("StartTripFlightSearch");
-        flightSearch.MapGet("/", GetFlightSearch).WithName("GetTripFlightSearch");
-        flightSearch
-            .MapPost("/{cacheKey}/bookingLinks", GetBookingLinks)
-            .WithName("GetFlightBookingLinks");
+        api.MapGet("/trips/{tripId:guid}/flights/search", GetFlightSearch)
+            .WithName("GetTripFlightSearch")
+            .WithTags("Flight Search")
+            .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+        api.MapPost("/trips/{tripId:guid}/flights/search/{cacheKey}/bookingLinks", GetBookingLinks)
+            .WithName("GetFlightBookingLinks")
+            .WithTags("Flight Search")
+            .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
     }
 
     private static async Task<IResult> ListTrips(
@@ -93,7 +100,7 @@ public static class TripsEndpoints
             description,
             context.RequestAborted
         );
-        return Results.Created($"/api/user/{user.Id}/trips/{trip.Id}", trip);
+        return Results.Created($"/user/{user.Id}/trips/{trip.Id}", trip);
     }
 
     private static async Task<IResult> UpdateTrip(
@@ -147,17 +154,14 @@ public static class TripsEndpoints
             : Results.NotFound();
     }
 
-    private static async Task<IResult> GetPlanning(
-        Guid userId,
+    private static async Task<IResult> GetConstraints(
         Guid tripId,
         HttpContext context,
         IPlannerDb database,
-        AirportCatalog airports,
         ICurrentUser currentUser
     )
     {
-        var (user, error) = await AuthorizeOwnerAsync(
-            userId,
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
             context,
             database,
             currentUser.Profile!
@@ -167,29 +171,10 @@ public static class TripsEndpoints
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
             return Results.NotFound();
-        var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
-        var editorParties = new List<PlanningParty>();
-        User? owner = await database.GetUserAsync(trip.OwnerUserId, context.RequestAborted);
-        SearchLocation? ownerOrigin = owner is null ? null : airports.SuggestOrigin([owner]);
-        foreach (Party party in parties)
-        {
-            var members = new List<PlanningMember>();
-            foreach (Guid memberId in party.UserIds)
-            {
-                User? member = await database.GetUserAsync(memberId, context.RequestAborted);
-                members.Add(
-                    new(memberId, member?.DisplayName ?? "Unknown traveler", member?.HomeCityName)
-                );
-            }
-            editorParties.Add(new(party.Id, members, ownerOrigin, owner?.PreferredAirport));
-        }
-        return Results.Ok(
-            new PlanningEditor(PlanningDocument.FromJson(trip.Constraints), editorParties)
-        );
+        return Results.Ok(PlanningDocument.FromJson(trip.Constraints));
     }
 
     private static async Task<IResult> SaveConstraints(
-        Guid userId,
         Guid tripId,
         PlanningDocument document,
         HttpContext context,
@@ -198,8 +183,7 @@ public static class TripsEndpoints
         ICurrentUser currentUser
     )
     {
-        var (user, error) = await AuthorizeOwnerAsync(
-            userId,
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
             context,
             database,
             currentUser.Profile!
@@ -218,7 +202,9 @@ public static class TripsEndpoints
             JsonSerializer.SerializeToElement(document, JsonSerializerOptions.Web),
             context.RequestAborted
         );
-        return updated is null ? Results.NotFound() : Results.Ok(updated);
+        return updated is null
+            ? Results.NotFound()
+            : Results.Ok(PlanningDocument.FromJson(updated.Constraints));
     }
 
     private static async Task<IResult> StartFlightSearch(

@@ -29,7 +29,7 @@ export function useAirportCities(codes: string[]): AirportCities {
     void Promise.all(
       batches.map(async (batch) => {
         const response = await fetch(
-          `${apiBaseUrl}/api/airports/cities?codes=${encodeURIComponent(batch.join(","))}`,
+          `${apiBaseUrl}/airports/cities?codes=${encodeURIComponent(batch.join(","))}`,
           { credentials: "include", signal: controller.signal },
         );
         return response.ok ? ((await response.json()) as AirportCities) : {};

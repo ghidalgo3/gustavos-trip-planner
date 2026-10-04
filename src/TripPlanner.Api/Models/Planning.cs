@@ -75,11 +75,6 @@ public sealed record PlanningParty(
     string? PreferredAirport = null
 );
 
-public sealed record PlanningEditor(
-    PlanningDocument Document,
-    IReadOnlyList<PlanningParty> Parties
-);
-
 public sealed record PlanningIssue(
     string Code,
     string Message,

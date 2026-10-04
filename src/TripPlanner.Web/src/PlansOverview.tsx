@@ -8,7 +8,11 @@ import {
   Title3,
 } from "@fluentui/react-components";
 import type { Trip } from "./api";
-import { getPlanning, type PlanningParty } from "./planningApi";
+import {
+  getTripFlightPlanningData,
+  type PartySettings,
+  type PlanningParty,
+} from "./planningApi";
 import { JourneyLegs } from "./RouteFareResults";
 import { priceLabel } from "./flightFormatting";
 import { flightAirportCodes, useAirportCities } from "./airportCities";
@@ -49,6 +53,7 @@ export default function PlansOverview({
 }) {
   const [flights, setFlights] = useState<SelectedFlight[]>([]);
   const [parties, setParties] = useState<PlanningParty[]>([]);
+  const [partySettings, setPartySettings] = useState<PartySettings[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyParty, setBusyParty] = useState<string>();
   const [error, setError] = useState<string>();
@@ -58,19 +63,21 @@ export default function PlansOverview({
     ),
   );
   async function refreshParties() {
-    const planning = await getPlanning(userId, trip.id);
+    const planning = await getTripFlightPlanningData(trip.id);
     setParties(planning.parties);
+    setPartySettings(planning.document?.parties ?? []);
   }
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
       getSelectedFlights(trip.id, controller.signal),
-      getPlanning(userId, trip.id, controller.signal),
+      getTripFlightPlanningData(trip.id, controller.signal),
     ])
       .then(([selected, planning]) => {
         if (controller.signal.aborted) return;
         setFlights(selected);
         setParties(planning.parties);
+        setPartySettings(planning.document?.parties ?? []);
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted)
@@ -213,6 +220,11 @@ export default function PlansOverview({
                   legs={displayLegs(flight.itinerary)}
                   itinerary={flight.itinerary}
                   cities={cities}
+                  preferredAirlines={
+                    partySettings.find(
+                      (settings) => settings.partyId === flight.partyId,
+                    )?.preferredAirlines ?? []
+                  }
                   purchasedLegs={flight.purchasedLegs ?? []}
                   onPurchaseChange={
                     readOnly

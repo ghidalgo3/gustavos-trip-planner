@@ -49,5 +49,5 @@ public static class OperationState
     public const string FlightSearch = "flightSearch";
     public const string TripFormFill = "tripFormFill";
 
-    public static string Url(Guid operationId) => $"/api/operations/{operationId}";
+    public static string Url(Guid operationId) => $"/operations/{operationId}";
 }

@@ -30,7 +30,7 @@ test("creates, edits, and deletes a trip", async () => {
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       const method = init?.method ?? "GET";
-      expect(url).toContain(`/api/user/${user.id}/trips`);
+      expect(url).toContain(`/user/${user.id}/trips`);
 
       if (method === "GET") {
         return { ok: true, status: 200, json: async () => [] };

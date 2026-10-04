@@ -19,7 +19,7 @@ export type FlightChoiceProgress = {
 };
 
 function flightChoicesUrl(tripId: string) {
-  return `${apiBaseUrl}/api/trips/${encodeURIComponent(tripId)}/flightChoices`;
+  return `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/choices`;
 }
 
 export async function getFlightChoices(
@@ -54,7 +54,7 @@ export async function setFlightChoices(
 }
 
 function selectedFlightsUrl(tripId: string) {
-  return `${apiBaseUrl}/api/trips/${encodeURIComponent(tripId)}/selectedFlights`;
+  return `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights`;
 }
 
 export async function getSelectedFlights(
@@ -67,6 +67,7 @@ export async function getSelectedFlights(
     cache: "no-store",
   });
   if (!response.ok) await readTripError(response, "loading selected flights");
+  if (response.status === 204) return [];
   return response.json();
 }
 

@@ -9,6 +9,11 @@ public static class PartyEndpoints
 {
     public static void MapPartyEndpoints(this RouteGroupBuilder api)
     {
+        api.MapGet("/trips/{tripId:guid}/parties", ListTripParties)
+            .WithName("ListTripParties")
+            .WithTags("Parties")
+            .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+
         api.MapGet("/users", SearchUsers)
             .WithName("SearchUsers")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
@@ -20,6 +25,43 @@ public static class PartyEndpoints
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         members.MapPut("/{memberId:guid}", AddMember).WithName("AddPartyMember");
         members.MapDelete("/{memberId:guid}", RemoveMember).WithName("RemovePartyMember");
+    }
+
+    private static async Task<IResult> ListTripParties(
+        Guid tripId,
+        HttpContext context,
+        IPlannerDb database,
+        AirportCatalog airports,
+        ICurrentUser currentUser
+    )
+    {
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
+            context,
+            database,
+            currentUser.Profile!
+        );
+        if (error is not null)
+            return error;
+        Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
+        if (trip is null)
+            return Results.NotFound();
+        var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
+        User? owner = await database.GetUserAsync(trip.OwnerUserId, context.RequestAborted);
+        SearchLocation? ownerOrigin = owner is null ? null : airports.SuggestOrigin([owner]);
+        var result = new List<PlanningParty>();
+        foreach (Party party in parties)
+        {
+            var members = new List<PlanningMember>();
+            foreach (Guid memberId in party.UserIds)
+            {
+                User? member = await database.GetUserAsync(memberId, context.RequestAborted);
+                members.Add(
+                    new(memberId, member?.DisplayName ?? "Unknown traveler", member?.HomeCityName)
+                );
+            }
+            result.Add(new(party.Id, members, ownerOrigin, owner?.PreferredAirport));
+        }
+        return Results.Ok(result);
     }
 
     private static async Task<IResult> SearchUsers(

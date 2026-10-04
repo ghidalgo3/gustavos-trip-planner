@@ -14,7 +14,7 @@ public class TripsEndpointTests
         using var client = factory.CreateClient();
         AddPrincipal(client, "ada@example.com");
         CurrentUserResponse user = await CompleteOnboardingAsync(client);
-        string collectionUrl = $"/api/user/{user.Id}/trips";
+        string collectionUrl = $"/user/{user.Id}/trips";
 
         HttpResponseMessage createdResponse = await client.PostAsJsonAsync(
             collectionUrl,
@@ -29,7 +29,7 @@ public class TripsEndpointTests
         Assert.AreEqual(user.Id, created.OwnerUserId);
         Assert.AreEqual(0, created.Constraints.EnumerateObject().Count());
         Assert.AreEqual(
-            $"/api/user/{user.Id}/trips/{created.Id}",
+            $"/user/{user.Id}/trips/{created.Id}",
             createdResponse.Headers.Location?.ToString()
         );
         Party party = factory.Database.Parties.Single();
@@ -70,24 +70,22 @@ public class TripsEndpointTests
         using var anonymousClient = factory.CreateClient();
         Assert.AreEqual(
             HttpStatusCode.Unauthorized,
-            (await anonymousClient.GetAsync($"/api/user/{Guid.NewGuid()}/trips")).StatusCode
+            (await anonymousClient.GetAsync($"/user/{Guid.NewGuid()}/trips")).StatusCode
         );
 
         using var authenticatedClient = factory.CreateClient();
         AddPrincipal(authenticatedClient, "new@example.com");
         HttpResponseMessage unprovisionedResponse = await authenticatedClient.GetAsync(
-            $"/api/user/{Guid.NewGuid()}/trips"
+            $"/user/{Guid.NewGuid()}/trips"
         );
         Assert.AreEqual(HttpStatusCode.Forbidden, unprovisionedResponse.StatusCode);
         Assert.IsEmpty(factory.Database.Users);
 
         CurrentUserResponse? user = await authenticatedClient.GetFromJsonAsync<CurrentUserResponse>(
-            "/api/user"
+            "/user"
         );
         Assert.IsNotNull(user?.Id);
-        HttpResponseMessage response = await authenticatedClient.GetAsync(
-            $"/api/user/{user.Id}/trips"
-        );
+        HttpResponseMessage response = await authenticatedClient.GetAsync($"/user/{user.Id}/trips");
         Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
         StringAssert.Contains(await response.Content.ReadAsStringAsync(), "Complete onboarding");
     }
@@ -101,7 +99,7 @@ public class TripsEndpointTests
         CurrentUserResponse owner = await CompleteOnboardingAsync(ownerClient);
         Trip? trip = await (
             await ownerClient.PostAsJsonAsync(
-                $"/api/user/{owner.Id}/trips",
+                $"/user/{owner.Id}/trips",
                 new CreateTripRequest("Owner trip", null)
             )
         ).Content.ReadFromJsonAsync<Trip>();
@@ -113,24 +111,24 @@ public class TripsEndpointTests
 
         Assert.AreEqual(
             HttpStatusCode.Forbidden,
-            (await otherClient.GetAsync($"/api/user/{owner.Id}/trips")).StatusCode
+            (await otherClient.GetAsync($"/user/{owner.Id}/trips")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await otherClient.GetAsync($"/api/user/{other.Id}/trips/{trip.Id}")).StatusCode
+            (await otherClient.GetAsync($"/user/{other.Id}/trips/{trip.Id}")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
                 await otherClient.PutAsJsonAsync(
-                    $"/api/user/{other.Id}/trips/{trip.Id}",
+                    $"/user/{other.Id}/trips/{trip.Id}",
                     new UpdateTripRequest("Stolen", "")
                 )
             ).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await otherClient.DeleteAsync($"/api/user/{other.Id}/trips/{trip.Id}")).StatusCode
+            (await otherClient.DeleteAsync($"/user/{other.Id}/trips/{trip.Id}")).StatusCode
         );
         Assert.HasCount(1, factory.Database.Trips);
     }
@@ -142,7 +140,7 @@ public class TripsEndpointTests
         using var client = factory.CreateClient();
         AddPrincipal(client, "validation@example.com");
         CurrentUserResponse user = await CompleteOnboardingAsync(client);
-        string collectionUrl = $"/api/user/{user.Id}/trips";
+        string collectionUrl = $"/user/{user.Id}/trips";
 
         HttpResponseMessage blankName = await client.PostAsJsonAsync(
             collectionUrl,
@@ -168,7 +166,7 @@ public class TripsEndpointTests
         CurrentUserResponse owner = await CompleteOnboardingAsync(ownerClient);
         Trip? trip = await (
             await ownerClient.PostAsJsonAsync(
-                $"/api/user/{owner.Id}/trips",
+                $"/user/{owner.Id}/trips",
                 new CreateTripRequest("Paris", "")
             )
         ).Content.ReadFromJsonAsync<Trip>();
@@ -180,16 +178,16 @@ public class TripsEndpointTests
         CurrentUserResponse traveler = (
             await (
                 await travelerClient.PutAsJsonAsync(
-                    "/api/user/profile",
+                    "/user/profile",
                     new UserProfile(new("Seattle", -122.33, 47.61), [], "SEA")
                 )
             ).Content.ReadFromJsonAsync<CurrentUserResponse>()
         )!;
         string memberUrl =
-            $"/api/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{traveler.Id}";
+            $"/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{traveler.Id}";
 
         UserSearchResult[]? found = await ownerClient.GetFromJsonAsync<UserSearchResult[]>(
-            "/api/users?query=Test"
+            "/users?query=Test"
         );
         Assert.IsNotNull(found);
         Assert.HasCount(1, found);
@@ -212,19 +210,19 @@ public class TripsEndpointTests
             factory.Database.Parties.Single().UserIds.ToArray()
         );
 
-        string sharedTripUrl = $"/api/user/{traveler.Id}/trips/{trip.Id}";
+        string sharedTripUrl = $"/user/{traveler.Id}/trips/{trip.Id}";
         Trip[]? sharedTrips = await travelerClient.GetFromJsonAsync<Trip[]>(
-            $"/api/user/{traveler.Id}/trips"
+            $"/user/{traveler.Id}/trips"
         );
         Assert.AreEqual(trip.Id, sharedTrips?.Single().Id);
         Assert.AreEqual(trip.Id, (await travelerClient.GetFromJsonAsync<Trip>(sharedTripUrl))?.Id);
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await travelerClient.GetAsync($"{sharedTripUrl}/planning")).StatusCode
+            (await travelerClient.GetAsync($"/trips/{trip.Id}/flights/constraints")).StatusCode
         );
         Assert.AreEqual(
-            HttpStatusCode.OK,
-            (await travelerClient.GetAsync($"/api/trips/{trip.Id}/selectedFlights")).StatusCode
+            HttpStatusCode.NoContent,
+            (await travelerClient.GetAsync($"/trips/{trip.Id}/flights")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
@@ -240,10 +238,10 @@ public class TripsEndpointTests
             (await travelerClient.DeleteAsync(sharedTripUrl)).StatusCode
         );
 
-        PlanningEditor? editor = await ownerClient.GetFromJsonAsync<PlanningEditor>(
-            $"/api/user/{owner.Id}/trips/{trip.Id}/planning"
+        PlanningParty[]? parties = await ownerClient.GetFromJsonAsync<PlanningParty[]>(
+            $"/trips/{trip.Id}/parties"
         );
-        Assert.AreEqual("BOS", editor?.Parties.Single().SuggestedOrigin?.Code);
+        Assert.AreEqual("BOS", parties?.Single().SuggestedOrigin?.Code);
 
         Assert.AreEqual(
             HttpStatusCode.NoContent,
@@ -265,7 +263,7 @@ public class TripsEndpointTests
             HttpStatusCode.BadRequest,
             (
                 await ownerClient.DeleteAsync(
-                    $"/api/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{owner.Id}"
+                    $"/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{owner.Id}"
                 )
             ).StatusCode
         );
@@ -274,7 +272,7 @@ public class TripsEndpointTests
     private static async Task<CurrentUserResponse> CompleteOnboardingAsync(HttpClient client)
     {
         HttpResponseMessage response = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Boston, Massachusetts, United States", -71.0589, 42.3601), [])
         );
         response.EnsureSuccessStatusCode();

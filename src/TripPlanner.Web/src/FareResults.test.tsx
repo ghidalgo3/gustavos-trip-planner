@@ -127,7 +127,7 @@ const results: FareSearchResult[] = [
   },
 ];
 
-test("uses shared flight cards for both round-trip legs without changing fare controls", async () => {
+test("uses shared flight cards for both round-trip legs without result filters", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: RequestInfo | URL) =>
@@ -156,12 +156,14 @@ test("uses shared flight cards for both round-trip legs without changing fare co
     screen.getByText("USD $30 more than the cheapest overall option."),
   ).toBeVisible();
   const cheapest = screen.getByText("Cheapest overall").closest("article")!;
-  const outbound = within(cheapest)
-    .getByText("Outbound flight")
-    .closest(".flight-information") as HTMLElement;
-  const inbound = within(cheapest)
-    .getByText("Return flight")
-    .closest(".flight-information") as HTMLElement;
+  const preferred = screen
+    .getByText("Cheapest preferred airline")
+    .closest("article")!;
+  expect(within(cheapest).queryByText("Preferred Airline")).toBeNull();
+  expect(within(preferred).getAllByText("Preferred Airline")).toHaveLength(2);
+  const [outbound, inbound] = cheapest.querySelectorAll<HTMLElement>(
+    ".round-trip-flight-legs .flight-information",
+  );
   expect(outbound).toBeVisible();
   expect(inbound).toBeVisible();
   expect(within(outbound).getAllByText(/DL 123/)).not.toHaveLength(0);
@@ -188,11 +190,10 @@ test("uses shared flight cards for both round-trip legs without changing fare co
   fireEvent.click(screen.getByText("More matching options (1)"));
   expect(screen.getAllByRole("article")).toHaveLength(4);
 
-  expect(screen.getByRole("combobox", { name: "Airline" })).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "Arrival time" })).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "Stops" })).toBeVisible();
-  expect(screen.getByLabelText("Minimum price slider")).toBeVisible();
-  expect(screen.getByLabelText("Maximum price slider")).toBeVisible();
+  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText("Minimum price slider"),
+  ).not.toBeInTheDocument();
 });
 
 test("never recommends or offers booking for a rejected itinerary", () => {
@@ -283,7 +284,7 @@ test("selects, replaces, and clears a flight for the party", async () => {
   );
   await waitFor(() => expect(selected).toBeUndefined());
   expect(fetchMock).toHaveBeenCalledWith(
-    expect.stringContaining("/selectedFlights/party"),
+    expect.stringContaining("/flights/party"),
     expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({ cacheKey: "cache", itineraryIndex: 1 }),
@@ -327,7 +328,7 @@ test("does not label a different refreshed itinerary as selected", async () => {
   expect(screen.queryByText("Selected for this trip")).not.toBeInTheDocument();
 });
 
-test("restores fare filters from the route and updates its query", async () => {
+test("ignores stale result-filter query parameters and shows the fares", () => {
   function RouteQuery() {
     return <output data-testid="route-query">{useLocation().search}</output>;
   }
@@ -345,22 +346,11 @@ test("restores fare filters from the route and updates its query", async () => {
     </FluentProvider>,
   );
 
-  expect(screen.getByRole("spinbutton", { name: "Minimum price" })).toHaveValue(
-    140,
-  );
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Minimum price" }), {
-    target: { value: "150" },
-  });
+  expect(screen.getByText("Cheapest overall")).toBeVisible();
+  expect(screen.getByText("Cheapest preferred airline")).toBeVisible();
+  expect(
+    screen.queryByRole("spinbutton", { name: "Minimum price" }),
+  ).toBeNull();
   expect(screen.getByTestId("route-query")).toHaveTextContent("advanced=1");
-  expect(screen.getByTestId("route-query")).toHaveTextContent("minPrice=150");
-  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-  expect(screen.getByTestId("route-query")).toHaveTextContent("advanced=1");
-  expect(screen.getByTestId("route-query")).not.toHaveTextContent("minPrice");
-  const airline = screen.getByRole("combobox", { name: "Airline" });
-  fireEvent.change(airline, { target: { value: "Delta" } });
-  fireEvent.click(airline);
-  fireEvent.click(
-    await screen.findByRole("menuitemcheckbox", { name: "Delta" }),
-  );
-  expect(screen.getByTestId("route-query")).toHaveTextContent("airline=Delta");
+  expect(screen.getByTestId("route-query")).toHaveTextContent("minPrice=140");
 });

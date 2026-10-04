@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { Button, Text, Title3 } from "@fluentui/react-components";
 import FlightInformation from "./FlightInformation";
-import { legKey } from "./flightFormatting";
+import FlightLegTabs from "./FlightLegTabs";
+import { legKey, legRoute } from "./flightFormatting";
 import { flightAirportCodes, useAirportCities } from "./airportCities";
 import type { FareSearchResult } from "./operationsApi";
 import type { PlanningParty } from "./planningApi";
+import type { PartySettings } from "./planningApi";
 import type { FlightChoiceProgress } from "./selectedFlightsApi";
 
 export default function FirstLegResults({
   results,
   parties,
+  partySettings = [],
   choices,
   legCount,
   onChoose,
@@ -17,6 +20,7 @@ export default function FirstLegResults({
 }: {
   results: FareSearchResult[];
   parties: PlanningParty[];
+  partySettings?: PartySettings[];
   choices: Record<string, FlightChoiceProgress>;
   legCount: number;
   onChoose: (partyId: string, keys: string[]) => Promise<boolean>;
@@ -67,7 +71,13 @@ export default function FirstLegResults({
   return (
     <div className="first-leg-results">
       {parties.map((party) => {
+        const preferredAirlines =
+          partySettings.find((settings) => settings.partyId === party.id)
+            ?.preferredAirlines ?? [];
         const chosen = choices[party.id]?.legKeys ?? [];
+        const partyName =
+          party.members.map((member) => member.name).join(", ") ||
+          "Travel party";
         const step = chosen.length;
         const nextOrigins = choices[party.id]?.nextOrigins ?? [];
         const unique = new Map<string, (typeof options)[number]>();
@@ -106,37 +116,37 @@ export default function FirstLegResults({
               .map((option) => [legKey(option.leg), option] as const),
           ).values(),
         ];
+        const routes = Array.from({ length: legCount }, (_, index) => {
+          const leg =
+            index < step
+              ? options.find(
+                  (option) =>
+                    option.partyId === party.id &&
+                    legKey(option.leg) === chosen[index],
+                )?.leg
+              : index === step
+                ? choicesForParty[0]?.leg
+                : undefined;
+          return legRoute(leg);
+        });
         return (
-          <section
-            key={party.id}
-            aria-label={`First flights for ${party.members.map((member) => member.name).join(", ")}`}
-          >
-            <Title3 as="h3">
-              Flight {Math.min(step + 1, legCount)} of {legCount} ·{" "}
-              {party.members.map((member) => member.name).join(", ")}
-            </Title3>
+          <section key={party.id} aria-label={`First flights for ${partyName}`}>
+            <Title3 as="h3">{partyName}</Title3>
+            <FlightLegTabs
+              legCount={legCount}
+              step={step}
+              label={partyName}
+              routes={routes}
+              busy={busyParty === party.id}
+              onRevisit={(index) =>
+                void choose(party.id, chosen.slice(0, index))
+              }
+            />
             {saveErrors[party.id] && (
               <Text role="alert">{saveErrors[party.id]}</Text>
             )}
             {busyParty === party.id && (
               <Text role="status">Saving flight choice…</Text>
-            )}
-            {chosen.length > 0 && (
-              <div className="route-saved-choice">
-                <Text>{chosen.length} flight(s) chosen</Text>
-                {chosen.map((_, index) => (
-                  <Button
-                    key={index}
-                    size="small"
-                    disabled={busyParty === party.id}
-                    onClick={() =>
-                      void choose(party.id, chosen.slice(0, index))
-                    }
-                  >
-                    Change flight {index + 1}
-                  </Button>
-                ))}
-              </div>
             )}
             {step >= legCount ? (
               <Text role="status">
@@ -157,16 +167,15 @@ export default function FirstLegResults({
                     ? "Available flights are shown as searches finish. Complete routes may change these choices."
                     : "Choose the next flight from the available search results."}
                 </Text>
-                {featured.slice(0, 6).map((option, index) => {
+                {featured.slice(0, 6).map((option) => {
                   const key = legKey(option.leg);
                   return (
                     <FlightInformation
                       key={key}
                       leg={option.leg}
                       cities={cities}
-                      title={`Option ${index + 1}`}
+                      preferredAirlines={preferredAirlines}
                       price={option.itinerary.price}
-                      priceContext="This flight"
                       actions={
                         <Button
                           appearance="primary"
@@ -188,16 +197,15 @@ export default function FirstLegResults({
                 <summary>
                   More flight {step + 1} options ({featured.length - 6})
                 </summary>
-                {featured.slice(6).map((option, index) => {
+                {featured.slice(6).map((option) => {
                   const key = legKey(option.leg);
                   return (
                     <FlightInformation
                       key={key}
                       leg={option.leg}
                       cities={cities}
-                      title={`Option ${index + 7}`}
+                      preferredAirlines={preferredAirlines}
                       price={option.itinerary.price}
-                      priceContext="This flight"
                       actions={
                         <Button
                           appearance="primary"

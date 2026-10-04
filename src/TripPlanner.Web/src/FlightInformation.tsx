@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
-import { Card, Switch, Text, Title3 } from "@fluentui/react-components";
+import { Badge, Card, Switch, Text, Title3 } from "@fluentui/react-components";
 import type { FareItinerary, FareLeg } from "./operationsApi";
-import { airportLabel, type AirportCities } from "./flightFormatting";
+import {
+  airportLabel,
+  legUsesPreferredAirline,
+  type AirportCities,
+} from "./flightFormatting";
 import { priceLabel } from "./flightFormatting";
 
 function displayTime(value?: string, timeOnly = false): string {
@@ -33,7 +37,8 @@ function layoverMinutes(
 export default function FlightInformation({
   leg,
   cities = {},
-  title,
+  badge,
+  preferredAirlines = [],
   summary,
   actions,
   purchased,
@@ -45,7 +50,8 @@ export default function FlightInformation({
 }: {
   leg: FareLeg;
   cities?: AirportCities;
-  title?: string;
+  badge?: string;
+  preferredAirlines?: readonly string[];
   summary?: string;
   actions?: ReactNode;
   purchased?: boolean;
@@ -63,6 +69,7 @@ export default function FlightInformation({
     first.operating_carrier_name ||
     first.marketing_carrier_code ||
     "Airline unavailable";
+  const preferred = legUsesPreferredAirline(leg, preferredAirlines);
   const departureDate = first.departure_time_local?.slice(0, 10);
   const departureDay = departureDate
     ? new Date(`${departureDate}T12:00:00Z`).getUTCDay()
@@ -78,17 +85,34 @@ export default function FlightInformation({
   ];
   return (
     <Card className="flight-information">
-      {(title || price) && (
-        <div className="flight-information-heading">
-          {title && <Title3 as="h4">{title}</Title3>}
-          {price && (
-            <div className="flight-information-price">
-              {priceContext && <Text size={200}>{priceContext}</Text>}
-              <Text weight="semibold">{priceLabel(price)}</Text>
+      <div className="flight-information-heading">
+        <div className="flight-information-heading-main">
+          <Title3 as="h4">
+            {airportLabel(first.departure_airport, cities)} →{" "}
+            {airportLabel(last.arrival_airport, cities)}
+          </Title3>
+          {(badge || preferred) && (
+            <div className="flight-information-badges">
+              {badge && (
+                <Badge appearance="filled" color="success">
+                  {badge}
+                </Badge>
+              )}
+              {preferred && (
+                <Badge appearance="filled" color="brand">
+                  Preferred Airline
+                </Badge>
+              )}
             </div>
           )}
         </div>
-      )}
+        {price && (
+          <div className="flight-information-price">
+            {priceContext && <Text size={200}>{priceContext}</Text>}
+            <Text weight="semibold">{priceLabel(price)}</Text>
+          </div>
+        )}
+      </div>
       {departureDay >= 0 && (
         <div
           className="flight-weekdays"
@@ -109,10 +133,6 @@ export default function FlightInformation({
           ))}
         </div>
       )}
-      <Text weight="semibold" size={400}>
-        {airportLabel(first.departure_airport, cities)} →{" "}
-        {airportLabel(last.arrival_airport, cities)}
-      </Text>
       {summary && <Text>{summary}</Text>}
       <Text>
         {carrier} ·{" "}
@@ -155,7 +175,6 @@ export default function FlightInformation({
           </div>
         );
       })}
-      <Text size={200}>Times are local to each airport.</Text>
       {purchased !== undefined &&
         (onPurchasedChange ? (
           <Switch

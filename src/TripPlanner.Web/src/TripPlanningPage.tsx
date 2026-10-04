@@ -67,7 +67,11 @@ export default function TripPlanningPage({
     if (tab === activeTab) return;
     if (flightDirty && !window.confirm("Discard unsaved planning changes?"))
       return;
-    navigate(`/trips/${tripId}/${tab}${location.search}`);
+    navigate(
+      tab === "flights"
+        ? `/trips/${tripId}${location.search}`
+        : `/trips/${tripId}/${tab}${location.search}`,
+    );
   }
   return (
     <div className="trip-workspace">

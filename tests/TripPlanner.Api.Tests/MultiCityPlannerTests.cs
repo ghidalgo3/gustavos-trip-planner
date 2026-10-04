@@ -57,13 +57,13 @@ public sealed class MultiCityPlannerTests
         client.DefaultRequestHeaders.Add("X-Test-Subject", "route-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "route-owner@example.com");
         var profileResponse = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
         profileResponse.EnsureSuccessStatusCode();
         var user = (await profileResponse.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
         var tripResponse = await client.PostAsJsonAsync(
-            $"/api/user/{user.Id}/trips",
+            $"/user/{user.Id}/trips",
             new CreateTripRequest("Wedding route", "")
         );
         tripResponse.EnsureSuccessStatusCode();
@@ -74,15 +74,12 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync(
-                $"/api/user/{user.Id}/trips/{trip.Id}/constraints",
-                document
-            )
+            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
-        var path = $"/api/trips/{trip.Id}/flightSearch";
+        var path = $"/trips/{trip.Id}/flights/search";
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(path)).StatusCode);
         var response = await client.PostAsJsonAsync(
-            path,
+            $"/trips/{trip.Id}/flights:search",
             new StartFlightSearchRequest(Guid.NewGuid())
         );
         Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode);
@@ -112,7 +109,7 @@ public sealed class MultiCityPlannerTests
             }
         }
         Assert.IsTrue(firstFareReady);
-        var choicesPath = $"/api/trips/{trip.Id}/flightChoices/{party.Id}";
+        var choicesPath = $"/trips/{trip.Id}/flights/choices/{party.Id}";
         var choiceResponse = await client.PutAsJsonAsync(
             choicesPath,
             new SetFlightChoicesRequest([choiceKey])
@@ -121,7 +118,7 @@ public sealed class MultiCityPlannerTests
         CollectionAssert.Contains(
             (
                 await client.GetFromJsonAsync<FlightChoiceProgress[]>(
-                    $"/api/trips/{trip.Id}/flightChoices"
+                    $"/trips/{trip.Id}/flights/choices"
                 )
             )!
                 .Single()
@@ -155,7 +152,7 @@ public sealed class MultiCityPlannerTests
         var fares = (await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(path))!;
         Assert.HasCount(1, fares);
         Assert.IsGreaterThan(0, fares[0].Response.GetProperty("itineraries").GetArrayLength());
-        var selectionPath = $"/api/trips/{trip.Id}/selectedFlights";
+        var selectionPath = $"/trips/{trip.Id}/flights";
         var selection = await client.PutAsJsonAsync(
             $"{selectionPath}/{party.Id}",
             new SelectFlightRequest(fares[0].CacheKey, 0)
@@ -165,7 +162,7 @@ public sealed class MultiCityPlannerTests
         Assert.AreEqual(4, saved.Itinerary.GetProperty("legs").GetArrayLength());
         Assert.AreEqual(3, saved.Itinerary.GetProperty("bookingOffers").GetArrayLength());
         var cached = await client.PostAsJsonAsync(
-            path,
+            $"/trips/{trip.Id}/flights:search",
             new StartFlightSearchRequest(Guid.NewGuid())
         );
         Assert.AreEqual(
@@ -377,13 +374,13 @@ public sealed class MultiCityPlannerTests
         client.DefaultRequestHeaders.Add("X-Test-Subject", "metro-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "metro-owner@example.com");
         var profile = await client.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
         profile.EnsureSuccessStatusCode();
         var user = (await profile.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
         var created = await client.PostAsJsonAsync(
-            $"/api/user/{user.Id}/trips",
+            $"/user/{user.Id}/trips",
             new CreateTripRequest("Metro connection", "")
         );
         created.EnsureSuccessStatusCode();
@@ -412,10 +409,7 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync(
-                $"/api/user/{user.Id}/trips/{trip.Id}/constraints",
-                document
-            )
+            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
         var preview = new MultiCityPlanner(_airports, TimeProvider.System).Build(
             document,
@@ -431,7 +425,7 @@ public sealed class MultiCityPlannerTests
                 && search.Body.SearchPriority == 0
             );
         var searchResponse = await client.PostAsJsonAsync(
-            $"/api/trips/{trip.Id}/flightSearch",
+            $"/trips/{trip.Id}/flights:search",
             new StartFlightSearchRequest(Guid.NewGuid())
         );
         Assert.AreEqual(HttpStatusCode.Accepted, searchResponse.StatusCode);
@@ -484,7 +478,7 @@ public sealed class MultiCityPlannerTests
         Assert.IsTrue(firstFareReady);
         var key = BrowserLegKey(fareResponse.GetProperty("itineraries")[0].GetProperty("outbound"));
         var response = await client.PutAsJsonAsync(
-            $"/api/trips/{trip.Id}/flightChoices/{party.Id}",
+            $"/trips/{trip.Id}/flights/choices/{party.Id}",
             new SetFlightChoicesRequest([key])
         );
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);

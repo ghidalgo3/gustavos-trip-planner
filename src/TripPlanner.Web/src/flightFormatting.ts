@@ -2,6 +2,25 @@ import type { FareItinerary, FareLeg } from "./operationsApi";
 
 export type AirportCities = Record<string, string>;
 
+export function legRoute(leg?: FareLeg): string {
+  const origin = leg?.segments[0]?.departure_airport;
+  const destination = leg?.segments.at(-1)?.arrival_airport;
+  return origin && destination ? `${origin} → ${destination}` : "";
+}
+
+export function legUsesPreferredAirline(
+  leg: FareLeg,
+  preferredAirlines: readonly string[],
+): boolean {
+  if (preferredAirlines.length === 0) return false;
+  const preferred = new Set(
+    preferredAirlines.map((code) => code.trim().toUpperCase()),
+  );
+  return leg.segments.some((segment) =>
+    preferred.has(segment.marketing_carrier_code?.trim().toUpperCase() ?? ""),
+  );
+}
+
 export function legKey(leg?: FareLeg): string {
   return JSON.stringify(
     leg?.segments.map((segment) => [

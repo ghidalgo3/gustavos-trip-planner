@@ -482,7 +482,7 @@ public sealed class OperationTests
         var user = (
             await (
                 await client.PutAsJsonAsync(
-                    "/api/user/profile",
+                    "/user/profile",
                     new UserProfile(new("Boston", -71, 42), [])
                 )
             ).Content.ReadFromJsonAsync<CurrentUserResponse>()
@@ -490,7 +490,7 @@ public sealed class OperationTests
         var trip = (
             await (
                 await client.PostAsJsonAsync(
-                    $"/api/user/{user.Id}/trips",
+                    $"/user/{user.Id}/trips",
                     new CreateTripRequest("Paris", "")
                 )
             ).Content.ReadFromJsonAsync<Trip>()
@@ -505,32 +505,29 @@ public sealed class OperationTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
-                    $"/api/user/{user.Id}/trips/{trip.Id}/constraints",
-                    document
-                )
+                await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
             ).StatusCode
         );
-        var path = $"/api/trips/{trip.Id}/flightSearch";
+        var path = $"/trips/{trip.Id}/flights/search";
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(path)).StatusCode);
         var request = new StartFlightSearchRequest(Guid.NewGuid());
-        var response = await client.PostAsJsonAsync(path, request);
+        var response = await client.PostAsJsonAsync($"/trips/{trip.Id}/flights:search", request);
         Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode);
         var operation = (await response.Content.ReadFromJsonAsync<TrackedOperation>())!;
-        Assert.AreEqual("/api/operations/" + operation.Id, operation.PollingUrl);
+        Assert.AreEqual("/operations/" + operation.Id, operation.PollingUrl);
         Assert.AreEqual(operation.PollingUrl, response.Headers.Location!.ToString());
         Assert.AreEqual(OperationState.FlightSearch, operation.Type);
 
         var listed = (
             await client.GetFromJsonAsync<TrackedOperation[]>(
-                "/api/operations?top=1&skip=0&type=flightSearch"
+                "/operations?top=1&skip=0&type=flightSearch"
             )
         )!;
         Assert.HasCount(1, listed);
         Assert.AreEqual(operation.Id, listed[0].Id);
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
-            (await client.GetAsync("/api/operations?top=0")).StatusCode
+            (await client.GetAsync("/operations?top=0")).StatusCode
         );
         Assert.AreEqual(
             operation.Id,
@@ -560,8 +557,11 @@ public sealed class OperationTests
         Assert.HasCount(1, evaluated!);
         Assert.AreEqual("Eligible", evaluated![0].Evaluations[0].Status);
 
-        var selectionPath = $"/api/trips/{trip.Id}/selectedFlights";
-        Assert.IsEmpty((await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!);
+        var selectionPath = $"/trips/{trip.Id}/flights";
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.GetAsync(selectionPath)).StatusCode
+        );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
@@ -642,7 +642,7 @@ public sealed class OperationTests
             HttpStatusCode.OK,
             (
                 await client.PutAsJsonAsync(
-                    $"/api/user/{user.Id}/trips/{trip.Id}/constraints",
+                    $"/trips/{trip.Id}/flights/constraints",
                     document with
                     {
                         Constraints = [stay],
@@ -675,12 +675,15 @@ public sealed class OperationTests
             HttpStatusCode.NoContent,
             (await client.DeleteAsync($"{selectionPath}/{party.Id}")).StatusCode
         );
-        Assert.IsEmpty((await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!);
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.GetAsync(selectionPath)).StatusCode
+        );
         Assert.AreEqual(
             HttpStatusCode.Conflict,
             (
                 await client.PostAsJsonAsync(
-                    $"{path}/{evaluated[0].CacheKey}/bookingLinks",
+                    $"/trips/{trip.Id}/flights/search/{evaluated[0].CacheKey}/bookingLinks",
                     new BookingLinksRequest("fare-1")
                 )
             ).StatusCode
@@ -696,7 +699,7 @@ public sealed class OperationTests
         other.DefaultRequestHeaders.Add("X-Test-Subject", "other");
         other.DefaultRequestHeaders.Add("X-Test-Email", "other@example.com");
         await other.PutAsJsonAsync(
-            "/api/user/profile",
+            "/user/profile",
             new UserProfile(new("Seattle", -122, 47), [], "SEA")
         );
         Assert.AreEqual(HttpStatusCode.NotFound, (await other.GetAsync(path)).StatusCode);
