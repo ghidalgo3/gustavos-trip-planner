@@ -17,6 +17,10 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
 {
     public InMemoryPlannerDb Database { get; } = new();
     public ITripFormAssistant? FormAssistant { get; set; }
+    public IActivityAssistant? ActivityAssistant { get; set; }
+    public ICityPlaceResolver? CityResolver { get; set; }
+    public IActivityPlaceResolver? ActivityPlaceResolver { get; set; }
+    public MapToken? MapTokenOverride { get; set; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -35,6 +39,17 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDatabaseMigrator>();
             services.RemoveAll<IPlannerDb>();
             services.RemoveAll<IMapTokenProvider>();
+            services.RemoveAll<ICityPlaceResolver>();
+            services.RemoveAll<IActivityPlaceResolver>();
+            services.AddSingleton<ICityPlaceResolver>(CityResolver ?? new TestCityPlaceResolver());
+            services.AddSingleton<IActivityPlaceResolver>(
+                ActivityPlaceResolver ?? new TestActivityPlaceResolver()
+            );
+            if (ActivityAssistant is not null)
+            {
+                services.RemoveAll<IActivityAssistant>();
+                services.AddSingleton(ActivityAssistant);
+            }
             if (FormAssistant is not null)
             {
                 services.RemoveAll<ITripFormAssistant>();
@@ -44,11 +59,12 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<IPlannerDb>(Database);
             services.AddSingleton<IMapTokenProvider>(
                 new TestMapTokenProvider(
-                    new MapToken(
-                        "test-map-token",
-                        "https://atlas.example.test",
-                        DateTimeOffset.Parse("2030-01-01T02:00:00Z")
-                    )
+                    MapTokenOverride
+                        ?? new MapToken(
+                            "test-map-token",
+                            "https://atlas.example.test",
+                            DateTimeOffset.Parse("2030-01-01T02:00:00Z")
+                        )
                 )
             );
             services
@@ -75,6 +91,28 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     {
         public Task<MapToken> GetTokenAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(token);
+    }
+
+    private sealed class TestCityPlaceResolver : ICityPlaceResolver
+    {
+        public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAsync(
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken
+        ) =>
+            Task.FromResult<TripPlanner.Api.Models.GeoJsonPoint?>(
+                new("Point", city == "Paris" ? [2.3522, 48.8566] : [12.4964, 41.9028])
+            );
+    }
+
+    private sealed class TestActivityPlaceResolver : IActivityPlaceResolver
+    {
+        public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAsync(
+            string placeName,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken
+        ) => Task.FromResult<TripPlanner.Api.Models.GeoJsonPoint?>(new("Point", [2.3364, 48.8606]));
     }
 
     private sealed class TestAuthenticationHandler(

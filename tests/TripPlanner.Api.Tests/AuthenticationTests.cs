@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services;
 
 namespace TripPlanner.Api.Tests;
 
@@ -130,6 +131,27 @@ public class AuthenticationTests
         Assert.AreEqual("test-map-token", token.Token);
         Assert.AreEqual("https://atlas.example.test", token.Endpoint);
         Assert.AreEqual(DateTimeOffset.Parse("2030-01-01T02:00:00Z"), token.ExpiresAt);
+    }
+
+    [TestMethod]
+    public async Task MapToken_RejectsExpiredConfiguredToken()
+    {
+        await using var factory = new TestApplicationFactory
+        {
+            MapTokenOverride = new MapToken(
+                "expired-token",
+                "https://atlas.example.test",
+                DateTimeOffset.UtcNow.AddMinutes(-1)
+            ),
+        };
+        using var client = factory.CreateClient();
+        AddGooglePrincipal(client);
+
+        var response = await client.GetAsync("/mapToken");
+
+        Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.AreEqual("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Contains("expired", await response.Content.ReadAsStringAsync());
     }
 
     [TestMethod]

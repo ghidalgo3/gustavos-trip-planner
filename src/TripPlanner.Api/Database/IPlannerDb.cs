@@ -7,6 +7,105 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb
 {
+    Task<DestinationPlace?> GetDestinationPlaceAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        string cityId,
+        CancellationToken cancellationToken = default
+    );
+    Task<DestinationPlace> SaveDestinationPlaceAsync(
+        Guid ownerUserId,
+        DestinationPlace place,
+        CancellationToken cancellationToken = default
+    );
+    Task<IReadOnlyList<DestinationPlace>> GetDestinationPlacesAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<IReadOnlyList<DestinationVisit>> GetDestinationVisitsAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<DestinationVisit?> AddDestinationVisitAsync(
+        Guid ownerUserId,
+        DestinationVisit visit,
+        CancellationToken cancellationToken = default
+    );
+    Task<DestinationVisit?> ReplaceDestinationVisitAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        string cityId,
+        Guid stayId,
+        DestinationStayInput input,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> DeleteDestinationVisitAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        string cityId,
+        Guid stayId,
+        CancellationToken cancellationToken = default
+    );
+    Task<IReadOnlyList<Activity>> GetActivitiesAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        string cityId,
+        CancellationToken cancellationToken = default
+    );
+    Task<Activity?> GetActivityAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        string cityId,
+        Guid activityId,
+        CancellationToken cancellationToken = default
+    );
+    Task<Activity?> SaveActivityAsync(
+        Guid ownerUserId,
+        Activity activity,
+        string contextVersion,
+        DateTimeOffset? expectedUpdatedAt,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> DeleteActivityAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        string cityId,
+        Guid activityId,
+        string contextVersion,
+        DateTimeOffset expectedUpdatedAt,
+        CancellationToken cancellationToken = default
+    );
+    Task<TrackedOperation> CreateActivityJobAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        Guid requestId,
+        string cityId,
+        string contextVersion,
+        string input,
+        byte[]? image,
+        string? mimeType,
+        CancellationToken cancellationToken = default
+    );
+    Task<ActivityJob?> ClaimActivityJobAsync(
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> CompleteActivityJobAsync(
+        ActivityJob job,
+        IReadOnlyList<Activity>? activities,
+        string[] warnings,
+        string? error,
+        CancellationToken cancellationToken = default
+    );
+    Task<ActivitySuggestionResult?> GetActivityJobResultAsync(
+        Guid viewerUserId,
+        Guid tripId,
+        string cityId,
+        Guid operationId,
+        CancellationToken cancellationToken = default
+    );
     Task<IReadOnlyList<FlightChoiceProgress>> GetFlightChoicesAsync(
         Guid viewerUserId,
         Guid tripId,

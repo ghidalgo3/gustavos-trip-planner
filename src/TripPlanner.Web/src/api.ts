@@ -18,6 +18,8 @@ export type UserProfile = {
 export type CitySuggestion = {
   id: string;
   label: string;
+  cityName?: string;
+  countryCode?: string;
   longitude?: number;
   latitude?: number;
 };
@@ -116,6 +118,7 @@ type MapsFeature = {
       locality?: string;
       formattedAddress?: string;
       countryRegionISO2?: string;
+      countryRegion?: { ISO?: string; name?: string };
     };
   };
 };
@@ -143,7 +146,7 @@ export async function getCurrentUser(
   return response.json() as Promise<CurrentUser>;
 }
 
-async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
+export async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
   if (
     cachedMapToken &&
     Date.parse(cachedMapToken.expiresAt) > Date.now() + 60_000
@@ -156,7 +159,12 @@ async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
     signal,
   });
   if (!response.ok) {
-    throw new Error(`The map token endpoint returned ${response.status}.`);
+    const problem = (await response.json().catch(() => null)) as {
+      title?: string;
+    } | null;
+    throw new Error(
+      problem?.title ?? `The map token endpoint returned ${response.status}.`,
+    );
   }
 
   cachedMapToken = (await response.json()) as MapToken;
@@ -205,14 +213,19 @@ export async function searchCities(
       return [];
     }
 
+    const countryCode =
+      feature.properties?.address?.countryRegion?.ISO ??
+      feature.properties?.address?.countryRegionISO2;
     const coordinates = feature.geometry?.coordinates;
     return [
       {
         id: feature.id ?? `${label}-${index}`,
-        label: formatCityLabel(
-          label,
-          feature.properties?.address?.countryRegionISO2,
-        ),
+        label: formatCityLabel(label, countryCode),
+        cityName:
+          feature.properties?.address?.locality ??
+          feature.properties?.name ??
+          label.split(",")[0].trim(),
+        countryCode,
         longitude: coordinates?.[0],
         latitude: coordinates?.[1],
       },
@@ -243,6 +256,33 @@ export async function resolveCity(
   }
 
   return { longitude: coordinates[0], latitude: coordinates[1] };
+}
+
+export async function searchPlaces(
+  query: string,
+  signal?: AbortSignal,
+): Promise<CitySuggestion[]> {
+  const parameters = new URLSearchParams({
+    "api-version": "2026-01-01",
+    query,
+    top: "6",
+  });
+  const result = await mapsRequest("geocode", parameters, signal);
+  return (result.features ?? []).flatMap((feature, index) => {
+    const coordinates = feature.geometry?.coordinates;
+    const label =
+      feature.properties?.address?.formattedAddress ?? feature.properties?.name;
+    return label && coordinates?.length === 2
+      ? [
+          {
+            id: feature.id ?? `${label}-${index}`,
+            label,
+            longitude: coordinates[0],
+            latitude: coordinates[1],
+          },
+        ]
+      : [];
+  });
 }
 
 export async function saveUserProfile(

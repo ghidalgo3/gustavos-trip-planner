@@ -36,6 +36,7 @@ public static class IgnavServiceExtensions
             services.GetRequiredService<ILogger<IgnavClient>>()
         ));
         builder.Services.AddSingleton<TripFormJobProcessor>();
+        builder.Services.AddSingleton<ActivityJobProcessor>();
         if (planning.WorkerEnabled)
             builder.Services.AddHostedService<PlanningWorker>();
     }

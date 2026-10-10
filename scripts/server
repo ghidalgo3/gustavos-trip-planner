@@ -10,7 +10,7 @@ usage() {
 Usage: scripts/server [DOCKER_COMPOSE_UP_OPTIONS]
 
 Load local authentication credentials and the Ignav and OpenAI API keys from the deployed Azure Key Vault, issue
-a two-hour Azure Maps development SAS, then start the API and web development
+a 23-hour Azure Maps development SAS, then start the API and web development
 containers with Docker Compose.
 
 Examples:
@@ -97,9 +97,9 @@ AZURE_MAPS_SAS_PRINCIPAL_ID="$(read_output azureMapsSasPrincipalId)"
 [[ -n "$AZURE_MAPS_RESOURCE_ID" && -n "$AZURE_MAPS_SAS_PRINCIPAL_ID" ]] || die \
   "Azure Maps SAS deployment outputs are missing; run scripts/buildout"
 
-LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT="$(date -u -v+2H '+%Y-%m-%dT%H:%M:%SZ')"
+LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT="$(date -u -v+23H '+%Y-%m-%dT%H:%M:%SZ')"
 AZURE_MAPS_SAS_START="$(date -u -v-5M '+%Y-%m-%dT%H:%M:%SZ')"
-log "Issuing a two-hour Azure Maps development token"
+log "Issuing a 23-hour Azure Maps development token"
 LOCAL_AZURE_MAPS_SAS_TOKEN="$(az rest \
   --method post \
   --url "https://management.azure.com${AZURE_MAPS_RESOURCE_ID}/listSas?api-version=2023-06-01" \

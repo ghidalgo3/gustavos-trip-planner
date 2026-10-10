@@ -39,7 +39,7 @@ After provisioning Azure, storing the provider credentials, and signing in with 
 scripts/server
 ```
 
-The script reads the four authentication values and the Ignav and OpenAI keys from the deployed Azure Key Vault, then issues a two-hour Azure Maps development SAS with a 50 request-per-second limit. It passes those values only to the API container. It does not create an `.env` file or expose provider client secrets to the React application. The browser obtains the short-lived Maps SAS from the authenticated API route. Pass Docker Compose options through the script, for example `scripts/server --detach`; stop detached containers with `docker compose down`.
+The script reads the four authentication values and the Ignav and OpenAI keys from the deployed Azure Key Vault, then issues a 23-hour Azure Maps development SAS with a 50 request-per-second limit. It passes those values only to the API container. It does not create an `.env` file or expose provider client secrets to the React application. The browser obtains the Maps SAS from the authenticated API route. Rerun `scripts/server --detach` if a development session lasts beyond the token expiry. Pass Docker Compose options through the script, for example `scripts/server --detach`; stop detached containers with `docker compose down`.
 
 Open <http://localhost:5173>. Vite proxies application API calls to the API container at `http://api:8080`; editing the frontend triggers HMR, while `dotnet watch` rebuilds and restarts the API without interactive hot-reload prompts. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
 
@@ -211,8 +211,17 @@ Vault. During development, enable the feature for one user by setting
 `"FeatureFlags" = 'LLM'` on that user's row and refreshing the application.
 For example, `UPDATE users SET "FeatureFlags" = 'LLM' WHERE email = 'you@example.com';`.
 Invitations and full preference scoring are subsequent
-steps. See [Milestone 1](docs/milestone_1.md) for limits and
-[later milestones](docs/later_milestones.md) for the deferred trip revision history.
+steps. See [Milestone 1](docs/milestone_1.md) for limits,
+[Milestone 2](docs/milestone_2.md) for the activity-planning contract and iteration notes,
+and [later milestones](docs/later_milestones.md) for the deferred trip revision history.
+
+## Activity planning
+
+**Destinations** is the first trip section and can start as soon as a trip exists. Search for a city, select an autocomplete result, and optionally enter visit dates; the form does not ask for a country code. The selected result supplies the city's country and coordinates. Plan activities there before choosing flights. Adding the same city again creates another visit under one city tab, with the complete route order preserved. The city Point is cached in PostgreSQL; activities belong to the city and are shared with all trip members. Members can read them, while the trip owner can create, edit, or delete them. Removing all visits to a city leaves its activities available through **View past destinations**; adding the city again restores editing. Flight selections do not create, remove, or change destination visits.
+
+`GET /trips/{tripId}/destinations` returns an `application/geo+json` FeatureCollection, empty for a new trip. `POST` to the same route adds a visit with `name`, two-letter `countryCode`, optional `longitude` and `latitude` from the selected autocomplete result, and optional `arrivalDate` and `departureDate`. The country code remains API metadata rather than a form field. `PUT /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` replaces its optional dates; `DELETE` removes the visit. `?includeInactive=true` includes cached past cities. `GET /trips/{tripId}/destinations/{destinationCity}` returns a city Feature. Under that city, `GET` and `POST /activities` list and create complete activity Features, and `GET`, `PUT`, and `DELETE /activities/{activityId}` read, replace, and remove one. Activity writes require the city's `contextVersion` in `Destination-Context`; replacements and deletes also require the current activity ETag in `If-Match`.
+
+The owner can request suggestions with `POST /trips/{tripId}/destinations/{destinationCity}:suggest` or upload one JPEG, PNG, or WebP image with `POST .../{destinationCity}:import`. The import accepts multipart `image`, `requestId`, `destinationContext`, and optional `input`; the image limit is 10 MiB and 20 megapixels. Both routes return a durable operation to poll at `/operations/{id}`. On completion, `GET .../{destinationCity}/suggestions/{operationId}` returns the created Features and warnings. Suggestions are immediately saved with state `Proposed` and remain editable. Generation requires the `LLM` feature flag; manual activity editing does not. The map uses the existing short-lived Maps SAS, and the worker resolves candidate locations separately so an unverified place is saved without a misleading pin.
 
 When date requirements leave no flight-date pairs, the API identifies the
 conflicting windows and stay dates. The flight-search card displays the affected

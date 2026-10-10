@@ -78,6 +78,7 @@ public sealed class OperationTests
         await QueueContract(db);
         await QueuePriorityContract(db);
         await TripFormQueueContract(db);
+        await DestinationContract(db);
     }
 
     [TestMethod]
@@ -120,7 +121,7 @@ public sealed class OperationTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(2L, reader.GetInt64(0));
+                Assert.AreEqual(4L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
@@ -131,12 +132,84 @@ public sealed class OperationTests
             await QueueContract(db);
             await QueuePriorityContract(db);
             await TripFormQueueContract(db);
+            await DestinationContract(db);
         }
         finally
         {
             await using var drop = admin.CreateCommand($"DROP DATABASE {name} WITH (FORCE)");
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task DestinationContract(IPlannerDb db)
+    {
+        var (user, trip, _) = await Seed(db);
+        var place = await db.SaveDestinationPlaceAsync(
+            user.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.3522, 48.8566)
+        );
+        Assert.AreEqual("paris-fr", place.CityId);
+        var first = await db.AddDestinationVisitAsync(
+            user.Id,
+            new(trip.Id, "paris-fr", Guid.NewGuid(), 0, null, null)
+        );
+        Assert.IsNotNull(first);
+        Assert.AreEqual(0, first.Order);
+        var second = await db.AddDestinationVisitAsync(
+            user.Id,
+            new(
+                trip.Id,
+                "paris-fr",
+                Guid.NewGuid(),
+                0,
+                new DateOnly(2027, 6, 10),
+                new DateOnly(2027, 6, 14)
+            )
+        );
+        Assert.IsNotNull(second);
+        Assert.AreEqual(1, second.Order);
+        var revised = await db.ReplaceDestinationVisitAsync(
+            user.Id,
+            trip.Id,
+            "paris-fr",
+            first.StayId,
+            new(new DateOnly(2027, 6, 1), new DateOnly(2027, 6, 5))
+        );
+        Assert.AreEqual(new DateOnly(2027, 6, 1), revised?.ArrivalDate);
+        Assert.HasCount(2, await db.GetDestinationVisitsAsync(user.Id, trip.Id));
+        place = (await db.GetDestinationPlaceAsync(user.Id, trip.Id, "paris-fr"))!;
+        Assert.IsFalse(string.IsNullOrEmpty(place.ContextVersion));
+        var now = DateTimeOffset.UtcNow;
+        var activity = new Activity(
+            Guid.NewGuid(),
+            trip.Id,
+            "paris-fr",
+            null,
+            new("Museum", null, "", null, "Planned"),
+            now,
+            now
+        );
+        Assert.IsNotNull(await db.SaveActivityAsync(user.Id, activity, place.ContextVersion, null));
+        Assert.IsTrue(
+            await db.DeleteDestinationVisitAsync(user.Id, trip.Id, "paris-fr", first.StayId)
+        );
+        Assert.HasCount(1, await db.GetDestinationVisitsAsync(user.Id, trip.Id));
+        Assert.IsTrue(
+            await db.DeleteDestinationVisitAsync(user.Id, trip.Id, "paris-fr", second.StayId)
+        );
+        Assert.HasCount(0, await db.GetDestinationVisitsAsync(user.Id, trip.Id));
+        Assert.IsNotNull(await db.GetActivityAsync(user.Id, trip.Id, "paris-fr", activity.Id));
+        Assert.IsNull(
+            await db.SaveActivityAsync(
+                user.Id,
+                activity with
+                {
+                    Id = Guid.NewGuid(),
+                },
+                place.ContextVersion,
+                null
+            )
+        );
     }
 
     private static async Task QueueContract(IPlannerDb db)
@@ -711,7 +784,10 @@ public sealed class OperationTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PostAsJsonAsync(path, new StartFlightSearchRequest(Guid.Empty))
+                await client.PostAsJsonAsync(
+                    $"/trips/{trip.Id}/flights:search",
+                    new StartFlightSearchRequest(Guid.Empty)
+                )
             ).StatusCode
         );
     }

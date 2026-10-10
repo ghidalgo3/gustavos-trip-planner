@@ -30,6 +30,18 @@ export default defineConfig({
       "^/trips/[^/]+/(flights(?::[^/?]+)?|flights/.*|parties)(/|\\?|$)": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: true,
+        bypass(request) {
+          if (
+            request.method === "GET" &&
+            /^\/trips\/[^/]+\/flights(?:\?|$)/.test(request.url ?? "") &&
+            request.headers.accept?.includes("text/html")
+          )
+            return "/index.html";
+        },
+      },
+      "^/trips/[^/]+/destinations(/|\\?|$)": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: true,
       },
       "/service": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",

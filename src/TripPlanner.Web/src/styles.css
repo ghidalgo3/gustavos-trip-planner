@@ -760,3 +760,246 @@ main {
   background: var(--colorBrandBackground);
   color: var(--colorNeutralForegroundOnBrand);
 }
+
+.activity-planning {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+}
+.activity-destination-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.activity-stay-dates {
+  color: var(--colorNeutralForeground2);
+}
+.activity-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.activity-map-panel,
+.activity-table-wrap {
+  min-width: 0;
+}
+.activity-map-shell {
+  position: relative;
+  min-height: 24rem;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+  overflow: hidden;
+}
+.activity-map {
+  position: absolute;
+  inset: 0;
+}
+.activity-map-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--colorNeutralBackground2);
+  text-align: center;
+}
+.activity-map-marker {
+  border: 2px solid var(--colorNeutralBackground1);
+  border-radius: 1rem;
+  background: var(--colorBrandBackground);
+  color: var(--colorNeutralForegroundOnBrand);
+  padding: 0.35rem 0.65rem;
+  max-width: 10rem;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-map-marker[data-selected="true"] {
+  outline: 3px solid var(--colorPaletteYellowBorderActive);
+}
+.activity-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: var(--colorNeutralBackground2);
+  border-radius: var(--borderRadiusMedium);
+}
+.activity-selection span {
+  flex: 1 1 12rem;
+}
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.activity-table caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.5rem;
+}
+.activity-table th,
+.activity-table td {
+  padding: 0.6rem 0.35rem;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  vertical-align: top;
+}
+.activity-table th {
+  color: var(--colorNeutralForeground2);
+  font-weight: 500;
+}
+.activity-table tr.selected {
+  background: var(--colorBrandBackground2);
+}
+.activity-table td button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.activity-table td small {
+  display: block;
+  color: var(--colorNeutralForeground2);
+}
+.activity-state {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 1rem;
+}
+.activity-editor,
+.activity-composer {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground1);
+}
+.activity-editor label,
+.activity-composer label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+.activity-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.activity-editor select {
+  min-height: 2.25rem;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  padding: 0.35rem;
+}
+.activity-actions,
+.activity-place-actions,
+.activity-upload-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.activity-place-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.activity-file-input {
+  display: none;
+}
+.activity-upload-preview img {
+  width: 5rem;
+  height: 5rem;
+  object-fit: cover;
+  border-radius: var(--borderRadiusMedium);
+}
+@media (max-width: 1000px) {
+  .activity-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .activity-planning {
+    gap: 0.75rem;
+  }
+  .activity-map-shell {
+    min-height: 32vh;
+  }
+  .activity-editor-grid {
+    grid-template-columns: 1fr;
+  }
+  .activity-table thead {
+    display: none;
+  }
+  .activity-table,
+  .activity-table tbody,
+  .activity-table tr,
+  .activity-table td {
+    display: block;
+    width: 100%;
+  }
+  .activity-table tr {
+    border-bottom: 1px solid var(--colorNeutralStroke2);
+    padding: 0.5rem 0;
+  }
+  .activity-table td {
+    border: 0;
+    padding: 0.1rem 0.35rem;
+  }
+  .activity-table td:nth-child(2),
+  .activity-table td:nth-child(3) {
+    display: inline-block;
+    width: auto;
+    color: var(--colorNeutralForeground2);
+  }
+  .activity-table td:nth-child(4) {
+    padding-top: 0.35rem;
+  }
+  .activity-actions > button {
+    min-height: 44px;
+  }
+}
+.activity-destination-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 0.75rem;
+}
+
+.activity-destination-form label {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 8rem;
+}
+
+.activity-stay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.activity-stay-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

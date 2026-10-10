@@ -13,7 +13,8 @@ public sealed class PlanningWorker(
     IOptions<PlanningOptions> planningOptions,
     TimeProvider clock,
     ILogger<PlanningWorker> logger,
-    TripFormJobProcessor? formProcessor
+    TripFormJobProcessor? formProcessor,
+    ActivityJobProcessor? activityProcessor = null
 ) : BackgroundService
 {
     private readonly TimeSpan _timeout = TimeSpan.FromSeconds(
@@ -28,6 +29,8 @@ public sealed class PlanningWorker(
             .ToList();
         if (formProcessor is not null)
             consumers.Add(ConsumeFormsAsync(stoppingToken));
+        if (activityProcessor is not null)
+            consumers.Add(ConsumeActivitiesAsync(stoppingToken));
         return Task.WhenAll(consumers);
     }
 
@@ -49,6 +52,37 @@ public sealed class PlanningWorker(
                 logger.LogError(
                     exception,
                     "Trip form queue failed; work will resume after its lease expires."
+                );
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task ConsumeActivitiesAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (await activityProcessor!.ProcessNextAsync(stoppingToken))
+                    continue;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Activity queue failed; work will resume after its lease expires."
                 );
             }
             try

@@ -208,6 +208,29 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
                 _selectedFlights.Remove(key);
             foreach (var key in _flightChoices.Keys.Where(key => key.TripId == tripId).ToArray())
                 _flightChoices.Remove(key);
+            foreach (var key in _destinationPlaces.Keys.Where(key => key.Item1 == tripId).ToArray())
+                _destinationPlaces.Remove(key);
+            foreach (
+                var key in _destinationVisits
+                    .Where(pair => pair.Value.TripId == tripId)
+                    .Select(pair => pair.Key)
+                    .ToArray()
+            )
+                _destinationVisits.Remove(key);
+            foreach (
+                var key in _activities
+                    .Where(pair => pair.Value.TripId == tripId)
+                    .Select(pair => pair.Key)
+                    .ToArray()
+            )
+                _activities.Remove(key);
+            foreach (
+                var key in _activityJobs
+                    .Where(pair => pair.Value.TripId == tripId)
+                    .Select(pair => pair.Key)
+                    .ToArray()
+            )
+                _activityJobs.Remove(key);
             foreach (
                 Guid partyId in _parties
                     .Values.Where(party => party.TripId == tripId)

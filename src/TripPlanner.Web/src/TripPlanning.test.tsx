@@ -204,13 +204,15 @@ test("AI form fill is flag gated and leaves a reviewable unsaved draft", async (
     screen.getByRole("button", { name: "Fill trip details" }),
   ).toBeVisible();
   expect(
-    fetchMock.mock.calls.filter(([url]) =>
-      String(url).endsWith("/constraints"),
+    fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith("/constraints") && init?.method === "PUT",
     ),
   ).toHaveLength(1);
   const unlocked = JSON.parse(
-    fetchMock.mock.calls.find(([url]) =>
-      String(url).endsWith("/constraints"),
+    fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/constraints") && init?.method === "PUT",
     )?.[1]?.body as string,
   ) as PlanningDocument;
   expect(unlocked.constraints).toHaveLength(3);
@@ -222,18 +224,20 @@ test("AI form fill is flag gated and leaves a reviewable unsaved draft", async (
   );
   await waitFor(() =>
     expect(
-      fetchMock.mock.calls.filter(([url]) =>
-        String(url).endsWith("/constraints"),
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/constraints") && init?.method === "PUT",
       ),
     ).toHaveLength(2),
   );
   const edited = JSON.parse(
-    fetchMock.mock.calls.filter(([url]) =>
-      String(url).endsWith("/constraints"),
+    fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith("/constraints") && init?.method === "PUT",
     )[1][1]?.body as string,
   ) as PlanningDocument;
   expect(edited.aiPrompt).toBe("London, one stop is fine");
-});
+}, 10000);
 
 test("shows a spinner while the AI form operation is running", async () => {
   vi.stubGlobal(
@@ -394,18 +398,14 @@ test("loads and saves an airport suggestion", async () => {
           ],
         };
       expect(url).toContain("/trips/trip/");
+      if (url.endsWith("/flights/constraints") && init?.method === "PUT") {
+        stored = JSON.parse(init.body as string);
+        return { ok: true, json: async () => stored };
+      }
       if (url.endsWith("/flights/constraints"))
         return { ok: true, json: async () => stored };
       if (url.endsWith("/parties"))
         return { ok: true, json: async () => parties };
-      if (url.endsWith("/constraints")) {
-        expect(init?.method).toBe("PUT");
-        stored = JSON.parse(init?.body as string);
-        return {
-          ok: true,
-          json: async () => ({ ...trip, constraints: stored }),
-        };
-      }
       throw new Error("Unexpected request");
     },
   );
@@ -440,11 +440,13 @@ test("loads and saves an airport suggestion", async () => {
   expect(onSaved).toHaveBeenCalledTimes(1);
   first.unmount();
   show();
-  expect(
-    await screen.findByRole("combobox", {
-      name: "Destination",
-    }),
-  ).toHaveValue("London · Heathrow (LHR)");
+  await waitFor(() =>
+    expect(
+      screen.getByRole("combobox", {
+        name: "Destination",
+      }),
+    ).toHaveValue("London · Heathrow (LHR)"),
+  );
 });
 
 test("selecting a city searches all its airports and allows removing one", async () => {

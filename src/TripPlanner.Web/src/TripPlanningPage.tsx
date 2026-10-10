@@ -13,6 +13,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { getTrip, type Trip } from "./api";
 import TripPlanning from "./TripPlanning";
 import PlansOverview from "./PlansOverview";
+import ActivityPlanning from "./ActivityPlanning";
 
 export default function TripPlanningPage({
   userId,
@@ -28,7 +29,12 @@ export default function TripPlanningPage({
   const location = useLocation();
   const [flightDirty, setFlightDirty] = useState(false);
   const activeTab =
-    section === "plans" || section === "stays" ? section : "flights";
+    section === "plans" ||
+    section === "stays" ||
+    section === "activities" ||
+    section === "flights"
+      ? section
+      : "activities";
   const [loaded, setLoaded] = useState<{
     tripId: string;
     trip?: Trip;
@@ -67,11 +73,7 @@ export default function TripPlanningPage({
     if (tab === activeTab) return;
     if (flightDirty && !window.confirm("Discard unsaved planning changes?"))
       return;
-    navigate(
-      tab === "flights"
-        ? `/trips/${tripId}${location.search}`
-        : `/trips/${tripId}/${tab}${location.search}`,
-    );
+    navigate(`/trips/${tripId}/${tab}${location.search}`);
   }
   return (
     <div className="trip-workspace">
@@ -81,6 +83,7 @@ export default function TripPlanningPage({
         selectedValue={activeTab}
         onTabSelect={(_, data) => openTab(String(data.value))}
       >
+        <Tab value="activities">Destinations</Tab>
         <Tab value="flights">Flights</Tab>
         <Tab value="stays">Stays</Tab>
         <Tab value="plans">Plans</Tab>
@@ -104,7 +107,14 @@ export default function TripPlanningPage({
           <div className="planning-intro">
             <Title1 as="h1">{current.trip.name}</Title1>
           </div>
-          {activeTab === "plans" || (activeTab === "flights" && readOnly) ? (
+          {activeTab === "activities" ? (
+            <ActivityPlanning
+              key={current.trip.id}
+              trip={current.trip}
+              readOnly={readOnly}
+              featureFlags={featureFlags}
+            />
+          ) : activeTab === "plans" || (activeTab === "flights" && readOnly) ? (
             <PlansOverview
               trip={current.trip}
               userId={userId}

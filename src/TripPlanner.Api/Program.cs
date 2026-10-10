@@ -32,6 +32,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 builder.AddPostgres();
 builder.Services.AddSingleton<AirportCatalog>();
+builder.Services.AddSingleton<DestinationService>();
+builder.Services.AddHttpClient<ICityPlaceResolver, AzureCityPlaceResolver>();
+builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolver>();
+builder.Services.AddHttpClient<IActivityAssistant, OpenAiActivityAssistant>(client =>
+    client.Timeout = TimeSpan.FromSeconds(120)
+);
 builder.Services.Configure<OpenAiOptions>(
     builder.Configuration.GetSection(OpenAiOptions.SectionName)
 );
@@ -107,10 +113,15 @@ api.MapGet(
     .WithName("GetServiceInfo");
 api.MapGet(
         "/mapToken",
-        async (HttpContext context, IMapTokenProvider tokenProvider) =>
+        async (HttpContext context, IMapTokenProvider tokenProvider, TimeProvider clock) =>
         {
             MapToken token = await tokenProvider.GetTokenAsync(context.RequestAborted);
             context.Response.Headers.CacheControl = "no-store";
+            if (token.ExpiresAt <= clock.GetUtcNow().AddMinutes(1))
+                return Results.Problem(
+                    title: "Azure Maps token expired. Restart the local development server to renew it.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable
+                );
             return Results.Ok(
                 new
                 {
@@ -127,6 +138,7 @@ api.MapGet(
 api.MapUserEndpoints();
 api.MapTripsEndpoints();
 api.MapSelectedFlightsEndpoints();
+api.MapActivityEndpoints();
 api.MapPartyEndpoints();
 api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();

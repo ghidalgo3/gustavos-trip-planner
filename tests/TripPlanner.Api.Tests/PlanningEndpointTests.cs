@@ -128,7 +128,7 @@ public class PlanningEndpointTests
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
         var (user, trip) = await CreateAsync(client);
-        var path = $"/user/{user.Id}/trips/{trip.Id}";
+        var path = $"/trips/{trip.Id}/flights/constraints";
         var parties = (
             await client.GetFromJsonAsync<PlanningParty[]>($"/trips/{trip.Id}/parties")
         )!;
