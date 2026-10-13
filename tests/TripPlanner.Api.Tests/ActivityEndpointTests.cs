@@ -348,9 +348,11 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
-    public async Task SuggestionJob_ImmediatelyCreatesProposedActivitiesOnlyOnce()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task SuggestionJob_ImmediatelyCreatesProposedActivitiesOnlyOnce(bool withPlaceName)
     {
-        var assistant = new StubAssistant();
+        var assistant = new StubAssistant(withPlaceName ? "Museum" : null);
         await using var factory = new TestApplicationFactory { ActivityAssistant = assistant };
         using var client = factory.CreateClient();
         (Trip trip, Guid owner, Guid party) = await CreateTrip(client, factory);
@@ -383,6 +385,7 @@ public class ActivityEndpointTests
         )!;
         Assert.HasCount(1, result.Activities.Features);
         Assert.AreEqual("Proposed", result.Activities.Features[0].Properties.State);
+        Assert.IsNotNull(result.Activities.Features[0].Geometry);
         Assert.AreEqual(1, assistant.Calls);
         Assert.IsFalse(await processor.ProcessNextAsync());
         var list = (
@@ -634,7 +637,106 @@ public class ActivityEndpointTests
         Assert.AreEqual(feature.Id, saved.Id);
     }
 
-    private sealed class StubAssistant : IActivityAssistant
+    [TestMethod]
+    public async Task ActivityLinks_AreSavedReplacedAndCanBeCleared()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, _, _) = await CreateTrip(client, factory);
+        await AddDestinations(client, trip, false);
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                $"/trips/{trip.Id}/destinations"
+            )
+        )!.Features.Single();
+        string url = $"/trips/{trip.Id}/destinations/{destination.Id}/activities";
+        var input = new ActivityInput(
+            "Feature",
+            null,
+            null,
+            new("Museum", null, "", null, "Proposed")
+            {
+                Links =
+                [
+                    new("https://museum.example/info", "About the museum"),
+                    new("https://tickets.example/booking", "Tickets"),
+                ],
+            }
+        );
+        using var create = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(input),
+        };
+        create.Headers.Add("Destination-Context", destination.Properties.ContextVersion);
+        var response = await client.SendAsync(create);
+        Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
+        var created = (
+            await response.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>()
+        )!;
+        Assert.HasCount(2, created.Properties.Links);
+        string resource = $"{url}/{created.Id}";
+        var fetched = await client.GetAsync(resource);
+        var stored = (
+            await fetched.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>()
+        )!;
+        Assert.AreEqual("Tickets", stored.Properties.Links[1].Label);
+        using var replace = new HttpRequestMessage(HttpMethod.Put, resource)
+        {
+            Content = JsonContent.Create(
+                input with
+                {
+                    Id = created.Id,
+                    Properties = input.Properties with { Links = [] },
+                }
+            ),
+        };
+        replace.Headers.Add("Destination-Context", destination.Properties.ContextVersion);
+        replace.Headers.TryAddWithoutValidation("If-Match", fetched.Headers.ETag!.Tag);
+        var replaced = await client.SendAsync(replace);
+        Assert.AreEqual(HttpStatusCode.OK, replaced.StatusCode);
+        Assert.IsEmpty(
+            (await replaced.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>())!
+                .Properties
+                .Links
+        );
+    }
+
+    [TestMethod]
+    [DataRow("javascript:alert(1)")]
+    [DataRow("data:text/html,example")]
+    [DataRow("file:///tmp/tickets")]
+    [DataRow("https://user:password@tickets.example/")]
+    [DataRow("relative/path")]
+    public async Task ActivityLinks_RejectInvalidUrls(string url)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, _, _) = await CreateTrip(client, factory);
+        await AddDestinations(client, trip, false);
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                $"/trips/{trip.Id}/destinations"
+            )
+        )!.Features.Single();
+        using var create = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/trips/{trip.Id}/destinations/{destination.Id}/activities"
+        )
+        {
+            Content = JsonContent.Create(
+                new ActivityInput(
+                    "Feature",
+                    null,
+                    null,
+                    new("Museum", null, "", null, "Proposed") { Links = [new(url)] }
+                )
+            ),
+        };
+        create.Headers.Add("Destination-Context", destination.Properties.ContextVersion);
+        Assert.AreEqual(HttpStatusCode.BadRequest, (await client.SendAsync(create)).StatusCode);
+    }
+
+    private sealed class StubAssistant(string? placeName = "Museum") : IActivityAssistant
     {
         public int Calls { get; private set; }
 
@@ -652,7 +754,7 @@ public class ActivityEndpointTests
             return Task.FromResult<IReadOnlyList<ActivityCandidate>>([
                 new(
                     "Museum visit",
-                    "Museum",
+                    placeName,
                     120,
                     "Explore the galleries",
                     null,

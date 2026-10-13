@@ -88,15 +88,19 @@ public sealed class ActivityJobProcessor(
                     continue;
                 }
                 GeoJsonPoint? point = null;
-                if (!string.IsNullOrWhiteSpace(candidate.PlaceName))
+                string placeName = string.IsNullOrWhiteSpace(candidate.PlaceName)
+                    ? name
+                    : candidate.PlaceName.Trim();
+                if (!string.IsNullOrWhiteSpace(placeName))
                 {
                     try
                     {
                         point = await places.ResolveAsync(
-                            candidate.PlaceName,
+                            placeName,
                             destination.Properties.Name,
                             destination.Properties.CountryCode,
-                            timeout.Token
+                            timeout.Token,
+                            destination.Geometry
                         );
                     }
                     catch (HttpRequestException)
@@ -137,7 +141,7 @@ public sealed class ActivityJobProcessor(
                             ],
                             cost,
                             "Proposed",
-                            candidate.PlaceName
+                            placeName
                         ),
                         now,
                         now,

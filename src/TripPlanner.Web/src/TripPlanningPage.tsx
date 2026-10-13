@@ -10,21 +10,30 @@ import {
 import { useNavigate, useParams } from "react-router";
 import { getTrip, type Trip } from "./api";
 import ActivityPlanning from "./ActivityPlanning";
+import TripPlanning from "./TripPlanning";
+import PlansOverview from "./PlansOverview";
 import TripOverview from "./TripOverview";
+import TripParties from "./TripParties";
 import TripBreadcrumbs from "./TripBreadcrumbs";
 import type { Destination } from "./activitiesApi";
 
 export default function TripPlanningPage({
   userId,
+  homeCity,
   featureFlags,
 }: {
   userId: string;
-  preferredAirlines: string[];
+  homeCity?: string | null;
   featureFlags: string[];
 }) {
   const { tripId, "*": section } = useParams();
   const navigate = useNavigate();
-  const activeTab = section === "activities" ? "activities" : "overview";
+  const activeTab =
+    section === "activities"
+      ? "activities"
+      : section === "flights"
+        ? "flights"
+        : "overview";
   const [activeDestination, setActiveDestination] = useState<{
     tripId: string;
     name: string;
@@ -108,8 +117,31 @@ export default function TripPlanningPage({
         <Tab value="activities">Activities</Tab>
       </TabList>
       <div className="planning-page trip-page-content">
-        {activeTab === "overview" ? (
-          <TripOverview key={trip.id} trip={trip} readOnly={readOnly} />
+        {activeTab === "flights" ? (
+          readOnly ? (
+            <PlansOverview
+              trip={trip}
+              userId={userId}
+              readOnly
+              onFindFlights={() => {}}
+            />
+          ) : (
+            <TripPlanning
+              backLabel="Back to Overview"
+              trip={trip}
+              onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
+            />
+          )
+        ) : activeTab === "overview" ? (
+          <>
+            <TripOverview
+              key={trip.id}
+              trip={trip}
+              readOnly={readOnly}
+              homeCity={homeCity}
+            />
+            <TripParties tripId={trip.id} userId={userId} readOnly={readOnly} />
+          </>
         ) : (
           <ActivityPlanning
             key={trip.id}

@@ -35,6 +35,7 @@ public static class FlightPlanningEndpoints
         Guid tripId,
         HttpContext context,
         IPlannerDb database,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -48,7 +49,7 @@ public static class FlightPlanningEndpoints
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
             return Results.NotFound();
-        return Results.Ok(PlanningDocument.FromJson(trip.FlightConstraints));
+        return Results.Ok(await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted));
     }
 
     private static async Task<IResult> SaveConstraints(
@@ -90,6 +91,7 @@ public static class FlightPlanningEndpoints
         HttpContext context,
         IPlannerDb database,
         ISearchPlanBuilder planner,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -107,7 +109,7 @@ public static class FlightPlanningEndpoints
             return Results.BadRequest(new { title = "A request ID is required." });
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var preview = planner.Build(
-            PlanningDocument.FromJson(trip.FlightConstraints),
+            await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted),
             parties,
             context.RequestAborted
         );
@@ -144,6 +146,7 @@ public static class FlightPlanningEndpoints
         ISearchPlanBuilder planner,
         FareValidator validator,
         RouteFareComposer routes,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -158,11 +161,8 @@ public static class FlightPlanningEndpoints
         if (trip is null)
             return Results.NotFound();
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
-        var preview = planner.Build(
-            PlanningDocument.FromJson(trip.FlightConstraints),
-            parties,
-            context.RequestAborted
-        );
+        var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
+        var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
             return Results.BadRequest(
                 new
@@ -180,7 +180,6 @@ public static class FlightPlanningEndpoints
         context.Response.Headers.CacheControl = "no-store";
         if (results is null)
             return Results.NotFound();
-        var document = PlanningDocument.FromJson(trip.FlightConstraints);
         if (document.Visits.Length > 0)
         {
             var assembled = routes.Compose(
@@ -223,6 +222,7 @@ public static class FlightPlanningEndpoints
         FareValidator validator,
         RouteFareComposer routes,
         IIgnavClient ignav,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -239,11 +239,8 @@ public static class FlightPlanningEndpoints
         if (trip is null)
             return Results.NotFound();
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
-        var preview = planner.Build(
-            PlanningDocument.FromJson(trip.FlightConstraints),
-            parties,
-            context.RequestAborted
-        );
+        var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
+        var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
             return Results.BadRequest(new { title = "The saved trip constraints are invalid." });
         var fares = await database.GetFareSearchResultsAsync(
@@ -254,7 +251,7 @@ public static class FlightPlanningEndpoints
         );
         if (fares is not null)
             fares = routes.Compose(
-                PlanningDocument.FromJson(trip.FlightConstraints),
+                document,
                 parties,
                 fares,
                 await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
@@ -270,7 +267,6 @@ public static class FlightPlanningEndpoints
             .ToArray();
         if (matching is null || matching.Length == 0)
             return Results.NotFound();
-        var document = PlanningDocument.FromJson(trip.FlightConstraints);
         if (
             !matching.Any(candidate =>
                 validator

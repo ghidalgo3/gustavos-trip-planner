@@ -64,3 +64,21 @@ test("accepts one evaluation per itinerary", async () => {
     getFlightSearchResults("trip", new AbortController().signal),
   ).resolves.toEqual(results);
 });
+
+test("reading cached flight results preserves destination validation issues", async () => {
+  const issues = [
+    {
+      code: "invalidInput",
+      message: "Tokyo arrival is in the past.",
+      partyId: null,
+      constraintIds: ["stay"],
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ issues }, { status: 400 })),
+  );
+  await expect(
+    getFlightSearchResults("trip", new AbortController().signal),
+  ).rejects.toMatchObject({ issues });
+});

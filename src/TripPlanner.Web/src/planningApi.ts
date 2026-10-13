@@ -42,6 +42,8 @@ export type PartySettings = {
   preferredAirport?: string | null;
 };
 export type PlannedVisit = {
+  arrivalFlexibilityDays?: number | null;
+  departureFlexibilityDays?: number | null;
   id: string;
   location: SearchLocation | null;
   nights: number | null;
@@ -93,7 +95,8 @@ export async function proposeTripForm(
       body: JSON.stringify({ requestId, input, constraints }),
     },
   );
-  if (!response.ok) await readTripError(response, "translating the trip prompt");
+  if (!response.ok)
+    await readTripError(response, "translating the trip prompt");
   return response.json();
 }
 
@@ -106,8 +109,7 @@ export async function getTripFormProposal(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/prompts/${encodeURIComponent(operationId)}`,
     { credentials: "include", cache: "no-store", signal },
   );
-  if (!response.ok)
-    await readTripError(response, "loading the prompt result");
+  if (!response.ok) await readTripError(response, "loading the prompt result");
   return response.json();
 }
 export type UserSearchResult = { id: string; name: string; email: string };
@@ -153,6 +155,18 @@ export async function getTripFlightPlanningData(
     document: await constraintsResponse.json(),
     parties: await partiesResponse.json(),
   };
+}
+
+export async function getTripParties(
+  tripId: string,
+  signal?: AbortSignal,
+): Promise<PlanningParty[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/parties`,
+    { credentials: "include", cache: "no-store", signal },
+  );
+  if (!response.ok) await readTripError(response, "loading trip travelers");
+  return response.json();
 }
 
 export async function searchUsers(

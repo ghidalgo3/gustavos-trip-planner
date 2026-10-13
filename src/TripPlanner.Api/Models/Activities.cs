@@ -68,6 +68,8 @@ public sealed record DestinationPlace(
 
 public sealed record ActivityCost(decimal Amount, string Currency, string Basis);
 
+public sealed record ActivityLink(string Url, string? Label = null);
+
 public sealed record ActivityProperties(
     string Name,
     int? DurationMinutes,
@@ -75,7 +77,10 @@ public sealed record ActivityProperties(
     ActivityCost? Cost,
     string State,
     string? PlaceName = null
-);
+)
+{
+    public IReadOnlyList<ActivityLink> Links { get; init; } = [];
+}
 
 public sealed record Activity(
     Guid Id,

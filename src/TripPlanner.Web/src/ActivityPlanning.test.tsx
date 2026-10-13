@@ -159,10 +159,21 @@ beforeEach(() => {
     async (_trip, _destination, input) => ({ ...input, id: input.id ?? "new" }),
   );
 });
+function click(element: HTMLElement) {
+  act(() => element.focus());
+  fireEvent.click(element);
+}
+function change(
+  element: HTMLElement,
+  options: Parameters<typeof fireEvent.change>[1],
+) {
+  act(() => element.focus());
+  fireEvent.change(element, options);
+}
 async function add() {
   const trigger = await screen.findByRole("button", { name: "Add activity" });
   act(() => trigger.focus());
-  fireEvent.click(trigger);
+  click(trigger);
   return screen.findByRole("dialog");
 }
 
@@ -192,7 +203,7 @@ test("destination tabs show every visit's dates and switch the selected city wit
   expect(
     screen.queryByText("What would you like to do?"),
   ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("tab", { name: /Rome/ }));
+  click(screen.getByRole("tab", { name: /Rome/ }));
   await waitFor(() =>
     expect(onDestinationChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: "rome-it" }),
@@ -202,11 +213,11 @@ test("destination tabs show every visit's dates and switch the selected city wit
     "destination=rome-it",
   );
   expect(
-    screen.getByRole("table", { name: "Rome activities" }),
+    screen.getByRole("list", { name: "Rome activities" }),
   ).toBeInTheDocument();
 });
 
-test("place lookup populates the activity's name and location, and saving updates the table", async () => {
+test("place lookup populates the activity's name and location, and saving updates the cards", async () => {
   vi.mocked(searchPlaces).mockResolvedValue([
     {
       id: "louvre",
@@ -219,15 +230,11 @@ test("place lookup populates the activity's name and location, and saving update
   show();
   const drawer = await add();
   expect(within(drawer).getByRole("tab", { name: "AI prompt" })).toBeDisabled();
-  fireEvent.change(within(drawer).getByLabelText("Activity or place name"), {
+  change(within(drawer).getByLabelText("Activity or place name"), {
     target: { value: "Louvre" },
   });
-  fireEvent.click(
-    within(drawer).getByRole("button", { name: "Search Azure Maps" }),
-  );
-  fireEvent.click(
-    await within(drawer).findByRole("button", { name: "Louvre, Paris" }),
-  );
+  click(within(drawer).getByRole("button", { name: "Search Azure Maps" }));
+  click(await within(drawer).findByRole("button", { name: "Louvre, Paris" }));
   expect(searchPlaces).toHaveBeenCalledWith(
     "Louvre",
     expect.any(AbortSignal),
@@ -238,9 +245,7 @@ test("place lookup populates the activity's name and location, and saving update
     type: "FeatureCollection",
     features: [activity],
   });
-  fireEvent.click(
-    within(drawer).getByRole("button", { name: "Save activity" }),
-  );
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
@@ -257,7 +262,7 @@ test("place lookup populates the activity's name and location, and saving update
     undefined,
   );
   expect(
-    await screen.findByRole("table", { name: "Paris activities" }),
+    await screen.findByRole("list", { name: "Paris activities" }),
   ).toHaveTextContent("Louvre");
 });
 
@@ -273,37 +278,38 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
     name: "Edit activity: Louvre",
   });
   act(() => edit.focus());
-  fireEvent.click(edit);
+  click(edit);
   const drawer = await screen.findByRole("dialog");
   expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
-  fireEvent.change(within(drawer).getByLabelText("Description"), {
+  change(within(drawer).getByLabelText("Description"), {
     target: { value: "Visit in the morning" },
+  });
+  click(within(drawer).getByRole("button", { name: "Add link" }));
+  change(within(drawer).getByLabelText("Link URL 1"), {
+    target: { value: "https://museum.example/tickets" },
+  });
+  change(within(drawer).getByLabelText("Link label 1"), {
+    target: { value: "Tickets" },
   });
   const stateTrigger = within(drawer).getByRole("button", {
     name: "State Proposed",
   });
   act(() => stateTrigger.focus());
-  fireEvent.click(stateTrigger);
-  fireEvent.click(
-    await screen.findByRole("menuitemradio", { name: "Planned" }),
-  );
+  click(stateTrigger);
+  click(await screen.findByRole("menuitemradio", { name: "Planned" }));
   const saveButton = within(drawer).getByRole("button", {
     name: "Save activity",
     hidden: true,
   });
   act(() => saveButton.focus());
-  fireEvent.click(
-    within(drawer).getByRole("button", { name: "Save activity" }),
-  );
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
   expect(await within(drawer).findByRole("alert")).toHaveTextContent(
     "Please retry.",
   );
   expect(within(drawer).getByLabelText("Description")).toHaveValue(
     "Visit in the morning",
   );
-  fireEvent.click(
-    within(drawer).getByRole("button", { name: "Save activity" }),
-  );
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
@@ -315,6 +321,7 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
       properties: expect.objectContaining({
         description: "Visit in the morning",
         state: "Planned",
+        links: [{ url: "https://museum.example/tickets", label: "Tickets" }],
       }),
     }),
     '"v1"',
@@ -324,10 +331,10 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
 test("canceling the activity drawer discards its draft", async () => {
   show();
   const drawer = await add();
-  fireEvent.change(within(drawer).getByLabelText("Name"), {
+  change(within(drawer).getByLabelText("Name"), {
     target: { value: "Unsaved" },
   });
-  fireEvent.click(within(drawer).getByRole("button", { name: "Cancel" }));
+  click(within(drawer).getByRole("button", { name: "Cancel" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
@@ -336,7 +343,7 @@ test("canceling the activity drawer discards its draft", async () => {
   expect(saveActivity).not.toHaveBeenCalled();
 });
 
-test("shared trip members see the table without add or edit actions", async () => {
+test("shared trip members see the cards without add or edit actions", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
     features: [activity],
@@ -344,7 +351,7 @@ test("shared trip members see the table without add or edit actions", async () =
   show(true);
   expect(await screen.findByRole("button", { name: "Louvre" })).toBeVisible();
   expect(
-    screen.getByRole("table", { name: "Paris activities" }),
+    screen.getByRole("list", { name: "Paris activities" }),
   ).toHaveTextContent("Louvre");
   expect(
     screen.queryByRole("button", { name: "Add activity" }),
@@ -386,12 +393,12 @@ test.each(["prompt", "image"] as const)(
     );
     show(false, ["LLM"]);
     const drawer = await add();
-    fireEvent.click(
+    click(
       within(drawer).getByRole("tab", {
         name: method === "prompt" ? "AI prompt" : "Image",
       }),
     );
-    fireEvent.change(
+    change(
       within(drawer).getByLabelText(
         method === "prompt"
           ? "What would you like to do?"
@@ -401,14 +408,14 @@ test.each(["prompt", "image"] as const)(
     );
     const file = new File(["image"], "museum.png", { type: "image/png" });
     if (method === "image")
-      fireEvent.change(within(drawer).getByLabelText("Activity image"), {
+      change(within(drawer).getByLabelText("Activity image"), {
         target: { files: [file] },
       });
     vi.mocked(getActivities).mockResolvedValue({
       type: "FeatureCollection",
       features: [activity],
     });
-    fireEvent.click(
+    click(
       within(drawer).getByRole("button", {
         name: method === "prompt" ? "Suggest activities" : "Extract activities",
       }),
@@ -430,7 +437,7 @@ test.each(["prompt", "image"] as const)(
         "Art museums",
       );
     expect(
-      await screen.findByRole("table", { name: "Paris activities" }),
+      await screen.findByRole("list", { name: "Paris activities" }),
     ).toHaveTextContent("Louvre");
     expect(screen.getByRole("status")).toHaveTextContent(
       "1 activities added as Proposed.",
@@ -439,3 +446,75 @@ test.each(["prompt", "image"] as const)(
 );
 
 afterEach(() => vi.unstubAllGlobals());
+
+test("activity links appear in the cards and can be removed in the edit drawer", async () => {
+  const linked = {
+    ...activity,
+    properties: {
+      ...activity.properties,
+      links: [{ url: "https://museum.example/tickets", label: "Tickets" }],
+    },
+  };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [linked],
+  });
+  vi.mocked(getActivity).mockResolvedValue({ activity: linked, etag: '"v1"' });
+  show();
+  expect(await screen.findByRole("link", { name: "Tickets" })).toHaveAttribute(
+    "href",
+    "https://museum.example/tickets",
+  );
+  const trigger = await screen.findByRole("button", {
+    name: "Edit activity: Louvre",
+  });
+  act(() => trigger.focus());
+  click(trigger);
+  const drawer = await screen.findByRole("dialog");
+  // Establish modal focus explicitly when JSDOM cannot select a layout target.
+  act(() =>
+    within(drawer).getByText("Remove link 1", { selector: "button" }).focus(),
+  );
+  click(await within(drawer).findByRole("button", { name: "Remove link 1" }));
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
+  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+  expect(vi.mocked(saveActivity).mock.calls[0][2].properties.links).toEqual([]);
+});
+
+test.each([false, true])(
+  "located activities offer a map link, including read-only=%s",
+  async (readOnly) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        activity,
+        {
+          ...activity,
+          id: "unlocated",
+          geometry: null,
+          properties: { ...activity.properties, name: "Unlocated" },
+        },
+      ],
+    });
+    show(readOnly);
+    const link = await screen.findByRole("link", {
+      name: "Open Louvre in Maps",
+    });
+    expect(link).toHaveAttribute(
+      "href",
+      expect.stringContaining("48.86%2C2.33"),
+    );
+    const card = link.closest(".activity-card")! as HTMLElement;
+    expect(within(card).getByRole("heading", { name: "Louvre" })).toBeVisible();
+    expect(within(card).getByText("See the paintings")).toBeVisible();
+    expect(within(card).getByText("2h")).toBeVisible();
+    expect(within(card).getByText("Proposed")).toBeVisible();
+    click(within(card).getByRole("button", { name: "Louvre" }));
+    expect(
+      within(card).getByRole("button", { name: "Louvre" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.queryByRole("link", { name: "Open Unlocated in Maps" }),
+    ).not.toBeInTheDocument();
+  },
+);

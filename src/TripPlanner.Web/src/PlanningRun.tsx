@@ -176,12 +176,19 @@ export default function PlanningRun({
       } catch (reason) {
         if (controller.signal.aborted) return;
         setResults([]);
-        setPollError(
-          reason instanceof Error
-            ? reason.message
-            : "Unable to check the flight search. Retrying…",
-        );
-        delay = 10000;
+        if (reason instanceof FlightSearchValidationError) {
+          setIssues(reason.issues);
+          setOperation(undefined);
+          setPollError(undefined);
+          delay = 15000;
+        } else {
+          setPollError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to check the flight search. Retrying…",
+          );
+          delay = 10000;
+        }
       }
       if (!controller.signal.aborted) timer = window.setTimeout(poll, delay);
     }
@@ -236,8 +243,8 @@ export default function PlanningRun({
         </Button>
       </div>
       <Text>
-        Search flights using the details above. You can leave this page and
-        return while the search continues.
+        Search flights using your trip destinations and travelers. You can leave
+        this page and return while the search continues.
       </Text>
       {error && <Text role="alert">{error}</Text>}
       {issues.length > 0 && (
@@ -268,12 +275,14 @@ export default function PlanningRun({
           <Button
             onClick={() => onReviewRequirements(issues[0]?.constraintIds[0])}
           >
-            Review requirements
+            Review trip details
           </Button>
         </div>
       )}
-      {pollError && <Text>{pollError} Checking again shortly.</Text>}
-      {operation && (
+      {pollError && issues.length === 0 && (
+        <Text>{pollError} Checking again shortly.</Text>
+      )}
+      {operation && issues.length === 0 && (
         <>
           <Text role="status">
             {active
@@ -297,7 +306,7 @@ export default function PlanningRun({
           )}
           <Text size={200}>
             Search started {new Date(operation.createdAt).toLocaleString()}.
-            Changes to this form apply to your next search.
+            Changes to your trip apply to your next search.
           </Text>
         </>
       )}

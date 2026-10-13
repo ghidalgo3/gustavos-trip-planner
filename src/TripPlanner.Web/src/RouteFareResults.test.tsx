@@ -10,6 +10,7 @@ import { useState } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import RouteFareResults from "./RouteFareResults";
+import { legKey } from "./flightFormatting";
 import type { FareItinerary, FareSearchResult } from "./operationsApi";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -209,7 +210,13 @@ test("builds a feasible route one flight at a time and saves the chosen complete
       expect.stringContaining("/flights/party"),
       expect.objectContaining({
         method: "PUT",
-        body: JSON.stringify({ cacheKey: "assembled", itineraryIndex: 1 }),
+        body: JSON.stringify({
+          cacheKey: "assembled",
+          itineraryIndex: 1,
+          legKeys: itineraries[1].legs!.map(legKey),
+          priceAmount: itineraries[1].price!.amount,
+          priceCurrency: itineraries[1].price!.currency,
+        }),
       }),
     ),
   );
@@ -662,4 +669,59 @@ test("identifies the other flight covered by a paired airline booking", async ()
   expect(
     await screen.findByRole("link", { name: /also covers flight 2/ }),
   ).toHaveAttribute("href", "https://aa.com/book");
+});
+
+test("saved itinerary stays selected after cache keys and result ordering change, including after a reload", async () => {
+  const stored = {
+    tripId: "trip",
+    partyId: "party",
+    cacheKey: "older-composition",
+    itineraryIndex: 1,
+    request: result.request,
+    itinerary: itineraries[1],
+    selectedAt: "2030-01-01T00:00:00Z",
+    purchasedLegs: [true, false],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/airports/cities")
+        ? Response.json({ ATL: "Atlanta", AMS: "Amsterdam", HKT: "Phuket" })
+        : Response.json([stored]),
+    ),
+  );
+  const current = {
+    ...result,
+    cacheKey: "new-composition",
+    response: {
+      ...result.response,
+      itineraries: [itineraries[1], itineraries[0]],
+    },
+  };
+  const element = (
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <RouteFareResults
+          tripId="trip"
+          results={[current]}
+          parties={[]}
+          savedChoices={{ party: itineraries[1].legs!.map(legKey) }}
+          onChangeChoices={vi.fn()}
+        />
+      </MemoryRouter>
+    </FluentProvider>
+  );
+  const first = render(element);
+  expect(
+    await screen.findByRole("button", { name: "Itinerary selected" }),
+  ).toBeDisabled();
+  expect(screen.getAllByRole("switch", { name: "Purchased" })[0]).toBeChecked();
+  expect(
+    screen.queryByRole("button", { name: "Save complete itinerary" }),
+  ).not.toBeInTheDocument();
+  first.unmount();
+  render(element);
+  expect(
+    await screen.findByRole("button", { name: "Itinerary selected" }),
+  ).toBeDisabled();
 });

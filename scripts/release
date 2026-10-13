@@ -58,7 +58,7 @@ run_pnpm() {
   (cd "$REPO_ROOT/src/TripPlanner.Web" && CI=true corepack pnpm "$@")
 }
 
-for command_name in az corepack curl docker dotnet; do
+for command_name in az corepack curl docker dotnet shasum; do
   command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
 done
 docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
@@ -133,6 +133,8 @@ fi
 log "Building web application for $WEB_APP_URL"
 run_pnpm install --frozen-lockfile
 run_pnpm run build
+expected_index_hash="$(shasum -a 256 src/TripPlanner.Web/dist/index.html)"
+expected_index_hash="${expected_index_hash%% *}"
 
 log "Building API container $IMAGE_REF"
 az acr login --name "$ACR_NAME" --output none
@@ -167,18 +169,23 @@ az webapp restart --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" --ou
 
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-20}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-15}"
-log "Waiting for API health at ${WEB_APP_URL}/health"
+log "Waiting for API health and the published web build at $WEB_APP_URL"
 api_ready=false
 for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
   if curl -fsS --max-time 20 "${WEB_APP_URL}/health" >/dev/null 2>&1; then
-    api_ready=true
-    break
+    if served_index_hash="$(curl -fsS --max-time 20 \
+      -H 'Cache-Control: no-cache' \
+      "${WEB_APP_URL}/?release=${expected_index_hash}" | shasum -a 256)" \
+      && [[ "${served_index_hash%% *}" == "$expected_index_hash" ]]; then
+      api_ready=true
+      break
+    fi
   fi
   printf '  attempt %s/%s; retrying in %ss\n' "$attempt" "$HEALTH_ATTEMPTS" "$HEALTH_INTERVAL"
   sleep "$HEALTH_INTERVAL"
 done
 [[ "$api_ready" == true ]] || die \
-  "API health check did not recover; run: az webapp log tail -g $RESOURCE_GROUP -n $WEB_APP_NAME"
+  "API health or published web build did not become ready; run: az webapp log tail -g $RESOURCE_GROUP -n $WEB_APP_NAME"
 
 curl -fsS --max-time 20 "$WEB_APP_URL" >/dev/null || die "web application did not respond at $WEB_APP_URL"
 printf '\nRelease complete.\n'

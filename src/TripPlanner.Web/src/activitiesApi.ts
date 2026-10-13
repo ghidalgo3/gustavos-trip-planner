@@ -36,7 +36,9 @@ export type ActivityCost = {
   currency: string;
   basis: "perPerson" | "total";
 };
+export type ActivityLink = { url: string; label?: string | null };
 export type ActivityProperties = {
+  links?: ActivityLink[];
   name: string;
   durationMinutes: number | null;
   description: string;
@@ -97,6 +99,7 @@ export async function addDestination(
     latitude: number;
     arrivalDate: string | null;
     departureDate: string | null;
+    constraints?: Record<string, unknown>;
   },
 ): Promise<Destination> {
   const response = await fetch(collectionUrl(tripId), {
@@ -114,11 +117,37 @@ export async function addDestination(
         countryCode: input.countryCode,
         arrivalDate: input.arrivalDate,
         departureDate: input.departureDate,
-        constraints: {},
+        constraints: input.constraints ?? {},
       },
     }),
   });
   if (!response.ok) await readTripError(response, "adding the destination");
+  return response.json();
+}
+
+export async function replaceDestinationPlace(
+  tripId: string,
+  destination: Destination,
+  constraints: Record<string, unknown>,
+): Promise<Destination> {
+  const response = await fetch(destinationUrl(tripId, destination.id), {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "Feature",
+      id: destination.id,
+      geometry: destination.geometry,
+      properties: {
+        name: destination.properties.name,
+        countryCode: destination.properties.countryCode,
+        timeZone: destination.properties.timeZone,
+        constraints,
+      },
+    }),
+  });
+  if (!response.ok)
+    await readTripError(response, "saving destination constraints");
   return response.json();
 }
 

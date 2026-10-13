@@ -33,6 +33,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.AddPostgres();
 builder.Services.AddSingleton<AirportCatalog>();
 builder.Services.AddSingleton<DestinationService>();
+builder.Services.AddSingleton<DestinationFlightPlanning>();
 builder.Services.AddHttpClient<ICityPlaceResolver, AzureCityPlaceResolver>();
 builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolver>();
 builder.Services.AddHttpClient<IActivityAssistant, OpenAiActivityAssistant>(client =>
@@ -82,8 +83,9 @@ app.Use(
         await next();
     }
 );
+app.UseSpaNavigation();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(SpaHosting.StaticFiles());
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -145,7 +147,7 @@ api.MapPartyEndpoints();
 api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();
 
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html", SpaHosting.StaticFiles());
 app.Run();
 
 public partial class Program;

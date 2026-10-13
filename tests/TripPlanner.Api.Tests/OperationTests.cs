@@ -382,7 +382,10 @@ public sealed class OperationTests
             trip.Id,
             "paris-fr",
             null,
-            new("Museum", null, "", null, "Planned"),
+            new("Museum", null, "", null, "Planned")
+            {
+                Links = [new("https://museum.example/tickets", "Tickets")],
+            },
             now,
             now
         );
@@ -395,7 +398,9 @@ public sealed class OperationTests
             await db.DeleteDestinationVisitAsync(user.Id, trip.Id, "paris-fr", second.StayId)
         );
         Assert.HasCount(0, await db.GetDestinationVisitsAsync(user.Id, trip.Id));
-        Assert.IsNotNull(await db.GetActivityAsync(user.Id, trip.Id, "paris-fr", activity.Id));
+        var storedActivity = await db.GetActivityAsync(user.Id, trip.Id, "paris-fr", activity.Id);
+        Assert.IsNotNull(storedActivity);
+        Assert.AreEqual("Tickets", storedActivity.Properties.Links.Single().Label);
         Assert.IsNull(
             await db.SaveActivityAsync(
                 user.Id,

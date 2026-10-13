@@ -128,7 +128,27 @@ public static class DestinationsEndpoints
         && country is { Length: 2 }
         && country.All(char.IsAsciiLetter)
         && (timeZone is null || timeZone.Length <= 100)
-        && (constraints is null || constraints.Value.ValueKind == JsonValueKind.Object);
+        && ValidConstraints(constraints);
+
+    private static bool ValidConstraints(JsonElement? constraints)
+    {
+        if (constraints is null)
+            return true;
+        if (constraints.Value.ValueKind != JsonValueKind.Object)
+            return false;
+        foreach (string key in new[] { "arrivalFlexibilityDays", "departureFlexibilityDays" })
+            if (
+                constraints.Value.TryGetProperty(key, out var value)
+                && (
+                    value.ValueKind != JsonValueKind.Number
+                    || !value.TryGetInt32(out int days)
+                    || days is < 0 or > 5
+                )
+            )
+                return false;
+        return !constraints.Value.TryGetProperty("keepAfterPrevious", out var order)
+            || order.ValueKind is JsonValueKind.True or JsonValueKind.False;
+    }
 
     private static async Task<IResult> ReplaceDestination(
         Guid tripId,

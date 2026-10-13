@@ -472,6 +472,34 @@ test("explains date conflicts with affected requirement values", async () => {
   expect(screen.getByLabelText("Planning conflicts")).toHaveTextContent(
     "Requirement 2: Required destination stay",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Review requirements" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review trip details" }));
   expect(reviewRequirements).toHaveBeenCalledWith("old-return");
+});
+
+test("expired destination dates hide an unrelated historical search status and offer Overview", async () => {
+  vi.mocked(getOperations).mockResolvedValue([
+    {
+      ...operation,
+      status: "Failed",
+      progress: { items: 133, completedItems: 131, failedItems: 2 },
+    },
+  ]);
+  const message =
+    "The latest allowed arrival in Tokyo is 2026-10-06, which is in the past. Update this destination's dates on Overview.";
+  vi.mocked(getFlightSearchResults).mockRejectedValue(
+    new FlightSearchValidationError([
+      {
+        code: "invalidInput",
+        message,
+        partyId: null,
+        constraintIds: ["tokyo-stay"],
+      },
+    ]),
+  );
+  show();
+  expect(await screen.findByText(message)).toBeVisible();
+  expect(screen.queryByText(/131 of 133/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Checking again shortly/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Review trip details" }));
+  expect(reviewRequirements).toHaveBeenCalledWith("tokyo-stay");
 });

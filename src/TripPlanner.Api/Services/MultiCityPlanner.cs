@@ -44,8 +44,36 @@ public sealed class MultiCityPlanner(
             Issue("Each destination needs a distinct ID.");
         foreach (var visit in document.Visits)
         {
+            if (
+                visit.ArrivalFlexibilityDays is < 0 or > 5
+                || visit.DepartureFlexibilityDays is < 0 or > 5
+            )
+                Issue("Destination date flexibility must be between 0 and 5 days.", visit.Id);
             if (complete && visit.Location is null)
                 Issue("Choose a city or airport for every destination.", visit.Id);
+            if (
+                complete
+                && visit.ArrivalFlexibilityDays is >= 0 and <= 5
+                && visit.PresentFrom is { } arrival
+                && visit.Location is { } target
+                && airports.FindByCode(target.AirportCodes.FirstOrDefault() ?? "") is { } airport
+            )
+            {
+                var today = DateOnly.FromDateTime(
+                    TimeZoneInfo
+                        .ConvertTime(
+                            clock.GetUtcNow(),
+                            TimeZoneInfo.FindSystemTimeZoneById(airport.TimeZone)
+                        )
+                        .DateTime
+                );
+                var latestArrival = arrival.AddDays(visit.ArrivalFlexibilityDays.Value);
+                if (latestArrival < today)
+                    Issue(
+                        $"The latest allowed arrival in {target.Label ?? airport.City} is {latestArrival:yyyy-MM-dd}, which is in the past. Update this destination's dates on Overview.",
+                        visit.Id
+                    );
+            }
             if (
                 visit.Location is { } location
                 && (
@@ -458,7 +486,8 @@ public sealed class MultiCityPlanner(
                 .DateTime
         );
         var start = doc.TravelDates?.StartDate ?? reference.AddDays(-max);
-        var end = doc.TravelDates?.StartDate ?? reference;
+        var end =
+            doc.TravelDates?.StartDate ?? reference.AddDays(anchor?.ArrivalFlexibilityDays ?? 0);
         if (departureWindows.Length > 0)
         {
             start = departureWindows.Max(c => c.Window!.Earliest!.Value);
@@ -501,20 +530,32 @@ public sealed class MultiCityPlanner(
                 var arrival = flightDate.AddDays(shift);
                 if (
                     visit.PresentFrom is { } from
-                    && (arrival > from || arrival < from.AddDays(-flex))
+                    && (
+                        visit.ArrivalFlexibilityDays is { } arrivalFlex
+                            ? arrival < from.AddDays(-arrivalFlex)
+                                || arrival > from.AddDays(arrivalFlex)
+                            : arrival > from || arrival < from.AddDays(-flex)
+                    )
                 )
                     continue;
                 var earliest = visit.Nights is { } n
                     ? arrival.AddDays(n)
-                    : visit.PresentThrough!.Value;
-                var latest = visit.Nights is not null ? earliest : earliest.AddDays(flex);
+                    : visit.PresentThrough!.Value.AddDays(-(visit.DepartureFlexibilityDays ?? 0));
+                var latest = visit.Nights is not null
+                    ? earliest
+                    : visit.PresentThrough!.Value.AddDays(visit.DepartureFlexibilityDays ?? flex);
                 for (var leaving = earliest; leaving <= latest; leaving = leaving.AddDays(1))
                 {
                     if (leaving < flightDate || leaving.DayNumber - firstDate.DayNumber > max)
                         continue;
                     if (
                         visit.PresentThrough is { } through
-                        && (leaving < through || leaving > through.AddDays(flex))
+                        && (
+                            visit.DepartureFlexibilityDays is { } departureFlex
+                                ? leaving < through.AddDays(-departureFlex)
+                                    || leaving > through.AddDays(departureFlex)
+                                : leaving < through || leaving > through.AddDays(flex)
+                        )
                     )
                         continue;
                     if (index == visits.Length - 1)

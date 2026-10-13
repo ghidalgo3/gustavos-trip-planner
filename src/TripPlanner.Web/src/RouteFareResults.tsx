@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -12,6 +12,7 @@ import {
   airportLabel,
   legKey,
   legRoute,
+  sameItineraryFlights,
   priceLabel,
   stayNights,
   type AirportCities,
@@ -147,6 +148,7 @@ export default function RouteFareResults({
   onChangeChoices?: (partyId: string, keys: string[]) => Promise<boolean>;
 }) {
   const [selected, setSelected] = useState<SelectedFlight[]>([]);
+  const selectionMutation = useRef(0);
   const [busyParty, setBusyParty] = useState<string>();
   const [error, setError] = useState<string>();
   const cities = useAirportCities(
@@ -160,9 +162,11 @@ export default function RouteFareResults({
   );
   useEffect(() => {
     const controller = new AbortController();
+    const version = selectionMutation.current;
     void getSelectedFlights(tripId, controller.signal)
       .then((flights) => {
-        if (!controller.signal.aborted) setSelected(flights);
+        if (!controller.signal.aborted && version === selectionMutation.current)
+          setSelected(flights);
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(String(reason));
@@ -171,6 +175,7 @@ export default function RouteFareResults({
   }, [tripId]);
 
   async function choose(result: FareSearchResult, index: number | null) {
+    selectionMutation.current += 1;
     setBusyParty(result.partyId);
     setError(undefined);
     try {
@@ -185,6 +190,7 @@ export default function RouteFareResults({
           result.partyId,
           result.cacheKey,
           index,
+          result.response.itineraries[index],
         );
         setSelected((flights) => [
           ...flights.filter((flight) => flight.partyId !== result.partyId),
@@ -376,6 +382,11 @@ function RoutePartyResults({
     return [...byLeg.values()];
   })();
   const best = complete ? matches[0] : undefined;
+  const bestIsSelected = Boolean(
+    selected &&
+    best &&
+    sameItineraryFlights(selected.itinerary, best.itinerary),
+  );
   const tabRoutes = Array.from({ length: legCount }, (_, index) => {
     const leg =
       index < chosen.length
@@ -479,14 +490,10 @@ function RoutePartyResults({
               itinerary: best.itinerary,
             }}
             purchasedLegs={
-              selected?.cacheKey === result.cacheKey &&
-              selected.itineraryIndex === best.index
-                ? (selected.purchasedLegs ?? [])
-                : undefined
+              bestIsSelected ? (selected?.purchasedLegs ?? []) : undefined
             }
             onPurchaseChange={
-              selected?.cacheKey === result.cacheKey &&
-              selected.itineraryIndex === best.index
+              bestIsSelected
                 ? (index, purchased) => void onPurchaseChange(index, purchased)
                 : undefined
             }
@@ -496,15 +503,10 @@ function RoutePartyResults({
           <div className="route-result-actions">
             <Button
               appearance="primary"
-              disabled={
-                busy ||
-                (selected?.cacheKey === result.cacheKey &&
-                  selected.itineraryIndex === best.index)
-              }
+              disabled={busy || bestIsSelected}
               onClick={() => void onChoose(best.index)}
             >
-              {selected?.cacheKey === result.cacheKey &&
-              selected.itineraryIndex === best.index
+              {bestIsSelected
                 ? "Itinerary selected"
                 : "Save complete itinerary"}
             </Button>

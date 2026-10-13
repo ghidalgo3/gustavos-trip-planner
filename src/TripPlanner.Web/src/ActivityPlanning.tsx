@@ -24,6 +24,9 @@ import { Dismiss24Regular } from "@fluentui/react-icons";
 import { destinationDates } from "./tripDates";
 import { Link, useSearchParams } from "react-router";
 import { searchPlaces, type Trip } from "./api";
+import { activityMapLink } from "./activityMapLink";
+import ActivityLinksEditor from "./ActivityLinksEditor";
+import { validActivityLink } from "./activityLinks";
 import ActivityMap from "./ActivityMap";
 import {
   deleteActivity,
@@ -54,6 +57,7 @@ const emptyActivity = (): ActivityInput => ({
     cost: null,
     state: "Proposed",
     placeName: null,
+    links: [],
   },
 });
 const emptyCollection: ActivityCollection = {
@@ -230,6 +234,12 @@ export default function ActivityPlanning({
 
   async function save() {
     if (!destination || !editor || busy || !editor.value.properties.name.trim())
+      return;
+    if (
+      (editor.value.properties.links ?? []).some(
+        (link) => !validActivityLink(link),
+      )
+    )
       return;
     setBusy(true);
     setError(undefined);
@@ -481,10 +491,10 @@ export default function ActivityPlanning({
           )}
         </div>
         <section
-          className="activity-table-section"
+          className="activity-cards-section"
           aria-label="Destination activities"
         >
-          <div className="activity-table-heading">
+          <div className="activity-cards-heading">
             <Title2 as="h2">Activities</Title2>
             {canEdit && (
               <Button appearance="primary" onClick={openAdd}>
@@ -492,65 +502,95 @@ export default function ActivityPlanning({
               </Button>
             )}
           </div>
-          <div className="activity-table-wrap">
-            <table
-              className="activity-table"
-              aria-label={`${destination.properties.name} activities`}
-            >
-              <caption className="visually-hidden">
-                {destination.properties.name} activities
-              </caption>
-              <thead>
-                <tr>
-                  <th>Activity</th>
-                  <th>Duration</th>
-                  <th>Cost</th>
-                  <th>State</th>
-                  {canEdit && (
-                    <th>
-                      <span className="visually-hidden">Actions</span>
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {activities.features.map((item) => (
-                  <tr
-                    key={item.id}
-                    className={selectedId === item.id ? "selected" : ""}
-                  >
-                    <td>
+          <ul
+            className="activity-cards"
+            aria-label={`${destination.properties.name} activities`}
+          >
+            {activities.features.map((item) => {
+              const mapLink = activityMapLink(
+                item.geometry,
+                item.properties.name,
+              );
+              return (
+                <li
+                  key={item.id}
+                  className={`activity-card${selectedId === item.id ? " selected" : ""}`}
+                >
+                  <div className="activity-card-heading">
+                    <h3>
                       <button
                         type="button"
+                        aria-pressed={selectedId === item.id}
                         onClick={() => setSelectedId(item.id)}
                       >
                         {item.properties.name}
                       </button>
-                      {!item.geometry && <small>Needs location</small>}
-                    </td>
-                    <td>{formatDuration(item.properties.durationMinutes)}</td>
-                    <td>{formatCost(item.properties.cost)}</td>
-                    <td>
-                      <span className="activity-state">
-                        {item.properties.state}
-                      </span>
-                    </td>
-                    {canEdit && (
-                      <td>
-                        <Button
-                          appearance="subtle"
-                          aria-label={`Edit activity: ${item.properties.name}`}
-                          onClick={() => void openEdit(item)}
-                        >
-                          Edit
-                        </Button>
-                      </td>
+                    </h3>
+                    <span className="activity-state">
+                      {item.properties.state}
+                    </span>
+                  </div>
+                  {!item.geometry && (
+                    <small className="activity-location-missing">
+                      Needs location
+                    </small>
+                  )}
+                  {item.properties.description && (
+                    <p className="activity-card-description">
+                      {item.properties.description}
+                    </p>
+                  )}
+                  <dl className="activity-card-facts">
+                    <div>
+                      <dt>Duration</dt>
+                      <dd>{formatDuration(item.properties.durationMinutes)}</dd>
+                    </div>
+                    <div>
+                      <dt>Cost</dt>
+                      <dd>{formatCost(item.properties.cost)}</dd>
+                    </div>
+                  </dl>
+                  {(item.properties.links ?? []).some(validActivityLink) && (
+                    <ul
+                      className="activity-links"
+                      aria-label={`${item.properties.name} links`}
+                    >
+                      {(item.properties.links ?? [])
+                        .filter(validActivityLink)
+                        .map((link, index) => (
+                          <li key={index}>
+                            <a href={link.url} target="_blank" rel="noreferrer">
+                              {link.label || link.url}
+                            </a>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                  <div className="activity-card-actions">
+                    {mapLink && (
+                      <Button
+                        as="a"
+                        href={mapLink}
+                        appearance="secondary"
+                        aria-label={`Open ${item.properties.name} in Maps`}
+                      >
+                        Open in Maps
+                      </Button>
                     )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    {canEdit && (
+                      <Button
+                        appearance="subtle"
+                        aria-label={`Edit activity: ${item.properties.name}`}
+                        onClick={() => void openEdit(item)}
+                      >
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
           {activities.features.length === 0 && (
             <Text className="activity-empty">
               {canEdit
@@ -802,6 +842,10 @@ export default function ActivityPlanning({
                       </Menu>
                     </div>
                   </div>
+                  <ActivityLinksEditor
+                    links={editor.value.properties.links ?? []}
+                    onChange={(links) => updateEditor({ links })}
+                  />
                 </div>
               ) : (
                 <div className="activity-composer">
@@ -868,7 +912,13 @@ export default function ActivityPlanning({
           {entryMode === "lookup" ? (
             <Button
               appearance="primary"
-              disabled={busy || !editor?.value.properties.name.trim()}
+              disabled={
+                busy ||
+                !editor?.value.properties.name.trim() ||
+                (editor?.value.properties.links ?? []).some(
+                  (link) => !validActivityLink(link),
+                )
+              }
               onClick={() => void save()}
             >
               Save activity

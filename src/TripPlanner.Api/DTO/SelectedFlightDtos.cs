@@ -1,6 +1,12 @@
 namespace TripPlanner.Api.DTO;
 
-public sealed record SelectFlightRequest(string? CacheKey, int? ItineraryIndex);
+public sealed record SelectFlightRequest(
+    string? CacheKey,
+    int? ItineraryIndex,
+    string[]? LegKeys = null,
+    decimal? PriceAmount = null,
+    string? PriceCurrency = null
+);
 
 public sealed record SetFlightChoicesRequest(string[]? LegKeys);
 

@@ -1,5 +1,6 @@
 import { apiBaseUrl, readTripError } from "./api";
 import type { FareItinerary, FareSearchResult } from "./operationsApi";
+import { legKey } from "./flightFormatting";
 
 export type SelectedFlight = {
   tripId: string;
@@ -76,6 +77,7 @@ export async function selectFlight(
   partyId: string,
   cacheKey: string,
   itineraryIndex: number,
+  itinerary?: FareItinerary,
 ): Promise<SelectedFlight> {
   const response = await fetch(
     `${selectedFlightsUrl(tripId)}/${encodeURIComponent(partyId)}`,
@@ -83,7 +85,17 @@ export async function selectFlight(
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cacheKey, itineraryIndex }),
+      body: JSON.stringify({
+        cacheKey,
+        itineraryIndex,
+        ...(itinerary?.legs?.length && itinerary.price
+          ? {
+              legKeys: itinerary.legs.map((leg) => legKey(leg)),
+              priceAmount: itinerary.price.amount,
+              priceCurrency: itinerary.price.currency,
+            }
+          : {}),
+      }),
     },
   );
   if (!response.ok) await readTripError(response, "selecting the flight");

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Button,
+  Badge,
   Spinner,
   Text,
-  Title2,
   Title3,
 } from "@fluentui/react-components";
 import {
@@ -11,16 +11,26 @@ import {
   ArrowRight20Regular,
   Location24Regular,
   Delete20Regular,
+  Airplane20Regular,
 } from "@fluentui/react-icons";
 import { Link } from "react-router";
 import type { Trip } from "./api";
 import {
   getDestinations,
+  getActivities,
   deleteDestination,
   type Destination,
   type DestinationCollection,
   type Stay,
 } from "./activitiesApi";
+import { getSelectedFlights, type SelectedFlight } from "./selectedFlightsApi";
+import {
+  selectedLegs,
+  matchingFlightLegs,
+  type FlightStop,
+} from "./overviewFlights";
+import { useAirportCities, flightAirportCodes } from "./airportCities";
+import { flightNumbers } from "./flightFormatting";
 import AddDestinationDrawer from "./AddDestinationDrawer";
 import DeleteDestinationDialog from "./DeleteDestinationDialog";
 
@@ -33,10 +43,23 @@ const emptyDestinations: DestinationCollection = {
 export default function TripOverview({
   trip,
   readOnly,
+  homeCity,
 }: {
   trip: Trip;
   readOnly: boolean;
+  homeCity?: string | null;
 }) {
+  const [flightRetry, setFlightRetry] = useState(0);
+  const [flightData, setFlightData] = useState<{
+    flights?: SelectedFlight[];
+    error?: boolean;
+  }>();
+  const legs = selectedLegs(flightData?.flights ?? []);
+  const airportCities = useAirportCities(flightAirportCodes(legs));
+  const [summaryRetry, setSummaryRetry] = useState(0);
+  const [activitySummaries, setActivitySummaries] = useState<
+    Record<string, { counts?: Record<string, number>; error?: boolean }>
+  >({});
   const [destinations, setDestinations] = useState<DestinationCollection>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -68,6 +91,57 @@ export default function TripOverview({
       });
     return () => controller.abort();
   }, [trip.id, retry]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const features = destinations?.features ?? [];
+    void Promise.allSettled(
+      features.map(async (destination) => {
+        const activities = await getActivities(
+          trip.id,
+          destination.id,
+          controller.signal,
+        );
+        const counts: Record<string, number> = Object.create(null);
+        for (const activity of activities.features)
+          counts[activity.properties.state] =
+            (counts[activity.properties.state] ?? 0) + 1;
+        return counts;
+      }),
+    ).then((results) => {
+      if (!controller.signal.aborted)
+        setActivitySummaries(
+          Object.fromEntries(
+            results.map((result, index) => [
+              features[index].id,
+              result.status === "fulfilled"
+                ? { counts: result.value }
+                : { error: true },
+            ]),
+          ),
+        );
+    });
+    return () => controller.abort();
+  }, [trip.id, destinations?.features, summaryRetry]);
+
+  useEffect(() => {
+    if (
+      (destinations?.features.reduce(
+        (count, item) => count + item.properties.stays.length,
+        0,
+      ) ?? 0) < 1
+    )
+      return;
+    const controller = new AbortController();
+    getSelectedFlights(trip.id, controller.signal)
+      .then((flights) => {
+        if (!controller.signal.aborted) setFlightData({ flights });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFlightData({ error: true });
+      });
+    return () => controller.abort();
+  }, [trip.id, destinations?.features, flightRetry]);
 
   function destinationAdded(destination: Destination) {
     setDestinations((current) => {
@@ -128,7 +202,7 @@ export default function TripOverview({
     }
   }
 
-  const visits = destinations?.route.length
+  const unsortedVisits = destinations?.route.length
     ? destinations.route.flatMap((visit) => {
         const destination = destinations.features.find(
           (item) => item.id === visit.destinationId,
@@ -142,13 +216,55 @@ export default function TripOverview({
         destination.properties.stays.map((stay) => ({ destination, stay })),
       ) ?? []);
 
+  const visits = [...unsortedVisits].sort((a, b) => {
+    const aDate = a.stay.arrivalDate ?? a.stay.departureDate;
+    const bDate = b.stay.arrivalDate ?? b.stay.departureDate;
+    return aDate && bDate
+      ? aDate.localeCompare(bDate) || a.stay.order - b.stay.order
+      : aDate
+        ? -1
+        : bDate
+          ? 1
+          : a.stay.order - b.stay.order;
+  });
+
+  function flightSpacer(from: FlightStop, to: FlightStop) {
+    const matches = matchingFlightLegs(from, to, legs, airportCities);
+    return (
+      <li
+        className="overview-flight-spacer"
+        aria-label={`Flights from ${from.city ?? "Home"} to ${to.city ?? "Home"}`}
+      >
+        <Airplane20Regular aria-hidden="true" />
+        <span className="overview-flight-route">
+          {from.city ?? "Home"} → {to.city ?? "Home"}
+        </span>
+        {flightData?.error ? (
+          <Button
+            appearance="subtle"
+            onClick={() => setFlightRetry((value) => value + 1)}
+          >
+            Retry flights
+          </Button>
+        ) : !flightData?.flights ? (
+          <Spinner size="tiny" label="Loading flights" />
+        ) : (
+          <Link to={`/trips/${encodeURIComponent(trip.id)}/flights`}>
+            {matches.length
+              ? matches.map(flightNumbers).join(" · ")
+              : readOnly
+                ? "View Flights"
+                : "Plan Flights"}
+          </Link>
+        )}
+      </li>
+    );
+  }
+
   return (
-    <section className="trip-overview" aria-labelledby="trip-overview-heading">
-      <div className="trip-overview-heading">
-        <Title2 as="h2" id="trip-overview-heading">
-          Overview
-        </Title2>
-        {!readOnly && destinations && destinations.features.length > 0 && (
+    <section className="trip-overview" aria-label="Overview">
+      {!readOnly && destinations && destinations.features.length > 0 && (
+        <div className="trip-overview-heading">
           <Button
             appearance="primary"
             icon={<Add24Regular />}
@@ -156,8 +272,8 @@ export default function TripOverview({
           >
             Add destination
           </Button>
-        )}
-      </div>
+        </div>
+      )}
       {message && <Text role="status">{message}</Text>}
       {error ? (
         <div className="overview-load-error">
@@ -198,51 +314,114 @@ export default function TripOverview({
       ) : (
         <ol className="overview-destinations" aria-label="Trip destinations">
           {visits.map(({ destination, stay }, index) => (
-            <li key={stay.id} className="overview-destination">
-              <span className="overview-destination-number" aria-hidden="true">
-                {index + 1}
-              </span>
-              <div className="overview-destination-details">
-                <Title3 as="h3">{destination.properties.name}</Title3>
-                <Text>
-                  {stay.arrivalDate || stay.departureDate
-                    ? `${formatDate(stay.arrivalDate)} – ${formatDate(stay.departureDate)}`
-                    : "Dates to decide"}
-                </Text>
-              </div>
-              {!readOnly && (
-                <Button
-                  appearance="subtle"
-                  aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
-                  onClick={() => {
-                    setEditingVisit({ destination, stay });
-                    setShowDateDrawer(true);
-                  }}
+            <Fragment key={stay.id}>
+              {flightSpacer(
+                index === 0
+                  ? { city: homeCity ?? null }
+                  : visitStop(visits[index - 1]),
+                visitStop({ destination, stay }),
+              )}
+              <li className="overview-destination">
+                <span
+                  className="overview-destination-number"
+                  aria-hidden="true"
                 >
-                  Edit dates
-                </Button>
-              )}
-              {!readOnly && (
-                <Button
-                  appearance="subtle"
-                  icon={<Delete20Regular />}
-                  aria-label={`Delete destination: ${destination.properties.name}`}
-                  disabled={deleting}
-                  onClick={() => {
-                    setDeleteError(undefined);
-                    setDestinationToDelete(destination);
-                  }}
-                />
-              )}
-              <Link
-                className="overview-activities-link"
-                aria-label={`${readOnly ? "View activities" : "Plan activities"} in ${destination.properties.name}`}
-                to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
-              >
-                <span>{readOnly ? "View activities" : "Plan activities"}</span>
-                <ArrowRight20Regular aria-hidden="true" />
-              </Link>
-            </li>
+                  {index + 1}
+                </span>
+                <div className="overview-destination-details">
+                  <Title3 as="h3">{destination.properties.name}</Title3>
+                  <Text>
+                    {stay.arrivalDate || stay.departureDate
+                      ? `${formatDate(stay.arrivalDate)} – ${formatDate(stay.departureDate)}`
+                      : "Dates to decide"}
+                  </Text>
+                </div>
+                {!readOnly && (
+                  <Button
+                    appearance="subtle"
+                    aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
+                    onClick={() => {
+                      setEditingVisit({ destination, stay });
+                      setShowDateDrawer(true);
+                    }}
+                  >
+                    Edit dates
+                  </Button>
+                )}
+                {!readOnly && (
+                  <Button
+                    appearance="subtle"
+                    icon={<Delete20Regular />}
+                    aria-label={`Delete destination: ${destination.properties.name}`}
+                    disabled={deleting}
+                    onClick={() => {
+                      setDeleteError(undefined);
+                      setDestinationToDelete(destination);
+                    }}
+                  />
+                )}
+                <div className="overview-activity-summary">
+                  {activitySummaries[destination.id]?.counts ? (
+                    Object.keys(activitySummaries[destination.id].counts!)
+                      .length ? (
+                      <div
+                        className="overview-activity-tags"
+                        aria-label={`${destination.properties.name} activities by state`}
+                      >
+                        {Object.entries(
+                          activitySummaries[destination.id].counts!,
+                        )
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([state, count]) => (
+                            <Link
+                              key={state}
+                              to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
+                              aria-label={`${count} ${state} activities in ${destination.properties.name}`}
+                            >
+                              <Badge
+                                appearance="tint"
+                                color={
+                                  state === "Planned"
+                                    ? "success"
+                                    : state === "Rejected"
+                                      ? "danger"
+                                      : "informative"
+                                }
+                              >
+                                {state} · {count}
+                              </Badge>
+                            </Link>
+                          ))}
+                      </div>
+                    ) : (
+                      <Link
+                        className="overview-activities-link"
+                        aria-label={`${readOnly ? "View activities" : "Plan activities"} in ${destination.properties.name}`}
+                        to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
+                      >
+                        <span>
+                          {readOnly ? "View Activities" : "Plan Activities"}
+                        </span>
+                        <ArrowRight20Regular aria-hidden="true" />
+                      </Link>
+                    )
+                  ) : activitySummaries[destination.id]?.error ? (
+                    <Button
+                      appearance="subtle"
+                      onClick={() => setSummaryRetry((value) => value + 1)}
+                    >
+                      Retry activity summary
+                    </Button>
+                  ) : (
+                    <Spinner size="tiny" label="Loading activity summary" />
+                  )}
+                </div>
+              </li>
+              {index === visits.length - 1 &&
+                flightSpacer(visitStop({ destination, stay }), {
+                  city: homeCity ?? null,
+                })}
+            </Fragment>
           ))}
         </ol>
       )}
@@ -309,4 +488,24 @@ function formatDate(date: string | null) {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${date}T00:00:00Z`));
+}
+
+function visitStop({
+  destination,
+  stay,
+}: {
+  destination: Destination;
+  stay: Stay;
+}): FlightStop {
+  return {
+    city: destination.properties.name,
+    arrivalDate: stay.arrivalDate,
+    departureDate: stay.departureDate,
+    arrivalFlexibilityDays: Number(
+      destination.properties.constraints?.arrivalFlexibilityDays ?? 0,
+    ),
+    departureFlexibilityDays: Number(
+      destination.properties.constraints?.departureFlexibilityDays ?? 0,
+    ),
+  };
 }

@@ -20,6 +20,7 @@ function Location() {
 
 test.each([
   ["overview", undefined, "Overview"],
+  ["flights", undefined, "Flights"],
   ["activities", undefined, "Activities"],
   ["activities", "Paris", "Paris"],
 ] as const)(

@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from "react";
 import {
   Button,
+  Checkbox,
+  Field,
+  Input,
   DrawerBody,
   DrawerFooter,
   DrawerHeader,
@@ -14,11 +17,12 @@ import { resolveCity, searchCities, type CitySuggestion } from "./api";
 import {
   addDestination,
   replaceDestinationStay,
+  replaceDestinationPlace,
   type Stay,
   type Destination,
 } from "./activitiesApi";
 
-import TripDatePicker from "./TripDatePicker";
+import TripCalendar from "./TripCalendar";
 import { parseTripDate } from "./tripDates";
 
 const searchDestinationCities = async (query: string, signal: AbortSignal) =>
@@ -48,6 +52,36 @@ export default function AddDestinationDrawer({
     editing?.stay.departureDate ?? "",
   );
   const [saving, setSaving] = useState(false);
+  const existingCity = destinations.find(
+    (item) =>
+      item.properties.name === city?.cityName &&
+      item.properties.countryCode === city?.countryCode,
+  );
+  const originalConstraints =
+    editing?.destination.properties.constraints ??
+    existingCity?.properties.constraints ??
+    {};
+  const initialArrivalFlex = Number(
+    originalConstraints.arrivalFlexibilityDays ?? 0,
+  );
+  const initialDepartureFlex = Number(
+    originalConstraints.departureFlexibilityDays ?? 0,
+  );
+  const initialKeepOrder = originalConstraints.keepAfterPrevious !== false;
+  const [arrivalFlex, setArrivalFlex] = useState(initialArrivalFlex);
+  const [departureFlex, setDepartureFlex] = useState(initialDepartureFlex);
+  const [keepOrder, setKeepOrder] = useState(initialKeepOrder);
+  const constraintsChanged =
+    arrivalFlex !== initialArrivalFlex ||
+    departureFlex !== initialDepartureFlex ||
+    keepOrder !== initialKeepOrder;
+  const invalidFlex =
+    !Number.isInteger(arrivalFlex) ||
+    !Number.isInteger(departureFlex) ||
+    arrivalFlex < 0 ||
+    departureFlex < 0 ||
+    arrivalFlex > 5 ||
+    departureFlex > 5;
   const [error, setError] = useState<string>();
   const invalidDates = Boolean(
     (arrivalDate && !parseTripDate(arrivalDate)) ||
@@ -62,6 +96,9 @@ export default function AddDestinationDrawer({
     setDepartureDate(editing?.stay.departureDate ?? "");
     setError(undefined);
     setSaving(false);
+    setArrivalFlex(initialArrivalFlex);
+    setDepartureFlex(initialDepartureFlex);
+    setKeepOrder(initialKeepOrder);
   }
 
   function close() {
@@ -72,10 +109,22 @@ export default function AddDestinationDrawer({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if ((!editing && !city?.countryCode) || invalidDates || saving) return;
+    if (
+      (!editing && !city?.countryCode) ||
+      invalidDates ||
+      invalidFlex ||
+      saving
+    )
+      return;
     setSaving(true);
     setError(undefined);
     try {
+      const constraints = {
+        ...originalConstraints,
+        arrivalFlexibilityDays: arrivalFlex,
+        departureFlexibilityDays: departureFlex,
+        keepAfterPrevious: keepOrder,
+      };
       let destination: Destination;
       if (editing) {
         destination = await replaceDestinationStay(
@@ -87,6 +136,12 @@ export default function AddDestinationDrawer({
             departureDate: departureDate || null,
           },
         );
+        if (constraintsChanged)
+          destination = await replaceDestinationPlace(
+            tripId,
+            destination,
+            constraints,
+          );
       } else {
         const coordinates = await resolveCity(city!);
         destination = await addDestination(tripId, {
@@ -95,7 +150,14 @@ export default function AddDestinationDrawer({
           ...coordinates,
           arrivalDate: arrivalDate || null,
           departureDate: departureDate || null,
+          ...(constraintsChanged ? { constraints } : {}),
         });
+        if (constraintsChanged && existingCity)
+          destination = await replaceDestinationPlace(
+            tripId,
+            destination,
+            constraints,
+          );
       }
       onAdded(destination);
       reset();
@@ -165,6 +227,16 @@ export default function AddDestinationDrawer({
                   setError(undefined);
                 }}
                 onOptionSelect={(option) => {
+                  const existing = destinations.find(
+                    (item) =>
+                      item.properties.name === option.cityName &&
+                      item.properties.countryCode === option.countryCode,
+                  )?.properties.constraints;
+                  setArrivalFlex(Number(existing?.arrivalFlexibilityDays ?? 0));
+                  setDepartureFlex(
+                    Number(existing?.departureFlexibilityDays ?? 0),
+                  );
+                  setKeepOrder(existing?.keepAfterPrevious !== false);
                   setCity(option);
                   setQuery(option.label);
                   setError(undefined);
@@ -172,40 +244,61 @@ export default function AddDestinationDrawer({
                 emptyMessage="No cities found. Try another name."
               />
             )}
-            <div className="destination-drawer-dates">
-              <TripDatePicker
-                label="Arrival date"
-                value={arrivalDate}
-                onChange={setArrivalDate}
-                destinations={destinations}
-                excludeCityId={
-                  editing?.destination.id ??
-                  destinations.find(
-                    (item) =>
-                      item.properties.name === city?.cityName &&
-                      item.properties.countryCode === city?.countryCode,
-                  )?.id
-                }
-                disabled={saving}
-                invalid={Boolean(arrivalDate && !parseTripDate(arrivalDate))}
+            <TripCalendar
+              arrivalDate={arrivalDate}
+              departureDate={departureDate}
+              onChange={(arrival, departure) => {
+                setArrivalDate(arrival);
+                setDepartureDate(departure);
+              }}
+              destinations={destinations}
+              excludeCityId={
+                editing?.destination.id ??
+                destinations.find(
+                  (item) =>
+                    item.properties.name === city?.cityName &&
+                    item.properties.countryCode === city?.countryCode,
+                )?.id
+              }
+              disabled={saving}
+            />
+            <div className="destination-flight-constraints">
+              <strong>Flight flexibility and ordering</strong>
+              <Text size={200}>
+                These constraints apply to every visit to this city.
+              </Text>
+              <Field
+                label="Arrival flexibility (± days)"
+                hint="0–5 days around the selected arrival date"
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={String(arrivalFlex)}
+                  onChange={(_, data) => setArrivalFlex(Number(data.value))}
+                />
+              </Field>
+              <Field
+                label="Departure flexibility (± days)"
+                hint="0–5 days around the selected departure date"
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={String(departureFlex)}
+                  onChange={(_, data) => setDepartureFlex(Number(data.value))}
+                />
+              </Field>
+              <Checkbox
+                label="Keep this destination after the previous one"
+                checked={keepOrder}
+                onChange={(_, data) => setKeepOrder(Boolean(data.checked))}
               />
-              <TripDatePicker
-                label="Departure date"
-                value={departureDate}
-                onChange={setDepartureDate}
-                destinations={destinations}
-                excludeCityId={
-                  editing?.destination.id ??
-                  destinations.find(
-                    (item) =>
-                      item.properties.name === city?.cityName &&
-                      item.properties.countryCode === city?.countryCode,
-                  )?.id
-                }
-                min={arrivalDate || undefined}
-                disabled={saving}
-                invalid={invalidDates}
-              />
+              {invalidFlex && (
+                <Text role="alert">Choose whole numbers from 0 to 5 days.</Text>
+              )}
             </div>
           </fieldset>
           {error && <Text role="alert">{error}</Text>}
@@ -219,7 +312,9 @@ export default function AddDestinationDrawer({
           appearance="primary"
           type="submit"
           form="add-destination-form"
-          disabled={(!editing && !city) || saving || invalidDates}
+          disabled={
+            (!editing && !city) || saving || invalidDates || invalidFlex
+          }
         >
           {saving ? "Saving…" : editing ? "Save dates" : "Add destination"}
         </Button>

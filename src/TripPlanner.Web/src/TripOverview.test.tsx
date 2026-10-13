@@ -9,22 +9,32 @@ import {
 import ColorSchemeProvider from "./ColorSchemeProvider";
 import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
+import { getSelectedFlights } from "./selectedFlightsApi";
 import TripOverview from "./TripOverview";
 import { resolveCity, searchCities, type Trip } from "./api";
 import {
   addDestination,
   deleteDestination,
   replaceDestinationStay,
+  replaceDestinationPlace,
   getDestinations,
+  getActivities,
   type Destination,
 } from "./activitiesApi";
 
+vi.mock("./airportCities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./airportCities")>()),
+  useAirportCities: () => ({ JFK: "New York", CDG: "Paris" }),
+}));
+vi.mock("./selectedFlightsApi", () => ({ getSelectedFlights: vi.fn() }));
 vi.mock("./api", () => ({ searchCities: vi.fn(), resolveCity: vi.fn() }));
 vi.mock("./activitiesApi", () => ({
   getDestinations: vi.fn(),
+  getActivities: vi.fn(),
   addDestination: vi.fn(),
   deleteDestination: vi.fn(),
   replaceDestinationStay: vi.fn(),
+  replaceDestinationPlace: vi.fn(),
 }));
 const trip: Trip = {
   id: "trip",
@@ -59,17 +69,22 @@ const paris: Destination = {
     ],
   },
 };
-function show(readOnly = false) {
+function show(readOnly = false, homeCity: string | null = "New York") {
   return render(
     <ColorSchemeProvider>
       <MemoryRouter>
-        <TripOverview trip={trip} readOnly={readOnly} />
+        <TripOverview trip={trip} readOnly={readOnly} homeCity={homeCity} />
       </MemoryRouter>
     </ColorSchemeProvider>,
   );
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(getSelectedFlights).mockResolvedValue([]);
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [],
+  });
   vi.mocked(deleteDestination).mockResolvedValue(undefined);
   vi.mocked(getDestinations).mockResolvedValue({
     type: "FeatureCollection",
@@ -90,6 +105,28 @@ beforeEach(() => {
   });
   vi.mocked(addDestination).mockResolvedValue(paris);
 });
+function chooseStayDates(drawer: HTMLElement) {
+  const calendar = within(drawer).getByLabelText("Destination dates");
+  for (
+    let count = 0;
+    count < 24 &&
+    calendar.querySelector(".trip-calendar-heading strong")?.textContent !==
+      "June 2027";
+    count++
+  ) {
+    const next = within(calendar).getByLabelText("Next month");
+    act(() => next.focus());
+    fireEvent.click(next);
+  }
+  for (const day of [10, 14]) {
+    const button = within(calendar).getByRole("button", {
+      name: new RegExp(`^Jun ${day}, 2027`),
+    });
+    act(() => button.focus());
+    fireEvent.click(button);
+  }
+}
+
 async function openAndChooseCity() {
   const trigger = await screen.findByRole("button", {
     name: "Add destination",
@@ -97,10 +134,12 @@ async function openAndChooseCity() {
   act(() => trigger.focus());
   fireEvent.click(trigger);
   const drawer = await screen.findByRole("dialog");
-  const input = within(drawer).getByRole("combobox", {
-    name: "Destination city",
-  });
+  // JSDOM has no layout for Tabster's automatic focus target selection.
+  const input = within(drawer).getByLabelText("Destination city");
   act(() => input.focus());
+  expect(
+    await within(drawer).findByRole("combobox", { name: "Destination city" }),
+  ).toBe(input);
   fireEvent.change(input, { target: { value: "Par" } });
   fireEvent.click(await screen.findByRole("option", { name: "Paris, France" }));
   return drawer;
@@ -159,7 +198,7 @@ test("cancel closes the drawer and discards its unsaved selection", async () => 
   ).toBeDisabled();
 });
 
-test("validates stay dates and retains the form after a save failure for retry", async () => {
+test("retains the selected date range after a save failure for retry", async () => {
   vi.mocked(addDestination).mockRejectedValueOnce(
     new Error("Please try again."),
   );
@@ -168,16 +207,7 @@ test("validates stay dates and retains the form after a save failure for retry",
   const submit = within(drawer).getByRole("button", {
     name: "Add destination",
   });
-  fireEvent.change(within(drawer).getByLabelText("Arrival date"), {
-    target: { value: "2027-06-10" },
-  });
-  fireEvent.change(within(drawer).getByLabelText("Departure date"), {
-    target: { value: "2027-06-09" },
-  });
-  expect(submit).toBeDisabled();
-  fireEvent.change(within(drawer).getByLabelText("Departure date"), {
-    target: { value: "2027-06-14" },
-  });
+  chooseStayDates(drawer);
   fireEvent.click(submit);
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Please try again.",
@@ -185,9 +215,7 @@ test("validates stay dates and retains the form after a save failure for retry",
   expect(
     within(drawer).getByRole("combobox", { name: "Destination city" }),
   ).toHaveValue("Paris, France");
-  expect(within(drawer).getByLabelText("Arrival date")).toHaveValue(
-    "2027-06-10",
-  );
+  expect(within(drawer).getByText("Jun 10, 2027 – Jun 14, 2027")).toBeVisible();
   fireEvent.click(submit);
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
@@ -216,7 +244,7 @@ test("shared trips show their destinations without offering edits", async () => 
     screen.queryByRole("button", { name: "Delete destination: Paris" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.getByRole("link", { name: "View activities in Paris" }),
+    await screen.findByRole("link", { name: "View activities in Paris" }),
   ).toBeVisible();
 });
 
@@ -293,7 +321,14 @@ async function openDelete(name = "Paris") {
   });
   act(() => triggers[0].focus());
   fireEvent.click(triggers[0]);
-  return screen.findByRole("dialog");
+  const dialog = await screen.findByRole("dialog");
+  act(() =>
+    within(dialog)
+      .getByText("Delete destination", { selector: "button" })
+      .focus(),
+  );
+  await within(dialog).findByRole("button", { name: "Delete destination" });
+  return dialog;
 }
 
 test("canceling deletion preserves the destination; confirming the last city restores the empty overview", async () => {
@@ -378,12 +413,7 @@ test("destination visit dates can be edited on Overview", async () => {
   act(() => trigger.focus());
   fireEvent.click(trigger);
   const drawer = await screen.findByRole("dialog");
-  fireEvent.change(within(drawer).getByLabelText("Arrival date"), {
-    target: { value: "2027-06-10" },
-  });
-  fireEvent.change(within(drawer).getByLabelText("Departure date"), {
-    target: { value: "2027-06-14" },
-  });
+  chooseStayDates(drawer);
   fireEvent.click(within(drawer).getByRole("button", { name: "Save dates" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
@@ -401,7 +431,321 @@ test("destination visit dates can be edited on Overview", async () => {
   act(() => reopen.focus());
   fireEvent.click(reopen);
   const reopened = await screen.findByRole("dialog");
-  expect(within(reopened).getByLabelText("Arrival date")).toHaveValue(
-    "2027-06-10",
+  expect(
+    within(reopened).getByText("Jun 10, 2027 – Jun 14, 2027"),
+  ).toBeVisible();
+});
+
+test("orders dated visits chronologically, then keeps undated visits in itinerary order", async () => {
+  const late = {
+    ...paris,
+    id: "late",
+    properties: {
+      ...paris.properties,
+      name: "Late",
+      stays: [
+        {
+          ...paris.properties.stays[0],
+          id: "late-stay",
+          order: 0,
+          arrivalDate: "2027-07-20",
+          departureDate: "2027-07-25",
+        },
+      ],
+    },
+  };
+  const early = {
+    ...paris,
+    id: "early",
+    properties: {
+      ...paris.properties,
+      name: "Early",
+      stays: [
+        {
+          ...paris.properties.stays[0],
+          id: "early-stay",
+          order: 2,
+          arrivalDate: "2027-07-10",
+          departureDate: "2027-07-12",
+        },
+      ],
+    },
+  };
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [late, paris, early],
+    route: [
+      { destinationId: late.id, stayId: "late-stay" },
+      { destinationId: paris.id, stayId: "stay-1" },
+      { destinationId: early.id, stayId: "early-stay" },
+    ],
+  });
+  show();
+  const list = await screen.findByRole("list", { name: "Trip destinations" });
+  expect(
+    within(list)
+      .getAllByRole("heading")
+      .map((item) => item.textContent),
+  ).toEqual(["Early", "Late", "Paris"]);
+});
+
+test("shows activity counts by free-form state instead of a plan button for a populated city", async () => {
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [paris],
+    route: [{ destinationId: paris.id, stayId: "stay-1" }],
+  });
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: ["Planned", "Planned", "Proposed", "Maybe"].map(
+      (state, index) => ({
+        type: "Feature",
+        id: String(index),
+        geometry: null,
+        properties: {
+          name: "Activity",
+          description: "",
+          durationMinutes: null,
+          cost: null,
+          placeName: null,
+          state,
+        },
+      }),
+    ),
+  });
+  show();
+  expect(
+    await screen.findByRole("link", { name: "2 Planned activities in Paris" }),
+  ).toHaveAttribute("href", "/trips/trip/activities?destination=paris-fr");
+  expect(
+    screen.getByRole("link", { name: "1 Maybe activities in Paris" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("link", { name: "Plan activities in Paris" }),
+  ).not.toBeInTheDocument();
+});
+
+test("summary failures offer retry and do not imply a destination has no activities", async () => {
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [paris],
+    route: [{ destinationId: paris.id, stayId: "stay-1" }],
+  });
+  vi.mocked(getActivities).mockRejectedValueOnce(new Error("Unavailable"));
+  show();
+  const retry = await screen.findByRole("button", {
+    name: "Retry activity summary",
+  });
+  expect(screen.queryByText("Plan Activities")).not.toBeInTheDocument();
+  fireEvent.click(retry);
+  expect(await screen.findByText("Plan Activities")).toBeVisible();
+});
+
+test.each(["New York", null])(
+  "a single destination includes outbound and return flight links from %s",
+  async (homeCity) => {
+    vi.mocked(getDestinations).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [paris],
+      route: [],
+    });
+    show(false, homeCity);
+    const links = await screen.findAllByRole("link", { name: "Plan Flights" });
+    expect(links).toHaveLength(2);
+    for (const link of links)
+      expect(link).toHaveAttribute("href", "/trips/trip/flights");
+    expect(
+      screen.getByRole("listitem", {
+        name: `Flights from ${homeCity ?? "Home"} to Paris`,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("listitem", {
+        name: `Flights from Paris to ${homeCity ?? "Home"}`,
+      }),
+    ).toBeVisible();
+  },
+);
+
+test("flight cards follow chronological visits, including the trip home", async () => {
+  const rome: Destination = {
+    ...paris,
+    id: "rome",
+    properties: {
+      ...paris.properties,
+      name: "Rome",
+      stays: [
+        {
+          ...paris.properties.stays[0],
+          id: "rome-stay",
+          arrivalDate: "2027-07-20",
+        },
+      ],
+    },
+  };
+  const datedParis: Destination = {
+    ...paris,
+    properties: {
+      ...paris.properties,
+      stays: [{ ...paris.properties.stays[0], arrivalDate: "2027-07-10" }],
+    },
+  };
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [rome, datedParis],
+    route: [],
+  });
+  show();
+  expect(
+    await screen.findAllByRole("link", { name: "Plan Flights" }),
+  ).toHaveLength(3);
+  const list = screen.getByRole("list", { name: "Trip destinations" });
+  expect(
+    within(list)
+      .getAllByRole("listitem")
+      .map(
+        (item) =>
+          item.getAttribute("aria-label") ??
+          within(item).getByRole("heading").textContent,
+      ),
+  ).toEqual([
+    "Flights from New York to Paris",
+    "Paris",
+    "Flights from Paris to Rome",
+    "Rome",
+    "Flights from Rome to New York",
+  ]);
+});
+
+test("destination flexibility and ordering are saved on the city resource while preserving other constraints", async () => {
+  const destination = {
+    ...paris,
+    properties: {
+      ...paris.properties,
+      constraints: {
+        budget: 400,
+        arrivalFlexibilityDays: 1,
+        departureFlexibilityDays: 2,
+        keepAfterPrevious: false,
+      },
+    },
+  };
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [destination],
+    route: [],
+  });
+  vi.mocked(replaceDestinationStay).mockResolvedValue(destination);
+  vi.mocked(replaceDestinationPlace).mockResolvedValue(destination);
+  show();
+  const trigger = await screen.findByRole("button", {
+    name: "Edit dates: Paris, visit 1",
+  });
+  act(() => trigger.focus());
+  fireEvent.click(trigger);
+  const drawer = await screen.findByRole("dialog");
+  const arrival = within(drawer).getByLabelText("Arrival flexibility (± days)");
+  act(() => arrival.focus());
+  expect(arrival).toHaveValue(1);
+  expect(
+    within(drawer).getByLabelText("Departure flexibility (± days)"),
+  ).toHaveValue(2);
+  const submit = within(drawer).getByRole("button", { name: "Save dates" });
+  fireEvent.change(arrival, { target: { value: "6" } });
+  expect(submit).toBeDisabled();
+  fireEvent.change(arrival, { target: { value: "3" } });
+  fireEvent.change(
+    within(drawer).getByLabelText("Departure flexibility (± days)"),
+    { target: { value: "4" } },
   );
+  fireEvent.click(
+    within(drawer).getByRole("checkbox", {
+      name: "Keep this destination after the previous one",
+    }),
+  );
+  fireEvent.click(submit);
+  await waitFor(() =>
+    expect(replaceDestinationPlace).toHaveBeenCalledWith("trip", destination, {
+      budget: 400,
+      arrivalFlexibilityDays: 3,
+      departureFlexibilityDays: 4,
+      keepAfterPrevious: true,
+    }),
+  );
+});
+
+test("overview shows persisted flight numbers instead of Plan Flights links", async () => {
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [
+      {
+        ...paris,
+        properties: {
+          ...paris.properties,
+          stays: [
+            {
+              ...paris.properties.stays[0],
+              arrivalDate: "2027-06-10",
+              departureDate: "2027-06-14",
+            },
+          ],
+        },
+      },
+    ],
+    route: [],
+  });
+  const legs = [
+    {
+      segments: [
+        {
+          departure_airport: "JFK",
+          arrival_airport: "CDG",
+          departure_time_local: "2027-06-09T21:00",
+          arrival_time_local: "2027-06-10T09:00",
+          marketing_carrier_code: "AA",
+          flight_number: "100",
+        },
+      ],
+    },
+    {
+      segments: [
+        {
+          departure_airport: "CDG",
+          arrival_airport: "JFK",
+          departure_time_local: "2027-06-14T11:00",
+          arrival_time_local: "2027-06-14T13:00",
+          marketing_carrier_code: "AA",
+          flight_number: "101",
+        },
+      ],
+    },
+  ];
+  vi.mocked(getSelectedFlights).mockResolvedValue([
+    {
+      tripId: "trip",
+      partyId: "party",
+      cacheKey: "old-search",
+      itineraryIndex: 9,
+      selectedAt: "2027-01-01",
+      request: {
+        origin: "JFK",
+        destination: "CDG",
+        departure_date: "2027-06-09",
+        return_date: "2027-06-14",
+        adults: 1,
+        cabin_class: "economy",
+        market: "US",
+      },
+      itinerary: { legs },
+    },
+  ]);
+  show();
+  expect(await screen.findByRole("link", { name: "AA 100" })).toHaveAttribute(
+    "href",
+    "/trips/trip/flights",
+  );
+  expect(screen.getByRole("link", { name: "AA 101" })).toBeVisible();
+  expect(
+    screen.queryByRole("link", { name: "Plan Flights" }),
+  ).not.toBeInTheDocument();
 });

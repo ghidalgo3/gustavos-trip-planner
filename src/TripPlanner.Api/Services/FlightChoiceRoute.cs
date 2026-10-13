@@ -122,7 +122,7 @@ public static class FlightChoiceRoute
         }
     }
 
-    private static string? FlightKey(JsonElement leg)
+    public static string? FlightKey(JsonElement leg)
     {
         if (
             leg.ValueKind != JsonValueKind.Object

@@ -150,6 +150,14 @@ export async function getFlightSearchResults(
     signal,
     cache: "no-store",
   });
+  if (response.status === 400) {
+    const problem = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as { issues?: FlightSearchIssue[] } | null;
+    if (Array.isArray(problem?.issues))
+      throw new FlightSearchValidationError(problem.issues);
+  }
   if (response.status === 404)
     throw new Error(
       "These trip details need a new flight search. Choose Find flights.",

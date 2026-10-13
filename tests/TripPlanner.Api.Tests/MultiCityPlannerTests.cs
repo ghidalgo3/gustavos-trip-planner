@@ -161,6 +161,31 @@ public sealed class MultiCityPlannerTests
         var saved = (await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!.Single();
         Assert.AreEqual(4, saved.Itinerary.GetProperty("legs").GetArrayLength());
         Assert.AreEqual(3, saved.Itinerary.GetProperty("bookingOffers").GetArrayLength());
+        // Composed result keys and indexes can change while new fares arrive.
+        var legKeys = saved
+            .Itinerary.GetProperty("legs")
+            .EnumerateArray()
+            .Select(FlightChoiceRoute.FlightKey)
+            .Select(key => key!)
+            .ToArray();
+        decimal quote = saved.Itinerary.GetProperty("price").GetProperty("amount").GetDecimal();
+        string currency = saved.Itinerary.GetProperty("price").GetProperty("currency").GetString()!;
+        var stableSelection = await client.PutAsJsonAsync(
+            $"{selectionPath}/{party.Id}",
+            new SelectFlightRequest("older-composition", 999, legKeys, quote, currency)
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            stableSelection.StatusCode,
+            await stableSelection.Content.ReadAsStringAsync()
+        );
+        var persisted = (await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!.Single();
+        Assert.AreEqual(saved.Itinerary.GetRawText(), persisted.Itinerary.GetRawText());
+        var changedQuote = await client.PutAsJsonAsync(
+            $"{selectionPath}/{party.Id}",
+            new SelectFlightRequest("older-composition", 999, legKeys, quote + 1, currency)
+        );
+        Assert.AreEqual(HttpStatusCode.Conflict, changedQuote.StatusCode);
         var cached = await client.PostAsJsonAsync(
             $"/trips/{trip.Id}/flights:search",
             new StartFlightSearchRequest(Guid.NewGuid())

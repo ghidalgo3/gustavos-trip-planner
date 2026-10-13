@@ -354,6 +354,26 @@ public static class ActivityEndpoints
                 new { title = "Check the activity name, description, duration, and state." }
             );
         if (
+            p.Links is null
+            || p.Links.Count > 20
+            || p.Links.Any(link =>
+                link is null
+                || string.IsNullOrWhiteSpace(link.Url)
+                || link.Url.Length > 2048
+                || !Uri.TryCreate(link.Url, UriKind.Absolute, out var uri)
+                || uri.Scheme is not ("http" or "https")
+                || string.IsNullOrWhiteSpace(uri.Host)
+                || !string.IsNullOrEmpty(uri.UserInfo)
+                || link.Label?.Length > 200
+            )
+        )
+            return Results.BadRequest(
+                new
+                {
+                    title = "Supply at most 20 HTTP(S) links with optional labels of up to 200 characters.",
+                }
+            );
+        if (
             p.Cost is { } cost
             && (
                 cost.Amount < 0

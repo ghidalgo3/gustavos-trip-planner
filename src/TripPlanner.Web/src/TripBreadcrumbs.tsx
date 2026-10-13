@@ -12,7 +12,7 @@ export default function TripBreadcrumbs({
   destinationName,
 }: {
   trip: Trip;
-  section: "overview" | "activities";
+  section: "overview" | "activities" | "flights";
   destinationName?: string;
 }) {
   const tripUrl = `/trips/${encodeURIComponent(trip.id)}`;
@@ -31,7 +31,11 @@ export default function TripBreadcrumbs({
           <Link to={`${tripUrl}/activities`}>Activities</Link>
         ) : (
           <span aria-current="page">
-            {section === "overview" ? "Overview" : "Activities"}
+            {section === "overview"
+              ? "Overview"
+              : section === "flights"
+                ? "Flights"
+                : "Activities"}
           </span>
         )}
       </BreadcrumbItem>

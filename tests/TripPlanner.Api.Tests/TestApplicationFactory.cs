@@ -111,7 +111,8 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             string placeName,
             string city,
             string countryCode,
-            CancellationToken cancellationToken
+            CancellationToken cancellationToken,
+            TripPlanner.Api.Models.GeoJsonPoint? center = null
         ) => Task.FromResult<TripPlanner.Api.Models.GeoJsonPoint?>(new("Point", [2.3364, 48.8606]));
     }
 

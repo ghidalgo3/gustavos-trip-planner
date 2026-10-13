@@ -917,8 +917,7 @@ main {
   gap: 1rem;
   min-width: 0;
 }
-.activity-map-panel,
-.activity-table-wrap {
+.activity-map-panel {
   min-width: 0;
 }
 .activity-map-shell {
@@ -975,43 +974,6 @@ main {
 }
 .activity-selection span {
   flex: 1 1 12rem;
-}
-.activity-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-.activity-table caption {
-  text-align: left;
-  font-weight: 600;
-  padding-bottom: 0.5rem;
-}
-.activity-table th,
-.activity-table td {
-  padding: 0.6rem 0.35rem;
-  border-bottom: 1px solid var(--colorNeutralStroke2);
-  vertical-align: top;
-}
-.activity-table th {
-  color: var(--colorNeutralForeground2);
-  font-weight: 500;
-}
-.activity-table tr.selected {
-  background: var(--colorBrandBackground2);
-}
-.activity-table td > button:not(.fui-Button) {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-.activity-table td small {
-  display: block;
-  color: var(--colorNeutralForeground2);
 }
 .activity-state {
   display: inline-block;
@@ -1119,11 +1081,10 @@ main {
 .trip-overview-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 16px;
 }
-.trip-overview-heading h2,
 .overview-empty h3,
 .overview-destination h3 {
   margin: 0;
@@ -1234,10 +1195,6 @@ main {
   line-height: 1.6;
   color: var(--colorNeutralForeground2);
 }
-.destination-drawer-dates {
-  display: grid;
-  gap: 20px;
-}
 .destination-drawer-footer {
   justify-content: flex-end;
   gap: 12px;
@@ -1251,9 +1208,6 @@ main {
   }
   .overview-activities-link {
     width: auto;
-  }
-  .destination-drawer-dates {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1297,21 +1251,9 @@ main {
   pointer-events: none;
 }
 
-.trip-date-input {
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-}
-.trip-date-input > .fui-Input {
-  flex: 1;
-  min-width: 0;
-}
-.trip-date-input > button {
-  min-width: 44px;
-  min-height: 44px;
-}
 .trip-calendar {
-  width: min(320px, calc(100vw - 32px));
+  width: 100%;
+  max-width: 420px;
   box-sizing: border-box;
   padding: 12px;
 }
@@ -1335,7 +1277,7 @@ main {
 }
 .trip-calendar-day {
   position: relative;
-  min-height: 38px;
+  min-height: 44px;
   border: 1px solid transparent;
   border-radius: 4px;
   color: var(--colorNeutralForeground1);
@@ -1350,6 +1292,17 @@ main {
 .trip-calendar-day:focus-visible {
   outline: 2px solid var(--colorBrandStroke1);
   outline-offset: 1px;
+}
+.trip-calendar-day[aria-current="date"] > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--colorBrandBackground);
+  color: var(--colorNeutralForegroundOnBrand);
+  font-weight: 700;
 }
 .trip-calendar-day[aria-pressed="true"] {
   border: 2px solid var(--colorBrandStroke1);
@@ -1418,25 +1371,17 @@ main {
   color: var(--colorNeutralForeground2);
   font-size: 12px;
 }
-.activity-table-wrap {
-  position: relative;
-  overflow-x: auto;
-  padding-bottom: 8px;
-}
-.activity-table {
-  min-width: 460px;
-}
-.activity-table-section {
+.activity-cards-section {
   min-width: 0;
 }
-.activity-table-heading {
+.activity-cards-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 12px 0 20px;
 }
-.activity-table-heading h2 {
+.activity-cards-heading h2 {
   margin: 0;
 }
 .activity-empty {
@@ -1487,10 +1432,220 @@ main {
   gap: 16px;
 }
 
-.activity-table td > button,
+.activity-card button,
+.activity-card-actions a,
 .activity-drawer button {
   min-height: 44px;
 }
 
-.activity-state-picker { display: grid; gap: 6px; align-content: start; }
-.activity-state-picker > span { font-weight: 600; }
+.activity-state-picker {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.activity-state-picker > span {
+  font-weight: 600;
+}
+
+.activity-links-editor {
+  display: grid;
+  gap: 12px;
+}
+.activity-links-editor > span {
+  color: var(--colorNeutralForeground2);
+}
+.activity-link-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+}
+.activity-links-editor > button {
+  justify-self: start;
+}
+.activity-links {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.activity-links a {
+  color: var(--colorBrandForegroundLink);
+  overflow-wrap: anywhere;
+}
+.overview-activity-summary {
+  width: 100%;
+}
+.overview-activity-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.overview-activity-tags a {
+  text-decoration: none;
+}
+.overview-activity-tags .fui-Badge {
+  padding: 8px 12px;
+  min-height: 32px;
+}
+@media (min-width: 600px) {
+  .overview-activity-summary {
+    width: auto;
+  }
+}
+
+.overview-activities-link {
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--colorBrandStroke2);
+  border-radius: 6px;
+  background: var(--colorBrandBackground2);
+}
+.overview-activity-tags .fui-Badge {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.overview-flight-spacer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 16px;
+  margin: 0 12px;
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px dashed var(--colorNeutralStroke2);
+  border-radius: 8px;
+  color: var(--colorNeutralForeground2);
+  background: var(--colorNeutralBackground2);
+}
+.overview-flight-route {
+  flex: 1 1 140px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.overview-flight-spacer a {
+  color: var(--colorBrandForegroundLink);
+  font-weight: 600;
+  padding: 8px 0;
+}
+
+.trip-calendar-selection {
+  margin: 8px 0;
+  font-weight: 600;
+}
+.trip-calendar-instruction {
+  font-size: 12px;
+  color: var(--colorNeutralForeground2);
+  min-height: 32px;
+}
+.trip-calendar-day[aria-pressed="true"] {
+  background: var(--colorBrandBackground2);
+  border: 1px solid var(--colorBrandStroke2);
+}
+.trip-calendar-day[data-range-edge="true"] {
+  border: 2px solid var(--colorBrandStroke1);
+}
+.activity-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.activity-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 12px;
+  background: var(--colorNeutralBackground1);
+}
+.activity-card.selected {
+  border-color: var(--colorBrandStroke1);
+  box-shadow: inset 0 0 0 1px var(--colorBrandStroke1);
+}
+.activity-card-heading {
+  display: flex;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.activity-card-heading h3 {
+  flex: 1 1 160px;
+  margin: 0;
+  font-size: 18px;
+}
+.activity-card-heading button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--colorBrandForegroundLink);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.activity-card-heading button:focus-visible {
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 4px;
+}
+.activity-card-description {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.activity-card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.activity-card-facts dt,
+.activity-location-missing {
+  font-size: 12px;
+  color: var(--colorNeutralForeground2);
+}
+.activity-card-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.activity-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.activity-card .activity-links {
+  margin: 0;
+}
+
+.trip-parties {
+  display: grid;
+  gap: 16px;
+  margin-top: 32px;
+}
+.trip-parties h2 {
+  margin: 0;
+}
+.destination-flight-constraints {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--colorNeutralStroke2);
+}
+.flight-planning {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}

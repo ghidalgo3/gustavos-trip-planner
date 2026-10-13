@@ -82,47 +82,26 @@ Destinations are Point GeoJSON Features at `/trips/{tripId}/destinations/{destin
 
 During onboarding, the client debounces city searches and calls Azure Maps Geocode Autocomplete directly for `PopulatedPlace` results. `GET /mapToken` returns an authenticated, short-lived SAS for that browser call. The API creates each SAS with a two-hour lifetime and an approximate limit of 50 requests per second; the browser reuses it until shortly before expiry. Selecting a result and continuing calls `PUT /user/profile` with a complete `UserProfile` object. If the city has multiple passenger airports, the profile requires a preferred airport; a sole airport is selected automatically. `GET /airports/home` resolves that list from the bundled catalog. City flight searches still include all airports, with the saved airport used as a ranking preference. The same route saves home-city, preferred-airport, and airline changes from `/profile` in one database update. The avatar button opens a menu with **Your profile** and **Sign out**. Preferred airlines initialize the owner's party preferences in newly opened planning documents.
 
-Airline preferences in the profile and advanced search, and the airline filter in flight results, use the same searchable multi-select combobox. Chosen airlines appear as removable tags; profile and planning preferences persist airline codes, while result filters preserve carrier names in the route query.
+Airline preferences in the profile and the airline filter in flight results, use the same searchable multi-select combobox. Chosen airlines appear as removable tags; profile and planning preferences persist airline codes, while result filters preserve carrier names in the route query.
 
 The web client follows the browser's `prefers-color-scheme` setting and updates
 between Fluent UI's light and dark themes when that preference changes.
 React Router keeps the trips dashboard at `/` and each planner at `/trips/{tripId}`.
 The dashboard also uses `/?create=1` and `/?edit={tripId}` for its forms. These
 routes support direct loading, refresh, and browser Back/Forward navigation.
-The planner stores its Advanced disclosure and flight-result filters
-in the query string, so refreshing or sharing the URL restores that view.
+Flight-result filters remain in the query string, so refreshing or sharing the URL restores those filters.
 
 Stop local services with `docker compose down`. Add `--volumes` only when you intentionally want to erase the local database and recreate it from migrations.
 
-## Constraint editor and flight planning
+## Flight planning
 
-After creating a trip, choose **Find flights**. Search destinations by city, airport
-name, or IATA code. Selecting a city searches its catalog airports; selecting an
-airport searches only that airport. You can also add or remove airports for a
-destination or party origin. Each selected airport combination is searched for
-each selected date pair, so choosing more airports increases Ignav requests.
-Choose departure and return-flight dates with the calendar inputs. The trip
-owner's home city suggests departure airports for every party and can be changed.
-The compact Party selector above the dates searches users
-by name; the trip owner can add or remove members.
-Additional constraints are optional. Departure and return-flight windows allow
-independent flexibility; a window replaces the fixed date for that direction.
-Cabin, pricing market, maximum journey hours, and preferred airlines are under
-**Advanced** in the destination-and-dates section, grouped by party. All
-constraint editors are in this section.
-Preferred airlines affect the ranking and highlighted fares; they do not exclude
-other airlines unless the traveler explicitly uses the results' airline filter.
-That section also lets a party limit the search to nonstop flights, or to one or
-two stops. A nonstop constraint takes precedence over this setting.
+Define destinations and visit dates on **Overview**, and manage party members in its **Travelers** section. The destination drawer owns `properties.constraints.arrivalFlexibilityDays` and `departureFlexibilityDays` (independent ±0–5 day windows) and `keepAfterPrevious` (default true). These city constraints apply to every visit, including repeat visits. Existing unrelated destination constraints are preserved when editing these controls.
 
-**Save planning details** stores the structured document in the existing JSONB
-column. **Find flights** validates the displayed inputs, prepares the bounded set of
-flight searches, and queues the Ignav calls. Invalid planning requests return an
-HTTP 400 response with the issues that must be resolved; accepted requests return
-HTTP 202 with an operation polling URL. Airport suggestions use a bundled catalog
-of scheduled passenger airports, so they require no provider credentials or paid
-requests. Catalog sources, license, refresh details, and home-airport selection rules are in
-[Data/README.md](src/TripPlanner.Api/Data/README.md).
+**Plan Flights** opens `/trips/{tripId}/flights`, which contains the flight search and selection card. It has no separate party, destination, date, advanced-constraint, or AI trip-description form. Search validation issues offer a return to Overview. Home airports come from the trip owner's profile; airline preferences initialize the search settings. Preferred airlines affect ranking rather than excluding other carriers.
+
+The API derives the effective flight document from the current destination resources on every constraints read, search, result read, booking lookup, and selection. Stable stay IDs identify planned visits. Dates determine chronological order; an enabled ordering constraint requires the preceding visit. Destination coordinates and country select nearby catalog airports. Date flexibility applies independently to local arrival and departure, including validation of actual returned flights. Changes take effect without saving a second planning document. Existing API clients with flight-only trips can still use their stored flight documents until destinations are defined.
+
+**Find flights** prepares a bounded set of provider requests and queues Ignav calls. Invalid requests return HTTP 400 with planning issues; accepted searches return HTTP 202 with a polling URL. The existing engine supports up to three visits and a maximum of 60 trip days. Airport catalog sources and home-airport selection rules are in [Data/README.md](src/TripPlanner.Api/Data/README.md).
 
 The browser supplies the current user time zone through
 `Intl.DateTimeFormat().resolvedOptions().timeZone`; there is no time-zone input.
@@ -136,15 +115,6 @@ candidates before airport expansion. Fresh cache hits conservatively count towar
 the request cap, so actual provider calls can be fewer. The return-flight date is the date the flight home begins and maps directly
 to the provider request's return date. The API validates actual itinerary timing,
 required presence, journey duration, and layover geography when reading cached fares.
-
-For a route, choose **Plan destination visits** or describe the route with AI.
-Up to three visit cards capture cities or specific airports, exact nights, required
-stay dates, and visit order. Select preceding visits in a multi-select combobox;
-removable tags above it show the current order requirements. “Four days” means
-four nights. Departure and return flight dates may stay blank when a required
-stay anchors the trip. Unspecified
-flexibility is bounded to five days on either side of required presence; the
-maximum trip length defaults to 21 days. Both limits are visible in the editor.
 
 Route planning shares dated legs across candidates and queries one-way fares plus
 paired outbound/homebound open-jaw fares through Ignav's flexible endpoint. It
@@ -185,33 +155,14 @@ links returned by Ignav are shown; third-party seller links are omitted.
 The Plans overview also shows airline booking options for each leg of a saved
 route while its original fare search is fresh. When that search expires, run
 **Find flights** again to obtain current links.
+Saving a complete route sends its leg identifiers and displayed price alongside the result key and index. The API resolves that quote against current cached, validated results, so additional search results cannot invalidate an unchanged selection. Changed flights or prices require reviewing the current results. The picker recognizes saved flights independently of temporary cache keys and result ordering, preserving its selected state and purchase indicators across refreshes.
+
 The owner can mark each flight as purchased on the saved route or in Plans;
 those booleans persist in the trip's selected-flight JSONB snapshot. Travel
 companions can see the status but cannot change it. Prices include a local
 currency symbol alongside the currency code, such as USD $900.
 
-This prototype counts each account holder as an adult passenger.
-For users whose `users."FeatureFlags"` comma-separated value contains `LLM`, the
-planner also offers **Describe your trip**. The browser sends the text and current
-draft to `POST /trips/{tripId}/flights:prompt`, which returns a
-`tripFormFill` operation with HTTP 202. The shared PostgreSQL-backed planning worker calls OpenAI's
-official .NET SDK for the Responses API with a forced `fill_trip_form` function,
-resolves destinations and visit order against its airport catalog, and stores the proposed
-document separately from the generic operation progress row. The browser polls
-`GET /operations/{id}` and reads the completed proposal at
-`GET /trips/{tripId}/flights/prompts/{operationId}`. This does not save the
-trip; review the populated fields and requirements, then choose **Save planning
-details**. The prompt becomes read-only after a successful fill and explains its
-locked state on hover or tap. **Plan again** confirms before unlocking the
-saved description for editing while keeping the text and trip details. A new AI fill replaces requirements from an earlier AI
-prompt while retaining manually entered requirements. The editor can recover a
-completed proposal when reopened and records its operation ID with the saved draft
-so a discarded proposal is not applied again. The server checks the
-feature flag independently of the browser. Set the OpenAI key with
-`./scripts/secrets --set-openai`; local startup and release read it from Key
-Vault. During development, enable the feature for one user by setting
-`"FeatureFlags" = 'LLM'` on that user's row and refreshing the application.
-For example, `UPDATE users SET "FeatureFlags" = 'LLM' WHERE email = 'you@example.com';`.
+This prototype counts each account holder as an adult passenger. The earlier flight-form AI proposal API remains available to API clients, but is no longer exposed on the flight page. Activity AI suggestions remain in the activity drawer.
 Invitations and full preference scoring are subsequent
 steps. See [Milestone 1](docs/milestone_1.md) for limits,
 [Milestone 2](docs/milestone_2.md) for the activity-planning contract and iteration notes,
@@ -219,7 +170,7 @@ and [later milestones](docs/later_milestones.md) for the deferred trip revision 
 
 ## Activity planning
 
-**Overview** is the default trip page at `/trips/{tripId}`. New trips start with an empty itinerary and an **Add destination** button. It opens a modal drawer from the right on laptops and fills the width on phones. Search for a city, select an autocomplete result, and optionally enter visit dates; the drawer does not ask for a country code. Saving closes the drawer and adds a visit to the overview, with a link to its activities. Canceling discards the draft. Overview lists repeat visits in route order. Owners can delete a destination from its card after confirming that all visits and activities for that city will be removed. Breadcrumbs link back through Trips, the trip, and the current section; activity planning also shows the selected city. Activity planning opens with destination tabs showing every visit’s dates and an Azure map centered on the selected city. The map fills the content width on phones and laptops. An activities table below the map provides **Add activity** and row-level **Edit** actions. Both open a drawer; new activities can use Azure Maps place lookup, an AI prompt, or an image import. AI suggestions and image imports are available when the profile’s AI feature is enabled, and save activities immediately as Proposed. The background worker calls OpenAI with the prompt and destination visit dates, then resolves suggested places through Azure Maps. Migration `0006` upgrades early activity job tables without discarding data. Destination tabs share a scroll position and activity state is selected with a menu button. Destination creation and visit-date editing are on Overview. The date calendars highlight other cities’ stays, including repeat visits and overlapping dates, with a color legend below the month. Map loading and failures are visible, with a retry that fetches a fresh SAS token. **Activities** remains available at `/trips/{tripId}/activities`; flights, stays, and plans are no longer navigation tabs in this first design pass. Trip-wide dates and flexibility controls will follow. The selected result supplies the city's country and coordinates. Plan activities there before choosing flights. Adding the same city again creates another visit under one city tab, with the complete route order preserved. The city Point is cached in PostgreSQL; activities belong to the city and are shared with all trip members. Members can read them, while the trip owner can create, edit, or delete them. Removing all visits through the API preserves city activities; adding the city again restores editing. Deleting the city resource removes its activities as well. Flight selections do not create, remove, or change destination visits.
+**Overview** is the default trip page at `/trips/{tripId}`. New trips start with an empty itinerary and an **Add destination** button. It opens a modal drawer from the right on laptops and fills the width on phones. Search for a city, select an autocomplete result, and optionally enter visit dates; the drawer does not ask for a country code. Saving closes the drawer and adds a visit to the overview, with a link to its activities. Canceling discards the draft. Overview lists visits chronologically, with undated visits last in itinerary order. Owners can delete a destination from its card after confirming that all visits and activities for that city will be removed. Breadcrumbs link back through Trips, the trip, and the current section; activity planning also shows the selected city. Activity planning opens with destination tabs showing every visit’s dates and an Azure map centered on the selected city. The map fills the content width on phones and laptops. Activity cards below the map provide **Add activity** and card-level **Edit** actions. Both open a drawer; new activities can use Azure Maps place lookup, an AI prompt, or an image import. AI suggestions and image imports are available when the profile’s AI feature is enabled, and save activities immediately as Proposed. The background worker calls OpenAI with the prompt and destination visit dates, then resolves suggested places through Azure Maps. Migration `0006` upgrades early activity job tables without discarding data. Destination tabs share a scroll position and activity state is selected with a menu button. Activities support user-managed URL/label links for details, bookings, or tickets, editable in the activity drawer. Overview cards show activity counts by state, or **Plan Activities** when empty. Narrow flight cards connect the profile’s home city to the first destination, each chronological visit to the next, and the final destination back home. They show matching selected flight numbers (including connections) or **Plan Flights**, linking to the existing flight planner at `/trips/{tripId}/flights`. Located activity cards offer **Open in Maps**, using Apple Maps links on Apple devices and Google Maps links elsewhere, with browser fallback. AI location lookup uses nearby Azure Maps POIs and a verified landmark fallback; missing AI place names fall back to the activity name. Destination creation and visit-date editing are on Overview. A single inline calendar selects arrival and departure as a range and highlights other cities’ stays, including repeat visits and overlapping dates, with a color legend below the month. Map loading and failures are visible, with a retry that fetches a fresh SAS token. **Activities** remains available at `/trips/{tripId}/activities`; flights, stays, and plans are no longer navigation tabs in this first design pass. Trip-wide dates and flexibility controls will follow. The selected result supplies the city's country and coordinates. Plan activities there before choosing flights. Adding the same city again creates another visit under one city tab, with the complete route order preserved. The city Point is cached in PostgreSQL; activities belong to the city and are shared with all trip members. Members can read them, while the trip owner can create, edit, or delete them. Removing all visits through the API preserves city activities; adding the city again restores editing. Deleting the city resource removes its activities as well. Flight selections do not create, remove, or change destination visits.
 
 `GET /trips/{tripId}/destinations` returns an `application/geo+json` FeatureCollection, empty for a new trip. `POST` to the same route accepts a destination GeoJSON Feature with required Point coordinates from the selected autocomplete result and properties `name`, `countryCode`, optional object `constraints`, and optional `arrivalDate` and `departureDate`. The country code remains API metadata rather than a form field. `PUT /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` replaces its optional dates; `DELETE` removes the visit. `?includeInactive=true` includes cached past cities. `GET /trips/{tripId}/destinations/{destinationCity}` returns a city Feature. Under that city, `GET` and `POST /activities` list and create complete activity Features, and `GET`, `PUT`, and `DELETE /activities/{activityId}` read, replace, and remove one. Activity writes require the city's `contextVersion` in `Destination-Context`; replacements and deletes also require the current activity ETag in `If-Match`.
 
@@ -442,3 +393,9 @@ In Development, review the interactive API reference at
 `http://localhost:5173/scalar` through Vite's API proxy, or directly at
 `http://localhost:8080/scalar`. The underlying OpenAPI document remains at
 `/openapi/v1.json`.
+
+### SPA updates after release
+
+The API serves `index.html`, including SPA route fallbacks, with `Cache-Control: no-store`. Browser navigation to `/trips/{tripId}` or `/trips/{tripId}/flights` requests `text/html` and receives the SPA shell; API requests to the same URLs retain their JSON behavior. These shared routes send `Vary: Accept` so caches distinguish the representations. Vite's hashed JavaScript and CSS assets are cached for a year as immutable; other static files require revalidation. Reloading the page fetches the current HTML and therefore the current bundle URLs. An already open tab continues running its loaded code until reloaded. Previously cached HTML may need one hard refresh after this policy is first deployed.
+
+`scripts/release` waits for both API health and a SHA-256 match between the public HTML and the locally built `dist/index.html`, using a unique query string to bypass older cached responses. This prevents the previous container's healthy response from being treated as proof that the new UI is live. The stable `release` image tag is unchanged.

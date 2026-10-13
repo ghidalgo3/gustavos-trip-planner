@@ -120,6 +120,8 @@ public sealed record IgnavFareRequest(
 
 public sealed record PlannedVisit
 {
+    public int? ArrivalFlexibilityDays { get; init; }
+    public int? DepartureFlexibilityDays { get; init; }
     public Guid Id { get; init; }
     public SearchLocation? Location { get; init; }
     public int? Nights { get; init; }

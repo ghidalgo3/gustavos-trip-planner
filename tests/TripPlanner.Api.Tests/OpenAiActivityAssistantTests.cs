@@ -166,9 +166,122 @@ public class OpenAiActivityAssistantTests
         Assert.AreEqual(matches, point is not null);
         if (point is not null)
             CollectionAssert.AreEqual(new double[] { longitude, latitude }, point.Coordinates);
-        StringAssert.Contains(handler.Url!, "/search/poi/json?");
-        StringAssert.Contains(handler.Url!, "countrySet=FR");
+        StringAssert.Contains(handler.Urls[0], "/search/poi/json?");
+        StringAssert.Contains(handler.Urls[0], "countrySet=FR");
         Assert.AreEqual("jwt-sas test-sas", handler.Authorization);
+    }
+
+    [TestMethod]
+    [DataRow("Visit Sensō-ji Temple", "Sensoji Temple")]
+    [DataRow("Explore Musée d’Orsay", "Musee d'Orsay")]
+    public async Task PlaceResolver_NormalizesNamesAndSearchesNearDestination(
+        string requested,
+        string found
+    )
+    {
+        var json = JsonSerializer.Serialize(
+            new
+            {
+                results = new[]
+                {
+                    new
+                    {
+                        poi = new { name = found },
+                        address = new { countryCode = "JP" },
+                        position = new { lon = 139.81, lat = 35.71 },
+                    },
+                },
+            }
+        );
+        using var handler = new ResponseHandler(json);
+        var resolver = new AzureActivityPlaceResolver(new HttpClient(handler), new MapTokens());
+        Assert.IsNotNull(
+            await resolver.ResolveAsync(
+                requested,
+                "Tokyo",
+                "JP",
+                default,
+                new("Point", [139.69, 35.68])
+            )
+        );
+        StringAssert.Contains(handler.Url!, "lon=139.69");
+        StringAssert.Contains(handler.Url!, "lat=35.68");
+        StringAssert.Contains(handler.Url!, "language=en-US");
+    }
+
+    [TestMethod]
+    [DataRow("High", "Temple", "JP", true)]
+    [DataRow("Medium", "Temple", "JP", false)]
+    [DataRow("High", "PopulatedPlace", "JP", false)]
+    [DataRow("High", "Temple", "US", false)]
+    public async Task PlaceResolver_FallsBackToConfidentNamedLandmarksWithoutUsingCityCenters(
+        string confidence,
+        string type,
+        string countryCode,
+        bool resolves
+    )
+    {
+        using var handler = new LandmarkHandler(confidence, type, countryCode);
+        var resolver = new AzureActivityPlaceResolver(new HttpClient(handler), new MapTokens());
+        var point = await resolver.ResolveAsync(
+            "Visit Sensō-ji Temple",
+            "Tokyo",
+            "JP",
+            default,
+            new("Point", [139.69, 35.68])
+        );
+        Assert.AreEqual(resolves, point is not null);
+        Assert.AreEqual(2, handler.Calls);
+        if (point is not null)
+            CollectionAssert.AreEqual(new double[] { 139.7913, 35.7115 }, point.Coordinates);
+    }
+
+    private sealed class LandmarkHandler(string confidence, string type, string countryCode)
+        : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken
+        )
+        {
+            Calls++;
+            string json = request.RequestUri!.AbsolutePath.Contains("/search/")
+                ? "{\"results\":[]}"
+                : JsonSerializer.Serialize(
+                    new
+                    {
+                        features = new[]
+                        {
+                            new
+                            {
+                                geometry = new
+                                {
+                                    type = "Point",
+                                    coordinates = new[] { 139.7913, 35.7115 },
+                                },
+                                properties = new
+                                {
+                                    confidence,
+                                    type,
+                                    address = new
+                                    {
+                                        countryRegion = new { ISO = countryCode },
+                                        formattedAddress = "Sensō-ji, Japan",
+                                    },
+                                },
+                            },
+                        },
+                    }
+                );
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                }
+            );
+        }
     }
 
     private sealed class MapTokens : IMapTokenProvider
@@ -198,6 +311,7 @@ public class OpenAiActivityAssistantTests
     {
         public string? Request { get; private set; }
         public string? Url { get; private set; }
+        public List<string> Urls { get; } = [];
         public string? Authorization { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -209,6 +323,7 @@ public class OpenAiActivityAssistantTests
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken);
             Url = request.RequestUri!.AbsoluteUri;
+            Urls.Add(Url);
             Authorization = request.Headers.Authorization?.ToString();
             return new(status)
             {

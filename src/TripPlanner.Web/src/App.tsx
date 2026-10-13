@@ -113,7 +113,7 @@ export default function App() {
             element={
               <TripPlanningPage
                 userId={user.id}
-                preferredAirlines={profile.preferredAirlines}
+                homeCity={profile.homeCity?.name ?? null}
                 featureFlags={user.featureFlags ?? []}
               />
             }

@@ -314,11 +314,23 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         int flex = document.SearchLimits.FlexibilityDays;
         return (
                 visit.PresentFrom is not { } start
-                || incoming.ArrivalDate <= start && incoming.ArrivalDate >= start.AddDays(-flex)
+                || (
+                    visit.ArrivalFlexibilityDays is { } arrivalFlex
+                        ? incoming.ArrivalDate >= start.AddDays(-arrivalFlex)
+                            && incoming.ArrivalDate <= start.AddDays(arrivalFlex)
+                        : incoming.ArrivalDate <= start
+                            && incoming.ArrivalDate >= start.AddDays(-flex)
+                )
             )
             && (
                 visit.PresentThrough is not { } end
-                || outgoing.DepartureDate >= end && outgoing.DepartureDate <= end.AddDays(flex)
+                || (
+                    visit.DepartureFlexibilityDays is { } departureFlex
+                        ? outgoing.DepartureDate >= end.AddDays(-departureFlex)
+                            && outgoing.DepartureDate <= end.AddDays(departureFlex)
+                        : outgoing.DepartureDate >= end
+                            && outgoing.DepartureDate <= end.AddDays(flex)
+                )
             );
     }
 

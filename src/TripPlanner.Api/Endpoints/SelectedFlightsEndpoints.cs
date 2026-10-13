@@ -56,6 +56,7 @@ public static class SelectedFlightsEndpoints
         IPlannerDb database,
         ISearchPlanBuilder planner,
         AirportCatalog airports,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -72,7 +73,7 @@ public static class SelectedFlightsEndpoints
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         if (!parties.Any(p => p.Id == partyId))
             return Results.NotFound();
-        var document = PlanningDocument.FromJson(trip.FlightConstraints);
+        var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
         var keys = request.LegKeys;
         if (
             keys is null
@@ -149,6 +150,7 @@ public static class SelectedFlightsEndpoints
         ISearchPlanBuilder planner,
         FareValidator validator,
         RouteFareComposer routes,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -164,6 +166,18 @@ public static class SelectedFlightsEndpoints
                 new { title = "A fare cache key and nonnegative itinerary index are required." }
             );
         int index = request.ItineraryIndex.Value;
+        if (
+            request.LegKeys is { } keys
+            && (
+                keys.Length is < 1 or > 4
+                || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 4096)
+                || request.PriceAmount is null or < 0
+                || request.PriceCurrency is not { Length: 3 }
+            )
+        )
+            return Results.BadRequest(
+                new { title = "Supply valid flight identifiers and the displayed itinerary price." }
+            );
         Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
             return Results.NotFound();
@@ -172,7 +186,7 @@ public static class SelectedFlightsEndpoints
         if (party is null)
             return Results.NotFound();
 
-        var document = PlanningDocument.FromJson(trip.FlightConstraints);
+        var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
         var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
             return Results.Conflict(
@@ -200,6 +214,37 @@ public static class SelectedFlightsEndpoints
         FareSearchResult? fare = fares.SingleOrDefault(f =>
             f.PartyId == partyId && f.CacheKey == request.CacheKey
         );
+        if (request.LegKeys is not null)
+        {
+            // More results can arrive between displaying and saving a composed route.
+            // Resolve the displayed flights and quote against current validated server data.
+            fare = null;
+            foreach (var candidate in fares.Where(item => item.PartyId == partyId))
+            {
+                if (
+                    !candidate.Response.TryGetProperty("itineraries", out var options)
+                    || options.ValueKind != JsonValueKind.Array
+                )
+                    continue;
+                for (int currentIndex = 0; currentIndex < options.GetArrayLength(); currentIndex++)
+                {
+                    if (!MatchesDisplayedItinerary(options[currentIndex], request))
+                        continue;
+                    fare = candidate;
+                    index = currentIndex;
+                    break;
+                }
+                if (fare is not null)
+                    break;
+            }
+            if (fare is null)
+                return Results.Conflict(
+                    new
+                    {
+                        title = "These flights or their price changed. Review the current results and save again.",
+                    }
+                );
+        }
         if (fare is null)
             return Results.NotFound();
         if (
@@ -233,6 +278,28 @@ public static class SelectedFlightsEndpoints
             await database.SetSelectedFlightAsync(user.Id, selected, context.RequestAborted)
         );
     }
+
+    private static bool MatchesDisplayedItinerary(
+        JsonElement itinerary,
+        SelectFlightRequest request
+    ) =>
+        itinerary.TryGetProperty("legs", out var legs)
+        && legs.ValueKind == JsonValueKind.Array
+        && legs.GetArrayLength() == request.LegKeys!.Length
+        && legs.EnumerateArray().Select(FlightChoiceRoute.FlightKey).SequenceEqual(request.LegKeys)
+        && itinerary.TryGetProperty("price", out var price)
+        && price.ValueKind == JsonValueKind.Object
+        && price.TryGetProperty("amount", out var amount)
+        && amount.ValueKind == JsonValueKind.Number
+        && amount.TryGetDecimal(out decimal value)
+        && value == request.PriceAmount
+        && price.TryGetProperty("currency", out var currency)
+        && currency.ValueKind == JsonValueKind.String
+        && string.Equals(
+            currency.GetString(),
+            request.PriceCurrency,
+            StringComparison.OrdinalIgnoreCase
+        );
 
     private static async Task<IResult> SetPurchases(
         Guid tripId,
