@@ -3,8 +3,14 @@ import { useLocation } from "react-router";
 
 export default function ScrollPositionRestoration() {
   const location = useLocation();
+  // Destination tabs share one viewport. Ignore their query parameter when
+  // remembering/restoring the page, including browser back/forward navigation.
+  const search = new URLSearchParams(location.search);
+  if (/^\/trips\/[^/]+\/activities\/?$/.test(location.pathname))
+    search.delete("destination");
+  const scrollKey = `tripplanner:scroll:${location.pathname}${search.size ? `?${search}` : ""}`;
   useEffect(() => {
-    const key = `tripplanner:scroll:${location.pathname}${location.search}`;
+    const key = scrollKey;
     const saved = Number(sessionStorage.getItem(key) ?? 0);
     let restoring = saved > 0;
     let frame = 0;
@@ -37,6 +43,6 @@ export default function ScrollPositionRestoration() {
       window.removeEventListener("pagehide", remember);
       remember();
     };
-  }, [location.pathname, location.search]);
+  }, [scrollKey]);
   return null;
 }

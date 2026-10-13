@@ -11,11 +11,11 @@ public static class TripFormEndpoints
     {
         api.MapPost("/trips/{tripId:guid}/flights:prompt", Propose)
             .WithName("StartFlightConstraintPrompt")
-            .WithTags("Flight Constraints")
+            .WithTags("Flights")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         api.MapGet("/trips/{tripId:guid}/flights/prompts/{operationId:guid}", GetProposal)
             .WithName("GetFlightConstraintPrompt")
-            .WithTags("Flight Constraints")
+            .WithTags("Flights")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
     }
 

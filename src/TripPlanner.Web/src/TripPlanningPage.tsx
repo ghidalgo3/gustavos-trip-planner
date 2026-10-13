@@ -1,23 +1,21 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Button,
-  Card,
   Spinner,
   Tab,
   TabList,
   Text,
   Title1,
-  Title3,
 } from "@fluentui/react-components";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { getTrip, type Trip } from "./api";
-import TripPlanning from "./TripPlanning";
-import PlansOverview from "./PlansOverview";
 import ActivityPlanning from "./ActivityPlanning";
+import TripOverview from "./TripOverview";
+import TripBreadcrumbs from "./TripBreadcrumbs";
+import type { Destination } from "./activitiesApi";
 
 export default function TripPlanningPage({
   userId,
-  preferredAirlines,
   featureFlags,
 }: {
   userId: string;
@@ -26,15 +24,21 @@ export default function TripPlanningPage({
 }) {
   const { tripId, "*": section } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [flightDirty, setFlightDirty] = useState(false);
-  const activeTab =
-    section === "plans" ||
-    section === "stays" ||
-    section === "activities" ||
-    section === "flights"
-      ? section
-      : "activities";
+  const activeTab = section === "activities" ? "activities" : "overview";
+  const [activeDestination, setActiveDestination] = useState<{
+    tripId: string;
+    name: string;
+  }>();
+  const onDestinationChange = useCallback(
+    (destination: Destination | undefined) => {
+      setActiveDestination(
+        destination && tripId
+          ? { tripId, name: destination.properties.name }
+          : undefined,
+      );
+    },
+    [tripId],
+  );
   const [loaded, setLoaded] = useState<{
     tripId: string;
     trip?: Trip;
@@ -45,8 +49,8 @@ export default function TripPlanningPage({
     if (!tripId) return;
     const controller = new AbortController();
     getTrip(userId, tripId, controller.signal)
-      .then((loaded) => {
-        if (!controller.signal.aborted) setLoaded({ tripId, trip: loaded });
+      .then((trip) => {
+        if (!controller.signal.aborted) setLoaded({ tripId, trip });
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted)
@@ -68,70 +72,54 @@ export default function TripPlanningPage({
       </section>
     );
   if (!current?.trip) return <Spinner label="Loading trip" />;
-  const readOnly = current.trip.ownerUserId !== userId;
-  function openTab(tab: string) {
-    if (tab === activeTab) return;
-    if (flightDirty && !window.confirm("Discard unsaved planning changes?"))
-      return;
-    navigate(`/trips/${tripId}/${tab}${location.search}`);
-  }
+  const trip = current.trip;
+  const readOnly = trip.ownerUserId !== userId;
+
   return (
-    <div className="trip-workspace">
+    <div className="trip-workspace trip-workspace-overview">
+      <header className="trip-page-header">
+        <TripBreadcrumbs
+          trip={trip}
+          section={activeTab}
+          destinationName={
+            activeTab === "activities" && activeDestination?.tripId === trip.id
+              ? activeDestination.name
+              : undefined
+          }
+        />
+        <div className="trip-page-title">
+          <Title1 as="h1">{trip.name}</Title1>
+          {trip.description && <Text>{trip.description}</Text>}
+          {readOnly && <Text size={200}>Shared with you · View only</Text>}
+        </div>
+      </header>
       <TabList
         className="trip-tab-list"
         aria-label="Trip sections"
         selectedValue={activeTab}
-        onTabSelect={(_, data) => openTab(String(data.value))}
+        onTabSelect={(_, data) => {
+          if (data.value !== activeTab)
+            navigate(
+              `/trips/${encodeURIComponent(trip.id)}${data.value === "activities" ? "/activities" : ""}`,
+            );
+        }}
       >
-        <Tab value="activities">Destinations</Tab>
-        <Tab value="flights">Flights</Tab>
-        <Tab value="stays">Stays</Tab>
-        <Tab value="plans">Plans</Tab>
+        <Tab value="overview">Overview</Tab>
+        <Tab value="activities">Activities</Tab>
       </TabList>
-      {activeTab === "flights" && !readOnly ? (
-        <TripPlanning
-          userId={userId}
-          preferredAirlines={preferredAirlines}
-          featureFlags={featureFlags}
-          key={tripId}
-          trip={current.trip}
-          onBack={() => navigate("/")}
-          onSaved={(trip) => setLoaded({ tripId: trip.id, trip })}
-          onDirtyChange={setFlightDirty}
-        />
-      ) : (
-        <section className="planning-page">
-          <Button appearance="subtle" onClick={() => navigate("/")}>
-            Back to trips
-          </Button>
-          <div className="planning-intro">
-            <Title1 as="h1">{current.trip.name}</Title1>
-          </div>
-          {activeTab === "activities" ? (
-            <ActivityPlanning
-              key={current.trip.id}
-              trip={current.trip}
-              readOnly={readOnly}
-              featureFlags={featureFlags}
-            />
-          ) : activeTab === "plans" || (activeTab === "flights" && readOnly) ? (
-            <PlansOverview
-              trip={current.trip}
-              userId={userId}
-              onFindFlights={() => openTab("flights")}
-              readOnly={readOnly}
-            />
-          ) : (
-            <Card className="planning-card">
-              <Title3 as="h2">Stays</Title3>
-              <Text>
-                Stay planning is coming next. Your selected flight is saved in
-                Plans.
-              </Text>
-            </Card>
-          )}
-        </section>
-      )}
+      <div className="planning-page trip-page-content">
+        {activeTab === "overview" ? (
+          <TripOverview key={trip.id} trip={trip} readOnly={readOnly} />
+        ) : (
+          <ActivityPlanning
+            key={trip.id}
+            trip={trip}
+            readOnly={readOnly}
+            featureFlags={featureFlags}
+            onDestinationChange={onDestinationChange}
+          />
+        )}
+      </div>
     </div>
   );
 }

@@ -1,15 +1,9 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import {
   Button,
   Card,
   CardHeader,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
   Field,
   Input,
   Spinner,
@@ -38,7 +32,6 @@ type Props = { user: CurrentUser & { id: string } };
 const emptyInput: TripInput = { name: "", description: "" };
 
 export default function TripsDashboard({ user }: Props) {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [trips, setTrips] = useState<Trip[]>();
   const showCreate = searchParams.get("create") === "1";
@@ -196,49 +189,72 @@ export default function TripsDashboard({ user }: Props) {
                 />
               ) : (
                 <>
-                  <CardHeader
-                    header={<Title3 as="h2">{trip.name}</Title3>}
-                    description={
-                      <Text>
-                        {trip.description || "No description yet."}
-                        {trip.ownerUserId !== user.id && " · Shared with you"}
-                      </Text>
-                    }
+                  <Link
+                    className="trip-card-link"
+                    to={`/trips/${encodeURIComponent(trip.id)}`}
+                    aria-label={`Open trip: ${trip.name}`}
                   />
-                  <div className="trip-actions">
-                    <Button
-                      appearance="primary"
-                      onClick={() =>
-                        navigate(`/trips/${encodeURIComponent(trip.id)}`)
+                  <div className="trip-card-heading">
+                    <CardHeader
+                      header={<Title3 as="h2">{trip.name}</Title3>}
+                      description={
+                        trip.description || trip.ownerUserId !== user.id ? (
+                          <Text>
+                            {trip.description}
+                            {trip.ownerUserId !== user.id &&
+                              trip.description &&
+                              " · "}
+                            {trip.ownerUserId !== user.id && "Shared with you"}
+                          </Text>
+                        ) : undefined
                       }
-                      disabled={busyId !== undefined}
-                    >
-                      {trip.ownerUserId === user.id
-                        ? "Find flights"
-                        : "View trip"}
-                    </Button>
+                    />
                     {trip.ownerUserId === user.id && (
-                      <Button
-                        appearance="subtle"
-                        icon={<Edit24Regular />}
-                        onClick={() => startEditing(trip)}
-                        disabled={busyId === trip.id}
-                      >
-                        Edit
-                      </Button>
-                    )}
-                    {trip.ownerUserId === user.id && (
-                      <Button
-                        appearance="subtle"
-                        icon={<Delete24Regular />}
-                        onClick={() => {
-                          setError(undefined);
-                          setTripToDelete(trip);
-                        }}
-                        disabled={busyId === trip.id}
-                      >
-                        Delete
-                      </Button>
+                      <details className="trip-card-menu">
+                        <summary
+                          role="button"
+                          aria-label={`Options for ${trip.name}`}
+                          aria-disabled={busyId === trip.id}
+                          onClick={(event) => {
+                            if (busyId === trip.id) event.preventDefault();
+                          }}
+                        >
+                          ...
+                        </summary>
+                        <div
+                          className="trip-card-menu-panel"
+                          role="group"
+                          aria-label={`${trip.name} actions`}
+                        >
+                          <button
+                            type="button"
+                            disabled={busyId === trip.id}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              startEditing(trip);
+                            }}
+                          >
+                            <Edit24Regular aria-hidden="true" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === trip.id}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              setError(undefined);
+                              setTripToDelete(trip);
+                            }}
+                          >
+                            <Delete24Regular aria-hidden="true" />
+                            Delete
+                          </button>
+                        </div>
+                      </details>
                     )}
                   </div>
                 </>
@@ -247,45 +263,89 @@ export default function TripsDashboard({ user }: Props) {
           ))}
         </div>
       )}
-      <Dialog
-        open={Boolean(tripToDelete)}
-        onOpenChange={(_, data) => {
-          if (!data.open && busyId !== tripToDelete?.id) {
+      {tripToDelete && (
+        <DeleteTripDialog
+          trip={tripToDelete}
+          busy={busyId === tripToDelete.id}
+          error={error}
+          onCancel={() => {
             setTripToDelete(undefined);
             setError(undefined);
-          }
-        }}
-      >
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>Delete trip?</DialogTitle>
-            <DialogContent>
-              Delete <strong>{tripToDelete?.name}</strong> and its planning
-              details? This cannot be undone.
-              {error && <Text role="alert">{error}</Text>}
-            </DialogContent>
-            <DialogActions>
-              <Button
-                disabled={busyId === tripToDelete?.id}
-                onClick={() => {
-                  setTripToDelete(undefined);
-                  setError(undefined);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                appearance="primary"
-                disabled={busyId === tripToDelete?.id}
-                onClick={() => tripToDelete && void removeTrip(tripToDelete)}
-              >
-                {busyId === tripToDelete?.id ? "Deleting…" : "Delete trip"}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+          }}
+          onDelete={() => void removeTrip(tripToDelete)}
+        />
+      )}
     </section>
+  );
+}
+
+function DeleteTripDialog({
+  trip,
+  busy,
+  error,
+  onCancel,
+  onDelete,
+}: {
+  trip: Trip;
+  busy: boolean;
+  error?: string;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+
+    return () => {
+      if (!dialog.open) return;
+      if (typeof dialog.close === "function") {
+        dialog.close();
+      } else {
+        dialog.removeAttribute("open");
+      }
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="trip-delete-dialog"
+      aria-labelledby="trip-delete-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onCancel();
+      }}
+    >
+      <Title3 as="h2" id="trip-delete-title">
+        Delete trip?
+      </Title3>
+      <p>
+        Delete <strong>{trip.name}</strong> and its planning details? This
+        cannot be undone.
+      </p>
+      {error && <Text role="alert">{error}</Text>}
+      <div className="trip-delete-actions">
+        <Button type="button" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          appearance="primary"
+          disabled={busy}
+          onClick={onDelete}
+        >
+          {busy ? "Deleting…" : "Delete trip"}
+        </Button>
+      </div>
+    </dialog>
   );
 }
 

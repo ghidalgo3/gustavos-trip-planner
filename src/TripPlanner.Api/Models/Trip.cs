@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace TripPlanner.Api.Models;
 
@@ -10,11 +11,12 @@ public sealed record Trip(
     JsonElement Constraints,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt
-);
-
-public sealed record CreateTripRequest(string Name, string? Description);
-
-public sealed record UpdateTripRequest(string Name, string? Description);
+)
+{
+    [JsonIgnore]
+    public JsonElement FlightConstraints { get; init; } =
+        JsonSerializer.SerializeToElement(new { });
+}
 
 public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds);
 

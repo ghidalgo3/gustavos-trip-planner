@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TripPlanner.Api.Authentication;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
 
@@ -16,6 +17,17 @@ public interface IPlannerDb
     Task<DestinationPlace> SaveDestinationPlaceAsync(
         Guid ownerUserId,
         DestinationPlace place,
+        CancellationToken cancellationToken = default
+    );
+    Task<DestinationPlace?> ReplaceDestinationPlaceAsync(
+        Guid ownerUserId,
+        DestinationPlace place,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> DeleteDestinationAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        string cityId,
         CancellationToken cancellationToken = default
     );
     Task<IReadOnlyList<DestinationPlace>> GetDestinationPlacesAsync(
@@ -229,7 +241,7 @@ public interface IPlannerDb
         CancellationToken cancellationToken = default
     );
 
-    Task<Trip?> SetConstraintsAsync(
+    Task<Trip?> SetFlightConstraintsAsync(
         Guid ownerUserId,
         Guid tripId,
         JsonElement constraints,
@@ -269,7 +281,8 @@ public interface IPlannerDb
         Guid ownerUserId,
         string name,
         string description,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        JsonElement? constraints = null
     );
 
     Task<Trip?> UpdateTripAsync(
@@ -277,7 +290,8 @@ public interface IPlannerDb
         Guid tripId,
         string name,
         string description,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        JsonElement? constraints = null
     );
 
     Task<bool> DeleteTripAsync(

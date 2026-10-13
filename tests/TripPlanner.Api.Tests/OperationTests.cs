@@ -79,6 +79,7 @@ public sealed class OperationTests
         await QueuePriorityContract(db);
         await TripFormQueueContract(db);
         await DestinationContract(db);
+        await ResourceConstraintsContract(db);
     }
 
     [TestMethod]
@@ -121,7 +122,7 @@ public sealed class OperationTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(4L, reader.GetInt64(0));
+                Assert.AreEqual(6L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
@@ -133,12 +134,208 @@ public sealed class OperationTests
             await QueuePriorityContract(db);
             await TripFormQueueContract(db);
             await DestinationContract(db);
+            await ResourceConstraintsContract(db);
+            await MigrationPreservesFlightPlanning(source);
+            await MigrationUpgradesActivityJobs(source);
         }
         finally
         {
             await using var drop = admin.CreateCommand($"DROP DATABASE {name} WITH (FORCE)");
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task ResourceConstraintsContract(IPlannerDb db)
+    {
+        var (user, trip, _) = await Seed(db);
+        var constraints = JsonSerializer.SerializeToElement(new { budget = 1234 });
+        var flightConstraints = JsonSerializer.SerializeToElement(
+            new PlanningDocument { AiPrompt = "Direct flights" },
+            JsonSerializerOptions.Web
+        );
+        await db.UpdateTripAsync(user.Id, trip.Id, "Europe", "Museums", constraints: constraints);
+        await db.SetFlightConstraintsAsync(user.Id, trip.Id, flightConstraints);
+        var fetched = (await db.GetVisibleTripAsync(user.Id, trip.Id))!;
+        Assert.AreEqual(1234, fetched.Constraints.GetProperty("budget").GetInt32());
+        Assert.AreEqual(
+            "Direct flights",
+            PlanningDocument.FromJson(fetched.FlightConstraints).AiPrompt
+        );
+        var place = await db.SaveDestinationPlaceAsync(
+            user.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "", 2.35, 48.85) { Constraints = constraints }
+        );
+        Assert.AreEqual(1234, place.Constraints.GetProperty("budget").GetInt32());
+        await db.AddDestinationVisitAsync(
+            user.Id,
+            new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+        );
+        place = (await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
+        var operationId = Guid.NewGuid();
+        await db.CreateActivityJobAsync(
+            user.Id,
+            trip.Id,
+            operationId,
+            place.CityId,
+            place.ContextVersion,
+            "Museum",
+            null,
+            null
+        );
+        var workerJob = (await db.ClaimActivityJobAsync(TimeSpan.FromMinutes(1)))!;
+        var saved = await db.ReplaceDestinationPlaceAsync(
+            user.Id,
+            place with
+            {
+                Name = "Paris city",
+                Longitude = 2.3,
+                Constraints = JsonSerializer.SerializeToElement(new { accessible = true }),
+            }
+        );
+        Assert.IsNotNull(saved);
+        Assert.AreEqual("Paris city", saved.Name);
+        Assert.AreEqual(2.3, saved.Longitude);
+        Assert.IsTrue(saved.Constraints.GetProperty("accessible").GetBoolean());
+        Assert.AreNotEqual(place.ContextVersion, saved.ContextVersion);
+        Assert.IsTrue(await db.CompleteActivityJobAsync(workerJob, [], [], null));
+        Assert.AreEqual("Failed", (await db.GetOperationAsync(user.Id, operationId))!.Status);
+        var now = DateTimeOffset.UtcNow;
+        var activity = new Activity(
+            Guid.NewGuid(),
+            trip.Id,
+            place.CityId,
+            null,
+            new("Museum", 60, "", null, "Planned"),
+            now,
+            now
+        );
+        var nextOperationId = Guid.NewGuid();
+        await db.CreateActivityJobAsync(
+            user.Id,
+            trip.Id,
+            nextOperationId,
+            place.CityId,
+            saved.ContextVersion,
+            "Museum",
+            null,
+            null
+        );
+        var freshJob = (await db.ClaimActivityJobAsync(TimeSpan.FromMinutes(1)))!;
+        Assert.IsTrue(await db.CompleteActivityJobAsync(freshJob, [activity], [], null));
+        Assert.AreEqual(
+            "Completed",
+            (await db.GetOperationAsync(user.Id, nextOperationId))!.Status
+        );
+        Assert.IsNotNull(await db.GetActivityAsync(user.Id, trip.Id, place.CityId, activity.Id));
+        Assert.IsTrue(await db.DeleteDestinationAsync(user.Id, trip.Id, place.CityId));
+        Assert.IsNull(await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId));
+        Assert.IsEmpty(await db.GetDestinationVisitsAsync(user.Id, trip.Id));
+        Assert.IsNull(await db.GetActivityAsync(user.Id, trip.Id, place.CityId, activity.Id));
+        Assert.IsNull(await db.GetOperationAsync(user.Id, operationId));
+        Assert.IsNull(await db.GetOperationAsync(user.Id, nextOperationId));
+        Assert.IsFalse(await db.DeleteDestinationAsync(user.Id, trip.Id, place.CityId));
+    }
+
+    private static async Task MigrationUpgradesActivityJobs(NpgsqlDataSource source)
+    {
+        var db = new PostgresPlannerDb(source);
+        var (user, trip, _) = await Seed(db);
+        var place = await db.SaveDestinationPlaceAsync(
+            user.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "", 2.35, 48.85)
+        );
+        await db.AddDestinationVisitAsync(
+            user.Id,
+            new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+        );
+        place = (await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
+        var id = Guid.NewGuid();
+        byte[] image = [1, 2, 3];
+        await db.CreateActivityJobAsync(
+            user.Id,
+            trip.Id,
+            id,
+            place.CityId,
+            place.ContextVersion,
+            "Museum",
+            image,
+            "image/png"
+        );
+        // Reproduce a database that applied the earlier activity migration.
+        await using (
+            var rollback = source.CreateCommand(
+                "ALTER TABLE activity_jobs DROP COLUMN image_sha256; DELETE FROM schema_migrations WHERE version = 6;"
+            )
+        )
+            await rollback.ExecuteNonQueryAsync();
+        await new DatabaseMigrator(source, NullLogger<DatabaseMigrator>.Instance).MigrateAsync();
+        var retried = await db.CreateActivityJobAsync(
+            user.Id,
+            trip.Id,
+            id,
+            place.CityId,
+            place.ContextVersion,
+            "Museum",
+            image,
+            "image/png"
+        );
+        Assert.AreEqual(id, retried.Id);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            db.CreateActivityJobAsync(
+                user.Id,
+                trip.Id,
+                id,
+                place.CityId,
+                place.ContextVersion,
+                "Museum",
+                [4, 5, 6],
+                "image/png"
+            )
+        );
+        var prompt = await db.CreateActivityJobAsync(
+            user.Id,
+            trip.Id,
+            Guid.NewGuid(),
+            place.CityId,
+            place.ContextVersion,
+            "Find museums",
+            null,
+            null
+        );
+        Assert.AreEqual("pending", prompt.Status);
+    }
+
+    private static async Task MigrationPreservesFlightPlanning(NpgsqlDataSource source)
+    {
+        // Reconstruct the previous schema inside this disposable test database.
+        var db = new PostgresPlannerDb(source);
+        var (user, trip, _) = await Seed(db);
+        await db.SetFlightConstraintsAsync(
+            user.Id,
+            trip.Id,
+            JsonSerializer.SerializeToElement(
+                new PlanningDocument { AiPrompt = "Existing plan" },
+                JsonSerializerOptions.Web
+            )
+        );
+        await using (
+            var rollback = source.CreateCommand(
+                """
+                UPDATE trips SET constraints = flight_constraints;
+                ALTER TABLE trips DROP COLUMN flight_constraints;
+                ALTER TABLE destination_places DROP COLUMN constraints;
+                DELETE FROM schema_migrations WHERE version = 5;
+                """
+            )
+        )
+            await rollback.ExecuteNonQueryAsync();
+        await new DatabaseMigrator(source, NullLogger<DatabaseMigrator>.Instance).MigrateAsync();
+        var migrated = (await db.GetTripAsync(user.Id, trip.Id))!;
+        Assert.IsEmpty(migrated.Constraints.EnumerateObject());
+        Assert.AreEqual(
+            "Existing plan",
+            PlanningDocument.FromJson(migrated.FlightConstraints).AiPrompt
+        );
     }
 
     private static async Task DestinationContract(IPlannerDb db)

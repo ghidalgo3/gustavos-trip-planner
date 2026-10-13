@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace TripPlanner.Api.Models;
@@ -28,17 +29,6 @@ public sealed record DestinationStay(
     string DepartureAt
 );
 
-public sealed record DestinationVisitInput(
-    string Name,
-    string CountryCode,
-    DateOnly? ArrivalDate,
-    DateOnly? DepartureDate,
-    double? Longitude = null,
-    double? Latitude = null
-);
-
-public sealed record DestinationStayInput(DateOnly? ArrivalDate, DateOnly? DepartureDate);
-
 public sealed record DestinationVisit(
     Guid TripId,
     string CityId,
@@ -57,7 +47,10 @@ public sealed record DestinationProperties(
     DateOnly? DepartureDate,
     IReadOnlyList<DestinationStay> Stays,
     bool IsActive = true
-);
+)
+{
+    public JsonElement Constraints { get; init; } = JsonSerializer.SerializeToElement(new { });
+}
 
 public sealed record DestinationPlace(
     Guid TripId,
@@ -68,7 +61,10 @@ public sealed record DestinationPlace(
     double Longitude,
     double Latitude,
     string ContextVersion = ""
-);
+)
+{
+    public JsonElement Constraints { get; init; } = JsonSerializer.SerializeToElement(new { });
+}
 
 public sealed record ActivityCost(decimal Amount, string Currency, string Basis);
 
@@ -95,19 +91,6 @@ public sealed record Activity(
     public GeoJsonFeature<ActivityProperties> ToFeature() =>
         new("Feature", Id.ToString("D"), Geometry, Properties);
 }
-
-public sealed record ActivityInput(
-    string Type,
-    string? Id,
-    GeoJsonPoint? Geometry,
-    ActivityProperties Properties
-);
-
-public sealed record ActivitySuggestionRequest(
-    Guid RequestId,
-    string Input,
-    string DestinationContext
-);
 
 public sealed record ActivityCandidate(
     string Name,

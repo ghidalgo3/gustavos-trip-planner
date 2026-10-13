@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Services;
@@ -129,6 +130,9 @@ public sealed class DestinationService(IPlannerDb database, ICityPlaceResolver c
                         stays.Length == 1 ? stays[0].DepartureDate : null,
                         stays
                     )
+                    {
+                        Constraints = place.Constraints,
+                    }
                 );
             })
             .ToArray();
@@ -187,7 +191,19 @@ public sealed class DestinationService(IPlannerDb database, ICityPlaceResolver c
                 throw new InvalidOperationException("The destination city could not be located.");
             place = await database.SaveDestinationPlaceAsync(
                 ownerUserId,
-                new(trip.Id, cityId, city, country, "", point.Coordinates[0], point.Coordinates[1]),
+                new(
+                    trip.Id,
+                    cityId,
+                    city,
+                    country,
+                    input.TimeZone?.Trim() ?? "",
+                    point.Coordinates[0],
+                    point.Coordinates[1]
+                )
+                {
+                    Constraints =
+                        input.Constraints?.Clone() ?? JsonSerializer.SerializeToElement(new { }),
+                },
                 cancellationToken
             );
         }

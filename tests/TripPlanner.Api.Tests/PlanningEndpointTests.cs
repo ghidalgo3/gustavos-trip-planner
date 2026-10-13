@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Tests;
@@ -56,10 +57,21 @@ public class PlanningEndpointTests
         var reloaded = await client.GetFromJsonAsync<PlanningDocument>(path);
         Assert.AreEqual("CDG", reloaded?.Destination?.Code);
         Assert.AreEqual(document.Constraints[0].Id, reloaded?.Constraints[0].Id);
-        var beforeUpdate = factory.Database.Trips.Single().Constraints.GetRawText();
+        var beforeUpdate = factory.Database.Trips.Single().FlightConstraints.GetRawText();
         // Editing a trip's description must not erase planning details.
-        await client.PutAsJsonAsync(path, new UpdateTripRequest("Renamed", "New description"));
-        Assert.AreEqual(beforeUpdate, factory.Database.Trips.Single().Constraints.GetRawText());
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (
+                await client.PutAsJsonAsync(
+                    $"/trips/{trip.Id}",
+                    new UpdateTripRequest("Renamed", "New description")
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            beforeUpdate,
+            factory.Database.Trips.Single().FlightConstraints.GetRawText()
+        );
     }
 
     [TestMethod]

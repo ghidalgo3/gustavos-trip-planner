@@ -76,3 +76,69 @@ test("reports an expired Maps token without calling Azure Maps", async () => {
   await expect(getMapToken()).rejects.toThrow("Azure Maps token expired");
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+test("map retry bypasses a cached token that has not expired", async () => {
+  vi.resetModules();
+  const { getMapToken } = await import("./api");
+  const token = (value: string) => ({
+    token: value,
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2099-01-01T00:00:00Z",
+  });
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(token("cached")))
+    .mockResolvedValueOnce(Response.json(token("fresh")));
+  vi.stubGlobal("fetch", fetch);
+  expect((await getMapToken()).token).toBe("cached");
+  expect((await getMapToken()).token).toBe("cached");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect((await getMapToken(undefined, true)).token).toBe("fresh");
+  expect((await getMapToken()).token).toBe("fresh");
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+test("looks up activities by name near the destination using Azure Maps POI search", async () => {
+  vi.resetModules();
+  const { searchPlaces } = await import("./api");
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        token: "sas",
+        endpoint: "https://atlas.example.test",
+        expiresAt: "2099-01-01T00:00:00Z",
+      }),
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: "museum",
+            poi: { name: "Louvre" },
+            address: { freeformAddress: "Paris, France" },
+            position: { lon: 2.33, lat: 48.86 },
+          },
+          { id: "unlocated", poi: { name: "Unknown" } },
+        ],
+      }),
+    );
+  vi.stubGlobal("fetch", fetch);
+  expect(await searchPlaces("Louvre", undefined, [2.35, 48.86])).toEqual([
+    {
+      id: "museum",
+      label: "Louvre, Paris, France",
+      name: "Louvre",
+      longitude: 2.33,
+      latitude: 48.86,
+    },
+  ]);
+  const request = new URL(fetch.mock.calls[1][0]);
+  expect(request.pathname).toBe("/search/poi/json");
+  expect(request.searchParams.get("query")).toBe("Louvre");
+  expect(request.searchParams.get("lon")).toBe("2.35");
+  expect(request.searchParams.get("lat")).toBe("48.86");
+  expect(fetch.mock.calls[1][1].headers).toEqual({
+    Authorization: "jwt-sas sas",
+  });
+});

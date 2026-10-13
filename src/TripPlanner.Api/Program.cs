@@ -137,7 +137,9 @@ api.MapGet(
 
 api.MapUserEndpoints();
 api.MapTripsEndpoints();
+api.MapFlightPlanningEndpoints();
 api.MapSelectedFlightsEndpoints();
+api.MapDestinationsEndpoints();
 api.MapActivityEndpoints();
 api.MapPartyEndpoints();
 api.MapTripFormEndpoints();

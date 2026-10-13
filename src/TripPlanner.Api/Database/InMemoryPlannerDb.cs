@@ -55,7 +55,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         }
     }
 
-    public Task<Trip?> SetConstraintsAsync(
+    public Task<Trip?> SetFlightConstraintsAsync(
         Guid ownerUserId,
         Guid tripId,
         JsonElement constraints,
@@ -69,7 +69,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
                 return Task.FromResult<Trip?>(null);
             var updated = trip with
             {
-                Constraints = constraints.Clone(),
+                FlightConstraints = constraints.Clone(),
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
             _trips[tripId] = updated;
@@ -135,7 +135,8 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         Guid ownerUserId,
         string name,
         string description,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        JsonElement? constraints = null
     )
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -145,7 +146,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             ownerUserId,
             name,
             description,
-            JsonSerializer.SerializeToElement(new { }),
+            constraints?.Clone() ?? JsonSerializer.SerializeToElement(new { }),
             now,
             now
         );
@@ -164,7 +165,8 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         Guid tripId,
         string name,
         string description,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        JsonElement? constraints = null
     )
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -182,6 +184,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             {
                 Name = name,
                 Description = description,
+                Constraints = constraints?.Clone() ?? existing.Constraints,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
             _trips[tripId] = updated;

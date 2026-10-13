@@ -344,6 +344,15 @@ test("loads a trip from its route and returns to the trips page", async () => {
         };
       if (url.endsWith(`/user/${userId}/trips/trip-1`))
         return { ok: true, json: async () => trip };
+      if (url.endsWith("/trips/trip-1/destinations"))
+        return {
+          ok: true,
+          json: async () => ({
+            type: "FeatureCollection",
+            features: [],
+            route: [],
+          }),
+        };
       if (url.endsWith("/trips/trip-1/flights"))
         return { ok: true, status: 204 };
       if (url.endsWith("/trips/trip-1/flights/constraints"))
@@ -392,18 +401,29 @@ test("loads a trip from its route and returns to the trips page", async () => {
     await screen.findByRole("heading", { name: "Paris spring" }),
   ).toBeVisible();
   expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
-  fireEvent.click(screen.getByRole("button", { name: "Back to trips" }));
+  fireEvent.click(screen.getByRole("link", { name: "Trips" }));
   expect(
     await screen.findByRole("heading", { name: "Welcome back, Ada Traveler." }),
   ).toBeVisible();
   expect(screen.getByTestId("route")).toHaveTextContent("/");
-  fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
+  fireEvent.click(
+    screen.getByRole("link", { name: "Open trip: Paris spring" }),
+  );
   expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
-  fireEvent.click(await screen.findByRole("tab", { name: "Plans" }));
-  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1/plans");
+  expect(await screen.findByRole("tab", { name: "Overview" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   expect(
-    await screen.findByRole("heading", { name: "Trip overview" }),
+    await screen.findByRole("heading", { name: "Your trip starts here" }),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole("tab", { name: "Stays" }));
-  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1/stays");
+  expect(
+    screen.queryByRole("tab", { name: "Flights" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "Activities" }));
+  expect(screen.getByTestId("route")).toHaveTextContent(
+    "/trips/trip-1/activities",
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
 });

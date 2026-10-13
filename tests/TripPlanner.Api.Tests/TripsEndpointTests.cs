@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Tests;
@@ -7,6 +9,127 @@ namespace TripPlanner.Api.Tests;
 [TestClass]
 public class TripsEndpointTests
 {
+    [TestMethod]
+    public async Task CanonicalCrud_ReplacesTripConstraintsIndependentlyOfFlightPlanning()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "ada@example.com");
+        var user = await CompleteOnboardingAsync(client);
+        var created = await client.PostAsJsonAsync(
+            "/trips",
+            new CreateTripRequest(
+                "Europe",
+                "Museums",
+                JsonSerializer.SerializeToElement(new { budget = 5000 })
+            )
+        );
+        Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
+        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        string url = $"/trips/{trip.Id}";
+        Assert.AreEqual(url, created.Headers.Location?.ToString());
+        Assert.AreEqual(5000, trip.Constraints.GetProperty("budget").GetInt32());
+        Assert.HasCount(1, (await client.GetFromJsonAsync<Trip[]>("/trips"))!);
+        var flightDocument = new PlanningDocument { AiPrompt = "Prefer morning flights" };
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (await client.PutAsJsonAsync($"{url}/flights/constraints", flightDocument)).StatusCode
+        );
+        Assert.AreEqual(
+            5000,
+            (await client.GetFromJsonAsync<Trip>(url))!.Constraints.GetProperty("budget").GetInt32()
+        );
+        var updated = await client.PutAsJsonAsync(
+            url,
+            new UpdateTripRequest(
+                "France",
+                "Art",
+                JsonSerializer.SerializeToElement(new { accessible = true })
+            )
+        );
+        Assert.AreEqual(HttpStatusCode.OK, updated.StatusCode);
+        var response = (await updated.Content.ReadFromJsonAsync<JsonElement>());
+        Assert.IsFalse(response.TryGetProperty("flightConstraints", out _));
+        Assert.IsTrue(response.GetProperty("constraints").GetProperty("accessible").GetBoolean());
+        Assert.IsFalse(response.GetProperty("constraints").TryGetProperty("budget", out _));
+        Assert.AreEqual(
+            "Prefer morning flights",
+            (
+                await client.GetFromJsonAsync<PlanningDocument>($"{url}/flights/constraints")
+            )!.AiPrompt
+        );
+        await client.PutAsJsonAsync(url, new UpdateTripRequest("France", ""));
+        Assert.IsEmpty((await client.GetFromJsonAsync<Trip>(url))!.Constraints.EnumerateObject());
+        Assert.AreEqual(HttpStatusCode.NoContent, (await client.DeleteAsync(url)).StatusCode);
+        Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
+    }
+
+    [TestMethod]
+    [DataRow("[]")]
+    [DataRow("42")]
+    [DataRow("\"text\"")]
+    public async Task TripConstraints_RequireAnObject(string json)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "ada@example.com");
+        await CompleteOnboardingAsync(client);
+        var constraints = JsonSerializer.Deserialize<JsonElement>(json);
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PostAsJsonAsync(
+                    "/trips",
+                    new CreateTripRequest("Trip", "", constraints)
+                )
+            ).StatusCode
+        );
+        var created = (
+            await (
+                await client.PostAsJsonAsync("/trips", new CreateTripRequest("Trip", ""))
+            ).Content.ReadFromJsonAsync<Trip>()
+        )!;
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PutAsJsonAsync(
+                    $"/trips/{created.Id}",
+                    new UpdateTripRequest("Trip", "", constraints)
+                )
+            ).StatusCode
+        );
+    }
+
+    [TestMethod]
+    public async Task CanonicalRoutes_RequireAnAuthorizedTripMemberAndOwnerForWrites()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var ownerClient = factory.CreateClient();
+        AddPrincipal(ownerClient, "ada@example.com");
+        await CompleteOnboardingAsync(ownerClient);
+        var trip = (
+            await (
+                await ownerClient.PostAsJsonAsync("/trips", new CreateTripRequest("Trip", ""))
+            ).Content.ReadFromJsonAsync<Trip>()
+        )!;
+        using var stranger = factory.CreateClient();
+        AddPrincipal(stranger, "other@example.com");
+        await CompleteOnboardingAsync(stranger);
+        string url = $"/trips/{trip.Id}";
+        Assert.IsEmpty((await stranger.GetFromJsonAsync<Trip[]>("/trips"))!);
+        Assert.AreEqual(HttpStatusCode.NotFound, (await stranger.GetAsync(url)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await stranger.PutAsJsonAsync(url, new UpdateTripRequest("Changed", ""))).StatusCode
+        );
+        Assert.AreEqual(HttpStatusCode.NotFound, (await stranger.DeleteAsync(url)).StatusCode);
+        using var anonymous = factory.CreateClient();
+        Assert.AreEqual(
+            HttpStatusCode.Unauthorized,
+            (await anonymous.GetAsync("/trips")).StatusCode
+        );
+    }
+
     [TestMethod]
     public async Task Crud_ManagesOwnedTripAndInitialParty()
     {
@@ -210,12 +333,48 @@ public class TripsEndpointTests
             factory.Database.Parties.Single().UserIds.ToArray()
         );
 
-        string sharedTripUrl = $"/user/{traveler.Id}/trips/{trip.Id}";
-        Trip[]? sharedTrips = await travelerClient.GetFromJsonAsync<Trip[]>(
-            $"/user/{traveler.Id}/trips"
-        );
+        string sharedTripUrl = $"/trips/{trip.Id}";
+        Trip[]? sharedTrips = await travelerClient.GetFromJsonAsync<Trip[]>("/trips");
         Assert.AreEqual(trip.Id, sharedTrips?.Single().Id);
         Assert.AreEqual(trip.Id, (await travelerClient.GetFromJsonAsync<Trip>(sharedTripUrl))?.Id);
+        string destinationsUrl = $"/trips/{trip.Id}/destinations";
+        var destinationInput = new CreateDestinationRequest(
+            "Feature",
+            new("Point", [2.35, 48.85]),
+            new("Paris", "FR")
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Created,
+            (await ownerClient.PostAsJsonAsync(destinationsUrl, destinationInput)).StatusCode
+        );
+        Assert.HasCount(
+            1,
+            (
+                await travelerClient.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                    destinationsUrl
+                )
+            )!.Features
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (await travelerClient.PostAsJsonAsync(destinationsUrl, destinationInput)).StatusCode
+        );
+        var replacement = new ReplaceDestinationRequest(
+            "Feature",
+            "paris-fr",
+            destinationInput.Geometry,
+            new("Paris", "FR")
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (
+                await travelerClient.PutAsJsonAsync($"{destinationsUrl}/paris-fr", replacement)
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (await travelerClient.DeleteAsync($"{destinationsUrl}/paris-fr")).StatusCode
+        );
         Assert.AreEqual(
             HttpStatusCode.OK,
             (await travelerClient.GetAsync($"/trips/{trip.Id}/flights/constraints")).StatusCode

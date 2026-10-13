@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Database;
@@ -21,7 +22,7 @@ public sealed partial class PostgresPlannerDb
         await using var command = dataSource.CreateCommand(
             """
             SELECT d.trip_id, d.city_id, d.name, d.country_code, d.time_zone,
-                ST_X(d.center::geometry), ST_Y(d.center::geometry), d.context_version
+                ST_X(d.center::geometry), ST_Y(d.center::geometry), d.context_version, d.constraints::text
             FROM destination_places d JOIN trips t ON t.id=d.trip_id
             WHERE d.trip_id=$1 AND d.city_id=$2 AND (t.owner_user_id=$3 OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $3=ANY(p.user_ids)));
@@ -42,11 +43,11 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            INSERT INTO destination_places(trip_id,city_id,name,country_code,time_zone,center)
-            SELECT $1,$2,$3,$4,$5,ST_SetSRID(ST_MakePoint($6,$7),4326)::geography
+            INSERT INTO destination_places(trip_id,city_id,name,country_code,time_zone,center,constraints)
+            SELECT $1,$2,$3,$4,$5,ST_SetSRID(ST_MakePoint($6,$7),4326)::geography,$9
             FROM trips t WHERE t.id=$1 AND t.owner_user_id=$8
             ON CONFLICT(trip_id,city_id) DO UPDATE SET city_id=EXCLUDED.city_id
-            RETURNING trip_id,city_id,name,country_code,time_zone,ST_X(center::geometry),ST_Y(center::geometry),context_version;
+            RETURNING trip_id,city_id,name,country_code,time_zone,ST_X(center::geometry),ST_Y(center::geometry),context_version,constraints::text;
             """
         );
         command.Parameters.AddWithValue(place.TripId);
@@ -57,6 +58,7 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(place.Longitude);
         command.Parameters.AddWithValue(place.Latitude);
         command.Parameters.AddWithValue(ownerUserId);
+        command.Parameters.AddWithValue(NpgsqlDbType.Jsonb, place.Constraints.GetRawText());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
             ? ReadPlace(reader)
@@ -71,7 +73,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            SELECT d.trip_id,d.city_id,d.name,d.country_code,d.time_zone,ST_X(d.center::geometry),ST_Y(d.center::geometry),d.context_version
+            SELECT d.trip_id,d.city_id,d.name,d.country_code,d.time_zone,ST_X(d.center::geometry),ST_Y(d.center::geometry),d.context_version,d.constraints::text
             FROM destination_places d JOIN trips t ON t.id=d.trip_id
             WHERE d.trip_id=$1 AND (t.owner_user_id=$2 OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $2=ANY(p.user_ids))) ORDER BY d.city_id;
@@ -86,6 +88,58 @@ public sealed partial class PostgresPlannerDb
         return items;
     }
 
+    public async Task<DestinationPlace?> ReplaceDestinationPlaceAsync(
+        Guid ownerUserId,
+        DestinationPlace place,
+        CancellationToken cancellationToken = default
+    )
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$8 RETURNING id)
+            UPDATE destination_places d SET name=$3,country_code=$4,time_zone=$5,
+                center=ST_SetSRID(ST_MakePoint($6,$7),4326)::geography,constraints=$9,context_version=$10
+            FROM owner o WHERE d.trip_id=o.id AND d.city_id=$2
+            RETURNING d.trip_id,d.city_id,d.name,d.country_code,d.time_zone,ST_X(d.center::geometry),ST_Y(d.center::geometry),d.context_version,d.constraints::text;
+            """
+        );
+        command.Parameters.AddWithValue(place.TripId);
+        command.Parameters.AddWithValue(place.CityId);
+        command.Parameters.AddWithValue(place.Name);
+        command.Parameters.AddWithValue(place.CountryCode);
+        command.Parameters.AddWithValue(place.TimeZone);
+        command.Parameters.AddWithValue(place.Longitude);
+        command.Parameters.AddWithValue(place.Latitude);
+        command.Parameters.AddWithValue(ownerUserId);
+        command.Parameters.AddWithValue(NpgsqlDbType.Jsonb, place.Constraints.GetRawText());
+        command.Parameters.AddWithValue(Guid.NewGuid().ToString("N"));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadPlace(reader) : null;
+    }
+
+    public async Task<bool> DeleteDestinationAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        string cityId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$2 RETURNING id),
+            jobs AS (DELETE FROM activity_jobs j USING owner o WHERE j.trip_id=o.id AND j.city_id=$3 RETURNING j.operation_id),
+            operations_removed AS (DELETE FROM operations WHERE id IN (SELECT operation_id FROM jobs)),
+            activities AS (DELETE FROM activities a USING owner o WHERE a.trip_id=o.id AND a.city_id=$3),
+            stays AS (DELETE FROM destination_stays s USING owner o WHERE s.trip_id=o.id AND s.city_id=$3)
+            DELETE FROM destination_places d USING owner o WHERE d.trip_id=o.id AND d.city_id=$3;
+            """
+        );
+        command.Parameters.AddWithValue(tripId);
+        command.Parameters.AddWithValue(ownerUserId);
+        command.Parameters.AddWithValue(cityId);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     private static DestinationPlace ReadPlace(NpgsqlDataReader reader) =>
         new(
             reader.GetGuid(0),
@@ -96,7 +150,10 @@ public sealed partial class PostgresPlannerDb
             reader.GetDouble(5),
             reader.GetDouble(6),
             reader.GetString(7)
-        );
+        )
+        {
+            Constraints = JsonSerializer.Deserialize<JsonElement>(reader.GetString(8)),
+        };
 
     public async Task<IReadOnlyList<DestinationVisit>> GetDestinationVisitsAsync(
         Guid viewerUserId,
@@ -313,14 +370,15 @@ public sealed partial class PostgresPlannerDb
         );
     }
 
-    private const string DestinationGuard = """
-        WITH eligible AS (
-            UPDATE trips t SET updated_at=updated_at
-            WHERE t.id=$1 AND t.owner_user_id=$2
-              AND EXISTS (SELECT 1 FROM destination_places d JOIN destination_stays v ON v.trip_id=d.trip_id AND v.city_id=d.city_id WHERE d.trip_id=t.id AND d.city_id=$5 AND d.context_version=$3)
-            RETURNING t.id
-        )
-        """;
+    private static string DestinationGuard(int cityParameter) =>
+        $$"""
+            WITH eligible AS (
+                UPDATE trips t SET updated_at=updated_at
+                WHERE t.id=$1 AND t.owner_user_id=$2
+                  AND EXISTS (SELECT 1 FROM destination_places d JOIN destination_stays v ON v.trip_id=d.trip_id AND v.city_id=d.city_id WHERE d.trip_id=t.id AND d.city_id=${{cityParameter}} AND d.context_version=$3)
+                RETURNING t.id
+            )
+            """;
 
     public async Task<Activity?> SaveActivityAsync(
         Guid ownerUserId,
@@ -332,7 +390,7 @@ public sealed partial class PostgresPlannerDb
     {
         bool update = expectedUpdatedAt.HasValue;
         string sql =
-            DestinationGuard
+            DestinationGuard(5)
             + (
                 update
                     ? $"""
@@ -394,7 +452,7 @@ public sealed partial class PostgresPlannerDb
     )
     {
         await using var command = dataSource.CreateCommand(
-            DestinationGuard
+            DestinationGuard(5)
                 + """
                 DELETE FROM activities a USING eligible e
                 WHERE a.id=$4 AND a.trip_id=e.id AND a.city_id=$5 AND a.updated_at=$6;
@@ -568,7 +626,7 @@ public sealed partial class PostgresPlannerDb
         if (error is null)
         {
             await using var guard = new NpgsqlCommand(
-                DestinationGuard + "SELECT id FROM eligible;",
+                DestinationGuard(4) + "SELECT id FROM eligible;",
                 connection,
                 transaction
             );
@@ -621,10 +679,14 @@ public sealed partial class PostgresPlannerDb
             : null;
         await using var complete = new NpgsqlCommand(
             """
-            UPDATE activity_jobs SET result=$3::jsonb,error=$4,image=NULL,lease_id=NULL,lease_expires_at=NULL WHERE operation_id=$1 AND lease_id=$2;
-            UPDATE operations SET status=CASE WHEN $4::text IS NULL THEN 'Completed' ELSE 'Failed' END,
+            WITH completed AS (
+                UPDATE activity_jobs SET result=$3::jsonb,error=$4,image=NULL,lease_id=NULL,lease_expires_at=NULL
+                WHERE operation_id=$1 AND lease_id=$2 RETURNING operation_id
+            )
+            UPDATE operations o SET status=CASE WHEN $4::text IS NULL THEN 'Completed' ELSE 'Failed' END,
                 completed_items=CASE WHEN $4::text IS NULL THEN 1 ELSE 0 END,
-                failed_items=CASE WHEN $4::text IS NULL THEN 0 ELSE 1 END,updated_at=now() WHERE id=$1;
+                failed_items=CASE WHEN $4::text IS NULL THEN 0 ELSE 1 END,updated_at=now()
+            FROM completed c WHERE o.id=c.operation_id;
             """,
             connection,
             transaction

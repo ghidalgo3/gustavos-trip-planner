@@ -30,6 +30,8 @@ export default function ColorSchemeProvider({
 
   return (
     <FluentProvider
+      // Portals need theme tokens, not the app shell's opaque background and height.
+      applyStylesToPortals={false}
       className="app-theme"
       data-color-scheme={darkMode ? "dark" : "light"}
       theme={darkMode ? webDarkTheme : webLightTheme}

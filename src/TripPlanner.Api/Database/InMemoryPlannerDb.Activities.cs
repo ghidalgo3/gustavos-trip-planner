@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Database;
@@ -34,6 +35,76 @@ public sealed partial class InMemoryPlannerDb
         public int Attempts { get; set; }
         public ActivitySuggestionResult? Result { get; set; }
         public string? Error { get; set; }
+    }
+
+    public Task<DestinationPlace?> ReplaceDestinationPlaceAsync(
+        Guid ownerUserId,
+        DestinationPlace place,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_tripLock)
+        {
+            if (
+                !_trips.TryGetValue(place.TripId, out var trip)
+                || trip.OwnerUserId != ownerUserId
+                || !_destinationPlaces.ContainsKey((place.TripId, place.CityId))
+            )
+                return Task.FromResult<DestinationPlace?>(null);
+            var saved = place with
+            {
+                ContextVersion = Guid.NewGuid().ToString("N"),
+                Constraints = place.Constraints.Clone(),
+            };
+            _destinationPlaces[(place.TripId, place.CityId)] = saved;
+            return Task.FromResult<DestinationPlace?>(saved);
+        }
+    }
+
+    public Task<bool> DeleteDestinationAsync(
+        Guid ownerUserId,
+        Guid tripId,
+        string cityId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_tripLock)
+        {
+            if (
+                !_trips.TryGetValue(tripId, out var trip)
+                || trip.OwnerUserId != ownerUserId
+                || !_destinationPlaces.ContainsKey((tripId, cityId))
+            )
+                return Task.FromResult(false);
+            foreach (
+                var id in _activities
+                    .Values.Where(a => a.TripId == tripId && a.CityId == cityId)
+                    .Select(a => a.Id)
+                    .ToArray()
+            )
+                _activities.Remove(id);
+            foreach (
+                var id in _destinationVisits
+                    .Values.Where(v => v.TripId == tripId && v.CityId == cityId)
+                    .Select(v => v.StayId)
+                    .ToArray()
+            )
+                _destinationVisits.Remove(id);
+            foreach (
+                var id in _activityJobs
+                    .Where(pair => pair.Value.TripId == tripId && pair.Value.CityId == cityId)
+                    .Select(pair => pair.Key)
+                    .ToArray()
+            )
+            {
+                _activityJobs.Remove(id);
+                _operations.Remove(id);
+            }
+            _destinationPlaces.Remove((tripId, cityId));
+            return Task.FromResult(true);
+        }
     }
 
     private bool IsActiveDestination(Guid tripId, string cityId, string contextVersion)

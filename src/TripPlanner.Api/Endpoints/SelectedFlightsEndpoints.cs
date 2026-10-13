@@ -12,7 +12,7 @@ public static class SelectedFlightsEndpoints
     public static void MapSelectedFlightsEndpoints(this RouteGroupBuilder api)
     {
         var flights = api.MapGroup("/trips/{tripId:guid}/flights")
-            .WithTags("Trip Flights")
+            .WithTags("Flights")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         flights.MapGet("", GetSelectedFlights).WithName("GetTripFlights");
         flights.MapPut("/{partyId:guid}", SelectFlight).WithName("SelectTripFlight");
@@ -21,7 +21,7 @@ public static class SelectedFlightsEndpoints
             .WithName("SetTripFlightPurchases");
         flights.MapDelete("/{partyId:guid}", DeselectFlight).WithName("DeselectTripFlight");
         var choices = api.MapGroup("/trips/{tripId:guid}/flights/choices")
-            .WithTags("Flight Choices")
+            .WithTags("Flights")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         choices.MapGet("", GetFlightChoices).WithName("GetFlightChoices");
         choices.MapPut("/{partyId:guid}", SetFlightChoices).WithName("SetFlightChoices");
@@ -72,7 +72,7 @@ public static class SelectedFlightsEndpoints
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         if (!parties.Any(p => p.Id == partyId))
             return Results.NotFound();
-        var document = PlanningDocument.FromJson(trip.Constraints);
+        var document = PlanningDocument.FromJson(trip.FlightConstraints);
         var keys = request.LegKeys;
         if (
             keys is null
@@ -172,7 +172,7 @@ public static class SelectedFlightsEndpoints
         if (party is null)
             return Results.NotFound();
 
-        var document = PlanningDocument.FromJson(trip.Constraints);
+        var document = PlanningDocument.FromJson(trip.FlightConstraints);
         var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
             return Results.Conflict(

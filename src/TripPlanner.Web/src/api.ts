@@ -146,8 +146,12 @@ export async function getCurrentUser(
   return response.json() as Promise<CurrentUser>;
 }
 
-export async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
+export async function getMapToken(
+  signal?: AbortSignal,
+  forceRefresh = false,
+): Promise<MapToken> {
   if (
+    !forceRefresh &&
     cachedMapToken &&
     Date.parse(cachedMapToken.expiresAt) > Date.now() + 60_000
   ) {
@@ -171,11 +175,11 @@ export async function getMapToken(signal?: AbortSignal): Promise<MapToken> {
   return cachedMapToken;
 }
 
-async function mapsRequest(
+async function mapsRequest<T = MapsFeatureCollection>(
   path: string,
   parameters: URLSearchParams,
   signal?: AbortSignal,
-): Promise<MapsFeatureCollection> {
+): Promise<T> {
   const mapToken = await getMapToken(signal);
   const response = await fetch(
     `${mapToken.endpoint}/${path}?${parameters.toString()}`,
@@ -188,7 +192,7 @@ async function mapsRequest(
     throw new Error(`Azure Maps returned ${response.status}.`);
   }
 
-  return response.json() as Promise<MapsFeatureCollection>;
+  return response.json() as Promise<T>;
 }
 
 export async function searchCities(
@@ -261,24 +265,40 @@ export async function resolveCity(
 export async function searchPlaces(
   query: string,
   signal?: AbortSignal,
-): Promise<CitySuggestion[]> {
+  center?: [number, number],
+): Promise<(CitySuggestion & { name?: string })[]> {
   const parameters = new URLSearchParams({
-    "api-version": "2026-01-01",
+    "api-version": "1.0",
     query,
-    top: "6",
+    limit: "6",
   });
-  const result = await mapsRequest("geocode", parameters, signal);
-  return (result.features ?? []).flatMap((feature, index) => {
-    const coordinates = feature.geometry?.coordinates;
-    const label =
-      feature.properties?.address?.formattedAddress ?? feature.properties?.name;
-    return label && coordinates?.length === 2
+  if (center) {
+    parameters.set("lon", String(center[0]));
+    parameters.set("lat", String(center[1]));
+  }
+  const result = await mapsRequest<{
+    results?: {
+      id?: string;
+      poi?: { name?: string };
+      address?: { freeformAddress?: string };
+      position?: { lon?: number; lat?: number };
+    }[];
+  }>("search/poi/json", parameters, signal);
+  return (result.results ?? []).flatMap((place, index) => {
+    const longitude = place.position?.lon;
+    const latitude = place.position?.lat;
+    const name = place.poi?.name;
+    const label = [name, place.address?.freeformAddress]
+      .filter(Boolean)
+      .join(", ");
+    return label && longitude !== undefined && latitude !== undefined
       ? [
           {
-            id: feature.id ?? `${label}-${index}`,
+            id: place.id ?? `${label}-${index}`,
             label,
-            longitude: coordinates[0],
-            latitude: coordinates[1],
+            name,
+            longitude,
+            latitude,
           },
         ]
       : [];

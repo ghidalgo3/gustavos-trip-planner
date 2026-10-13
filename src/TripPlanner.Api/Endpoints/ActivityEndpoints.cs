@@ -1,9 +1,10 @@
-using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
+using static TripPlanner.Api.Endpoints.PlanningEndpointHelpers;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -12,17 +13,8 @@ public static class ActivityEndpoints
     public static void MapActivityEndpoints(this RouteGroupBuilder api)
     {
         var destinations = api.MapGroup("/trips/{tripId:guid}/destinations")
-            .WithTags("Activity Planning")
+            .WithTags("Activities")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
-        destinations.MapGet("", GetDestinations).WithName("GetTripDestinations");
-        destinations.MapPost("", AddDestination).WithName("AddTripDestination");
-        destinations.MapGet("/{destinationCity}", GetDestination).WithName("GetTripDestination");
-        destinations
-            .MapDelete("/{destinationCity}/stays/{stayId:guid}", DeleteDestinationStay)
-            .WithName("DeleteTripDestinationStay");
-        destinations
-            .MapPut("/{destinationCity}/stays/{stayId:guid}", ReplaceDestinationStay)
-            .WithName("ReplaceTripDestinationStay");
         destinations
             .MapGet("/{destinationCity}/activities", GetActivities)
             .WithName("GetDestinationActivities");
@@ -48,282 +40,6 @@ public static class ActivityEndpoints
         destinations
             .MapGet("/{destinationCity}/suggestions/{operationId:guid}", GetSuggestionResult)
             .WithName("GetDestinationActivitySuggestions");
-    }
-
-    private static async Task<(Trip? Trip, User? User, IResult? Error)> AuthorizeAsync(
-        Guid tripId,
-        bool ownerOnly,
-        HttpContext context,
-        IPlannerDb database,
-        ICurrentUser currentUser
-    )
-    {
-        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
-            context,
-            database,
-            currentUser.Profile!
-        );
-        if (error is not null)
-            return (null, null, error);
-        Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
-        if (trip is null)
-            return (null, user, Results.NotFound());
-        if (ownerOnly && trip.OwnerUserId != user.Id)
-            return (trip, user, Results.Forbid());
-        return (trip, user, null);
-    }
-
-    private static async Task<(DestinationSnapshot? Snapshot, IResult? Error)> ResolveAsync(
-        Guid userId,
-        Trip trip,
-        string? cityId,
-        DestinationService service,
-        HttpContext context
-    )
-    {
-        try
-        {
-            var snapshot = await service.GetAsync(userId, trip, context.RequestAborted);
-            if (cityId is not null && snapshot.Find(cityId) is null)
-                return (null, Results.NotFound());
-            return (snapshot, null);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return (
-                null,
-                Results.Conflict(new { code = "destination_unresolved", title = exception.Message })
-            );
-        }
-        catch (HttpRequestException)
-        {
-            return (
-                null,
-                Results.Conflict(
-                    new
-                    {
-                        code = "destination_unresolved",
-                        title = "The destination city could not be located. Try again.",
-                    }
-                )
-            );
-        }
-    }
-
-    private static async Task<IResult> AddDestination(
-        Guid tripId,
-        DestinationVisitInput input,
-        HttpContext context,
-        IPlannerDb database,
-        DestinationService service,
-        ICurrentUser currentUser
-    )
-    {
-        var (trip, user, error) = await AuthorizeAsync(
-            tripId,
-            true,
-            context,
-            database,
-            currentUser
-        );
-        if (error is not null)
-            return error;
-        if (
-            string.IsNullOrWhiteSpace(input.Name)
-            || input.Name.Length > 150
-            || string.IsNullOrWhiteSpace(input.CountryCode)
-            || input.CountryCode.Length != 2
-            || !input.CountryCode.All(char.IsAsciiLetter)
-            || (input.Longitude is null) != (input.Latitude is null)
-            || (
-                input.Longitude is { } longitude
-                && (!double.IsFinite(longitude) || Math.Abs(longitude) > 180)
-            )
-            || (
-                input.Latitude is { } latitude
-                && (!double.IsFinite(latitude) || Math.Abs(latitude) > 90)
-            )
-            || (
-                input.ArrivalDate is not null
-                && input.DepartureDate is not null
-                && input.DepartureDate < input.ArrivalDate
-            )
-        )
-            return Results.BadRequest(
-                new
-                {
-                    title = "Supply a city, a two-letter country code, valid coordinates when provided, and valid optional dates.",
-                }
-            );
-        try
-        {
-            var visit = await service.AddAsync(user!.Id, trip!, input, context.RequestAborted);
-            var snapshot = await service.GetAsync(user.Id, trip!, context.RequestAborted);
-            context.Response.Headers.Location = $"/trips/{tripId:D}/destinations/{visit.CityId}";
-            return Results.Json(
-                snapshot.Find(visit.CityId),
-                statusCode: 201,
-                contentType: "application/geo+json"
-            );
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Results.Conflict(
-                new { code = "destination_unresolved", title = exception.Message }
-            );
-        }
-        catch (HttpRequestException)
-        {
-            return Results.Conflict(
-                new
-                {
-                    code = "destination_unresolved",
-                    title = "The city could not be located. Try again.",
-                }
-            );
-        }
-    }
-
-    private static async Task<IResult> DeleteDestinationStay(
-        Guid tripId,
-        string destinationCity,
-        Guid stayId,
-        HttpContext context,
-        IPlannerDb database,
-        ICurrentUser currentUser
-    )
-    {
-        var (_, user, error) = await AuthorizeAsync(tripId, true, context, database, currentUser);
-        if (error is not null)
-            return error;
-        return await database.DeleteDestinationVisitAsync(
-            user!.Id,
-            tripId,
-            destinationCity,
-            stayId,
-            context.RequestAborted
-        )
-            ? Results.NoContent()
-            : Results.NotFound();
-    }
-
-    private static async Task<IResult> ReplaceDestinationStay(
-        Guid tripId,
-        string destinationCity,
-        Guid stayId,
-        DestinationStayInput input,
-        HttpContext context,
-        IPlannerDb database,
-        DestinationService service,
-        ICurrentUser currentUser
-    )
-    {
-        var (trip, user, error) = await AuthorizeAsync(
-            tripId,
-            true,
-            context,
-            database,
-            currentUser
-        );
-        if (error is not null)
-            return error;
-        if (
-            input.ArrivalDate is not null
-            && input.DepartureDate is not null
-            && input.DepartureDate < input.ArrivalDate
-        )
-            return Results.BadRequest(
-                new { title = "Departure date cannot precede arrival date." }
-            );
-        var saved = await database.ReplaceDestinationVisitAsync(
-            user!.Id,
-            tripId,
-            destinationCity,
-            stayId,
-            input,
-            context.RequestAborted
-        );
-        if (saved is null)
-            return Results.NotFound();
-        var snapshot = await service.GetAsync(user.Id, trip!, context.RequestAborted);
-        return GeoJson(snapshot.Find(destinationCity)!);
-    }
-
-    private static async Task<IResult> GetDestinations(
-        Guid tripId,
-        bool? includeInactive,
-        HttpContext context,
-        IPlannerDb database,
-        DestinationService service,
-        ICurrentUser currentUser
-    )
-    {
-        var (trip, user, error) = await AuthorizeAsync(
-            tripId,
-            false,
-            context,
-            database,
-            currentUser
-        );
-        if (error is not null)
-            return error;
-        var (snapshot, resolveError) = await ResolveAsync(user!.Id, trip!, null, service, context);
-        if (snapshot is null && resolveError is not null && includeInactive != true)
-            return resolveError;
-        var active = snapshot?.Collection.Features ?? [];
-        if (includeInactive != true)
-            return GeoJson(snapshot!.Collection);
-        var known = await database.GetDestinationPlacesAsync(
-            user.Id,
-            tripId,
-            context.RequestAborted
-        );
-        var inactive = known
-            .Where(p => active.All(f => f.Id != p.CityId))
-            .Select(InactiveDestination);
-        return GeoJson(
-            new GeoJsonCollection<DestinationProperties>(
-                "FeatureCollection",
-                [.. active, .. inactive],
-                snapshot?.Collection.Route ?? []
-            )
-        );
-    }
-
-    private static async Task<IResult> GetDestination(
-        Guid tripId,
-        string destinationCity,
-        HttpContext context,
-        IPlannerDb database,
-        DestinationService service,
-        ICurrentUser currentUser
-    )
-    {
-        var (trip, user, error) = await AuthorizeAsync(
-            tripId,
-            false,
-            context,
-            database,
-            currentUser
-        );
-        if (error is not null)
-            return error;
-        var (snapshot, resolveError) = await ResolveAsync(
-            user!.Id,
-            trip!,
-            destinationCity,
-            service,
-            context
-        );
-        if (resolveError is null)
-            return GeoJson(snapshot!.Find(destinationCity)!);
-        DestinationPlace? place = await database.GetDestinationPlaceAsync(
-            user.Id,
-            tripId,
-            destinationCity,
-            context.RequestAborted
-        );
-        return place is null ? resolveError : GeoJson(InactiveDestination(place));
     }
 
     private static async Task<IResult> GetActivities(
@@ -685,19 +401,6 @@ public static class ActivityEndpoints
                 code = "destination_changed",
                 title = "Destination changed. Reload before saving.",
             }
-        );
-
-    private static IResult GeoJson<T>(T value) =>
-        Results.Json(value, contentType: "application/geo+json");
-
-    private static GeoJsonFeature<DestinationProperties> InactiveDestination(
-        DestinationPlace place
-    ) =>
-        new(
-            "Feature",
-            place.CityId,
-            new("Point", [place.Longitude, place.Latitude]),
-            new(place.Name, place.CountryCode, place.TimeZone, "", null, null, [], false)
         );
 
     private static async Task<IResult> Suggest(

@@ -42,6 +42,10 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - Prefer to write "functional" code, minimizing side effects and I/O until they are necessary, this is easier to test. 
 - I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
 
+## UI Practices
+
+- Mobile UI is the primary design target. Design for small screens.
+
 ## Test practices
 
 - Tests should verify the code satisfy a requirement, not simply branch coverage.

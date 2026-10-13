@@ -23,6 +23,7 @@ export type Destination = {
     departureDate: string | null;
     stays: Stay[];
     isActive: boolean;
+    constraints?: Record<string, unknown>;
   };
 };
 export type DestinationCollection = {
@@ -102,10 +103,34 @@ export async function addDestination(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: [input.longitude, input.latitude],
+      },
+      properties: {
+        name: input.name,
+        countryCode: input.countryCode,
+        arrivalDate: input.arrivalDate,
+        departureDate: input.departureDate,
+        constraints: {},
+      },
+    }),
   });
   if (!response.ok) await readTripError(response, "adding the destination");
   return response.json();
+}
+
+export async function deleteDestination(
+  tripId: string,
+  cityId: string,
+): Promise<void> {
+  const response = await fetch(destinationUrl(tripId, cityId), {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) await readTripError(response, "deleting the destination");
 }
 
 export async function deleteDestinationStay(

@@ -34,7 +34,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         return parties;
     }
 
-    public async Task<Trip?> SetConstraintsAsync(
+    public async Task<Trip?> SetFlightConstraintsAsync(
         Guid ownerUserId,
         Guid tripId,
         JsonElement constraints,
@@ -43,9 +43,9 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
     {
         await using var command = dataSource.CreateCommand(
             """
-            UPDATE trips SET constraints = $1, updated_at = now()
+            UPDATE trips SET flight_constraints = $1, updated_at = now()
             WHERE owner_user_id = $2 AND id = $3
-            RETURNING id, owner_user_id, name, description, constraints::text, created_at, updated_at;
+            RETURNING id, owner_user_id, name, description, constraints::text, created_at, updated_at, flight_constraints::text;
             """
         );
         command.Parameters.AddWithValue(NpgsqlDbType.Jsonb, constraints.GetRawText());
@@ -192,7 +192,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             """
             SELECT
                 id, owner_user_id, name, description, constraints::text,
-                created_at, updated_at
+                created_at, updated_at, flight_constraints::text
             FROM trips
             WHERE owner_user_id = $1 OR EXISTS (
                 SELECT 1 FROM parties membership
@@ -221,7 +221,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
     {
         await using var command = dataSource.CreateCommand(
             """
-            SELECT id, owner_user_id, name, description, constraints::text, created_at, updated_at
+            SELECT id, owner_user_id, name, description, constraints::text, created_at, updated_at, flight_constraints::text
             FROM trips
             WHERE id = $2 AND (owner_user_id = $1 OR EXISTS (
                 SELECT 1 FROM parties membership
@@ -245,7 +245,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             """
             SELECT
                 id, owner_user_id, name, description, constraints::text,
-                created_at, updated_at
+                created_at, updated_at, flight_constraints::text
             FROM trips
             WHERE owner_user_id = $1 AND id = $2;
             """
@@ -261,7 +261,8 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         Guid ownerUserId,
         string name,
         string description,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        JsonElement? constraints = null
     )
     {
         Guid tripId = Guid.NewGuid();
@@ -276,11 +277,11 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         await using (
             var command = new NpgsqlCommand(
                 """
-                INSERT INTO trips (id, owner_user_id, name, description)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO trips (id, owner_user_id, name, description, constraints)
+                VALUES ($1, $2, $3, $4, $5)
                 RETURNING
                     id, owner_user_id, name, description, constraints::text,
-                    created_at, updated_at;
+                    created_at, updated_at, flight_constraints::text;
                 """,
                 connection,
                 transaction
@@ -291,6 +292,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             command.Parameters.AddWithValue(ownerUserId);
             command.Parameters.AddWithValue(name);
             command.Parameters.AddWithValue(description);
+            command.Parameters.AddWithValue(NpgsqlDbType.Jsonb, constraints?.GetRawText() ?? "{}");
             await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(
                 cancellationToken
             );
@@ -328,23 +330,28 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         Guid tripId,
         string name,
         string description,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        JsonElement? constraints = null
     )
     {
         await using NpgsqlCommand command = dataSource.CreateCommand(
             """
             UPDATE trips
-            SET name = $1, description = $2, updated_at = now()
+            SET name = $1, description = $2, constraints = COALESCE($5, constraints), updated_at = now()
             WHERE owner_user_id = $3 AND id = $4
             RETURNING
                 id, owner_user_id, name, description, constraints::text,
-                created_at, updated_at;
+                created_at, updated_at, flight_constraints::text;
             """
         );
         command.Parameters.AddWithValue(name);
         command.Parameters.AddWithValue(description);
         command.Parameters.AddWithValue(ownerUserId);
         command.Parameters.AddWithValue(tripId);
+        command.Parameters.AddWithValue(
+            NpgsqlDbType.Jsonb,
+            (object?)constraints?.GetRawText() ?? DBNull.Value
+        );
 
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadTrip(reader) : null;
@@ -420,6 +427,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
     private static Trip ReadTrip(NpgsqlDataReader reader)
     {
         using var document = JsonDocument.Parse(reader.GetString(4));
+        using var flights = JsonDocument.Parse(reader.GetString(7));
         return new(
             reader.GetGuid(0),
             reader.GetGuid(1),
@@ -428,6 +436,9 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             document.RootElement.Clone(),
             reader.GetFieldValue<DateTimeOffset>(5),
             reader.GetFieldValue<DateTimeOffset>(6)
-        );
+        )
+        {
+            FlightConstraints = flights.RootElement.Clone(),
+        };
     }
 }

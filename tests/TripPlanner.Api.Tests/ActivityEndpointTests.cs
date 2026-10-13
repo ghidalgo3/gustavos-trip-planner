@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
 
@@ -9,6 +11,122 @@ namespace TripPlanner.Api.Tests;
 [TestClass]
 public class ActivityEndpointTests
 {
+    [TestMethod]
+    public async Task DestinationFeatureCrud_PreservesStaysAndActivitiesWhileReplacingPlaceConstraints()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        string collectionUrl = $"/trips/{trip.Id}/destinations";
+        var request = DestinationFeature("Paris", "FR", null, null) with
+        {
+            Properties = new(
+                "Paris",
+                "FR",
+                Constraints: JsonSerializer.SerializeToElement(new { budget = 400 })
+            ),
+        };
+        var created = await client.PostAsJsonAsync(collectionUrl, request);
+        Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
+        var original = (
+            await created.Content.ReadFromJsonAsync<GeoJsonFeature<DestinationProperties>>()
+        )!;
+        Assert.AreEqual(400, original.Properties.Constraints.GetProperty("budget").GetInt32());
+        string url = $"{collectionUrl}/{original.Id}";
+        await client.PostAsJsonAsync(collectionUrl, request);
+        var now = DateTimeOffset.UtcNow;
+        var place = (await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, original.Id))!;
+        var activity = new Activity(
+            Guid.NewGuid(),
+            trip.Id,
+            original.Id,
+            new("Point", [2.35, 48.85]),
+            new("Museum", 60, "Art", null, "Planned"),
+            now,
+            now
+        );
+        await factory.Database.SaveActivityAsync(owner, activity, place.ContextVersion, null);
+        var replacement = new ReplaceDestinationRequest(
+            "Feature",
+            original.Id,
+            new("Point", [2.3, 48.8]),
+            new(
+                "Paris city",
+                "FR",
+                "Europe/Paris",
+                JsonSerializer.SerializeToElement(new { accessible = true })
+            )
+        );
+        var updated = await client.PutAsJsonAsync(url, replacement);
+        Assert.AreEqual(HttpStatusCode.OK, updated.StatusCode);
+        Assert.AreEqual("application/geo+json", updated.Content.Headers.ContentType?.MediaType);
+        var feature = (
+            await updated.Content.ReadFromJsonAsync<GeoJsonFeature<DestinationProperties>>()
+        )!;
+        Assert.AreEqual(original.Id, feature.Id);
+        Assert.HasCount(2, feature.Properties.Stays);
+        Assert.AreEqual(original.Properties.Stays[0].Id, feature.Properties.Stays[0].Id);
+        Assert.AreEqual("Paris city", feature.Properties.Name);
+        Assert.IsTrue(feature.Properties.Constraints.GetProperty("accessible").GetBoolean());
+        Assert.IsFalse(feature.Properties.Constraints.TryGetProperty("budget", out _));
+        Assert.AreNotEqual(place.ContextVersion, feature.Properties.ContextVersion);
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (await client.GetAsync($"{url}/activities/{activity.Id}")).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (await client.PutAsJsonAsync(url, replacement with { Id = "another-city" })).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await client.PutAsJsonAsync(
+                    $"{collectionUrl}/missing",
+                    replacement with
+                    {
+                        Id = "missing",
+                    }
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(HttpStatusCode.NoContent, (await client.DeleteAsync(url)).StatusCode);
+        Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
+        Assert.IsEmpty(
+            (
+                await client.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                    collectionUrl
+                )
+            )!.Features
+        );
+        Assert.IsNull(
+            await factory.Database.GetActivityAsync(owner, trip.Id, original.Id, activity.Id)
+        );
+    }
+
+    [TestMethod]
+    [DataRow("Polygon", "{}")]
+    [DataRow("Point", "[]")]
+    [DataRow("Point", "42")]
+    public async Task DestinationFeatures_RejectInvalidGeometryAndConstraints(
+        string geometryType,
+        string constraints
+    )
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, _, _) = await CreateTrip(client, factory);
+        var request = new CreateDestinationRequest(
+            "Feature",
+            new(geometryType, [2.3, 48.8]),
+            new("Paris", "FR", Constraints: JsonSerializer.Deserialize<JsonElement>(constraints))
+        );
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync($"/trips/{trip.Id}/destinations", request)).StatusCode
+        );
+    }
+
     [TestMethod]
     public async Task Destinations_CanBePlannedBeforeFlightsAndShowRepeatedCityStaysInRouteOrder()
     {
@@ -66,13 +184,13 @@ public class ActivityEndpointTests
         string url = $"/trips/{trip.Id}/destinations";
         var invalid = await client.PostAsJsonAsync(
             url,
-            new DestinationVisitInput("Paris", "FR", null, null, 181, 48.86)
+            DestinationFeature("Paris", "FR", null, null, 181, 48.86)
         );
         Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
 
         var response = await client.PostAsJsonAsync(
             url,
-            new DestinationVisitInput("Paris", "FR", null, null, 2.3, 48.8)
+            DestinationFeature("Paris", "FR", null, null, 2.3, 48.8)
         );
         Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
         var destination = (
@@ -90,22 +208,8 @@ public class ActivityEndpointTests
         using var client = factory.CreateClient();
         var (trip, _, _) = await CreateTrip(client, factory);
         string url = $"/trips/{trip.Id}/destinations";
-        var illinois = new DestinationVisitInput(
-            "Springfield",
-            "US",
-            null,
-            null,
-            -89.6501,
-            39.7817
-        );
-        var massachusetts = new DestinationVisitInput(
-            "Springfield",
-            "US",
-            null,
-            null,
-            -72.5898,
-            42.1015
-        );
+        var illinois = DestinationFeature("Springfield", "US", null, null, -89.6501, 39.7817);
+        var massachusetts = DestinationFeature("Springfield", "US", null, null, -72.5898, 42.1015);
 
         var first = (
             await (await client.PostAsJsonAsync(url, illinois)).Content.ReadFromJsonAsync<
@@ -408,6 +512,26 @@ public class ActivityEndpointTests
         return (trip, user.Id!.Value, factory.Database.Parties.Single().Id);
     }
 
+    private static CreateDestinationRequest DestinationFeature(
+        string name,
+        string countryCode,
+        DateOnly? arrivalDate,
+        DateOnly? departureDate,
+        double? longitude = null,
+        double? latitude = null
+    ) =>
+        new(
+            "Feature",
+            new(
+                "Point",
+                [
+                    longitude ?? (countryCode == "FR" ? 2.3522 : 12.4964),
+                    latitude ?? (countryCode == "FR" ? 48.8566 : 41.9028),
+                ]
+            ),
+            new(name, countryCode, arrivalDate, departureDate)
+        );
+
     private static async Task AddDestinations(HttpClient client, Trip trip, bool repeat)
     {
         string url = $"/trips/{trip.Id}/destinations";
@@ -416,7 +540,7 @@ public class ActivityEndpointTests
             (
                 await client.PostAsJsonAsync(
                     url,
-                    new DestinationVisitInput(
+                    DestinationFeature(
                         "Paris",
                         "FR",
                         new DateOnly(2027, 6, 10),
@@ -432,7 +556,7 @@ public class ActivityEndpointTests
                 (
                     await client.PostAsJsonAsync(
                         url,
-                        new DestinationVisitInput(
+                        DestinationFeature(
                             "Rome",
                             "IT",
                             new DateOnly(2027, 6, 14),
@@ -446,7 +570,7 @@ public class ActivityEndpointTests
                 (
                     await client.PostAsJsonAsync(
                         url,
-                        new DestinationVisitInput(
+                        DestinationFeature(
                             "Paris",
                             "FR",
                             new DateOnly(2027, 6, 18),
@@ -456,6 +580,58 @@ public class ActivityEndpointTests
                 ).StatusCode
             );
         }
+    }
+
+    [TestMethod]
+    public async Task SuggestionApi_UsesOpenAiResponseAndSavesProposedGeoJsonActivities()
+    {
+        using var handler = new OpenAiActivityAssistantTests.ResponseHandler(
+            OpenAiActivityAssistantTests.CompletedResponse()
+        );
+        await using var factory = new TestApplicationFactory
+        {
+            ActivityAssistant = OpenAiActivityAssistantTests.Create(handler),
+        };
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        await factory.Database.SetUserFeatureFlagsAsync(owner, "LLM");
+        await AddDestinations(client, trip, false);
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                $"/trips/{trip.Id}/destinations"
+            )
+        )!.Features.Single();
+        Guid requestId = Guid.NewGuid();
+        var started = await client.PostAsJsonAsync(
+            $"/trips/{trip.Id}/destinations/{destination.Id}:suggest",
+            new ActivitySuggestionRequest(
+                requestId,
+                "Find art museums",
+                destination.Properties.ContextVersion
+            )
+        );
+        Assert.AreEqual(HttpStatusCode.Accepted, started.StatusCode);
+        Assert.IsTrue(
+            await factory.Services.GetRequiredService<ActivityJobProcessor>().ProcessNextAsync()
+        );
+        var result = (
+            await client.GetFromJsonAsync<ActivitySuggestionResult>(
+                $"/trips/{trip.Id}/destinations/{destination.Id}/suggestions/{requestId}"
+            )
+        )!;
+        var feature = result.Activities.Features.Single();
+        Assert.AreEqual("Feature", feature.Type);
+        Assert.AreEqual("Louvre", feature.Properties.Name);
+        Assert.AreEqual("Proposed", feature.Properties.State);
+        Assert.AreEqual("Point", feature.Geometry!.Type);
+        Assert.IsNotNull(handler.Request);
+        StringAssert.Contains(handler.Request, "Find art museums");
+        var saved = (
+            await client.GetFromJsonAsync<GeoJsonCollection<ActivityProperties>>(
+                $"/trips/{trip.Id}/destinations/{destination.Id}/activities"
+            )
+        )!.Features.Single();
+        Assert.AreEqual(feature.Id, saved.Id);
     }
 
     private sealed class StubAssistant : IActivityAssistant

@@ -86,8 +86,20 @@ test("creates, edits, and deletes a trip", async () => {
   expect(
     await screen.findByRole("heading", { name: "Lisbon summer" }),
   ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Find flights" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("link", { name: "Open trip: Lisbon summer" }),
+  );
+  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Options for Lisbon summer" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-  expect(screen.getByTestId("route")).toHaveTextContent("/?edit=trip-1");
+  expect(screen.getByTestId("route")).toHaveTextContent(
+    "/trips/trip-1?edit=trip-1",
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "Trip name" }), {
     target: { value: "Lisbon and Porto" },
   });
@@ -100,6 +112,9 @@ test("creates, edits, and deletes a trip", async () => {
     await screen.findByRole("heading", { name: "Lisbon and Porto" }),
   ).toBeVisible();
   expect(screen.getByText("Travel by train")).toBeVisible();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Options for Lisbon and Porto" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   expect(screen.getByRole("dialog", { name: "Delete trip?" })).toBeVisible();
   expect(
@@ -115,6 +130,9 @@ test("creates, edits, and deletes a trip", async () => {
   expect(
     screen.getByRole("heading", { name: "Lisbon and Porto" }),
   ).toBeVisible();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Options for Lisbon and Porto" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   fireEvent.click(screen.getByRole("button", { name: "Delete trip" }));
 

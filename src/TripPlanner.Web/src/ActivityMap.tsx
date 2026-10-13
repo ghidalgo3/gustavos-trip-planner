@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@fluentui/react-components";
+import { Button, Spinner } from "@fluentui/react-components";
 import { getMapToken } from "./api";
 import type { Activity, Point } from "./activitiesApi";
 
@@ -12,6 +12,7 @@ type MapHandle = {
   markers: { add: (marker: Marker) => void; clear: () => void };
   setCamera: (options: object) => void;
   dispose: () => void;
+  resize: () => void;
 };
 type Atlas = {
   Map: new (container: HTMLElement, options: object) => MapHandle;
@@ -34,11 +35,18 @@ function loadAtlas(): Promise<Atlas> {
       const script = document.createElement("script");
       script.src =
         "https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js";
-      script.onload = () =>
-        window.atlas
-          ? resolve(window.atlas)
-          : reject(new Error("Map controls did not load."));
-      script.onerror = () => reject(new Error("Map controls did not load."));
+      const fail = () => {
+        window.clearTimeout(timeout);
+        script.remove();
+        reject(new Error("Map controls did not load."));
+      };
+      const timeout = window.setTimeout(fail, 15_000);
+      script.onload = () => {
+        window.clearTimeout(timeout);
+        if (window.atlas) resolve(window.atlas);
+        else fail();
+      };
+      script.onerror = fail;
       document.head.append(script);
     }).catch((reason: unknown) => {
       atlasPromise = undefined;
@@ -55,12 +63,14 @@ declare global {
 
 export default function ActivityMap({
   center,
+  destinationName,
   activities,
   selectedId,
   onSelect,
   onPick,
 }: {
   center: Point;
+  destinationName?: string;
   activities: Activity[];
   selectedId?: string;
   onSelect: (id: string) => void;
@@ -100,7 +110,11 @@ export default function ActivityMap({
     let active = true;
     setError(undefined);
     setReady(false);
-    void getMapToken()
+    const timeout = window.setTimeout(() => {
+      if (active) setError("The map is taking too long to load. Please retry.");
+    }, 20_000);
+    let observer: ResizeObserver | undefined;
+    void getMapToken(undefined, retry > 0)
       .then((token) => {
         if (!active || !element.current) return;
         const instance = new atlas.Map(element.current, {
@@ -114,7 +128,7 @@ export default function ActivityMap({
               resolve: (token: string) => void,
               reject: (error: unknown) => void,
             ) => {
-              void getMapToken()
+              void getMapToken(undefined, true)
                 .then((fresh) => resolve(fresh.token))
                 .catch((reason: unknown) => {
                   if (active)
@@ -129,10 +143,19 @@ export default function ActivityMap({
           },
         });
         map.current = instance;
+        if (typeof ResizeObserver !== "undefined") {
+          observer = new ResizeObserver(() => instance.resize());
+          observer.observe(element.current);
+        }
         instance.events.add("ready", () => {
-          if (active) setReady(true);
+          window.clearTimeout(timeout);
+          if (active) {
+            instance.resize();
+            setReady(true);
+          }
         });
         instance.events.add("error", (event) => {
+          window.clearTimeout(timeout);
           if (active)
             setError(event.error?.message ?? "Map tiles could not be loaded.");
         });
@@ -145,6 +168,7 @@ export default function ActivityMap({
         });
       })
       .catch((reason: unknown) => {
+        window.clearTimeout(timeout);
         if (active)
           setError(
             reason instanceof Error ? reason.message : "Map unavailable.",
@@ -152,6 +176,8 @@ export default function ActivityMap({
       });
     return () => {
       active = false;
+      window.clearTimeout(timeout);
+      observer?.disconnect();
       map.current?.dispose();
       map.current = null;
     };
@@ -186,12 +212,26 @@ export default function ActivityMap({
         ref={element}
         className="activity-map"
         role="img"
-        aria-label="Activity map"
+        aria-label={
+          destinationName ? `Map of ${destinationName}` : "Activity map"
+        }
+        aria-busy={!ready && !error}
       />
+      {!ready && !error && (
+        <div className="activity-map-loading" role="status">
+          <Spinner label="Loading map" />
+        </div>
+      )}
       {error && (
         <div className="activity-map-error" role="alert">
           <span>{error}</span>
-          <Button onClick={() => setRetry((current) => current + 1)}>
+          <Button
+            onClick={() => {
+              setError(undefined);
+              setReady(false);
+              setRetry((current) => current + 1);
+            }}
+          >
             Retry map
           </Button>
         </div>

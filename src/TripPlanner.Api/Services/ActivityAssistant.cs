@@ -31,20 +31,33 @@ public sealed class OpenAiActivityAssistant(HttpClient client, IOptions<OpenAiOp
             activities = new
             {
                 type = "array",
+                maxItems = 10,
                 items = new
                 {
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string" },
+                        name = new
+                        {
+                            type = "string",
+                            minLength = 1,
+                            maxLength = 200,
+                        },
                         placeName = new { type = new[] { "string", "null" } },
-                        durationMinutes = new { type = new[] { "integer", "null" } },
-                        description = new { type = new[] { "string", "null" } },
-                        costAmount = new { type = new[] { "number", "null" } },
+                        durationMinutes = new
+                        {
+                            type = new[] { "integer", "null" },
+                            minimum = 1,
+                            maximum = 10080,
+                        },
+                        description = new { type = new[] { "string", "null" }, maxLength = 10000 },
+                        costAmount = new { type = new[] { "number", "null" }, minimum = 0 },
                         costCurrency = new { type = new[] { "string", "null" } },
-                        costBasis = new { type = new[] { "string", "null" } },
-                        longitude = new { type = new[] { "number", "null" } },
-                        latitude = new { type = new[] { "number", "null" } },
+                        costBasis = new
+                        {
+                            type = new[] { "string", "null" },
+                            @enum = new object?[] { "perPerson", "total", null },
+                        },
                     },
                     required = new[]
                     {
@@ -55,8 +68,6 @@ public sealed class OpenAiActivityAssistant(HttpClient client, IOptions<OpenAiOp
                         "costAmount",
                         "costCurrency",
                         "costBasis",
-                        "longitude",
-                        "latitude",
                     },
                     additionalProperties = false,
                 },
@@ -76,9 +87,9 @@ public sealed class OpenAiActivityAssistant(HttpClient client, IOptions<OpenAiOp
         CancellationToken cancellationToken
     )
     {
-        string key =
-            options.Value.ApiKey
-            ?? throw new InvalidOperationException("The OpenAI API key is not configured.");
+        string? key = options.Value.ApiKey;
+        if (string.IsNullOrWhiteSpace(key))
+            throw new InvalidOperationException("The OpenAI API key is not configured.");
         var content = new List<object>
         {
             new
@@ -135,7 +146,19 @@ public sealed class OpenAiActivityAssistant(HttpClient client, IOptions<OpenAiOp
         using var json = JsonDocument.Parse(
             await response.Content.ReadAsStreamAsync(cancellationToken)
         );
-        foreach (var item in json.RootElement.GetProperty("output").EnumerateArray())
+        if (
+            json.RootElement.TryGetProperty("status", out var status)
+            && status.GetString() != "completed"
+        )
+            throw new InvalidOperationException(
+                "The activity assistant did not complete its response."
+            );
+        if (
+            !json.RootElement.TryGetProperty("output", out var output)
+            || output.ValueKind != JsonValueKind.Array
+        )
+            throw new InvalidOperationException("The activity assistant returned no suggestions.");
+        foreach (var item in output.EnumerateArray())
         {
             if (
                 !item.TryGetProperty("content", out var parts)
@@ -144,16 +167,28 @@ public sealed class OpenAiActivityAssistant(HttpClient client, IOptions<OpenAiOp
                 continue;
             foreach (var part in parts.EnumerateArray())
             {
-                if (!part.TryGetProperty("type", out var type) || type.GetString() != "output_text")
+                if (!part.TryGetProperty("type", out var type))
                     continue;
-                string? text = part.GetProperty("text").GetString();
+                if (type.GetString() == "refusal")
+                    throw new InvalidOperationException(
+                        "The activity assistant could not suggest activities for this request."
+                    );
+                if (type.GetString() != "output_text")
+                    continue;
+                string? text = part.TryGetProperty("text", out var value)
+                    ? value.GetString()
+                    : null;
                 if (text is null)
                     continue;
                 using var result = JsonDocument.Parse(text);
-                return result
-                        .RootElement.GetProperty("activities")
-                        .Deserialize<ActivityCandidate[]>(JsonSerializerOptions.Web)
-                    ?? [];
+                if (
+                    !result.RootElement.TryGetProperty("activities", out var activities)
+                    || activities.ValueKind != JsonValueKind.Array
+                )
+                    throw new InvalidOperationException(
+                        "The activity assistant returned an invalid activity list."
+                    );
+                return activities.Deserialize<ActivityCandidate[]>(JsonSerializerOptions.Web) ?? [];
             }
         }
         throw new InvalidOperationException("The activity assistant returned no suggestions.");
@@ -181,10 +216,10 @@ public sealed class AzureActivityPlaceResolver(HttpClient client, IMapTokenProvi
     )
     {
         MapToken token = await tokens.GetTokenAsync(cancellationToken);
-        string query = Uri.EscapeDataString($"{placeName}, {city}, {countryCode}");
+        string query = Uri.EscapeDataString($"{placeName}, {city}");
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{token.Endpoint.TrimEnd('/')}/geocode?api-version=2026-01-01&query={query}&top=1"
+            $"{token.Endpoint.TrimEnd('/')}/search/poi/json?api-version=1.0&query={query}&countrySet={Uri.EscapeDataString(countryCode)}&limit=3"
         );
         request.Headers.TryAddWithoutValidation("Authorization", $"jwt-sas {token.Token}");
         using var response = await client.SendAsync(request, cancellationToken);
@@ -193,44 +228,45 @@ public sealed class AzureActivityPlaceResolver(HttpClient client, IMapTokenProvi
             await response.Content.ReadAsStreamAsync(cancellationToken)
         );
         if (
-            !json.RootElement.TryGetProperty("features", out var features)
-            || features.ValueKind != JsonValueKind.Array
-            || features.GetArrayLength() == 0
+            !json.RootElement.TryGetProperty("results", out var results)
+            || results.ValueKind != JsonValueKind.Array
         )
             return null;
-        var feature = features[0];
-        if (!feature.TryGetProperty("properties", out var properties))
-            return null;
-        if (!properties.TryGetProperty("address", out var address))
-            return null;
-        if (
-            address.TryGetProperty("countryRegionISO2", out var country)
-            && !string.Equals(country.GetString(), countryCode, StringComparison.OrdinalIgnoreCase)
-        )
-            return null;
-        string? resultName = properties.TryGetProperty("name", out var name)
-            ? name.GetString()
-            : null;
-        if (
-            resultName is null
-            || !resultName.Contains(placeName, StringComparison.OrdinalIgnoreCase)
-        )
-            return null;
-        if (
-            !feature.TryGetProperty("geometry", out var geometry)
-            || !geometry.TryGetProperty("coordinates", out var coordinates)
-            || coordinates.ValueKind != JsonValueKind.Array
-            || coordinates.GetArrayLength() < 2
-        )
-            return null;
-        double longitude = coordinates[0].GetDouble(),
-            latitude = coordinates[1].GetDouble();
-        return
-            double.IsFinite(longitude)
-            && double.IsFinite(latitude)
-            && Math.Abs(longitude) <= 180
-            && Math.Abs(latitude) <= 90
-            ? new("Point", [longitude, latitude])
-            : null;
+        foreach (var place in results.EnumerateArray())
+        {
+            if (
+                !place.TryGetProperty("poi", out var poi)
+                || !poi.TryGetProperty("name", out var name)
+                || name.GetString() is not { } resultName
+                || !resultName.Contains(placeName, StringComparison.OrdinalIgnoreCase)
+            )
+                continue;
+            if (
+                !place.TryGetProperty("address", out var address)
+                || !address.TryGetProperty("countryCode", out var country)
+                || !string.Equals(
+                    country.GetString(),
+                    countryCode,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+                continue;
+            if (
+                !place.TryGetProperty("position", out var position)
+                || !position.TryGetProperty("lon", out var lon)
+                || !lon.TryGetDouble(out double longitude)
+                || !position.TryGetProperty("lat", out var lat)
+                || !lat.TryGetDouble(out double latitude)
+            )
+                continue;
+            if (
+                double.IsFinite(longitude)
+                && double.IsFinite(latitude)
+                && Math.Abs(longitude) <= 180
+                && Math.Abs(latitude) <= 90
+            )
+                return new("Point", [longitude, latitude]);
+        }
+        return null;
     }
 }

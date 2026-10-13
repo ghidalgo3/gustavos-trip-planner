@@ -256,21 +256,151 @@ main {
 .trip-form .fui-Textarea {
   width: 100%;
 }
-.trip-form-actions,
-.trip-actions {
+.trip-form-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 .trip-grid {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
 }
 .trip-card {
-  min-height: 180px;
+  position: relative;
+  justify-content: center;
+  padding: 20px;
+  cursor: pointer;
+}
+.trip-grid > .trip-card {
+  overflow: visible;
+}
+.trip-card:focus-within,
+.trip-card:has(.trip-card-menu[open]) {
+  z-index: 20;
+}
+.trip-card-link {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+}
+.trip-card-link:focus-visible {
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 2px;
+}
+.trip-card-heading {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 24px;
+  gap: 12px;
+  pointer-events: none;
+}
+.trip-card-heading .fui-CardHeader {
+  min-width: 0;
+  flex: 1;
+  row-gap: 8px;
+}
+.trip-card-heading h2 {
+  margin: 0;
+}
+.trip-card-menu {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  margin: -8px -8px 0 0;
+  pointer-events: auto;
+}
+.trip-card-menu[open] {
+  z-index: 10;
+}
+.trip-card-menu summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--colorNeutralForeground1);
+  cursor: pointer;
+  list-style: none;
+  font-size: 20px;
+  font-weight: 700;
+}
+.trip-card-menu summary::-webkit-details-marker {
+  display: none;
+}
+.trip-card-menu summary:hover,
+.trip-card-menu summary:focus-visible {
+  background: var(--colorNeutralBackground1Hover);
+}
+.trip-card-menu-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  gap: 0;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground1);
+  box-shadow: var(--shadow8);
+}
+.trip-card-menu-panel button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.trip-card-menu-panel button:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.trip-card-menu-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.trip-delete-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(600px, calc(100vw - 32px));
+  height: fit-content;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 32px;
+  overflow: auto;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 12px;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  box-shadow: var(--shadow64);
+}
+.trip-delete-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.trip-delete-dialog h2 {
+  margin: 0;
+}
+.trip-delete-dialog p {
+  margin: 16px 0 24px;
+  line-height: 1.5;
+}
+.trip-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 .trip-card .trip-form {
   height: 100%;
@@ -450,6 +580,15 @@ main {
   gap: 12px;
 }
 @media (max-width: 760px) {
+  .trip-card {
+    padding: 16px;
+  }
+  .trip-delete-dialog {
+    padding: 24px;
+  }
+  .trip-delete-actions {
+    flex-direction: column;
+  }
   .hero {
     grid-template-columns: 1fr;
     padding: 48px 0;
@@ -772,12 +911,9 @@ main {
   overflow-x: auto;
   white-space: nowrap;
 }
-.activity-stay-dates {
-  color: var(--colorNeutralForeground2);
-}
 .activity-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   min-width: 0;
 }
@@ -787,14 +923,18 @@ main {
 }
 .activity-map-shell {
   position: relative;
-  min-height: 24rem;
+  height: clamp(320px, 55svh, 640px);
   border: 1px solid var(--colorNeutralStroke2);
   border-radius: var(--borderRadiusMedium);
   overflow: hidden;
 }
-.activity-map {
+/* The SDK adds maplibregl-map with position: relative at runtime.
+   Keep the map filling its explicitly sized shell regardless of CSS load order. */
+.activity-map-shell > .activity-map {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
 }
 .activity-map-error {
   position: absolute;
@@ -859,7 +999,7 @@ main {
 .activity-table tr.selected {
   background: var(--colorBrandBackground2);
 }
-.activity-table td button {
+.activity-table td > button:not(.fui-Button) {
   border: 0;
   padding: 0;
   background: transparent;
@@ -929,77 +1069,428 @@ main {
   object-fit: cover;
   border-radius: var(--borderRadiusMedium);
 }
-@media (max-width: 1000px) {
-  .activity-workspace {
-    grid-template-columns: 1fr;
-  }
-}
 @media (max-width: 600px) {
   .activity-planning {
     gap: 0.75rem;
   }
   .activity-map-shell {
-    min-height: 32vh;
+    height: clamp(300px, 50svh, 520px);
   }
   .activity-editor-grid {
     grid-template-columns: 1fr;
-  }
-  .activity-table thead {
-    display: none;
-  }
-  .activity-table,
-  .activity-table tbody,
-  .activity-table tr,
-  .activity-table td {
-    display: block;
-    width: 100%;
-  }
-  .activity-table tr {
-    border-bottom: 1px solid var(--colorNeutralStroke2);
-    padding: 0.5rem 0;
-  }
-  .activity-table td {
-    border: 0;
-    padding: 0.1rem 0.35rem;
-  }
-  .activity-table td:nth-child(2),
-  .activity-table td:nth-child(3) {
-    display: inline-block;
-    width: auto;
-    color: var(--colorNeutralForeground2);
-  }
-  .activity-table td:nth-child(4) {
-    padding-top: 0.35rem;
   }
   .activity-actions > button {
     min-height: 44px;
   }
 }
-.activity-destination-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.75rem;
-  padding: 1rem;
-  border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 0.75rem;
+.trip-page-header {
+  width: min(1060px, calc(100% - 32px));
+  margin: 0 auto;
+  padding-top: 20px;
 }
-
-.activity-destination-form label {
+.trip-page-header > button {
+  margin-left: -12px;
+}
+.trip-page-title {
   display: grid;
-  gap: 0.25rem;
-  min-width: 8rem;
+  gap: 10px;
+  padding: 24px 0 8px;
 }
-
-.activity-stay-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.trip-page-title h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
-
-.activity-stay-controls {
+.trip-page-title > span {
+  color: var(--colorNeutralForeground2);
+  max-width: 65ch;
+  white-space: pre-wrap;
+}
+.trip-workspace-overview .trip-tab-list,
+.trip-workspace-overview .trip-page-content {
+  width: min(1060px, calc(100% - 32px));
+}
+.trip-workspace-overview .trip-tab-list {
+  margin-top: 20px;
+}
+.trip-overview {
+  display: grid;
+  gap: 24px;
+}
+.trip-overview-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 16px;
 }
+.trip-overview-heading h2,
+.overview-empty h3,
+.overview-destination h3 {
+  margin: 0;
+}
+.overview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 360px;
+  padding: 48px 20px;
+  gap: 16px;
+  border: 1px dashed var(--colorNeutralStroke1);
+  border-radius: 16px;
+  background: var(--colorNeutralBackground1);
+}
+.overview-empty > span {
+  max-width: 35ch;
+  color: var(--colorNeutralForeground2);
+  line-height: 1.6;
+}
+.overview-empty > button {
+  margin-top: 8px;
+}
+.overview-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  margin-bottom: 8px;
+}
+.overview-destinations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.overview-destination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 12px;
+  background: var(--colorNeutralBackground1);
+}
+.overview-destination-number {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  font-weight: 600;
+}
+.overview-destination-details {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.overview-destination-details > span {
+  color: var(--colorNeutralForeground2);
+}
+.overview-activities-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  width: 100%;
+  color: var(--colorBrandForegroundLink);
+  text-decoration: none;
+}
+.overview-activities-link:hover {
+  text-decoration: underline;
+}
+.overview-load-error {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+}
+.destination-drawer {
+  width: min(100vw, 460px) !important;
+  max-width: 100vw;
+}
+.destination-drawer-form,
+.destination-drawer-fields {
+  display: grid;
+  gap: 24px;
+}
+.destination-drawer-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.destination-drawer-description {
+  line-height: 1.6;
+  color: var(--colorNeutralForeground2);
+}
+.destination-drawer-dates {
+  display: grid;
+  gap: 20px;
+}
+.destination-drawer-footer {
+  justify-content: flex-end;
+  gap: 12px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+@media (min-width: 600px) {
+  .trip-page-header,
+  .trip-workspace-overview .trip-tab-list,
+  .trip-workspace-overview .trip-page-content {
+    width: min(1060px, calc(100% - 48px));
+  }
+  .overview-activities-link {
+    width: auto;
+  }
+  .destination-drawer-dates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.trip-breadcrumbs {
+  padding-top: 8px;
+}
+.trip-breadcrumbs ol {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.trip-breadcrumbs li {
+  min-width: 0;
+  max-width: 100%;
+}
+.trip-breadcrumbs a,
+.trip-breadcrumbs [aria-current="page"] {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.trip-breadcrumbs a {
+  color: var(--colorBrandForegroundLink);
+  text-decoration: none;
+}
+.trip-breadcrumbs a:hover {
+  text-decoration: underline;
+}
+.trip-breadcrumbs [aria-current="page"] {
+  color: var(--colorNeutralForeground2);
+}
+.overview-destination > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.activity-map-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--colorNeutralBackground2);
+  pointer-events: none;
+}
+
+.trip-date-input {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.trip-date-input > .fui-Input {
+  flex: 1;
+  min-width: 0;
+}
+.trip-date-input > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.trip-calendar {
+  width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 12px;
+}
+.trip-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.trip-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+.trip-calendar-weekday {
+  text-align: center;
+  font-size: 12px;
+  color: var(--colorNeutralForeground2);
+  padding-bottom: 8px;
+}
+.trip-calendar-day {
+  position: relative;
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground1);
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 0 8px;
+}
+.trip-calendar-day:hover {
+  outline: 1px solid var(--colorBrandStroke1);
+}
+.trip-calendar-day:focus-visible {
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 1px;
+}
+.trip-calendar-day[aria-pressed="true"] {
+  border: 2px solid var(--colorBrandStroke1);
+  font-weight: 700;
+}
+.trip-calendar-day:disabled {
+  color: var(--colorNeutralForegroundDisabled);
+  cursor: default;
+}
+.trip-calendar-range-marks {
+  position: absolute;
+  bottom: 3px;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  gap: 1px;
+}
+.trip-calendar-range-marks i {
+  height: 3px;
+  flex: 1;
+}
+.trip-calendar-legend {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--colorNeutralStroke2);
+  max-height: 180px;
+  overflow-y: auto;
+}
+.trip-calendar-legend:empty {
+  display: none;
+}
+.trip-calendar-legend li {
+  display: flex;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+}
+.trip-calendar-legend li > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.trip-calendar-legend li span {
+  display: grid;
+  gap: 2px;
+}
+.trip-calendar-legend small,
+.trip-calendar-empty {
+  color: var(--colorNeutralForeground2);
+  font-size: 12px;
+}
+.activity-tab-label {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  max-width: 280px;
+  white-space: normal;
+}
+.activity-tab-label small {
+  font-weight: 400;
+  color: var(--colorNeutralForeground2);
+  font-size: 12px;
+}
+.activity-table-wrap {
+  position: relative;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.activity-table {
+  min-width: 460px;
+}
+.activity-table-section {
+  min-width: 0;
+}
+.activity-table-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 20px;
+}
+.activity-table-heading h2 {
+  margin: 0;
+}
+.activity-empty {
+  display: block;
+  padding: 24px 0;
+  color: var(--colorNeutralForeground2);
+}
+.activity-drawer {
+  width: min(100vw, 540px) !important;
+  max-width: 100vw;
+}
+.activity-drawer .activity-editor,
+.activity-drawer .activity-composer {
+  padding: 20px 0;
+  border: 0;
+  background: transparent;
+}
+.activity-drawer-fields {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.activity-drawer-footer {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+.activity-drawer .fui-TabList {
+  flex-wrap: wrap;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.activity-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.activity-table td > button,
+.activity-drawer button {
+  min-height: 44px;
+}
+
+.activity-state-picker { display: grid; gap: 6px; align-content: start; }
+.activity-state-picker > span { font-weight: 600; }
