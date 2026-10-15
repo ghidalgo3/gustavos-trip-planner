@@ -91,6 +91,7 @@ export function formatCityLabel(label: string, countryCode?: string): string {
 export type Trip = {
   id: string;
   ownerUserId: string;
+  canPlan?: boolean;
   name: string;
   description: string;
   constraints: Record<string, unknown>;
@@ -266,6 +267,7 @@ export async function searchPlaces(
   query: string,
   signal?: AbortSignal,
   center?: [number, number],
+  countryCode?: string,
 ): Promise<(CitySuggestion & { name?: string })[]> {
   const parameters = new URLSearchParams({
     "api-version": "1.0",
@@ -275,12 +277,14 @@ export async function searchPlaces(
   if (center) {
     parameters.set("lon", String(center[0]));
     parameters.set("lat", String(center[1]));
+    parameters.set("radius", "50000");
   }
+  if (countryCode) parameters.set("countrySet", countryCode.toUpperCase());
   const result = await mapsRequest<{
     results?: {
       id?: string;
       poi?: { name?: string };
-      address?: { freeformAddress?: string };
+      address?: { freeformAddress?: string; countryCode?: string };
       position?: { lon?: number; lat?: number };
     }[];
   }>("search/poi/json", parameters, signal);
@@ -288,6 +292,22 @@ export async function searchPlaces(
     const longitude = place.position?.lon;
     const latitude = place.position?.lat;
     const name = place.poi?.name;
+    if (
+      longitude === undefined ||
+      latitude === undefined ||
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      Math.abs(longitude) > 180 ||
+      Math.abs(latitude) > 90
+    )
+      return [];
+    if (
+      countryCode &&
+      place.address?.countryCode?.toUpperCase() !== countryCode.toUpperCase()
+    )
+      return [];
+    if (center && placeDistanceKm(center, [longitude, latitude]) > 50)
+      return [];
     const label = [name, place.address?.freeformAddress]
       .filter(Boolean)
       .join(", ");
@@ -303,6 +323,19 @@ export async function searchPlaces(
         ]
       : [];
   });
+}
+
+function placeDistanceKm(
+  [longitude, latitude]: [number, number],
+  [targetLongitude, targetLatitude]: [number, number],
+) {
+  const radians = (degrees: number) => (degrees * Math.PI) / 180;
+  const a =
+    Math.sin(radians(targetLatitude - latitude) / 2) ** 2 +
+    Math.cos(radians(latitude)) *
+      Math.cos(radians(targetLatitude)) *
+      Math.sin(radians(targetLongitude - longitude) / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
 }
 
 export async function saveUserProfile(

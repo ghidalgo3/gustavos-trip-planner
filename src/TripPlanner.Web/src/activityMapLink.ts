@@ -17,6 +17,6 @@ export function activityMapLink(
   const coordinates = `${latitude},${longitude}`;
   const apple = /iPhone|iPad|iPod|Macintosh/.test(userAgent);
   if (apple)
-    return `https://maps.apple.com/?${new URLSearchParams({ ll: coordinates, q: name })}`;
-  return `https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query: coordinates })}`;
+    return `https://maps.apple.com/?${new URLSearchParams({ daddr: coordinates, q: name })}`;
+  return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: "1", destination: coordinates, dir_action: "navigate" })}`;
 }

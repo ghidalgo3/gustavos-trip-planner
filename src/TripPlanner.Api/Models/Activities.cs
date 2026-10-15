@@ -49,6 +49,7 @@ public sealed record DestinationProperties(
     bool IsActive = true
 )
 {
+    public GeoJsonFeature<StayLocationProperties>? StayLocation { get; init; }
     public JsonElement Constraints { get; init; } = JsonSerializer.SerializeToElement(new { });
 }
 

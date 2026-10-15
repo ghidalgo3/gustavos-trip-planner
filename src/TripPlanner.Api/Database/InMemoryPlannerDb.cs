@@ -18,6 +18,12 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         trip.OwnerUserId == viewerUserId
         || _parties.Values.Any(p => p.TripId == trip.Id && p.UserIds.Contains(viewerUserId));
 
+    private bool CanPlanTrip(Guid userId, Trip trip) =>
+        trip.OwnerUserId == userId
+        || _parties.Values.Any(p =>
+            p.TripId == trip.Id && p.UserIds.Contains(userId) && p.RoleFor(userId) == "Planner"
+        );
+
     public Task<Trip?> GetVisibleTripAsync(
         Guid viewerUserId,
         Guid tripId,
@@ -65,7 +71,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         cancellationToken.ThrowIfCancellationRequested();
         lock (_tripLock)
         {
-            if (!_trips.TryGetValue(tripId, out var trip) || trip.OwnerUserId != ownerUserId)
+            if (!_trips.TryGetValue(tripId, out var trip) || !CanPlanTrip(ownerUserId, trip))
                 return Task.FromResult<Trip?>(null);
             var updated = trip with
             {
@@ -128,7 +134,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
     {
         cancellationToken.ThrowIfCancellationRequested();
         _trips.TryGetValue(tripId, out Trip? trip);
-        return Task.FromResult(trip?.OwnerUserId == ownerUserId ? trip : null);
+        return Task.FromResult(trip is not null && CanPlanTrip(ownerUserId, trip) ? trip : null);
     }
 
     public Task<Trip> CreateTripAsync(
@@ -174,7 +180,7 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
         {
             if (
                 !_trips.TryGetValue(tripId, out Trip? existing)
-                || existing.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, existing)
             )
             {
                 return Task.FromResult<Trip?>(null);
@@ -207,6 +213,8 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             }
 
             _trips.TryRemove(tripId, out _);
+            foreach (var key in _stayLocations.Keys.Where(key => key.TripId == tripId).ToArray())
+                _stayLocations.Remove(key);
             foreach (var key in _selectedFlights.Keys.Where(key => key.TripId == tripId).ToArray())
                 _selectedFlights.Remove(key);
             foreach (var key in _flightChoices.Keys.Where(key => key.TripId == tripId).ToArray())

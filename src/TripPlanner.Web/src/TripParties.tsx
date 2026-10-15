@@ -38,8 +38,8 @@ export default function TripParties({
     setParties(await getTripParties(tripId));
   }
   return (
-    <section className="trip-parties" aria-label="Trip travelers">
-      <Title2 as="h2">Travelers</Title2>
+    <section className="trip-parties" aria-label="Trip party">
+      <Title2 as="h2">Party</Title2>
       {error ? (
         <>
           <Text role="alert">{error}</Text>
@@ -54,7 +54,14 @@ export default function TripParties({
           readOnly ? (
             <div key={party.id}>
               <strong>Party {index + 1}</strong>
-              <p>{party.members.map((member) => member.name).join(", ")}</p>
+              <p>
+                {party.members
+                  .map(
+                    (member) =>
+                      `${member.name} · ${member.role ?? "Traveller"}`,
+                  )
+                  .join(", ")}
+              </p>
             </div>
           ) : (
             <PartySelector

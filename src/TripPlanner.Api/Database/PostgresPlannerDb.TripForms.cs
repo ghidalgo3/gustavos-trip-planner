@@ -23,7 +23,7 @@ public sealed partial class PostgresPlannerDb
             """
             INSERT INTO operations(id, user_id, resource_id, type, status, items)
             SELECT $1, $2, $3, 'tripFormFill', 'pending', 1
-            FROM trips WHERE id=$3 AND owner_user_id=$2
+            FROM trips WHERE id=$3 AND can_plan_trip(id, $2)
             ON CONFLICT (id) DO NOTHING;
             """,
             connection,
@@ -186,7 +186,7 @@ public sealed partial class PostgresPlannerDb
             JOIN operations o ON o.id=j.operation_id
             JOIN trips t ON t.id=o.resource_id
             WHERE j.operation_id=$1 AND o.user_id=$2 AND o.resource_id=$3
-              AND t.owner_user_id=$2 AND o.status='Completed';
+              AND can_plan_trip(t.id, $2) AND o.status='Completed';
             """
         );
         command.Parameters.AddWithValue(operationId);

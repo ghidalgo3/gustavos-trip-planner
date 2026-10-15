@@ -1,5 +1,11 @@
 import { StrictMode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -313,117 +319,160 @@ test("autocompletes and saves the user's home city", async () => {
   );
 });
 
-test("loads a trip from its route and returns to the trips page", async () => {
-  const userId = "d8612b89-4343-4a30-aed4-6b7f2f8c8123";
-  const trip = {
-    id: "trip-1",
-    ownerUserId: userId,
-    name: "Paris spring",
-    description: "",
-    constraints: {},
-    createdAt: "2030-01-01T00:00:00Z",
-    updatedAt: "2030-01-01T00:00:00Z",
-  };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.endsWith("/user"))
-        return {
-          ok: true,
-          json: async () => ({
-            isAuthenticated: true,
-            completedOnboarding: true,
-            id: userId,
-            name: "Ada Traveler",
-            profile: {
-              homeCity: { name: "Boston", longitude: -71, latitude: 42 },
-              preferredAirlines: [],
-            },
-          }),
-        };
-      if (url.endsWith(`/user/${userId}/trips/trip-1`))
-        return { ok: true, json: async () => trip };
-      if (url.endsWith("/trips/trip-1/destinations"))
-        return {
-          ok: true,
-          json: async () => ({
-            type: "FeatureCollection",
-            features: [],
-            route: [],
-          }),
-        };
-      if (url.endsWith("/trips/trip-1/flights"))
-        return { ok: true, status: 204 };
-      if (url.endsWith("/trips/trip-1/flights/constraints"))
-        return {
-          ok: true,
-          json: async () => ({
-            document: {
-              schemaVersion: 1,
-              travelDates: null,
-              destination: null,
-              parties: [],
-              constraints: [],
-            },
-          }),
-        };
-      if (url.endsWith("/trips/trip-1/parties"))
-        return {
-          ok: true,
-          json: async () => [
-            { id: "party-1", members: [{ id: userId, name: "Ada" }] },
-          ],
-        };
-      if (url.endsWith(`/user/${userId}/trips`))
-        return { ok: true, json: async () => [trip] };
-      if (url.includes("/operations?"))
-        return { ok: true, json: async () => [] };
-      throw new Error(`Unexpected request: ${url}`);
-    }),
-  );
+test.each([false, true])(
+  "owner or planner can navigate planning and Party sections, planner=%s",
+  async (planner) => {
+    const userId = "d8612b89-4343-4a30-aed4-6b7f2f8c8123";
+    const trip = {
+      id: "trip-1",
+      ownerUserId: planner ? "different-owner" : userId,
+      canPlan: planner,
+      name: "Paris spring",
+      description: "A spring getaway in Paris.",
+      constraints: {},
+      createdAt: "2030-01-01T00:00:00Z",
+      updatedAt: "2030-01-01T00:00:00Z",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.endsWith("/user"))
+          return {
+            ok: true,
+            json: async () => ({
+              isAuthenticated: true,
+              completedOnboarding: true,
+              id: userId,
+              name: "Ada Traveler",
+              profile: {
+                homeCity: { name: "Boston", longitude: -71, latitude: 42 },
+                preferredAirlines: [],
+              },
+            }),
+          };
+        if (url.endsWith(`/user/${userId}/trips/trip-1`))
+          return { ok: true, json: async () => trip };
+        if (url.endsWith("/trips/trip-1/destinations"))
+          return {
+            ok: true,
+            json: async () => ({
+              type: "FeatureCollection",
+              features: [],
+              route: [],
+            }),
+          };
+        if (url.endsWith("/trips/trip-1/flights"))
+          return { ok: true, status: 204 };
+        if (url.endsWith("/trips/trip-1/flights/constraints"))
+          return {
+            ok: true,
+            json: async () => ({
+              document: {
+                schemaVersion: 1,
+                travelDates: null,
+                destination: null,
+                parties: [],
+                constraints: [],
+              },
+            }),
+          };
+        if (url.endsWith("/trips/trip-1/parties"))
+          return {
+            ok: true,
+            json: async () => [
+              { id: "party-1", members: [{ id: userId, name: "Ada" }] },
+            ],
+          };
+        if (url.endsWith(`/user/${userId}/trips`))
+          return { ok: true, json: async () => [trip] };
+        if (url.includes("/operations?"))
+          return { ok: true, json: async () => [] };
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
 
-  function LocationProbe() {
-    const location = useLocation();
-    return <output data-testid="route">{location.pathname}</output>;
-  }
+    function LocationProbe() {
+      const location = useLocation();
+      return <output data-testid="route">{location.pathname}</output>;
+    }
 
-  render(
-    <FluentProvider theme={webLightTheme}>
-      <MemoryRouter initialEntries={["/trips/trip-1"]}>
-        <LocationProbe />
-        <App />
-      </MemoryRouter>
-    </FluentProvider>,
-  );
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <MemoryRouter initialEntries={["/trips/trip-1"]}>
+          <LocationProbe />
+          <App />
+        </MemoryRouter>
+      </FluentProvider>,
+    );
 
-  expect(
-    await screen.findByRole("heading", { name: "Paris spring" }),
-  ).toBeVisible();
-  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
-  fireEvent.click(screen.getByRole("link", { name: "Trips" }));
-  expect(
-    await screen.findByRole("heading", { name: "Welcome back, Ada Traveler." }),
-  ).toBeVisible();
-  expect(screen.getByTestId("route")).toHaveTextContent("/");
-  fireEvent.click(
-    screen.getByRole("link", { name: "Open trip: Paris spring" }),
-  );
-  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
-  expect(await screen.findByRole("tab", { name: "Overview" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  expect(
-    await screen.findByRole("heading", { name: "Your trip starts here" }),
-  ).toBeVisible();
-  expect(
-    screen.queryByRole("tab", { name: "Flights" }),
-  ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("tab", { name: "Activities" }));
-  expect(screen.getByTestId("route")).toHaveTextContent(
-    "/trips/trip-1/activities",
-  );
-  fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-  expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
-});
+    expect(
+      await screen.findByRole("heading", { name: "Paris spring" }),
+    ).toBeVisible();
+    expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
+    expect(
+      screen.queryByText("A spring getaway in Paris."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("navigation", { name: "Breadcrumb" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Trips" }),
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "Overview" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      await screen.findByRole("heading", { name: "Your trip starts here" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Add destination" }),
+    ).toBeEnabled();
+    const navigation = screen.getByRole("navigation", {
+      name: "Trip sections",
+    });
+    fireEvent.click(
+      within(navigation).getByRole("link", { name: "Activities" }),
+    );
+    expect(screen.getByTestId("route")).toHaveTextContent(
+      "/trips/trip-1/activities",
+    );
+    expect(
+      within(navigation).getByRole("link", { name: "Activities" }),
+    ).toHaveAttribute("aria-current", "page");
+    fireEvent.click(within(navigation).getByRole("link", { name: "Flights" }));
+    expect(screen.getByTestId("route")).toHaveTextContent(
+      "/trips/trip-1/flights",
+    );
+    expect(
+      within(navigation).getByRole("link", { name: "Flights" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      within(navigation).getByRole("link", { name: "Activities" }),
+    ).not.toHaveAttribute("aria-current");
+    fireEvent.click(within(navigation).getByRole("link", { name: "Party" }));
+    expect(screen.getByTestId("route")).toHaveTextContent(
+      "/trips/trip-1/party",
+    );
+    expect(await screen.findByRole("heading", { name: "Party" })).toBeVisible();
+    if (planner)
+      expect(
+        screen.queryByRole("combobox", { name: "Add traveler" }),
+      ).not.toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("link", { name: "Party" }),
+    ).toHaveAttribute("aria-current", "page");
+    fireEvent.click(within(navigation).getByRole("link", { name: "Overview" }));
+    expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
+    expect(
+      screen.queryByRole("region", { name: "Trip party" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "Trip Planner" }));
+    expect(screen.getByTestId("route")).toHaveTextContent("/");
+    expect(
+      await screen.findByRole("heading", {
+        name: "Welcome back, Ada Traveler.",
+      }),
+    ).toBeVisible();
+  },
+);

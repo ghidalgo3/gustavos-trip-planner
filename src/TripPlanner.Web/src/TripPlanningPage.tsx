@@ -1,21 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { Button, Spinner, Text, Title1 } from "@fluentui/react-components";
+import { NavLink, useNavigate, useParams } from "react-router";
 import {
-  Button,
-  Spinner,
-  Tab,
-  TabList,
-  Text,
-  Title1,
-} from "@fluentui/react-components";
-import { useNavigate, useParams } from "react-router";
+  Airplane24Regular,
+  Home24Regular,
+  Map24Regular,
+  People24Regular,
+} from "@fluentui/react-icons";
 import { getTrip, type Trip } from "./api";
 import ActivityPlanning from "./ActivityPlanning";
 import TripPlanning from "./TripPlanning";
 import PlansOverview from "./PlansOverview";
 import TripOverview from "./TripOverview";
 import TripParties from "./TripParties";
-import TripBreadcrumbs from "./TripBreadcrumbs";
-import type { Destination } from "./activitiesApi";
 
 export default function TripPlanningPage({
   userId,
@@ -31,23 +28,11 @@ export default function TripPlanningPage({
   const activeTab =
     section === "activities"
       ? "activities"
-      : section === "flights"
-        ? "flights"
-        : "overview";
-  const [activeDestination, setActiveDestination] = useState<{
-    tripId: string;
-    name: string;
-  }>();
-  const onDestinationChange = useCallback(
-    (destination: Destination | undefined) => {
-      setActiveDestination(
-        destination && tripId
-          ? { tripId, name: destination.properties.name }
-          : undefined,
-      );
-    },
-    [tripId],
-  );
+      : section === "party"
+        ? "party"
+        : section === "flights"
+          ? "flights"
+          : "overview";
   const [loaded, setLoaded] = useState<{
     tripId: string;
     trip?: Trip;
@@ -82,75 +67,92 @@ export default function TripPlanningPage({
     );
   if (!current?.trip) return <Spinner label="Loading trip" />;
   const trip = current.trip;
-  const readOnly = trip.ownerUserId !== userId;
+  const readOnly = trip.ownerUserId !== userId && !trip.canPlan;
 
   return (
-    <div className="trip-workspace trip-workspace-overview">
+    <div
+      className={`trip-workspace trip-workspace-overview${activeTab === "activities" ? " trip-workspace-activities" : ""}`}
+    >
       <header className="trip-page-header">
-        <TripBreadcrumbs
-          trip={trip}
-          section={activeTab}
-          destinationName={
-            activeTab === "activities" && activeDestination?.tripId === trip.id
-              ? activeDestination.name
-              : undefined
-          }
-        />
         <div className="trip-page-title">
           <Title1 as="h1">{trip.name}</Title1>
-          {trip.description && <Text>{trip.description}</Text>}
           {readOnly && <Text size={200}>Shared with you · View only</Text>}
         </div>
+        <nav className="trip-navigation" aria-label="Trip sections">
+          <NavLink
+            to={`/trips/${encodeURIComponent(trip.id)}`}
+            end
+            aria-label="Overview"
+            title="Overview"
+          >
+            <Home24Regular aria-hidden="true" />
+            <span>Overview</span>
+          </NavLink>
+          <NavLink
+            to={`/trips/${encodeURIComponent(trip.id)}/activities`}
+            aria-label="Activities"
+            title="Activities"
+          >
+            <Map24Regular aria-hidden="true" />
+            <span>Activities</span>
+          </NavLink>
+          <NavLink
+            to={`/trips/${encodeURIComponent(trip.id)}/flights`}
+            aria-label="Flights"
+            title="Flights"
+          >
+            <Airplane24Regular aria-hidden="true" />
+            <span>Flights</span>
+          </NavLink>
+          <NavLink
+            to={`/trips/${encodeURIComponent(trip.id)}/party`}
+            aria-label="Party"
+            title="Party"
+          >
+            <People24Regular aria-hidden="true" />
+            <span>Party</span>
+          </NavLink>
+        </nav>
       </header>
-      <TabList
-        className="trip-tab-list"
-        aria-label="Trip sections"
-        selectedValue={activeTab}
-        onTabSelect={(_, data) => {
-          if (data.value !== activeTab)
-            navigate(
-              `/trips/${encodeURIComponent(trip.id)}${data.value === "activities" ? "/activities" : ""}`,
-            );
-        }}
-      >
-        <Tab value="overview">Overview</Tab>
-        <Tab value="activities">Activities</Tab>
-      </TabList>
-      <div className="planning-page trip-page-content">
-        {activeTab === "flights" ? (
-          readOnly ? (
-            <PlansOverview
-              trip={trip}
+      <div className="trip-page-body">
+        <div className="planning-page trip-page-content">
+          {activeTab === "flights" ? (
+            readOnly ? (
+              <PlansOverview
+                trip={trip}
+                userId={userId}
+                readOnly
+                onFindFlights={() => {}}
+              />
+            ) : (
+              <TripPlanning
+                backLabel="Back to Overview"
+                trip={trip}
+                onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
+              />
+            )
+          ) : activeTab === "party" ? (
+            <TripParties
+              tripId={trip.id}
               userId={userId}
-              readOnly
-              onFindFlights={() => {}}
+              readOnly={trip.ownerUserId !== userId}
             />
-          ) : (
-            <TripPlanning
-              backLabel="Back to Overview"
-              trip={trip}
-              onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
-            />
-          )
-        ) : activeTab === "overview" ? (
-          <>
+          ) : activeTab === "overview" ? (
             <TripOverview
               key={trip.id}
               trip={trip}
               readOnly={readOnly}
               homeCity={homeCity}
             />
-            <TripParties tripId={trip.id} userId={userId} readOnly={readOnly} />
-          </>
-        ) : (
-          <ActivityPlanning
-            key={trip.id}
-            trip={trip}
-            readOnly={readOnly}
-            featureFlags={featureFlags}
-            onDestinationChange={onDestinationChange}
-          />
-        )}
+          ) : (
+            <ActivityPlanning
+              key={trip.id}
+              trip={trip}
+              readOnly={readOnly}
+              featureFlags={featureFlags}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

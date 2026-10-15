@@ -36,7 +36,9 @@ public static class ActivityEndpoints
         destinations
             .MapPost("/{destinationCity}:import", ImportImage)
             .WithName("ImportDestinationActivities")
-            .WithMetadata(new RequestSizeLimitAttribute(11_000_000));
+            .WithMetadata(
+                new RequestSizeLimitAttribute(ActivityImagePayload.MaxTotalBytes + 1_000_000)
+            );
         destinations
             .MapGet("/{destinationCity}/suggestions/{operationId:guid}", GetSuggestionResult)
             .WithName("GetDestinationActivitySuggestions");
@@ -462,33 +464,52 @@ public static class ActivityEndpoints
         );
         if (authorizationError is not null)
             return authorizationError;
-        if (context.Request.ContentLength is > 11_000_000)
+        if (context.Request.ContentLength > ActivityImagePayload.MaxTotalBytes + 1_000_000)
             return Results.StatusCode(413);
         if (!context.Request.HasFormContentType)
             return Results.BadRequest(new { title = "Send a multipart image upload." });
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
         if (!Guid.TryParse(form["requestId"], out var requestId))
             return Results.BadRequest(new { title = "A request ID is required." });
-        IFormFile? file = form.Files.GetFile("image");
-        if (file is null || file.Length is <= 0 or > 10_000_000)
-            return Results.StatusCode(413);
-        await using var stream = file.OpenReadStream();
-        using var buffer = new MemoryStream();
-        await stream.CopyToAsync(buffer, context.RequestAborted);
-        byte[] bytes = buffer.ToArray();
-        string? mime = DetectImage(bytes);
-        if (mime is null)
-            return Results.StatusCode(415);
-        if (!AcceptableImageDimensions(bytes, mime))
+        var files = form.Files.Where(file => file.Name is "image" or "images").ToArray();
+        if (files.Length is < 1 or > ActivityImagePayload.MaxImages)
             return Results.BadRequest(
-                new { title = "The image exceeds 20 megapixels or has invalid dimensions." }
+                new { title = $"Choose between 1 and {ActivityImagePayload.MaxImages} images." }
             );
+        if (
+            files.Any(file => file.Length <= 0 || file.Length > ActivityImagePayload.MaxImageBytes)
+            || files.Sum(file => file.Length) > ActivityImagePayload.MaxTotalBytes
+        )
+            return Results.Json(
+                new { title = "Images must be at most 10 MB each and 25 MB in total." },
+                statusCode: 413
+            );
+        var images = new List<ActivityImage>();
+        foreach (var file in files)
+        {
+            await using var stream = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, context.RequestAborted);
+            byte[] bytes = buffer.ToArray();
+            string? mime = DetectImage(bytes);
+            if (mime is null)
+                return Results.StatusCode(415);
+            if (!AcceptableImageDimensions(bytes, mime))
+                return Results.BadRequest(
+                    new
+                    {
+                        title = "Each image must have valid dimensions and be at most 20 megapixels.",
+                    }
+                );
+            images.Add(new(mime, bytes));
+        }
+        var payload = ActivityImagePayload.Encode(images);
         return await StartJob(
             tripId,
             destinationCity,
             new(requestId, form["input"].ToString(), form["destinationContext"].ToString()),
-            bytes,
-            mime,
+            payload.Data,
+            payload.MimeType,
             context,
             database,
             service,

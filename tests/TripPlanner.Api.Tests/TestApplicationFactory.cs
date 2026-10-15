@@ -20,6 +20,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public IActivityAssistant? ActivityAssistant { get; set; }
     public ICityPlaceResolver? CityResolver { get; set; }
     public IActivityPlaceResolver? ActivityPlaceResolver { get; set; }
+    public IActivityVenueResearch? ActivityVenueResearch { get; set; }
     public MapToken? MapTokenOverride { get; set; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -41,6 +42,10 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMapTokenProvider>();
             services.RemoveAll<ICityPlaceResolver>();
             services.RemoveAll<IActivityPlaceResolver>();
+            services.RemoveAll<IActivityVenueResearch>();
+            services.AddSingleton<IActivityVenueResearch>(
+                ActivityVenueResearch ?? new NoVenueResearch()
+            );
             services.AddSingleton<ICityPlaceResolver>(CityResolver ?? new TestCityPlaceResolver());
             services.AddSingleton<IActivityPlaceResolver>(
                 ActivityPlaceResolver ?? new TestActivityPlaceResolver()
@@ -103,6 +108,18 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             Task.FromResult<TripPlanner.Api.Models.GeoJsonPoint?>(
                 new("Point", city == "Paris" ? [2.3522, 48.8566] : [12.4964, 41.9028])
             );
+    }
+
+    private sealed class NoVenueResearch : IActivityVenueResearch
+    {
+        public Task<ActivityVenue?> FindAsync(
+            TripPlanner.Api.Models.ActivityCandidate activity,
+            string city,
+            string countryCode,
+            IReadOnlyList<TripPlanner.Api.Models.DestinationStay> stays,
+            CancellationToken cancellationToken,
+            string userPrompt = ""
+        ) => Task.FromResult<ActivityVenue?>(null);
     }
 
     private sealed class TestActivityPlaceResolver : IActivityPlaceResolver

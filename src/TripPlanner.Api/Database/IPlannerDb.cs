@@ -8,6 +8,19 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb
 {
+    Task<IReadOnlyDictionary<string, GeoJsonFeature<StayLocationProperties>>> GetStayLocationsAsync(
+        Guid userId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> SaveStayLocationAsync(
+        Guid userId,
+        Guid tripId,
+        string cityId,
+        GeoJsonFeature<StayLocationProperties>? feature,
+        CancellationToken cancellationToken = default
+    );
+
     Task<DestinationPlace?> GetDestinationPlaceAsync(
         Guid viewerUserId,
         Guid tripId,
@@ -232,7 +245,8 @@ public interface IPlannerDb
         Guid partyId,
         Guid memberUserId,
         bool add,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        string role = "Traveller"
     );
 
     Task<IReadOnlyList<Party>> GetPartiesAsync(

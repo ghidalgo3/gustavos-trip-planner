@@ -45,11 +45,13 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 ## UI Practices
 
 - Mobile UI is the primary design target. Design for small screens.
+- Button should always have a border or different background color to signal to the user on mobile that this is a button.
 
 ## Test practices
 
 - Tests should verify the code satisfy a requirement, not simply branch coverage.
 - Where possible, write parametrized tests instead of more test functions.
+- Use color to attract the user's attention to unfinished actions or next steps. Once an action is complete, you may remove color from an element.
 
 ## Database practices
 

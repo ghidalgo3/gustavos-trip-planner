@@ -24,6 +24,8 @@ public sealed record TripResponse(
     DateTimeOffset UpdatedAt
 )
 {
+    public bool CanPlan { get; init; }
+
     public static TripResponse From(Models.Trip trip) =>
         new(
             trip.Id,

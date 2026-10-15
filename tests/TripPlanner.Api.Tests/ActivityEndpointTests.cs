@@ -12,6 +12,75 @@ namespace TripPlanner.Api.Tests;
 public class ActivityEndpointTests
 {
     [TestMethod]
+    public async Task StayLocation_IsSeparateFromActivitiesAndSurvivesDestinationEdits()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        await AddDestinations(client, trip, false);
+        string destinationUrl = $"/trips/{trip.Id}/destinations/paris-fr";
+        var request = new StayLocationRequest(
+            "Feature",
+            new("Point", [2.34, 48.86]),
+            new("Paris Hotel")
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (await client.PutAsJsonAsync($"{destinationUrl}/stay", request)).StatusCode
+        );
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl)
+        )!;
+        Assert.AreEqual("Paris Hotel", destination.Properties.StayLocation!.Properties.Name);
+        Assert.AreEqual("stay", destination.Properties.StayLocation.Id);
+        Assert.IsEmpty(
+            (
+                await client.GetFromJsonAsync<GeoJsonCollection<ActivityProperties>>(
+                    $"{destinationUrl}/activities"
+                )
+            )!.Features
+        );
+        await client.PutAsJsonAsync(
+            destinationUrl,
+            new ReplaceDestinationRequest(
+                "Feature",
+                destination.Id,
+                destination.Geometry,
+                new(
+                    "Paris",
+                    "FR",
+                    Constraints: JsonSerializer.SerializeToElement(new { budget = 100 })
+                )
+            )
+        );
+        destination = (
+            await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl)
+        )!;
+        Assert.AreEqual("Paris Hotel", destination.Properties.StayLocation!.Properties.Name);
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PutAsJsonAsync(
+                    $"{destinationUrl}/stay",
+                    request with
+                    {
+                        Geometry = new("Point", [181, 48]),
+                    }
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteAsync($"{destinationUrl}/stay")).StatusCode
+        );
+        Assert.IsNull(
+            (await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl))!
+                .Properties
+                .StayLocation
+        );
+    }
+
+    [TestMethod]
     public async Task DestinationFeatureCrud_PreservesStaysAndActivitiesWhileReplacingPlaceConstraints()
     {
         await using var factory = new TestApplicationFactory();
@@ -397,7 +466,14 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
-    public async Task ImageImport_RejectsUnknownFilesAndCreatesProposedActivity()
+    [DataRow(1, 24)]
+    [DataRow(2, 24)]
+    [DataRow(10, 24)]
+    [DataRow(2, 6_000_000)]
+    public async Task ImageImport_RejectsUnknownFilesAndCreatesProposedActivity(
+        int imageCount,
+        int imageBytes
+    )
     {
         var assistant = new StubAssistant();
         await using var factory = new TestApplicationFactory { ActivityAssistant = assistant };
@@ -451,12 +527,53 @@ public class ActivityEndpointTests
             10,
         ];
         Guid requestId = Guid.NewGuid();
-        using (var form = ImageForm(requestId, destination.Properties.ContextVersion, image))
+        using (
+            var invalidBatch = ImageForm(
+                Guid.NewGuid(),
+                destination.Properties.ContextVersion,
+                image
+            )
+        )
+        {
+            invalidBatch.Add(new ByteArrayContent([1, 2, 3]), "images", "invalid.png");
+            Assert.AreEqual(
+                HttpStatusCode.UnsupportedMediaType,
+                (await client.PostAsync(url, invalidBatch)).StatusCode
+            );
+        }
+        using (
+            var tooMany = ImageForm(
+                Guid.NewGuid(),
+                destination.Properties.ContextVersion,
+                image,
+                11
+            )
+        )
+            Assert.AreEqual(
+                HttpStatusCode.BadRequest,
+                (await client.PostAsync(url, tooMany)).StatusCode
+            );
+        Array.Resize(ref image, imageBytes);
+        using (
+            var form = ImageForm(
+                requestId,
+                destination.Properties.ContextVersion,
+                image,
+                imageCount
+            )
+        )
             Assert.AreEqual(
                 HttpStatusCode.Accepted,
                 (await client.PostAsync(url, form)).StatusCode
             );
-        using (var retry = ImageForm(requestId, destination.Properties.ContextVersion, image))
+        using (
+            var retry = ImageForm(
+                requestId,
+                destination.Properties.ContextVersion,
+                image,
+                imageCount
+            )
+        )
             Assert.AreEqual(
                 HttpStatusCode.Accepted,
                 (await client.PostAsync(url, retry)).StatusCode
@@ -464,7 +581,31 @@ public class ActivityEndpointTests
         Assert.IsTrue(
             await factory.Services.GetRequiredService<ActivityJobProcessor>().ProcessNextAsync()
         );
-        using (var retry = ImageForm(requestId, destination.Properties.ContextVersion, image))
+        Assert.HasCount(imageCount, assistant.Images);
+        CollectionAssert.AreEqual(image, assistant.Images[0].Data);
+        Assert.IsTrue(assistant.Images.All(item => item.MimeType == "image/png"));
+        byte[] changedImage = [.. image];
+        changedImage[^1]++;
+        using (
+            var changed = ImageForm(
+                requestId,
+                destination.Properties.ContextVersion,
+                changedImage,
+                imageCount
+            )
+        )
+            Assert.AreEqual(
+                HttpStatusCode.Conflict,
+                (await client.PostAsync(url, changed)).StatusCode
+            );
+        using (
+            var retry = ImageForm(
+                requestId,
+                destination.Properties.ContextVersion,
+                image,
+                imageCount
+            )
+        )
             Assert.AreEqual(
                 HttpStatusCode.Accepted,
                 (await client.PostAsync(url, retry)).StatusCode
@@ -481,12 +622,26 @@ public class ActivityEndpointTests
         );
     }
 
-    private static MultipartFormDataContent ImageForm(Guid requestId, string context, byte[] bytes)
+    private static MultipartFormDataContent ImageForm(
+        Guid requestId,
+        string context,
+        byte[] bytes,
+        int count = 1
+    )
     {
         var form = new MultipartFormDataContent();
         form.Add(new StringContent(requestId.ToString("D")), "requestId");
         form.Add(new StringContent(context), "destinationContext");
-        form.Add(new ByteArrayContent(bytes), "image", "flyer.png");
+        for (int index = 0; index < count; index++)
+        {
+            var image = bytes.ToArray();
+            image[^1] += (byte)index;
+            form.Add(
+                new ByteArrayContent(image),
+                count == 1 ? "image" : "images",
+                $"flyer-{index}.png"
+            );
+        }
         return form;
     }
 
@@ -736,21 +891,165 @@ public class ActivityEndpointTests
         Assert.AreEqual(HttpStatusCode.BadRequest, (await client.SendAsync(create)).StatusCode);
     }
 
+    [TestMethod]
+    [DataRow(true, false, false, false, true)]
+    [DataRow(false, true, false, true, true)]
+    [DataRow(false, false, false, true, true)]
+    [DataRow(false, false, true, true, true)]
+    [DataRow(true, false, false, false, false)]
+    [DataRow(false, true, false, true, false)]
+    [DataRow(false, false, false, true, false)]
+    [DataRow(false, false, true, true, false)]
+    public async Task ActivityJobs_ResearchOnlyUnresolvedActivitiesAndRequireMapVerification(
+        bool initiallyResolved,
+        bool verifiesVenue,
+        bool researchFails,
+        bool expectedResearch,
+        bool imageImport
+    )
+    {
+        var research = new StubVenueResearch(researchFails);
+        var resolver = new ResearchPlaceResolver(initiallyResolved, verifiesVenue);
+        await using var factory = new TestApplicationFactory
+        {
+            ActivityAssistant = new StubAssistant(),
+            ActivityPlaceResolver = resolver,
+            ActivityVenueResearch = research,
+        };
+        using var client = factory.CreateClient();
+        (Trip trip, Guid owner, Guid party) = await CreateTrip(client, factory);
+        await factory.Database.SetUserFeatureFlagsAsync(owner, "LLM");
+        await AddDestinations(client, trip, false);
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                $"/trips/{trip.Id}/destinations"
+            )
+        )!.Features.Single();
+        byte[] image =
+        [
+            137,
+            80,
+            78,
+            71,
+            13,
+            10,
+            26,
+            10,
+            0,
+            0,
+            0,
+            13,
+            73,
+            72,
+            68,
+            82,
+            0,
+            0,
+            0,
+            10,
+            0,
+            0,
+            0,
+            10,
+        ];
+        Guid requestId = Guid.NewGuid();
+        using var form = ImageForm(requestId, destination.Properties.ContextVersion, image);
+        using var started = imageImport
+            ? await client.PostAsync($"/trips/{trip.Id}/destinations/{destination.Id}:import", form)
+            : await client.PostAsJsonAsync(
+                $"/trips/{trip.Id}/destinations/{destination.Id}:suggest",
+                new ActivitySuggestionRequest(
+                    requestId,
+                    "Museum",
+                    destination.Properties.ContextVersion
+                )
+            );
+        Assert.AreEqual(HttpStatusCode.Accepted, started.StatusCode);
+        await factory.Services.GetRequiredService<ActivityJobProcessor>().ProcessNextAsync();
+        var result = (
+            await client.GetFromJsonAsync<ActivitySuggestionResult>(
+                $"/trips/{trip.Id}/destinations/{destination.Id}/suggestions/{requestId}"
+            )
+        )!;
+        Assert.HasCount(1, result.Activities.Features);
+        var activity = result.Activities.Features.Single();
+        Assert.AreEqual(expectedResearch ? 1 : 0, research.Calls);
+        if (expectedResearch && !imageImport)
+            Assert.AreEqual("Museum", research.Prompt);
+        Assert.AreEqual(initiallyResolved || verifiesVenue, activity.Geometry is not null);
+        Assert.AreEqual("Museum visit", activity.Properties.Name);
+        Assert.AreEqual("Explore the galleries", activity.Properties.Description);
+        Assert.AreEqual(120, activity.Properties.DurationMinutes);
+        Assert.AreEqual("Proposed", activity.Properties.State);
+        Assert.HasCount(expectedResearch && !researchFails ? 1 : 0, activity.Properties.Links);
+        if (expectedResearch && !researchFails)
+        {
+            Assert.AreEqual("https://museum.test/event", activity.Properties.Links[0].Url);
+            Assert.AreEqual("Grand Museum, 1 Main Street", resolver.LastPlace);
+        }
+        if (!initiallyResolved && !verifiesVenue)
+            Assert.IsTrue(result.Warnings.Any(w => w.Contains("Add a location")));
+    }
+
+    private sealed class StubVenueResearch(bool fails) : IActivityVenueResearch
+    {
+        public int Calls { get; private set; }
+        public string? Prompt { get; private set; }
+
+        public Task<ActivityVenue?> FindAsync(
+            ActivityCandidate activity,
+            string city,
+            string countryCode,
+            IReadOnlyList<DestinationStay> stays,
+            CancellationToken cancellationToken,
+            string userPrompt = ""
+        )
+        {
+            Calls++;
+            Prompt = userPrompt;
+            if (fails)
+                throw new HttpRequestException("Search unavailable");
+            return Task.FromResult<ActivityVenue?>(
+                new("Grand Museum, 1 Main Street", new("https://museum.test/event", "Venue source"))
+            );
+        }
+    }
+
+    private sealed class ResearchPlaceResolver(bool initiallyResolved, bool verifiesVenue)
+        : IActivityPlaceResolver
+    {
+        public string? LastPlace { get; private set; }
+
+        public Task<GeoJsonPoint?> ResolveAsync(
+            string placeName,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken,
+            GeoJsonPoint? center = null
+        )
+        {
+            LastPlace = placeName;
+            bool resolves = placeName == "Museum" ? initiallyResolved : verifiesVenue;
+            return Task.FromResult<GeoJsonPoint?>(resolves ? new("Point", [2.33, 48.86]) : null);
+        }
+    }
+
     private sealed class StubAssistant(string? placeName = "Museum") : IActivityAssistant
     {
         public int Calls { get; private set; }
+        public IReadOnlyList<ActivityImage> Images { get; private set; } = [];
 
         public Task<IReadOnlyList<ActivityCandidate>> SuggestAsync(
             string city,
             string countryCode,
             IReadOnlyList<DestinationStay> stays,
             string input,
-            byte[]? image,
-            string? imageMimeType,
+            IReadOnlyList<ActivityImage> images,
             CancellationToken cancellationToken
         )
         {
             Calls++;
+            Images = images;
             return Task.FromResult<IReadOnlyList<ActivityCandidate>>([
                 new(
                     "Museum visit",

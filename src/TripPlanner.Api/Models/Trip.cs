@@ -18,7 +18,13 @@ public sealed record Trip(
         JsonSerializer.SerializeToElement(new { });
 }
 
-public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds);
+public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds)
+{
+    public IReadOnlyDictionary<Guid, string> MemberRoles { get; init; } =
+        new Dictionary<Guid, string>();
+
+    public string RoleFor(Guid userId) => MemberRoles.GetValueOrDefault(userId, "Traveller");
+}
 
 public sealed record SelectedFlight(
     Guid TripId,

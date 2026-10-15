@@ -16,9 +16,9 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
     {
         await using var command = dataSource.CreateCommand(
             """
-            SELECT p.id, p.trip_id, p.user_ids FROM parties p
+            SELECT p.id, p.trip_id, p.user_ids, p.member_roles::text FROM parties p
             JOIN trips t ON t.id = p.trip_id
-            WHERE t.id = $2 AND (t.owner_user_id = $1 OR EXISTS (
+            WHERE t.id = $2 AND (can_plan_trip(t.id, $1) OR EXISTS (
                 SELECT 1 FROM parties membership
                 WHERE membership.trip_id = t.id AND $1 = ANY(membership.user_ids)
             ))
@@ -30,7 +30,14 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         var parties = new List<Party>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
-            parties.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetFieldValue<Guid[]>(2)));
+            parties.Add(
+                new(reader.GetGuid(0), reader.GetGuid(1), reader.GetFieldValue<Guid[]>(2))
+                {
+                    MemberRoles =
+                        JsonSerializer.Deserialize<Dictionary<Guid, string>>(reader.GetString(3))
+                        ?? [],
+                }
+            );
         return parties;
     }
 
@@ -44,7 +51,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         await using var command = dataSource.CreateCommand(
             """
             UPDATE trips SET flight_constraints = $1, updated_at = now()
-            WHERE owner_user_id = $2 AND id = $3
+            WHERE can_plan_trip(id, $2) AND id = $3
             RETURNING id, owner_user_id, name, description, constraints::text, created_at, updated_at, flight_constraints::text;
             """
         );
@@ -194,7 +201,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 id, owner_user_id, name, description, constraints::text,
                 created_at, updated_at, flight_constraints::text
             FROM trips
-            WHERE owner_user_id = $1 OR EXISTS (
+            WHERE can_plan_trip(id, $1) OR EXISTS (
                 SELECT 1 FROM parties membership
                 WHERE membership.trip_id = trips.id AND $1 = ANY(membership.user_ids)
             )
@@ -223,7 +230,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             """
             SELECT id, owner_user_id, name, description, constraints::text, created_at, updated_at, flight_constraints::text
             FROM trips
-            WHERE id = $2 AND (owner_user_id = $1 OR EXISTS (
+            WHERE id = $2 AND (can_plan_trip(id, $1) OR EXISTS (
                 SELECT 1 FROM parties membership
                 WHERE membership.trip_id = trips.id AND $1 = ANY(membership.user_ids)
             ));
@@ -247,7 +254,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 id, owner_user_id, name, description, constraints::text,
                 created_at, updated_at, flight_constraints::text
             FROM trips
-            WHERE owner_user_id = $1 AND id = $2;
+            WHERE can_plan_trip(id, $1) AND id = $2;
             """
         );
         command.Parameters.AddWithValue(ownerUserId);
@@ -338,7 +345,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             """
             UPDATE trips
             SET name = $1, description = $2, constraints = COALESCE($5, constraints), updated_at = now()
-            WHERE owner_user_id = $3 AND id = $4
+            WHERE can_plan_trip(id, $3) AND id = $4
             RETURNING
                 id, owner_user_id, name, description, constraints::text,
                 created_at, updated_at, flight_constraints::text;

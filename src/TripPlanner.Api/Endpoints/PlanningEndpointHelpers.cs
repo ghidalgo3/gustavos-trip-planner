@@ -25,7 +25,10 @@ internal static class PlanningEndpointHelpers
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
             return (null, user, Results.NotFound());
-        if (ownerOnly && trip.OwnerUserId != user.Id)
+        if (
+            ownerOnly
+            && await database.GetTripAsync(user.Id, tripId, context.RequestAborted) is null
+        )
             return (trip, user, Results.Forbid());
         return (trip, user, null);
     }

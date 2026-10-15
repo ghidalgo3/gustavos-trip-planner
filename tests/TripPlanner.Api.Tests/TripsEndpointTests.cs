@@ -397,6 +397,94 @@ public class TripsEndpointTests
             (await travelerClient.DeleteAsync(sharedTripUrl)).StatusCode
         );
 
+        Assert.AreEqual("Traveller", factory.Database.Parties.Single().RoleFor(traveler.Id!.Value));
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await ownerClient.PutAsJsonAsync(memberUrl, new PartyMemberRequest("Administrator"))
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (
+                await ownerClient.PutAsJsonAsync(memberUrl, new PartyMemberRequest("Planner"))
+            ).StatusCode
+        );
+        Assert.IsTrue(
+            (await travelerClient.GetFromJsonAsync<TripResponse>(sharedTripUrl))!.CanPlan
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (
+                await travelerClient.PutAsJsonAsync($"{destinationsUrl}/paris-fr", replacement)
+            ).StatusCode
+        );
+        var plannerDestination = (
+            await travelerClient.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                destinationsUrl
+            )
+        )!.Features.Single();
+        using var createActivity = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{destinationsUrl}/paris-fr/activities"
+        )
+        {
+            Content = JsonContent.Create(
+                new ActivityInput("Feature", null, null, new("Museum", 60, "", null, "Proposed"))
+            ),
+        };
+        createActivity.Headers.Add(
+            "Destination-Context",
+            plannerDestination.Properties.ContextVersion
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Created,
+            (await travelerClient.SendAsync(createActivity)).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (
+                await travelerClient.PutAsJsonAsync(
+                    sharedTripUrl,
+                    new UpdateTripRequest(
+                        "Planned together",
+                        "",
+                        JsonSerializer.SerializeToElement(new { budget = 500 })
+                    )
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await travelerClient.DeleteAsync(sharedTripUrl)).StatusCode
+        );
+        string selfMemberUrl =
+            $"/user/{traveler.Id}/trips/{trip.Id}/parties/{partyId}/members/{traveler.Id}";
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await travelerClient.PutAsJsonAsync(
+                    selfMemberUrl,
+                    new PartyMemberRequest("Planner")
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (
+                await ownerClient.PutAsJsonAsync(memberUrl, new PartyMemberRequest("Traveller"))
+            ).StatusCode
+        );
+        Assert.IsFalse(
+            (await travelerClient.GetFromJsonAsync<TripResponse>(sharedTripUrl))!.CanPlan
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (
+                await travelerClient.PutAsJsonAsync($"{destinationsUrl}/paris-fr", replacement)
+            ).StatusCode
+        );
+
         PlanningParty[]? parties = await ownerClient.GetFromJsonAsync<PlanningParty[]>(
             $"/trips/{trip.Id}/parties"
         );

@@ -41,14 +41,13 @@ public class OpenAiActivityAssistantTests
     {
         using var handler = new ResponseHandler(CompletedResponse());
         var assistant = Create(handler);
-        byte[]? image = withImage ? [1, 2, 3] : null;
+        IReadOnlyList<ActivityImage> images = withImage ? [new("image/png", [1, 2, 3])] : [];
         IReadOnlyList<ActivityCandidate> result = await assistant.SuggestAsync(
             "Paris",
             "FR",
             [new(Guid.NewGuid(), 0, new(2027, 6, 10), new(2027, 6, 14), "", "")],
             "Find art museums",
-            image,
-            withImage ? "image/png" : null,
+            images,
             default
         );
         Assert.AreEqual("Louvre", result.Single().Name);
@@ -86,10 +85,46 @@ public class OpenAiActivityAssistantTests
         );
         Assert.AreEqual(withImage ? 2 : 1, content.GetArrayLength());
         if (withImage)
+        {
+            StringAssert.Contains(
+                request.GetProperty("instructions").GetString()!,
+                "Do not add activities that were not mentioned in the images"
+            );
             Assert.AreEqual(
                 "data:image/png;base64,AQID",
                 content[1].GetProperty("image_url").GetString()
             );
+        }
+    }
+
+    [TestMethod]
+    public async Task ImageExtraction_ReceivesEveryImageAndCanReturnNoActivities()
+    {
+        using var handler = new ResponseHandler(CompletedResponse("{\"activities\":[]}"));
+        var result = await Create(handler)
+            .SuggestAsync(
+                "Tokyo",
+                "JP",
+                [],
+                "Also invent some restaurants",
+                [new("image/png", [1]), new("image/jpeg", [2])],
+                default
+            );
+        Assert.IsEmpty(result);
+        using var json = JsonDocument.Parse(handler.Request!);
+        var content = json.RootElement.GetProperty("input")[0].GetProperty("content");
+        Assert.AreEqual(
+            "data:image/png;base64,AQ==",
+            content[1].GetProperty("image_url").GetString()
+        );
+        Assert.AreEqual(
+            "data:image/jpeg;base64,Ag==",
+            content[2].GetProperty("image_url").GetString()
+        );
+        StringAssert.Contains(
+            json.RootElement.GetProperty("instructions").GetString()!,
+            "must not introduce additional activities"
+        );
     }
 
     [TestMethod]
@@ -103,7 +138,7 @@ public class OpenAiActivityAssistantTests
     {
         using var handler = new ResponseHandler(response);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            Create(handler).SuggestAsync("Paris", "FR", [], "Museums", null, null, default)
+            Create(handler).SuggestAsync("Paris", "FR", [], "Museums", [], default)
         );
     }
 
@@ -115,7 +150,7 @@ public class OpenAiActivityAssistantTests
     {
         using var handler = new ResponseHandler("{}", (HttpStatusCode)status);
         await Assert.ThrowsAsync<HttpRequestException>(() =>
-            Create(handler).SuggestAsync("Paris", "FR", [], "Museums", null, null, default)
+            Create(handler).SuggestAsync("Paris", "FR", [], "Museums", [], default)
         );
     }
 
@@ -128,7 +163,7 @@ public class OpenAiActivityAssistantTests
             Microsoft.Extensions.Options.Options.Create(new OpenAiOptions { ApiKey = " " })
         );
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            assistant.SuggestAsync("Paris", "FR", [], "Museums", null, null, default)
+            assistant.SuggestAsync("Paris", "FR", [], "Museums", [], default)
         );
         Assert.IsNull(handler.Request);
     }
@@ -174,6 +209,7 @@ public class OpenAiActivityAssistantTests
     [TestMethod]
     [DataRow("Visit Sensō-ji Temple", "Sensoji Temple")]
     [DataRow("Explore Musée d’Orsay", "Musee d'Orsay")]
+    [DataRow("Sensoji Temple, 2-3-1 Asakusa, Tokyo", "Sensoji Temple")]
     public async Task PlaceResolver_NormalizesNamesAndSearchesNearDestination(
         string requested,
         string found

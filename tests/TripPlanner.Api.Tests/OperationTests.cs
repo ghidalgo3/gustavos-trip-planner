@@ -80,6 +80,7 @@ public sealed class OperationTests
         await TripFormQueueContract(db);
         await DestinationContract(db);
         await ResourceConstraintsContract(db);
+        await PartyRolesContract(db);
     }
 
     [TestMethod]
@@ -122,7 +123,7 @@ public sealed class OperationTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(6L, reader.GetInt64(0));
+                Assert.AreEqual(8L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
@@ -135,6 +136,7 @@ public sealed class OperationTests
             await TripFormQueueContract(db);
             await DestinationContract(db);
             await ResourceConstraintsContract(db);
+            await PartyRolesContract(db);
             await MigrationPreservesFlightPlanning(source);
             await MigrationUpgradesActivityJobs(source);
         }
@@ -143,6 +145,102 @@ public sealed class OperationTests
             await using var drop = admin.CreateCommand($"DROP DATABASE {name} WITH (FORCE)");
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task PartyRolesContract(IPlannerDb db)
+    {
+        var (owner, trip, party) = await Seed(db);
+        var member = await db.GetOrCreateUserAsync(
+            new("google", $"{Guid.NewGuid()}@example.com", "Planner")
+        );
+        await db.ChangePartyMemberAsync(owner.Id, trip.Id, party.Id, member.Id, true);
+        Assert.AreEqual(
+            "Traveller",
+            (await db.GetPartiesAsync(owner.Id, trip.Id)).Single().RoleFor(member.Id)
+        );
+        Assert.IsNull(await db.GetTripAsync(member.Id, trip.Id));
+        await db.ChangePartyMemberAsync(
+            owner.Id,
+            trip.Id,
+            party.Id,
+            member.Id,
+            true,
+            role: "Planner"
+        );
+        Assert.AreEqual(
+            "Planner",
+            (await db.GetPartiesAsync(member.Id, trip.Id)).Single().RoleFor(member.Id)
+        );
+        Assert.IsNotNull(await db.GetTripAsync(member.Id, trip.Id));
+        Assert.IsNotNull(await db.UpdateTripAsync(member.Id, trip.Id, "Shared planning", ""));
+        var place = await db.SaveDestinationPlaceAsync(
+            member.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "", 2.35, 48.85)
+        );
+        Assert.IsNotNull(
+            await db.AddDestinationVisitAsync(
+                member.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+            )
+        );
+        place = (await db.GetDestinationPlaceAsync(member.Id, trip.Id, place.CityId))!;
+        var stayLocation = new GeoJsonFeature<StayLocationProperties>(
+            "Feature",
+            "stay",
+            new("Point", [2.34, 48.86]),
+            new("Hotel")
+        );
+        Assert.IsTrue(
+            await db.SaveStayLocationAsync(member.Id, trip.Id, place.CityId, stayLocation)
+        );
+        Assert.AreEqual(
+            "Hotel",
+            (await db.GetStayLocationsAsync(owner.Id, trip.Id))[place.CityId].Properties.Name
+        );
+        var now = DateTimeOffset.UtcNow;
+        var activity = new Activity(
+            Guid.NewGuid(),
+            trip.Id,
+            place.CityId,
+            null,
+            new("Museum", 60, "", null, "Proposed"),
+            now,
+            now
+        );
+        Assert.IsNotNull(
+            await db.SaveActivityAsync(member.Id, activity, place.ContextVersion, null)
+        );
+        Assert.IsNotNull(
+            await db.SetFlightConstraintsAsync(
+                member.Id,
+                trip.Id,
+                JsonSerializer.SerializeToElement(new PlanningDocument(), JsonSerializerOptions.Web)
+            )
+        );
+        Assert.AreEqual(
+            PartyMemberChangeStatus.PartyNotFound,
+            await db.ChangePartyMemberAsync(member.Id, trip.Id, party.Id, owner.Id, false)
+        );
+        Assert.IsFalse(await db.DeleteTripAsync(member.Id, trip.Id));
+        await db.ChangePartyMemberAsync(
+            owner.Id,
+            trip.Id,
+            party.Id,
+            member.Id,
+            true,
+            role: "Traveller"
+        );
+        Assert.IsNull(await db.GetTripAsync(member.Id, trip.Id));
+        Assert.IsNull(await db.UpdateTripAsync(member.Id, trip.Id, "Unauthorized", ""));
+        Assert.IsFalse(await db.SaveStayLocationAsync(member.Id, trip.Id, place.CityId, null));
+        Assert.IsTrue(await db.SaveStayLocationAsync(owner.Id, trip.Id, place.CityId, null));
+        Assert.IsEmpty(await db.GetStayLocationsAsync(owner.Id, trip.Id));
+        await db.ChangePartyMemberAsync(owner.Id, trip.Id, party.Id, member.Id, false);
+        Assert.IsFalse(
+            (await db.GetPartiesAsync(owner.Id, trip.Id))
+                .Single()
+                .MemberRoles.ContainsKey(member.Id)
+        );
     }
 
     private static async Task ResourceConstraintsContract(IPlannerDb db)

@@ -10,11 +10,18 @@ export type Stay = {
   arrivalAt: string;
   departureAt: string;
 };
+export type StayLocation = {
+  type: "Feature";
+  id: string;
+  geometry: Point;
+  properties: { name: string };
+};
 export type Destination = {
   type: "Feature";
   id: string;
   geometry: Point;
   properties: {
+    stayLocation?: StayLocation | null;
     name: string;
     countryCode: string;
     timeZone: string | null;
@@ -288,22 +295,22 @@ export async function suggestActivities(
   return response.json();
 }
 
-export async function importActivityImage(
+export async function importActivityImages(
   tripId: string,
   destination: Destination,
-  file: File,
+  files: File[],
   input: string,
 ): Promise<TrackedOperation> {
   const form = new FormData();
   form.set("requestId", crypto.randomUUID());
   form.set("destinationContext", destination.properties.contextVersion);
   form.set("input", input);
-  form.set("image", file);
+  files.forEach((file) => form.append("images", file));
   const response = await fetch(
     `${destinationUrl(tripId, destination.id)}:import`,
     { method: "POST", credentials: "include", body: form },
   );
-  if (!response.ok) await readTripError(response, "importing the image");
+  if (!response.ok) await readTripError(response, "importing the images");
   return response.json();
 }
 
@@ -342,4 +349,25 @@ export async function waitForActivityJob(
     });
   }
   throw new DOMException("Aborted", "AbortError");
+}
+
+export async function saveStayLocation(
+  tripId: string,
+  cityId: string,
+  feature: StayLocation | null,
+): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/destinations/${encodeURIComponent(cityId)}/stay`,
+    {
+      method: feature ? "PUT" : "DELETE",
+      credentials: "include",
+      ...(feature
+        ? {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(feature),
+          }
+        : {}),
+    },
+  );
+  if (!response.ok) await readTripError(response, "saving Stay location");
 }

@@ -32,6 +32,7 @@ import {
 import { useAirportCities, flightAirportCodes } from "./airportCities";
 import { flightNumbers } from "./flightFormatting";
 import AddDestinationDrawer from "./AddDestinationDrawer";
+import StayLocationDrawer from "./StayLocationDrawer";
 import DeleteDestinationDialog from "./DeleteDestinationDialog";
 
 const emptyDestinations: DestinationCollection = {
@@ -67,6 +68,7 @@ export default function TripOverview({
     destination: Destination;
     stay: Stay;
   }>();
+  const [stayDestination, setStayDestination] = useState<Destination>();
   const [showDateDrawer, setShowDateDrawer] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -336,6 +338,20 @@ export default function TripOverview({
                       : "Dates to decide"}
                   </Text>
                 </div>
+                {destination.properties.stayLocation && (
+                  <Text>
+                    {destination.properties.stayLocation.properties.name}
+                  </Text>
+                )}
+                {!readOnly && (
+                  <Button
+                    appearance="subtle"
+                    aria-label={`Stay in ${destination.properties.name}`}
+                    onClick={() => setStayDestination(destination)}
+                  >
+                    Stay
+                  </Button>
+                )}
                 {!readOnly && (
                   <Button
                     appearance="subtle"
@@ -437,6 +453,19 @@ export default function TripOverview({
             }
           }}
           onDelete={() => void removeDestination()}
+        />
+      )}
+      {!readOnly && stayDestination && (
+        <StayLocationDrawer
+          tripId={trip.id}
+          destination={stayDestination}
+          onClose={() => setStayDestination(undefined)}
+          onSaved={async () => {
+            setDestinations(
+              (await getDestinations(trip.id)) ?? emptyDestinations,
+            );
+            setMessage("Stay location saved.");
+          }}
         />
       )}
       {!readOnly && (

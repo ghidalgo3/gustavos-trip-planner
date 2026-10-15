@@ -56,7 +56,7 @@ public sealed partial class InMemoryPlannerDb
                     throw new InvalidOperationException("This request ID was already used.");
                 return Task.FromResult(Operation(requestId, existing));
             }
-            if (!_trips.TryGetValue(tripId, out var trip) || trip.OwnerUserId != userId)
+            if (!_trips.TryGetValue(tripId, out var trip) || !CanPlanTrip(userId, trip))
                 throw new InvalidOperationException("The trip no longer exists.");
 
             var searches = preview
@@ -145,7 +145,7 @@ public sealed partial class InMemoryPlannerDb
     {
         lock (_tripLock)
         {
-            if (!_trips.TryGetValue(tripId, out var trip) || trip.OwnerUserId != userId)
+            if (!_trips.TryGetValue(tripId, out var trip) || !CanPlanTrip(userId, trip))
                 return Task.FromResult<IReadOnlyList<FareSearchResult>?>(null);
             var now = OperationClock.GetUtcNow();
             var results = new List<FareSearchResult>();

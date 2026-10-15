@@ -116,7 +116,7 @@ test("looks up activities by name near the destination using Azure Maps POI sear
           {
             id: "museum",
             poi: { name: "Louvre" },
-            address: { freeformAddress: "Paris, France" },
+            address: { freeformAddress: "Paris, France", countryCode: "FR" },
             position: { lon: 2.33, lat: 48.86 },
           },
           { id: "unlocated", poi: { name: "Unknown" } },
@@ -124,7 +124,7 @@ test("looks up activities by name near the destination using Azure Maps POI sear
       }),
     );
   vi.stubGlobal("fetch", fetch);
-  expect(await searchPlaces("Louvre", undefined, [2.35, 48.86])).toEqual([
+  expect(await searchPlaces("Louvre", undefined, [2.35, 48.86], "FR")).toEqual([
     {
       id: "museum",
       label: "Louvre, Paris, France",
@@ -138,7 +138,67 @@ test("looks up activities by name near the destination using Azure Maps POI sear
   expect(request.searchParams.get("query")).toBe("Louvre");
   expect(request.searchParams.get("lon")).toBe("2.35");
   expect(request.searchParams.get("lat")).toBe("48.86");
+  expect(request.searchParams.get("radius")).toBe("50000");
+  expect(request.searchParams.get("countrySet")).toBe("FR");
   expect(fetch.mock.calls[1][1].headers).toEqual({
     Authorization: "jwt-sas sas",
   });
+});
+
+test("Tokyo activity lookup rejects distant, foreign, and unverified-country results", async () => {
+  vi.resetModules();
+  const { searchPlaces } = await import("./api");
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        token: "sas",
+        endpoint: "https://atlas.example.test",
+        expiresAt: "2099-01-01T00:00:00Z",
+      }),
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: "tokyo",
+            poi: { name: "Museum" },
+            address: { countryCode: "JP" },
+            position: { lon: 139.7, lat: 35.68 },
+          },
+          {
+            id: "china",
+            poi: { name: "Museum" },
+            address: { countryCode: "CN" },
+            position: { lon: 121.47, lat: 31.23 },
+          },
+          {
+            id: "osaka",
+            poi: { name: "Museum" },
+            address: { countryCode: "JP" },
+            position: { lon: 135.5, lat: 34.7 },
+          },
+          {
+            id: "wrong-country",
+            poi: { name: "Museum" },
+            address: { countryCode: "CN" },
+            position: { lon: 139.7, lat: 35.68 },
+          },
+          {
+            id: "unknown-country",
+            poi: { name: "Museum" },
+            position: { lon: 139.7, lat: 35.68 },
+          },
+        ],
+      }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+  expect(
+    (await searchPlaces("Museum", undefined, [139.69, 35.69], "JP")).map(
+      (place) => place.id,
+    ),
+  ).toEqual(["tokyo"]);
+  const url = new URL(fetchMock.mock.calls[1][0]);
+  expect(url.searchParams.get("radius")).toBe("50000");
+  expect(url.searchParams.get("countrySet")).toBe("JP");
 });

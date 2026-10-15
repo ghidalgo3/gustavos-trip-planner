@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Link,
   Navigate,
   Route,
   Routes,
@@ -71,12 +72,12 @@ export default function App() {
     <main>
       <ScrollPositionRestoration />
       <header className="topbar">
-        <div className="brand">
-          <Location24Regular />
+        <Link className="brand" to="/">
+          <Location24Regular aria-hidden="true" />
           <Text weight="semibold" size={400}>
             Trip Planner
           </Text>
-        </div>
+        </Link>
         {user?.isAuthenticated && (
           <div className="user-actions">
             <details className="user-menu" ref={userMenu}>

@@ -91,6 +91,11 @@ public sealed class DestinationService(IPlannerDb database, ICityPlaceResolver c
         CancellationToken cancellationToken
     )
     {
+        var stayLocations = await database.GetStayLocationsAsync(
+            viewerUserId,
+            trip.Id,
+            cancellationToken
+        );
         var visits = await database.GetDestinationVisitsAsync(
             viewerUserId,
             trip.Id,
@@ -132,6 +137,7 @@ public sealed class DestinationService(IPlannerDb database, ICityPlaceResolver c
                     )
                     {
                         Constraints = place.Constraints,
+                        StayLocation = stayLocations.GetValueOrDefault(place.CityId),
                     }
                 );
             })

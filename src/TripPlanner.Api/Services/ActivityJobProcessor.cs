@@ -10,6 +10,7 @@ public sealed class ActivityJobProcessor(
     DestinationService destinations,
     IActivityAssistant assistant,
     IActivityPlaceResolver places,
+    IActivityVenueResearch research,
     ILogger<ActivityJobProcessor> logger
 )
 {
@@ -62,8 +63,7 @@ public sealed class ActivityJobProcessor(
                 destination.Properties.CountryCode,
                 destination.Properties.Stays,
                 job.Input,
-                job.Image,
-                job.ImageMimeType,
+                ActivityImagePayload.Decode(job.Image, job.ImageMimeType),
                 timeout.Token
             );
             var existing = await database.GetActivitiesAsync(
@@ -103,9 +103,65 @@ public sealed class ActivityJobProcessor(
                             destination.Geometry
                         );
                     }
+                    catch (OperationCanceledException)
+                        when (!cancellationToken.IsCancellationRequested)
+                    {
+                        warnings.Add($"Location lookup for {name} timed out.");
+                    }
                     catch (HttpRequestException)
                     {
                         warnings.Add($"Location for {name} could not be verified.");
+                    }
+                }
+                IReadOnlyList<ActivityLink> links = [];
+                if (point is null && !timeout.IsCancellationRequested)
+                {
+                    using var researchTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                        timeout.Token
+                    );
+                    researchTimeout.CancelAfter(TimeSpan.FromSeconds(20));
+                    try
+                    {
+                        var venue = await research.FindAsync(
+                            candidate,
+                            destination.Properties.Name,
+                            destination.Properties.CountryCode,
+                            destination.Properties.Stays,
+                            researchTimeout.Token,
+                            job.Input
+                        );
+                        if (venue is not null)
+                        {
+                            links = [venue.Source];
+                            var verified = await places.ResolveAsync(
+                                venue.PlaceName,
+                                destination.Properties.Name,
+                                destination.Properties.CountryCode,
+                                researchTimeout.Token,
+                                destination.Geometry
+                            );
+                            if (verified is not null)
+                            {
+                                point = verified;
+                                placeName = venue.PlaceName;
+                            }
+                        }
+                    }
+                    catch (Exception exception)
+                        when (exception
+                                is HttpRequestException
+                                    or InvalidOperationException
+                                    or System.Text.Json.JsonException
+                                    or OperationCanceledException
+                        )
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        warnings.Add($"Venue research for {name} could not be completed.");
+                        logger.LogWarning(
+                            exception,
+                            "Venue research failed for activity in operation {OperationId}",
+                            job.OperationId
+                        );
                     }
                 }
                 if (point is null)
@@ -142,7 +198,10 @@ public sealed class ActivityJobProcessor(
                             cost,
                             "Proposed",
                             placeName
-                        ),
+                        )
+                        {
+                            Links = links,
+                        },
                         now,
                         now,
                         job.OperationId

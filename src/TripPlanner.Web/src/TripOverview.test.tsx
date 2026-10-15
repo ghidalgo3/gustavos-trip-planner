@@ -749,3 +749,26 @@ test("overview shows persisted flight numbers instead of Plan Flights links", as
     screen.queryByRole("link", { name: "Plan Flights" }),
   ).not.toBeInTheDocument();
 });
+
+test("overview offers a Stay location drawer for a destination", async () => {
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [paris],
+    route: [{ destinationId: paris.id, stayId: paris.properties.stays[0].id }],
+  });
+  render(
+    <ColorSchemeProvider>
+      <MemoryRouter>
+        <TripOverview trip={trip} readOnly={false} />
+      </MemoryRouter>
+    </ColorSchemeProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Stay in Paris" }));
+  const drawer = await screen.findByRole("dialog", { name: "Stay in Paris" });
+  expect(
+    within(drawer).getByRole("combobox", { name: "Stay location" }),
+  ).toBeVisible();
+  expect(
+    within(drawer).getByRole("button", { name: "Save Stay" }),
+  ).toBeDisabled();
+});

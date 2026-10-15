@@ -27,7 +27,7 @@ public sealed partial class PostgresPlannerDb
             """
             INSERT INTO operations(id, user_id, resource_id, type, status, items)
             SELECT $1, $2, $3, 'flightSearch', 'pending', $4
-            FROM trips WHERE id=$3 AND owner_user_id=$2
+            FROM trips WHERE id=$3 AND can_plan_trip(id, $2)
             ON CONFLICT (id) DO NOTHING;
             """,
             connection,
@@ -228,7 +228,7 @@ public sealed partial class PostgresPlannerDb
             WHERE f.cache_key=ANY($1)
                 AND f.response IS NOT NULL AND f.expires_at > now()
                 AND EXISTS (
-                    SELECT 1 FROM trips t WHERE t.id=$2 AND t.owner_user_id=$3
+                    SELECT 1 FROM trips t WHERE t.id=$2 AND can_plan_trip(t.id, $3)
                 );
             """
         );

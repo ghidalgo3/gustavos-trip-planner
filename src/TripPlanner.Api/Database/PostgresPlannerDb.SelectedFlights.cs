@@ -16,7 +16,7 @@ public sealed partial class PostgresPlannerDb
             """
             SELECT t.flight_choices::text FROM trips t
             WHERE t.id = $1 AND (
-                t.owner_user_id = $2 OR EXISTS (
+                can_plan_trip(t.id, $2) OR EXISTS (
                     SELECT 1 FROM parties p
                     WHERE p.trip_id = t.id AND $2 = ANY(p.user_ids)
                 )
@@ -50,7 +50,7 @@ public sealed partial class PostgresPlannerDb
             UPDATE trips t SET
                 flight_choices = jsonb_set(flight_choices, ARRAY[$1::text], $2::jsonb, true),
                 updated_at = now()
-            WHERE t.id = $3 AND t.owner_user_id = $4
+            WHERE t.id = $3 AND can_plan_trip(t.id, $4)
                 AND EXISTS (SELECT 1 FROM parties p WHERE p.id = $5 AND p.trip_id = t.id)
             RETURNING (flight_choices ->> $1);
             """
@@ -79,7 +79,7 @@ public sealed partial class PostgresPlannerDb
             """
             SELECT t.selected_flights::text FROM trips t
             WHERE t.id = $1 AND (
-                t.owner_user_id = $2 OR EXISTS (
+                can_plan_trip(t.id, $2) OR EXISTS (
                     SELECT 1 FROM parties p
                     WHERE p.trip_id = t.id AND $2 = ANY(p.user_ids)
                 )
@@ -109,7 +109,7 @@ public sealed partial class PostgresPlannerDb
             UPDATE trips t SET
                 selected_flights = jsonb_set(selected_flights, ARRAY[$1::text], $2::jsonb, true),
                 updated_at = now()
-            WHERE t.id = $3 AND t.owner_user_id = $4
+            WHERE t.id = $3 AND can_plan_trip(t.id, $4)
                 AND EXISTS (SELECT 1 FROM parties p WHERE p.id = $5 AND p.trip_id = t.id)
             RETURNING (selected_flights ->> $1);
             """
@@ -139,7 +139,7 @@ public sealed partial class PostgresPlannerDb
             """
             UPDATE trips
             SET selected_flights = selected_flights - $1, updated_at = now()
-            WHERE id = $2 AND owner_user_id = $3 AND selected_flights ? $1;
+            WHERE id = $2 AND can_plan_trip(id, $3) AND selected_flights ? $1;
             """
         );
         command.Parameters.AddWithValue(partyId.ToString("D"));

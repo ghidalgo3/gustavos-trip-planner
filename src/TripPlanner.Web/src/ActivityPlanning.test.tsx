@@ -17,14 +17,40 @@ import {
   getActivity,
   saveActivity,
   suggestActivities,
-  importActivityImage,
+  importActivityImages,
   waitForActivityJob,
   getSuggestionResult,
   type DestinationCollection,
   type Activity,
 } from "./activitiesApi";
 import type { TrackedOperation } from "./operationsApi";
-vi.mock("./ActivityMap", () => ({ default: () => <div aria-label="Map" /> }));
+vi.mock("./ActivityMap", () => ({
+  default: ({
+    activities,
+    onSelect,
+    stayLocation,
+  }: {
+    stayLocation?: DestinationCollection["features"][number]["properties"]["stayLocation"];
+    activities: Activity[];
+    onSelect: (id: string) => void;
+  }) => (
+    <div aria-label="Map">
+      {stayLocation && (
+        <button
+          onClick={() => onSelect("stay")}
+        >{`Stay marker: ${stayLocation.properties.name}`}</button>
+      )}
+      {activities
+        .filter((item) => item.geometry)
+        .map((item) => (
+          <button
+            key={item.id}
+            onClick={() => onSelect(item.id)}
+          >{`Map marker: ${item.properties.name}`}</button>
+        ))}
+    </div>
+  ),
+}));
 vi.mock("./api", () => ({ searchPlaces: vi.fn() }));
 vi.mock("./activitiesApi", () => ({
   getDestinations: vi.fn(),
@@ -33,7 +59,7 @@ vi.mock("./activitiesApi", () => ({
   saveActivity: vi.fn(),
   deleteActivity: vi.fn(),
   suggestActivities: vi.fn(),
-  importActivityImage: vi.fn(),
+  importActivityImages: vi.fn(),
   waitForActivityJob: vi.fn(),
   getSuggestionResult: vi.fn(),
 }));
@@ -239,7 +265,11 @@ test("place lookup populates the activity's name and location, and saving update
     "Louvre",
     expect.any(AbortSignal),
     [2.35, 48.86],
+    "FR",
   );
+  expect(drawer.closest(".activity-map-panel")).toBeNull();
+  expect(drawer).not.toHaveAttribute("aria-modal", "true");
+  expect(document.querySelector(".fui-DialogSurface__backdrop")).toBeNull();
   expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -274,12 +304,16 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"v1"' });
   vi.mocked(saveActivity).mockRejectedValueOnce(new Error("Please retry."));
   show();
+  click(await screen.findByRole("button", { name: "Louvre" }));
   const edit = await screen.findByRole("button", {
     name: "Edit activity: Louvre",
   });
   act(() => edit.focus());
   click(edit);
   const drawer = await screen.findByRole("dialog");
+  expect(drawer.closest(".activity-map-panel")).toBeNull();
+  expect(drawer).not.toHaveAttribute("aria-modal", "true");
+  expect(document.querySelector(".fui-DialogSurface__backdrop")).toBeNull();
   expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
   change(within(drawer).getByLabelText("Description"), {
     target: { value: "Visit in the morning" },
@@ -375,7 +409,7 @@ test.each(["prompt", "image"] as const)(
       pollingUrl: "",
     };
     vi.mocked(suggestActivities).mockResolvedValue(operation);
-    vi.mocked(importActivityImage).mockResolvedValue(operation);
+    vi.mocked(importActivityImages).mockResolvedValue(operation);
     vi.mocked(waitForActivityJob).mockResolvedValue(operation);
     vi.mocked(getSuggestionResult).mockResolvedValue({
       operationId: "op",
@@ -395,7 +429,7 @@ test.each(["prompt", "image"] as const)(
     const drawer = await add();
     click(
       within(drawer).getByRole("tab", {
-        name: method === "prompt" ? "AI prompt" : "Image",
+        name: method === "prompt" ? "AI prompt" : "Images",
       }),
     );
     change(
@@ -408,7 +442,7 @@ test.each(["prompt", "image"] as const)(
     );
     const file = new File(["image"], "museum.png", { type: "image/png" });
     if (method === "image")
-      change(within(drawer).getByLabelText("Activity image"), {
+      change(within(drawer).getByLabelText("Activity images"), {
         target: { files: [file] },
       });
     vi.mocked(getActivities).mockResolvedValue({
@@ -430,10 +464,10 @@ test.each(["prompt", "image"] as const)(
         "Art museums",
       );
     else
-      expect(importActivityImage).toHaveBeenCalledWith(
+      expect(importActivityImages).toHaveBeenCalledWith(
         "trip",
         destinations.features[0],
-        file,
+        [file],
         "Art museums",
       );
     expect(
@@ -461,6 +495,7 @@ test("activity links appear in the cards and can be removed in the edit drawer",
   });
   vi.mocked(getActivity).mockResolvedValue({ activity: linked, etag: '"v1"' });
   show();
+  click(await screen.findByRole("button", { name: "Louvre" }));
   expect(await screen.findByRole("link", { name: "Tickets" })).toHaveAttribute(
     "href",
     "https://museum.example/tickets",
@@ -497,24 +532,244 @@ test.each([false, true])(
       ],
     });
     show(readOnly);
+    const list = await screen.findByRole("list", { name: "Paris activities" });
+    expect(
+      within(list).queryByText("See the paintings"),
+    ).not.toBeInTheDocument();
+    expect(within(list).queryByText("2h")).not.toBeInTheDocument();
+    expect(within(list).queryByText("Proposed")).not.toBeInTheDocument();
+    click(await within(list).findByRole("button", { name: "Louvre" }));
     const link = await screen.findByRole("link", {
-      name: "Open Louvre in Maps",
+      name: "Direction to Louvre",
     });
     expect(link).toHaveAttribute(
       "href",
       expect.stringContaining("48.86%2C2.33"),
     );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
     const card = link.closest(".activity-card")! as HTMLElement;
     expect(within(card).getByRole("heading", { name: "Louvre" })).toBeVisible();
     expect(within(card).getByText("See the paintings")).toBeVisible();
+    expect(within(card).getByLabelText("Activity 1")).toHaveTextContent("1");
     expect(within(card).getByText("2h")).toBeVisible();
     expect(within(card).getByText("Proposed")).toBeVisible();
-    click(within(card).getByRole("button", { name: "Louvre" }));
+    click(within(card).getByText("See the paintings"));
     expect(
       within(card).getByRole("button", { name: "Louvre" }),
     ).toHaveAttribute("aria-pressed", "true");
+    click(within(list).getByRole("button", { name: "Unlocated" }));
+    const details = screen.getByRole("region", {
+      name: "Selected activity details",
+    });
+    expect(within(details).getByLabelText("Activity 2")).toHaveTextContent("2");
+    expect(within(details).getByText("Needs location")).toBeVisible();
     expect(
-      screen.queryByRole("link", { name: "Open Unlocated in Maps" }),
+      screen.queryByRole("link", { name: "Direction to Unlocated" }),
     ).not.toBeInTheDocument();
   },
 );
+
+test("image import accepts ten images, removes individual images, and preserves the selection after an invalid batch", async () => {
+  vi.stubGlobal(
+    "URL",
+    class extends URL {
+      static createObjectURL() {
+        return "blob:test";
+      }
+      static revokeObjectURL() {}
+    },
+  );
+  const operation: TrackedOperation = {
+    id: "op",
+    resourceId: null,
+    type: "activities",
+    status: "Completed",
+    progress: { items: 1, completedItems: 1, failedItems: 0 },
+    createdAt: "",
+    updatedAt: "",
+    pollingUrl: "",
+  };
+  vi.mocked(importActivityImages).mockResolvedValue(operation);
+  vi.mocked(waitForActivityJob).mockResolvedValue(operation);
+  vi.mocked(getSuggestionResult).mockResolvedValue({
+    operationId: "op",
+    activities: { type: "FeatureCollection", features: [] },
+    warnings: [],
+  });
+  show(false, ["LLM"]);
+  const drawer = await add();
+  click(within(drawer).getByRole("tab", { name: "Images" }));
+  const input = within(drawer).getByLabelText("Activity images");
+  expect(input).toHaveAttribute("multiple");
+  const files = ["first.png", "second.png", "third.png"].map(
+    (name) => new File(["image"], name, { type: "image/png" }),
+  );
+  change(input, { target: { files: files.slice(0, 2) } });
+  expect(within(drawer).getAllByRole("img")).toHaveLength(2);
+  click(
+    within(drawer).getByRole("button", { name: "Remove image 1: first.png" }),
+  );
+  change(input, { target: { files: [files[2]] } });
+  expect(within(drawer).getAllByRole("img")).toHaveLength(2);
+  const additionalFiles = Array.from(
+    { length: 8 },
+    (_, index) => new File(["image"], `${index}.png`, { type: "image/png" }),
+  );
+  change(input, { target: { files: additionalFiles } });
+  expect(within(drawer).getAllByRole("img")).toHaveLength(10);
+  change(input, { target: { files: [files[0]] } });
+  expect(within(drawer).getByRole("alert")).toHaveTextContent(
+    "up to 10 images",
+  );
+  expect(within(drawer).getAllByRole("img")).toHaveLength(10);
+  click(within(drawer).getByRole("button", { name: "Extract activities" }));
+  await waitFor(() =>
+    expect(importActivityImages).toHaveBeenCalledWith(
+      "trip",
+      destinations.features[0],
+      [files[1], files[2], ...additionalFiles],
+      "",
+    ),
+  );
+});
+
+test.each([false, true])(
+  "full-screen map shows a dismissible activity card after marker selection, read-only=%s",
+  async (readOnly) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    show(readOnly);
+    click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
+    expect(screen.queryByText("No description yet.")).not.toBeInTheDocument();
+    expect(document.querySelector(".activity-selection")).toBeNull();
+    click(screen.getByRole("button", { name: "Explore map full screen" }));
+    const mapDialog = await screen.findByRole("dialog", {
+      name: "Map of Paris",
+    });
+    expect(
+      within(mapDialog).queryByRole("region", {
+        name: "Selected activity details",
+      }),
+    ).not.toBeInTheDocument();
+    click(
+      within(mapDialog).getByRole("button", { name: "Map marker: Louvre" }),
+    );
+    const card = within(mapDialog).getByRole("region", {
+      name: "Selected activity details",
+    });
+    expect(within(card).getByRole("heading", { name: "Louvre" })).toBeVisible();
+    expect(within(card).getByLabelText("Activity 1")).toHaveTextContent("1");
+    expect(within(card).getByText("See the paintings")).toBeVisible();
+    expect(within(card).getByText("2h")).toBeVisible();
+    expect(
+      within(card).getByRole("link", { name: "Direction to Louvre" }),
+    ).toHaveAttribute("target", "_blank");
+    expect(
+      within(card).queryByRole("button", { name: "Edit activity: Louvre" }) !==
+        null,
+    ).toBe(!readOnly);
+    click(within(card).getByRole("button", { name: "Close activity details" }));
+    expect(
+      within(mapDialog).queryByRole("region", {
+        name: "Selected activity details",
+      }),
+    ).not.toBeInTheDocument();
+    click(
+      within(mapDialog).getByRole("button", { name: "Exit full-screen map" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Map of Paris" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Explore map full screen" }),
+    ).toBeVisible();
+  },
+);
+
+test.each(["Cancel", "Save activity"])(
+  "editing from the full-screen map stays there after %s",
+  async (action) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"v1"' });
+    vi.mocked(saveActivity).mockResolvedValue(activity);
+    show();
+    click(
+      await screen.findByRole("button", { name: "Explore map full screen" }),
+    );
+    const mapDialog = await screen.findByRole("dialog", {
+      name: "Map of Paris",
+    });
+    const map = within(mapDialog).getByLabelText("Map");
+    click(
+      within(mapDialog).getByRole("button", { name: "Map marker: Louvre" }),
+    );
+    click(
+      within(mapDialog).getByRole("button", { name: "Edit activity: Louvre" }),
+    );
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    expect(map).toBeInTheDocument();
+    expect(drawer.closest(".activity-fullscreen-map")).toBe(mapDialog);
+    click(within(drawer).getByRole("button", { name: action }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Edit activity" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByRole("dialog", { name: "Map of Paris" })).toBe(
+      mapDialog,
+    );
+    expect(within(mapDialog).getByLabelText("Map")).toBe(map);
+    expect(
+      within(mapDialog).getByRole("region", {
+        name: "Selected activity details",
+      }),
+    ).toBeVisible();
+    expect(
+      within(mapDialog).getByRole("button", { name: "Exit full-screen map" }),
+    ).toBeVisible();
+  },
+);
+
+test("a Stay marker presents accommodation details separately from activities", async () => {
+  vi.mocked(getDestinations).mockResolvedValue({
+    ...destinations,
+    features: destinations.features.map((destination, index) =>
+      index
+        ? destination
+        : {
+            ...destination,
+            properties: {
+              ...destination.properties,
+              stayLocation: {
+                type: "Feature",
+                id: "stay",
+                geometry: { type: "Point", coordinates: [2.34, 48.85] },
+                properties: { name: "Paris Hotel" },
+              },
+            },
+          },
+    ),
+  });
+  show(true);
+  click(
+    await screen.findByRole("button", { name: "Stay marker: Paris Hotel" }),
+  );
+  const details = screen.getByRole("region", { name: "Stay details" });
+  expect(
+    within(details).getByRole("heading", { name: "Paris Hotel" }),
+  ).toBeVisible();
+  expect(
+    within(details).getByRole("link", { name: "Direction" }),
+  ).toHaveAttribute("target", "_blank");
+  expect(
+    screen.getByRole("list", { name: "Paris activities" }).children,
+  ).toHaveLength(0);
+});

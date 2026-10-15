@@ -15,6 +15,15 @@ public static class DestinationsEndpoints
         var destinations = api.MapGroup("/trips/{tripId:guid}/destinations")
             .WithTags("Destinations")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+        destinations
+            .MapGet("/{destinationCity}/stay", GetStayLocation)
+            .WithName("GetDestinationStayLocation");
+        destinations
+            .MapPut("/{destinationCity}/stay", SaveStayLocation)
+            .WithName("SaveDestinationStayLocation");
+        destinations
+            .MapDelete("/{destinationCity}/stay", DeleteStayLocation)
+            .WithName("DeleteDestinationStayLocation");
         destinations.MapGet("", GetDestinations).WithName("GetTripDestinations");
         destinations.MapPost("", AddDestination).WithName("AddTripDestination");
         destinations
@@ -30,6 +39,88 @@ public static class DestinationsEndpoints
         destinations
             .MapPut("/{destinationCity}/stays/{stayId:guid}", ReplaceDestinationStay)
             .WithName("ReplaceTripDestinationStay");
+    }
+
+    private static async Task<IResult> GetStayLocation(
+        Guid tripId,
+        string destinationCity,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser
+    )
+    {
+        var (_, user, error) = await AuthorizeAsync(tripId, false, context, database, currentUser);
+        if (error is not null)
+            return error;
+        var locations = await database.GetStayLocationsAsync(
+            user!.Id,
+            tripId,
+            context.RequestAborted
+        );
+        return locations.TryGetValue(destinationCity, out var feature)
+            ? GeoJson(feature)
+            : Results.NotFound();
+    }
+
+    private static async Task<IResult> SaveStayLocation(
+        Guid tripId,
+        string destinationCity,
+        StayLocationRequest request,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser
+    )
+    {
+        var (_, user, error) = await AuthorizeAsync(tripId, true, context, database, currentUser);
+        if (error is not null)
+            return error;
+        if (
+            request.Type != "Feature"
+            || request.Properties?.Name?.Trim() is not { Length: > 0 and <= 200 } name
+            || request.Geometry is not { Type: "Point", Coordinates.Length: 2 } point
+            || !double.IsFinite(point.Coordinates[0])
+            || !double.IsFinite(point.Coordinates[1])
+            || Math.Abs(point.Coordinates[0]) > 180
+            || Math.Abs(point.Coordinates[1]) > 90
+        )
+            return Results.BadRequest(new { title = "Select a valid Stay location." });
+        var feature = new GeoJsonFeature<StayLocationProperties>(
+            "Feature",
+            "stay",
+            point,
+            new(name)
+        );
+        return await database.SaveStayLocationAsync(
+            user!.Id,
+            tripId,
+            destinationCity,
+            feature,
+            context.RequestAborted
+        )
+            ? GeoJson(feature)
+            : Results.NotFound();
+    }
+
+    private static async Task<IResult> DeleteStayLocation(
+        Guid tripId,
+        string destinationCity,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser
+    )
+    {
+        var (_, user, error) = await AuthorizeAsync(tripId, true, context, database, currentUser);
+        if (error is not null)
+            return error;
+        return await database.SaveStayLocationAsync(
+            user!.Id,
+            tripId,
+            destinationCity,
+            null,
+            context.RequestAborted
+        )
+            ? Results.NoContent()
+            : Results.NotFound();
     }
 
     private static async Task<IResult> AddDestination(

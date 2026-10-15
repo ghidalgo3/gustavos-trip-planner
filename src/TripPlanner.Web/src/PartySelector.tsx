@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   Button,
+  Select,
   Card,
   Spinner,
   Text,
@@ -29,6 +30,9 @@ export default function PartySelector({
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<UserSearchResult>();
+  const [inviteRole, setInviteRole] = useState<"Traveller" | "Planner">(
+    "Traveller",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const owner = party.members.find((member) => member.id === userId);
@@ -42,14 +46,19 @@ export default function PartySelector({
     [party.members],
   );
 
-  async function change(memberId: string, add: boolean) {
+  async function change(
+    memberId: string,
+    add: boolean,
+    role: "Traveller" | "Planner" = "Traveller",
+  ) {
     setBusy(true);
     setError(undefined);
     try {
-      await changePartyMember(userId, tripId, party.id, memberId, add);
+      await changePartyMember(userId, tripId, party.id, memberId, add, role);
       await onChanged();
       setQuery("");
       setSelected(undefined);
+      setInviteRole("Traveller");
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -74,6 +83,24 @@ export default function PartySelector({
           <span className="party-member" key={member.id}>
             {member.name}
             {member.id === userId ? " (you)" : ""}
+            {member.id !== userId && (
+              <Select
+                aria-label={`Role for ${member.name}`}
+                value={member.role ?? "Traveller"}
+                disabled={busy}
+                onChange={(_, data) =>
+                  void change(
+                    member.id,
+                    true,
+                    data.value as "Traveller" | "Planner",
+                  )
+                }
+              >
+                <option value="Traveller">Traveller</option>
+                <option value="Planner">Planner</option>
+              </Select>
+            )}
+            {member.id === userId && <Text size={200}>Planner · Owner</Text>}
             {member.id !== userId && (
               <Button
                 appearance="subtle"
@@ -116,10 +143,21 @@ export default function PartySelector({
           }}
           debounceMs={300}
         />
+        <Select
+          aria-label="New member role"
+          value={inviteRole}
+          disabled={busy}
+          onChange={(_, data) =>
+            setInviteRole(data.value as "Traveller" | "Planner")
+          }
+        >
+          <option value="Traveller">Traveller</option>
+          <option value="Planner">Planner</option>
+        </Select>
         <Button
           appearance="primary"
           disabled={!selected || busy || party.members.length >= 9}
-          onClick={() => selected && void change(selected.id, true)}
+          onClick={() => selected && void change(selected.id, true, inviteRole)}
         >
           Add
         </Button>

@@ -48,7 +48,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(place.TripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_destinationPlaces.ContainsKey((place.TripId, place.CityId))
             )
                 return Task.FromResult<DestinationPlace?>(null);
@@ -74,7 +74,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(tripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_destinationPlaces.ContainsKey((tripId, cityId))
             )
                 return Task.FromResult(false);
@@ -103,6 +103,7 @@ public sealed partial class InMemoryPlannerDb
                 _operations.Remove(id);
             }
             _destinationPlaces.Remove((tripId, cityId));
+            _stayLocations.Remove((tripId, cityId));
             return Task.FromResult(true);
         }
     }
@@ -141,7 +142,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(visit.TripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_destinationPlaces.TryGetValue((visit.TripId, visit.CityId), out var place)
             )
                 return Task.FromResult<DestinationVisit?>(null);
@@ -176,7 +177,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(tripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_destinationVisits.TryGetValue(stayId, out var visit)
                 || visit.TripId != tripId
                 || visit.CityId != cityId
@@ -209,7 +210,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(tripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_destinationVisits.TryGetValue(stayId, out var visit)
                 || visit.TripId != tripId
                 || visit.CityId != cityId
@@ -252,7 +253,7 @@ public sealed partial class InMemoryPlannerDb
         cancellationToken.ThrowIfCancellationRequested();
         lock (_tripLock)
         {
-            if (!_trips.TryGetValue(place.TripId, out var trip) || trip.OwnerUserId != ownerUserId)
+            if (!_trips.TryGetValue(place.TripId, out var trip) || !CanPlanTrip(ownerUserId, trip))
                 throw new InvalidOperationException("The trip no longer exists.");
             _destinationPlaces.TryAdd((place.TripId, place.CityId), place);
             return Task.FromResult(_destinationPlaces[(place.TripId, place.CityId)]);
@@ -328,7 +329,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(activity.TripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !IsActiveDestination(activity.TripId, activity.CityId, contextVersion)
                 || !_destinationPlaces.ContainsKey((activity.TripId, activity.CityId))
             )
@@ -362,7 +363,7 @@ public sealed partial class InMemoryPlannerDb
         lock (_tripLock)
             return Task.FromResult(
                 _trips.TryGetValue(tripId, out var trip)
-                    && trip.OwnerUserId == ownerUserId
+                    && CanPlanTrip(ownerUserId, trip)
                     && IsActiveDestination(tripId, cityId, contextVersion)
                     && _activities.TryGetValue(activityId, out var activity)
                     && activity.TripId == tripId
@@ -406,7 +407,7 @@ public sealed partial class InMemoryPlannerDb
             }
             if (
                 !_trips.TryGetValue(tripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !IsActiveDestination(tripId, cityId, contextVersion)
             )
                 throw new InvalidOperationException("The destination changed.");

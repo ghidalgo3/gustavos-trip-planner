@@ -39,6 +39,9 @@ builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolve
 builder.Services.AddHttpClient<IActivityAssistant, OpenAiActivityAssistant>(client =>
     client.Timeout = TimeSpan.FromSeconds(120)
 );
+builder.Services.AddHttpClient<IActivityVenueResearch, OpenAiActivityVenueResearch>(client =>
+    client.Timeout = TimeSpan.FromSeconds(20)
+);
 builder.Services.Configure<OpenAiOptions>(
     builder.Configuration.GetSection(OpenAiOptions.SectionName)
 );

@@ -47,7 +47,7 @@ public sealed partial class InMemoryPlannerDb
                     throw new InvalidOperationException("This request ID was already used.");
                 return Task.FromResult(Operation(operationId, existing));
             }
-            if (!_trips.TryGetValue(tripId, out var trip) || trip.OwnerUserId != userId)
+            if (!_trips.TryGetValue(tripId, out var trip) || !CanPlanTrip(userId, trip))
                 throw new InvalidOperationException("The trip no longer exists.");
             var now = OperationClock.GetUtcNow();
             var operation = new MemoryOperation(userId, tripId, 1, 0, now)
@@ -140,7 +140,7 @@ public sealed partial class InMemoryPlannerDb
         lock (_tripLock)
             return Task.FromResult<TripFormProposal?>(
                 _trips.TryGetValue(tripId, out var trip)
-                && trip.OwnerUserId == userId
+                && CanPlanTrip(userId, trip)
                 && _formJobs.TryGetValue(operationId, out var job)
                 && job.UserId == userId
                 && job.TripId == tripId

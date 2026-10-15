@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
+  Dialog,
+  DialogSurface,
   Input,
   Spinner,
   Tab,
@@ -20,7 +22,11 @@ import {
   MenuList,
   MenuItemRadio,
 } from "@fluentui/react-components";
-import { Dismiss24Regular } from "@fluentui/react-icons";
+import {
+  ArrowExpand24Regular,
+  Dismiss24Regular,
+  Share24Regular,
+} from "@fluentui/react-icons";
 import { destinationDates } from "./tripDates";
 import { Link, useSearchParams } from "react-router";
 import { searchPlaces, type Trip } from "./api";
@@ -34,7 +40,7 @@ import {
   getActivity,
   getDestinations,
   getSuggestionResult,
-  importActivityImage,
+  importActivityImages,
   saveActivity,
   suggestActivities,
   waitForActivityJob,
@@ -102,6 +108,10 @@ export default function ActivityPlanning({
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
+  const [mapExpanded, setMapExpanded] = useState(false);
+  const [fullscreenContainer, setFullscreenContainer] =
+    useState<HTMLDivElement | null>(null);
+  const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
   const [searching, setSearching] = useState(false);
   const placeAbort = useRef<AbortController | undefined>(undefined);
@@ -110,8 +120,8 @@ export default function ActivityPlanning({
     { label: string; name?: string; longitude?: number; latitude?: number }[]
   >([]);
   const [prompt, setPrompt] = useState("");
-  const [image, setImage] = useState<File>();
-  const [imagePreview, setImagePreview] = useState<string>();
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [entryMode, setEntryMode] = useState<"lookup" | "prompt" | "image">(
     "lookup",
   );
@@ -170,9 +180,9 @@ export default function ActivityPlanning({
 
   useEffect(() => {
     return () => {
-      if (imagePreview) URL.revokeObjectURL(imagePreview);
+      imagePreviews.forEach(URL.revokeObjectURL);
     };
-  }, [imagePreview]);
+  }, [imagePreviews]);
 
   useEffect(
     () => () => {
@@ -306,10 +316,14 @@ export default function ActivityPlanning({
         placeQuery.trim(),
         controller.signal,
         destination.geometry.coordinates,
+        destination.properties.countryCode,
       );
       if (!controller.signal.aborted) {
         setPlaces(results);
-        if (!results.length) setError("No places found. Try another name.");
+        if (!results.length)
+          setError(
+            `No places found within 50 km of ${destination.properties.name}. Try another name.`,
+          );
       }
     } catch (reason) {
       if (!controller.signal.aborted)
@@ -356,7 +370,7 @@ export default function ActivityPlanning({
     if (
       !destination ||
       busy ||
-      (kind === "image" && !image) ||
+      (kind === "image" && images.length === 0) ||
       (kind === "text" && !prompt.trim())
     )
       return;
@@ -369,7 +383,7 @@ export default function ActivityPlanning({
     try {
       const operation =
         kind === "image"
-          ? await importActivityImage(trip.id, destination, image!, prompt)
+          ? await importActivityImages(trip.id, destination, images, prompt)
           : await suggestActivities(trip.id, destination, prompt);
       const completed = await waitForActivityJob(
         operation.id,
@@ -388,7 +402,7 @@ export default function ActivityPlanning({
       setMessage(
         `${result.activities.features.length} activities added as Proposed.${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
       );
-      chooseImage(undefined);
+      chooseImages([]);
       setPrompt("");
       setEditor(undefined);
     } catch (reason) {
@@ -405,9 +419,30 @@ export default function ActivityPlanning({
     }
   }
 
-  function chooseImage(file: File | undefined) {
-    setImage(file);
-    setImagePreview(file ? URL.createObjectURL(file) : undefined);
+  function chooseImages(files: File[]) {
+    if (
+      files.length > 10 ||
+      files.some((file) => file.size > 10_000_000) ||
+      files.reduce((sum, file) => sum + file.size, 0) > 25_000_000
+    ) {
+      setError(
+        "Choose up to 10 images, at most 10 MB each and 25 MB in total.",
+      );
+      return;
+    }
+    if (
+      files.some(
+        (file) =>
+          !["image/jpeg", "image/png", "image/webp"].includes(file.type),
+      )
+    ) {
+      setError("Choose JPEG, PNG, or WebP images.");
+      return;
+    }
+    setImages(files);
+    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
+    setError(undefined);
+    if (imageInput.current) imageInput.current.value = "";
   }
 
   function closeDrawer() {
@@ -419,18 +454,172 @@ export default function ActivityPlanning({
     setPlaces([]);
     setPlaceQuery("");
     setPrompt("");
-    chooseImage(undefined);
+    chooseImages([]);
   }
   function openAdd() {
     placeAbort.current?.abort();
     setSearching(false);
     setError(undefined);
     setPrompt("");
-    chooseImage(undefined);
+    chooseImages([]);
     setPlaces([]);
     setPlaceQuery("");
     setEntryMode("lookup");
     setEditor({ value: emptyActivity() });
+  }
+
+  function selectActivity(id: string) {
+    setSelectedId(id);
+    setShowMapCard(true);
+  }
+
+  function renderActivityCard(item: Activity, index: number) {
+    const mapLink = activityMapLink(item.geometry, item.properties.name);
+    return (
+      <li
+        key={item.id}
+        className={`activity-card${selectedId === item.id ? " selected" : ""}`}
+        onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest("a, button")
+          )
+            return;
+          selectActivity(item.id);
+        }}
+      >
+        <div className="activity-card-heading">
+          <span
+            className="activity-number"
+            aria-label={`Activity ${index + 1}`}
+          >
+            {index + 1}
+          </span>
+          <h3>
+            <button
+              type="button"
+              aria-pressed={selectedId === item.id}
+              onClick={() => selectActivity(item.id)}
+            >
+              {item.properties.name}
+            </button>
+          </h3>
+          <span className="activity-state">{item.properties.state}</span>
+        </div>
+        {!item.geometry && (
+          <small className="activity-location-missing">Needs location</small>
+        )}
+        {item.properties.description && (
+          <p className="activity-card-description">
+            {item.properties.description}
+          </p>
+        )}
+        <dl className="activity-card-facts">
+          <div>
+            <dt>Duration</dt>
+            <dd>{formatDuration(item.properties.durationMinutes)}</dd>
+          </div>
+          <div>
+            <dt>Cost</dt>
+            <dd>{formatCost(item.properties.cost)}</dd>
+          </div>
+        </dl>
+        {(item.properties.links ?? []).some(validActivityLink) && (
+          <ul
+            className="activity-links"
+            aria-label={`${item.properties.name} links`}
+          >
+            {(item.properties.links ?? [])
+              .filter(validActivityLink)
+              .map((link, index) => (
+                <li key={index}>
+                  <a href={link.url} target="_blank" rel="noreferrer">
+                    {link.label || link.url}
+                  </a>
+                </li>
+              ))}
+          </ul>
+        )}
+        <div className="activity-card-actions">
+          {mapLink && (
+            <Button
+              as="a"
+              href={mapLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              appearance="secondary"
+              aria-label={`Direction to ${item.properties.name}`}
+              icon={<Share24Regular />}
+            >
+              Direction
+            </Button>
+          )}
+          {canEdit && (
+            <Button
+              appearance="subtle"
+              aria-label={`Edit activity: ${item.properties.name}`}
+              onClick={() => void openEdit(item)}
+            >
+              Edit
+            </Button>
+          )}
+        </div>
+      </li>
+    );
+  }
+
+  function renderMapDetails() {
+    const stay = destination?.properties.stayLocation;
+    if (showMapCard && selectedId === "stay" && stay && !editor) {
+      const directions = activityMapLink(stay.geometry, stay.properties.name);
+      return (
+        <section className="activity-map-bottom-card" aria-label="Stay details">
+          <Button
+            className="activity-map-card-close"
+            appearance="subtle"
+            icon={<Dismiss24Regular />}
+            aria-label="Close Stay details"
+            onClick={() => setShowMapCard(false)}
+          />
+          <div className="activity-card">
+            <h3>{stay.properties.name}</h3>
+            <Text>Stay</Text>
+            {directions && (
+              <Button
+                as="a"
+                href={directions}
+                target="_blank"
+                rel="noopener noreferrer"
+                icon={<Share24Regular />}
+              >
+                Direction
+              </Button>
+            )}
+          </div>
+        </section>
+      );
+    }
+    return showMapCard && selected && !editor ? (
+      <section
+        key={selected.id}
+        className="activity-map-bottom-card"
+        aria-label="Selected activity details"
+      >
+        <Button
+          className="activity-map-card-close"
+          appearance="subtle"
+          icon={<Dismiss24Regular />}
+          aria-label="Close activity details"
+          onClick={() => setShowMapCard(false)}
+        />
+        <ul className="activity-map-card-list">
+          {renderActivityCard(
+            selected,
+            activities.features.findIndex((item) => item.id === selected.id),
+          )}
+        </ul>
+      </section>
+    ) : null;
   }
 
   if (loading) return <Spinner label="Loading destinations" />;
@@ -469,26 +658,27 @@ export default function ActivityPlanning({
       {message && <Text role="status">{message}</Text>}
       <div className="activity-workspace">
         <div className="activity-map-panel">
-          <ActivityMap
-            center={destination.geometry}
-            destinationName={destination.properties.name}
-            activities={activitiesForMap}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
-          {selected && (
-            <div className="activity-selection">
-              <strong>{selected.properties.name}</strong>
-              <span>
-                {selected.properties.description || "No description yet."}
-              </span>
-              {canEdit && (
-                <Button onClick={() => void openEdit(selected)}>
-                  Edit activity
-                </Button>
-              )}
-            </div>
+          {!mapExpanded && (
+            <ActivityMap
+              center={destination.geometry}
+              destinationName={destination.properties.name}
+              stayLocation={destination.properties.stayLocation}
+              activities={activitiesForMap}
+              selectedId={selectedId}
+              onSelect={selectActivity}
+            />
           )}
+          {!mapExpanded && renderMapDetails()}
+          <Button
+            className="activity-map-expand"
+            aria-label="Explore map full screen"
+            title="Explore map full screen"
+            icon={<ArrowExpand24Regular />}
+            onClick={() => {
+              setShowMapCard(false);
+              setMapExpanded(true);
+            }}
+          />
         </div>
         <section
           className="activity-cards-section"
@@ -506,90 +696,22 @@ export default function ActivityPlanning({
             className="activity-cards"
             aria-label={`${destination.properties.name} activities`}
           >
-            {activities.features.map((item) => {
-              const mapLink = activityMapLink(
-                item.geometry,
-                item.properties.name,
-              );
-              return (
-                <li
-                  key={item.id}
-                  className={`activity-card${selectedId === item.id ? " selected" : ""}`}
+            {activities.features.map((item, index) => (
+              <li key={item.id} className="activity-list-item">
+                <button
+                  type="button"
+                  className="activity-list-select"
+                  aria-label={item.properties.name}
+                  aria-pressed={selectedId === item.id}
+                  onClick={() => selectActivity(item.id)}
                 >
-                  <div className="activity-card-heading">
-                    <h3>
-                      <button
-                        type="button"
-                        aria-pressed={selectedId === item.id}
-                        onClick={() => setSelectedId(item.id)}
-                      >
-                        {item.properties.name}
-                      </button>
-                    </h3>
-                    <span className="activity-state">
-                      {item.properties.state}
-                    </span>
-                  </div>
-                  {!item.geometry && (
-                    <small className="activity-location-missing">
-                      Needs location
-                    </small>
-                  )}
-                  {item.properties.description && (
-                    <p className="activity-card-description">
-                      {item.properties.description}
-                    </p>
-                  )}
-                  <dl className="activity-card-facts">
-                    <div>
-                      <dt>Duration</dt>
-                      <dd>{formatDuration(item.properties.durationMinutes)}</dd>
-                    </div>
-                    <div>
-                      <dt>Cost</dt>
-                      <dd>{formatCost(item.properties.cost)}</dd>
-                    </div>
-                  </dl>
-                  {(item.properties.links ?? []).some(validActivityLink) && (
-                    <ul
-                      className="activity-links"
-                      aria-label={`${item.properties.name} links`}
-                    >
-                      {(item.properties.links ?? [])
-                        .filter(validActivityLink)
-                        .map((link, index) => (
-                          <li key={index}>
-                            <a href={link.url} target="_blank" rel="noreferrer">
-                              {link.label || link.url}
-                            </a>
-                          </li>
-                        ))}
-                    </ul>
-                  )}
-                  <div className="activity-card-actions">
-                    {mapLink && (
-                      <Button
-                        as="a"
-                        href={mapLink}
-                        appearance="secondary"
-                        aria-label={`Open ${item.properties.name} in Maps`}
-                      >
-                        Open in Maps
-                      </Button>
-                    )}
-                    {canEdit && (
-                      <Button
-                        appearance="subtle"
-                        aria-label={`Edit activity: ${item.properties.name}`}
-                        onClick={() => void openEdit(item)}
-                      >
-                        Edit
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
+                  <span className="activity-number" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span>{item.properties.name}</span>
+                </button>
+              </li>
+            ))}
           </ul>
           {activities.features.length === 0 && (
             <Text className="activity-empty">
@@ -600,9 +722,49 @@ export default function ActivityPlanning({
           )}
         </section>
       </div>
+      <Dialog
+        open={mapExpanded}
+        onOpenChange={(_, data) => {
+          if (!editor) setMapExpanded(data.open);
+        }}
+      >
+        <DialogSurface
+          ref={setFullscreenContainer}
+          className="activity-fullscreen-map"
+          aria-label={`Map of ${destination.properties.name}`}
+        >
+          <div className="activity-fullscreen-header">
+            <Title2 as="h2">{destination.properties.name}</Title2>
+            <Button
+              icon={<Dismiss24Regular />}
+              aria-label="Exit full-screen map"
+              onClick={() => setMapExpanded(false)}
+            />
+          </div>
+          <div className="activity-fullscreen-canvas">
+            {mapExpanded && (
+              <ActivityMap
+                center={destination.geometry}
+                destinationName={destination.properties.name}
+                stayLocation={destination.properties.stayLocation}
+                activities={activitiesForMap}
+                selectedId={selectedId}
+                onSelect={(id) => {
+                  setSelectedId(id);
+                  setShowMapCard(true);
+                }}
+              />
+            )}
+            {renderMapDetails()}
+          </div>
+        </DialogSurface>
+      </Dialog>
       <OverlayDrawer
+        mountNode={mapExpanded ? (fullscreenContainer ?? undefined) : undefined}
+        modalType={mapExpanded ? "modal" : "non-modal"}
+        backdrop={null}
         open={Boolean(editor && canEdit)}
-        position="end"
+        position="start"
         className="activity-drawer"
         onOpenChange={(_, data) => {
           if (!data.open) closeDrawer();
@@ -639,7 +801,7 @@ export default function ActivityPlanning({
                 AI prompt
               </Tab>
               <Tab value="image" disabled={busy || !canGenerate}>
-                Image
+                Images
               </Tab>
             </TabList>
           )}
@@ -856,44 +1018,68 @@ export default function ActivityPlanning({
                   </label>
                   <Textarea
                     id="activity-prompt"
-                    placeholder="Find relaxed art and food activities"
+                    placeholder={
+                      entryMode === "image"
+                        ? "Optional: extract only food activities mentioned in these images"
+                        : "Find relaxed art and food activities"
+                    }
                     value={prompt}
                     onChange={(_, data) => setPrompt(data.value)}
                   />
                   {entryMode === "image" && (
                     <>
                       <Button onClick={() => imageInput.current?.click()}>
-                        Choose image
+                        Choose images
                       </Button>
+                      <Text size={200}>
+                        Up to 10 images · 10 MB each · 25 MB total. Only
+                        activities explicitly mentioned in the images will be
+                        extracted.
+                      </Text>
                       <input
                         ref={imageInput}
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
+                        multiple
                         onChange={(event) =>
-                          chooseImage(event.target.files?.[0])
+                          chooseImages([
+                            ...images,
+                            ...Array.from(event.target.files ?? []),
+                          ])
                         }
                         className="activity-file-input"
-                        aria-label="Activity image"
+                        aria-label="Activity images"
                       />
-                      {image && (
-                        <div className="activity-upload-preview">
-                          {imagePreview && (
+                      {images.map((file, index) => (
+                        <div
+                          className="activity-upload-preview"
+                          key={`${index}-${file.name}`}
+                        >
+                          {imagePreviews[index] && (
                             <img
-                              src={imagePreview}
-                              alt="Selected activity source"
+                              src={imagePreviews[index]}
+                              alt={`Activity source ${index + 1}: ${file.name}`}
                             />
                           )}
-                          <span>{image.name}</span>
-                          <Button onClick={() => chooseImage(undefined)}>
+                          <span>{file.name}</span>
+                          <Button
+                            aria-label={`Remove image ${index + 1}: ${file.name}`}
+                            onClick={() =>
+                              chooseImages(
+                                images.filter(
+                                  (_, imageIndex) => imageIndex !== index,
+                                ),
+                              )
+                            }
+                          >
                             Remove image
                           </Button>
                         </div>
-                      )}
+                      ))}
                     </>
                   )}
                   <Text size={200}>
-                    AI saves suggested activities immediately with state
-                    Proposed.
+                    AI saves activities immediately with state Proposed.
                   </Text>
                 </div>
               )}
@@ -929,7 +1115,7 @@ export default function ActivityPlanning({
               disabled={
                 busy ||
                 !canGenerate ||
-                (entryMode === "prompt" ? !prompt.trim() : !image)
+                (entryMode === "prompt" ? !prompt.trim() : images.length === 0)
               }
               onClick={() =>
                 void generate(entryMode === "image" ? "image" : "text")

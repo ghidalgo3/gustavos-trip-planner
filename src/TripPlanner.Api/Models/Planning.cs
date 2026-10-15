@@ -66,7 +66,12 @@ public sealed record PlanningConstraint
     public string? OriginalInput { get; init; }
 }
 
-public sealed record PlanningMember(Guid Id, string Name, string? HomeCity);
+public sealed record PlanningMember(
+    Guid Id,
+    string Name,
+    string? HomeCity,
+    string Role = "Traveller"
+);
 
 public sealed record PlanningParty(
     Guid Id,

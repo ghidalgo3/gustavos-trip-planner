@@ -13,11 +13,13 @@ test.each(["iPhone", "iPad", "Macintosh", "Android"])(
     );
     if (device === "Android") {
       expect(url.hostname).toBe("www.google.com");
-      expect(url.searchParams.get("query")).toBe("48.86,2.33");
+      expect(url.searchParams.get("destination")).toBe("48.86,2.33");
+      expect(url.pathname).toBe("/maps/dir/");
+      expect(url.searchParams.get("dir_action")).toBe("navigate");
       expect(url.searchParams.get("api")).toBe("1");
     } else {
       expect(url.hostname).toBe("maps.apple.com");
-      expect(url.searchParams.get("ll")).toBe("48.86,2.33");
+      expect(url.searchParams.get("daddr")).toBe("48.86,2.33");
       expect(url.searchParams.get("q")).toBe("Museum & gardens");
     }
   },

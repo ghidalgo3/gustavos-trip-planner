@@ -24,7 +24,7 @@ public sealed partial class PostgresPlannerDb
             SELECT d.trip_id, d.city_id, d.name, d.country_code, d.time_zone,
                 ST_X(d.center::geometry), ST_Y(d.center::geometry), d.context_version, d.constraints::text
             FROM destination_places d JOIN trips t ON t.id=d.trip_id
-            WHERE d.trip_id=$1 AND d.city_id=$2 AND (t.owner_user_id=$3 OR EXISTS (
+            WHERE d.trip_id=$1 AND d.city_id=$2 AND (can_plan_trip(t.id, $3) OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $3=ANY(p.user_ids)));
             """
         );
@@ -45,7 +45,7 @@ public sealed partial class PostgresPlannerDb
             """
             INSERT INTO destination_places(trip_id,city_id,name,country_code,time_zone,center,constraints)
             SELECT $1,$2,$3,$4,$5,ST_SetSRID(ST_MakePoint($6,$7),4326)::geography,$9
-            FROM trips t WHERE t.id=$1 AND t.owner_user_id=$8
+            FROM trips t WHERE t.id=$1 AND can_plan_trip(t.id, $8)
             ON CONFLICT(trip_id,city_id) DO UPDATE SET city_id=EXCLUDED.city_id
             RETURNING trip_id,city_id,name,country_code,time_zone,ST_X(center::geometry),ST_Y(center::geometry),context_version,constraints::text;
             """
@@ -75,7 +75,7 @@ public sealed partial class PostgresPlannerDb
             """
             SELECT d.trip_id,d.city_id,d.name,d.country_code,d.time_zone,ST_X(d.center::geometry),ST_Y(d.center::geometry),d.context_version,d.constraints::text
             FROM destination_places d JOIN trips t ON t.id=d.trip_id
-            WHERE d.trip_id=$1 AND (t.owner_user_id=$2 OR EXISTS (
+            WHERE d.trip_id=$1 AND (can_plan_trip(t.id, $2) OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $2=ANY(p.user_ids))) ORDER BY d.city_id;
             """
         );
@@ -96,7 +96,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$8 RETURNING id)
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $8) RETURNING id)
             UPDATE destination_places d SET name=$3,country_code=$4,time_zone=$5,
                 center=ST_SetSRID(ST_MakePoint($6,$7),4326)::geography,constraints=$9,context_version=$10
             FROM owner o WHERE d.trip_id=o.id AND d.city_id=$2
@@ -126,7 +126,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$2 RETURNING id),
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
             jobs AS (DELETE FROM activity_jobs j USING owner o WHERE j.trip_id=o.id AND j.city_id=$3 RETURNING j.operation_id),
             operations_removed AS (DELETE FROM operations WHERE id IN (SELECT operation_id FROM jobs)),
             activities AS (DELETE FROM activities a USING owner o WHERE a.trip_id=o.id AND a.city_id=$3),
@@ -165,7 +165,7 @@ public sealed partial class PostgresPlannerDb
             """
             SELECT v.trip_id,v.city_id,v.stay_id,v.visit_order,v.arrival_date,v.departure_date
             FROM destination_stays v JOIN trips t ON t.id=v.trip_id
-            WHERE v.trip_id=$1 AND (t.owner_user_id=$2 OR EXISTS
+            WHERE v.trip_id=$1 AND (can_plan_trip(t.id, $2) OR EXISTS
               (SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $2=ANY(p.user_ids)))
             ORDER BY v.visit_order,v.stay_id;
             """
@@ -196,7 +196,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$2 RETURNING id),
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
             added AS (INSERT INTO destination_stays(stay_id,trip_id,city_id,visit_order,arrival_date,departure_date)
               SELECT $3,owner.id,$4,COALESCE((SELECT max(visit_order)+1 FROM destination_stays WHERE trip_id=owner.id),0),$5,$6 FROM owner
               WHERE EXISTS(SELECT 1 FROM destination_places d WHERE d.trip_id=owner.id AND d.city_id=$4)
@@ -243,7 +243,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$2 RETURNING id),
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
             saved AS (UPDATE destination_stays v SET arrival_date=$5,departure_date=$6 FROM owner o
               WHERE v.trip_id=o.id AND v.city_id=$3 AND v.stay_id=$4
               RETURNING v.trip_id,v.city_id,v.stay_id,v.visit_order,v.arrival_date,v.departure_date)
@@ -288,7 +288,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND owner_user_id=$2 RETURNING id),
+            WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
             removed AS (DELETE FROM destination_stays v USING owner o WHERE v.trip_id=o.id AND v.city_id=$3 AND v.stay_id=$4 RETURNING v.trip_id,v.city_id)
             UPDATE destination_places d SET context_version=$5 FROM removed r
             WHERE d.trip_id=r.trip_id AND d.city_id=r.city_id RETURNING d.city_id;
@@ -312,7 +312,7 @@ public sealed partial class PostgresPlannerDb
         await using var command = dataSource.CreateCommand(
             $"""
             SELECT {ActivityColumns} FROM activities a JOIN trips t ON t.id=a.trip_id
-            WHERE a.trip_id=$1 AND a.city_id=$2 AND (t.owner_user_id=$3 OR EXISTS (
+            WHERE a.trip_id=$1 AND a.city_id=$2 AND (can_plan_trip(t.id, $3) OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $3=ANY(p.user_ids)))
             ORDER BY a.created_at,a.id;
             """
@@ -338,7 +338,7 @@ public sealed partial class PostgresPlannerDb
         await using var command = dataSource.CreateCommand(
             $"""
             SELECT {ActivityColumns} FROM activities a JOIN trips t ON t.id=a.trip_id
-            WHERE a.id=$1 AND a.trip_id=$2 AND a.city_id=$3 AND (t.owner_user_id=$4 OR EXISTS (
+            WHERE a.id=$1 AND a.trip_id=$2 AND a.city_id=$3 AND (can_plan_trip(t.id, $4) OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $4=ANY(p.user_ids)));
             """
         );
@@ -374,7 +374,7 @@ public sealed partial class PostgresPlannerDb
         $$"""
             WITH eligible AS (
                 UPDATE trips t SET updated_at=updated_at
-                WHERE t.id=$1 AND t.owner_user_id=$2
+                WHERE t.id=$1 AND can_plan_trip(t.id, $2)
                   AND EXISTS (SELECT 1 FROM destination_places d JOIN destination_stays v ON v.trip_id=d.trip_id AND v.city_id=d.city_id WHERE d.trip_id=t.id AND d.city_id=${{cityParameter}} AND d.context_version=$3)
                 RETURNING t.id
             )
@@ -485,7 +485,7 @@ public sealed partial class PostgresPlannerDb
             """
             INSERT INTO operations(id,user_id,resource_id,type,status,items)
             SELECT $1,$2,$3,'activitySuggest','pending',1 FROM trips t
-            WHERE t.id=$3 AND t.owner_user_id=$2
+            WHERE t.id=$3 AND can_plan_trip(t.id, $2)
               AND EXISTS (SELECT 1 FROM destination_places d JOIN destination_stays v ON v.trip_id=d.trip_id AND v.city_id=d.city_id WHERE d.trip_id=t.id AND d.city_id=$5 AND d.context_version=$4)
             ON CONFLICT(id) DO NOTHING;
             """,
@@ -717,7 +717,7 @@ public sealed partial class PostgresPlannerDb
             """
             SELECT j.result::text FROM activity_jobs j JOIN trips t ON t.id=j.trip_id
             WHERE j.operation_id=$1 AND j.trip_id=$2 AND j.city_id=$3 AND
-              (t.owner_user_id=$4 OR EXISTS (SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $4=ANY(p.user_ids)));
+              (can_plan_trip(t.id, $4) OR EXISTS (SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $4=ANY(p.user_ids)));
             """
         );
         command.Parameters.AddWithValue(operationId);

@@ -69,7 +69,12 @@ export type PlanningParty = {
   id: string;
   suggestedOrigin?: SearchLocation | null;
   preferredAirport?: string | null;
-  members: { id: string; name: string; homeCity: string | null }[];
+  members: {
+    id: string;
+    name: string;
+    homeCity: string | null;
+    role?: "Traveller" | "Planner";
+  }[];
 };
 export type TripFlightPlanningData = {
   document: PlanningDocument;
@@ -190,11 +195,18 @@ export async function changePartyMember(
   partyId: string,
   memberId: string,
   add: boolean,
+  role: "Traveller" | "Planner" = "Traveller",
 ): Promise<void> {
   const url = `${tripResourceUrl(userId, tripId)}/parties/${encodeURIComponent(partyId)}/members/${encodeURIComponent(memberId)}`;
   const response = await fetch(url, {
     method: add ? "PUT" : "DELETE",
     credentials: "include",
+    ...(add
+      ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        }
+      : {}),
   });
   if (!response.ok)
     await readTripError(

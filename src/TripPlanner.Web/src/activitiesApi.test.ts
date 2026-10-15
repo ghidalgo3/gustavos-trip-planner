@@ -1,5 +1,10 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { addDestination, deleteDestination } from "./activitiesApi";
+import {
+  addDestination,
+  deleteDestination,
+  importActivityImages,
+  type Destination,
+} from "./activitiesApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -63,4 +68,49 @@ test("reports a failed destination deletion", async () => {
   await expect(deleteDestination("trip", "paris-fr")).rejects.toThrow(
     "Deletion failed.",
   );
+});
+
+test("uploads the selected image batch in one multipart request", async () => {
+  const fetchMock = vi.fn<typeof fetch>(async () =>
+    Response.json({ id: "operation" }, { status: 202 }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const destination: Destination = {
+    type: "Feature",
+    id: "tokyo-jp",
+    geometry: { type: "Point", coordinates: [139.69, 35.69] },
+    properties: {
+      name: "Tokyo",
+      countryCode: "JP",
+      timeZone: null,
+      contextVersion: "context",
+      arrivalDate: null,
+      departureDate: null,
+      stays: [],
+      isActive: true,
+    },
+  };
+  const files = [
+    new File(["first"], "first.png", { type: "image/png" }),
+    new File(["second"], "second.jpg", { type: "image/jpeg" }),
+  ];
+  await importActivityImages(
+    "trip",
+    destination,
+    files,
+    "Extract food activities",
+  );
+  const [url, request] = fetchMock.mock.calls[0];
+  expect(url).toMatch(/\/trips\/trip\/destinations\/tokyo-jp:import$/);
+  const form = request!.body as FormData;
+  expect(
+    (form.getAll("images") as File[]).map((file) => [
+      file.name,
+      file.size,
+      file.type,
+    ]),
+  ).toEqual(files.map((file) => [file.name, file.size, file.type]));
+  expect(form.get("destinationContext")).toBe("context");
+  expect(form.get("input")).toBe("Extract food activities");
+  expect(form.get("requestId")).toBeTruthy();
 });

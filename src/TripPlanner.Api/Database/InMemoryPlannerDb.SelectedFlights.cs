@@ -39,7 +39,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(tripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_parties.TryGetValue(choices.PartyId, out var party)
                 || party.TripId != tripId
             )
@@ -81,7 +81,7 @@ public sealed partial class InMemoryPlannerDb
         {
             if (
                 !_trips.TryGetValue(selectedFlight.TripId, out var trip)
-                || trip.OwnerUserId != ownerUserId
+                || !CanPlanTrip(ownerUserId, trip)
                 || !_parties.TryGetValue(selectedFlight.PartyId, out var party)
                 || party.TripId != trip.Id
             )
@@ -102,7 +102,7 @@ public sealed partial class InMemoryPlannerDb
         cancellationToken.ThrowIfCancellationRequested();
         lock (_tripLock)
         {
-            if (_trips.TryGetValue(tripId, out var trip) && trip.OwnerUserId == ownerUserId)
+            if (_trips.TryGetValue(tripId, out var trip) && CanPlanTrip(ownerUserId, trip))
                 _selectedFlights.Remove((tripId, partyId));
         }
         return Task.CompletedTask;

@@ -106,7 +106,16 @@ public static class TripsEndpoints
         if (error is not null)
             return error;
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
-        return trip is null ? Results.NotFound() : Results.Ok(TripResponse.From(trip));
+        return trip is null
+            ? Results.NotFound()
+            : Results.Ok(
+                TripResponse.From(trip) with
+                {
+                    CanPlan =
+                        await database.GetTripAsync(user.Id, tripId, context.RequestAborted)
+                            is not null,
+                }
+            );
     }
 
     private static async Task<IResult> CreateTrip(
@@ -175,7 +184,9 @@ public static class TripsEndpoints
             request.Constraints
                 ?? (userId is null ? JsonSerializer.SerializeToElement(new { }) : null)
         );
-        return trip is null ? Results.NotFound() : Results.Ok(TripResponse.From(trip));
+        return trip is null
+            ? Results.NotFound()
+            : Results.Ok(TripResponse.From(trip) with { CanPlan = true });
     }
 
     private static async Task<IResult> DeleteTrip(

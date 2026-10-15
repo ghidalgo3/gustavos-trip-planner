@@ -30,7 +30,8 @@ public sealed partial class InMemoryPlannerDb
         Guid partyId,
         Guid memberUserId,
         bool add,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        string role = "Traveller"
     )
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -43,10 +44,8 @@ public sealed partial class InMemoryPlannerDb
                 || party.TripId != tripId
             )
                 return Task.FromResult(PartyMemberChangeStatus.PartyNotFound);
-            if (add)
+            if (add && !party.UserIds.Contains(memberUserId))
             {
-                if (party.UserIds.Contains(memberUserId))
-                    return Task.FromResult(PartyMemberChangeStatus.Success);
                 if (_users.Values.All(user => user.Id != memberUserId))
                     return Task.FromResult(PartyMemberChangeStatus.UserNotFound);
                 if (party.UserIds.Count >= 9)
@@ -60,7 +59,7 @@ public sealed partial class InMemoryPlannerDb
                 )
                     return Task.FromResult(PartyMemberChangeStatus.AlreadyInAnotherParty);
             }
-            else
+            else if (!add)
             {
                 if (!party.UserIds.Contains(memberUserId))
                     return Task.FromResult(PartyMemberChangeStatus.Success);
@@ -68,9 +67,14 @@ public sealed partial class InMemoryPlannerDb
                     return Task.FromResult(PartyMemberChangeStatus.OwnerCannotLeave);
             }
             IReadOnlyList<Guid> members = add
-                ? [.. party.UserIds, memberUserId]
+                ? party.UserIds.Append(memberUserId).Distinct().ToArray()
                 : party.UserIds.Where(id => id != memberUserId).ToArray();
-            _parties[partyId] = party with { UserIds = members };
+            var roles = new Dictionary<Guid, string>(party.MemberRoles);
+            if (add)
+                roles[memberUserId] = role;
+            else
+                roles.Remove(memberUserId);
+            _parties[partyId] = party with { UserIds = members, MemberRoles = roles };
             return Task.FromResult(PartyMemberChangeStatus.Success);
         }
     }

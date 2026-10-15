@@ -1,5 +1,8 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services;
 
@@ -56,7 +59,12 @@ public static class PartyEndpoints
             {
                 User? member = await database.GetUserAsync(memberId, context.RequestAborted);
                 members.Add(
-                    new(memberId, member?.DisplayName ?? "Unknown traveler", member?.HomeCityName)
+                    new(
+                        memberId,
+                        member?.DisplayName ?? "Unknown traveler",
+                        member?.HomeCityName,
+                        memberId == trip.OwnerUserId ? "Planner" : party.RoleFor(memberId)
+                    )
                 );
             }
             result.Add(new(party.Id, members, ownerOrigin, owner?.PreferredAirport));
@@ -96,8 +104,20 @@ public static class PartyEndpoints
         Guid memberId,
         HttpContext context,
         IPlannerDb database,
-        ICurrentUser currentUser
-    ) => ChangeMember(userId, tripId, partyId, memberId, true, context, database, currentUser);
+        ICurrentUser currentUser,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] PartyMemberRequest? request
+    ) =>
+        ChangeMember(
+            userId,
+            tripId,
+            partyId,
+            memberId,
+            true,
+            context,
+            database,
+            currentUser,
+            request?.Role ?? "Traveller"
+        );
 
     private static Task<IResult> RemoveMember(
         Guid userId,
@@ -117,7 +137,8 @@ public static class PartyEndpoints
         bool add,
         HttpContext context,
         IPlannerDb database,
-        ICurrentUser currentUser
+        ICurrentUser currentUser,
+        string role = "Traveller"
     )
     {
         var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
@@ -129,13 +150,16 @@ public static class PartyEndpoints
             return error;
         if (user!.Id != userId)
             return Results.Forbid();
+        if (role is not ("Traveller" or "Planner"))
+            return Results.BadRequest(new { title = "Role must be Traveller or Planner." });
         PartyMemberChangeStatus status = await database.ChangePartyMemberAsync(
             user.Id,
             tripId,
             partyId,
             memberId,
             add,
-            context.RequestAborted
+            context.RequestAborted,
+            role
         );
         return status switch
         {
