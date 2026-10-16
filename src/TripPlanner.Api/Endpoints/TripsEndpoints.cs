@@ -81,12 +81,16 @@ public static class TripsEndpoints
             database,
             currentUser.Profile!
         );
-        return error
-            ?? Results.Ok(
-                (await database.GetTripsAsync(user!.Id, context.RequestAborted)).Select(
-                    TripResponse.From
+        if (error is not null)
+            return error;
+        var trips = await database.GetTripsAsync(user!.Id, context.RequestAborted);
+        return Results.Ok(
+            await Task.WhenAll(
+                trips.Select(trip =>
+                    DescribeTripAsync(trip, user.Id, database, context.RequestAborted)
                 )
-            );
+            )
+        );
     }
 
     internal static async Task<IResult> GetTrip(
@@ -108,14 +112,7 @@ public static class TripsEndpoints
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         return trip is null
             ? Results.NotFound()
-            : Results.Ok(
-                TripResponse.From(trip) with
-                {
-                    CanPlan =
-                        await database.GetTripAsync(user.Id, tripId, context.RequestAborted)
-                            is not null,
-                }
-            );
+            : Results.Ok(await DescribeTripAsync(trip, user.Id, database, context.RequestAborted));
     }
 
     internal static async Task<IResult> CreateTrip(
@@ -149,7 +146,7 @@ public static class TripsEndpoints
         );
         return Results.Created(
             userId is null ? $"/trips/{trip.Id}" : $"/user/{user.Id}/trips/{trip.Id}",
-            TripResponse.From(trip)
+            TripResponse.From(trip, canPlan: true)
         );
     }
 
@@ -186,7 +183,7 @@ public static class TripsEndpoints
         );
         return trip is null
             ? Results.NotFound()
-            : Results.Ok(TripResponse.From(trip) with { CanPlan = true });
+            : Results.Ok(TripResponse.From(trip, canPlan: true));
     }
 
     internal static async Task<IResult> DeleteTrip(
@@ -209,6 +206,18 @@ public static class TripsEndpoints
             ? Results.NoContent()
             : Results.NotFound();
     }
+
+    private static async Task<TripResponse> DescribeTripAsync(
+        Trip trip,
+        Guid userId,
+        IPlannerDb database,
+        CancellationToken cancellationToken
+    ) =>
+        TripResponse.From(
+            trip,
+            canPlan: trip.OwnerUserId == userId
+                || await database.GetTripAsync(userId, trip.Id, cancellationToken) is not null
+        );
 
     private static async Task<(User? User, IResult? Error)> AuthorizeOwnerAsync(
         Guid? userId,

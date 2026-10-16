@@ -26,7 +26,7 @@ public sealed record TripResponse(
 {
     public bool CanPlan { get; init; }
 
-    public static TripResponse From(Models.Trip trip) =>
+    public static TripResponse From(Models.Trip trip, bool canPlan) =>
         new(
             trip.Id,
             trip.OwnerUserId,
@@ -35,5 +35,8 @@ public sealed record TripResponse(
             trip.Constraints,
             trip.CreatedAt,
             trip.UpdatedAt
-        );
+        )
+        {
+            CanPlan = canPlan,
+        };
 }

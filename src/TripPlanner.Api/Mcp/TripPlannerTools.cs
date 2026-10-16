@@ -404,7 +404,7 @@ public sealed class TripPlannerTools(
                 Meta = new JsonObject
                 {
                     ["mcp/www_authenticate"] = new JsonArray(
-                        $"Bearer error=\"insufficient_scope\", scope=\"{(write ? McpServiceExtensions.WriteScope : McpServiceExtensions.ReadScope)}\", resource_metadata=\"{new Uri(new Uri(options.Value.Issuer!), "/.well-known/oauth-protected-resource/mcp")}\""
+                        $"Bearer error=\"insufficient_scope\", error_description=\"Reconnect TripPlanner to grant the required permission.\", scope=\"{(write ? McpServiceExtensions.WriteScope : McpServiceExtensions.ReadScope)}\", resource_metadata=\"{new Uri(new Uri(options.Value.Issuer!), "/.well-known/oauth-protected-resource/mcp")}\""
                     ),
                 },
             };

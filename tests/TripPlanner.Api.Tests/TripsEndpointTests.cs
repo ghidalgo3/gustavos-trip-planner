@@ -25,7 +25,8 @@ public class TripsEndpointTests
             )
         );
         Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
-        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        var trip = (await created.Content.ReadFromJsonAsync<TripResponse>())!;
+        Assert.IsTrue(trip.CanPlan);
         string url = $"/trips/{trip.Id}";
         Assert.AreEqual(url, created.Headers.Location?.ToString());
         Assert.AreEqual(5000, trip.Constraints.GetProperty("budget").GetInt32());

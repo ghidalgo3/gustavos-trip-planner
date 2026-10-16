@@ -204,6 +204,108 @@ public class McpEndpointTests
     }
 
     [TestMethod]
+    [DataRow("Owner", true)]
+    [DataRow("Planner", true)]
+    [DataRow("Traveller", false)]
+    public async Task TripPermissions_AreConsistentAcrossListDetailsAndAgentMutations(
+        string role,
+        bool canPlan
+    )
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = CreateClient(factory);
+        var user = await SeedAndSetCookie(factory, browser);
+        var owner =
+            role == "Owner"
+                ? user
+                : await factory.Database.GetOrCreateUserAsync(
+                    new("google", "owner@example.com", "Owner")
+                );
+        var trip = await factory.Database.CreateTripAsync(owner.Id, "Original trip", "");
+        if (role != "Owner")
+        {
+            var party = (await factory.Database.GetPartiesAsync(owner.Id, trip.Id)).Single();
+            await factory.Database.ChangePartyMemberAsync(
+                owner.Id,
+                trip.Id,
+                party.Id,
+                user.Id,
+                true,
+                role: role
+            );
+        }
+        SetTestPrincipal(browser, user.Email);
+        var restList = await browser.GetFromJsonAsync<TripResponse[]>("/trips");
+        Assert.AreEqual(canPlan, restList!.Single().CanPlan);
+        Assert.AreEqual(
+            canPlan,
+            (await browser.GetFromJsonAsync<TripResponse>($"/trips/{trip.Id}"))!.CanPlan
+        );
+
+        var token = await Tokens(browser, "tripplanner.read tripplanner.write");
+        using var agent = CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            token.GetProperty("access_token").GetString()
+        );
+        var listed = await Result(
+            await Rpc(agent, "tools/call", new { name = "list_trips", arguments = new { } })
+        );
+        Assert.IsFalse(listed.GetProperty("isError").GetBoolean(), listed.ToString());
+        Assert.AreEqual(
+            canPlan,
+            listed
+                .GetProperty("structuredContent")
+                .GetProperty("data")[0]
+                .GetProperty("canPlan")
+                .GetBoolean()
+        );
+        var details = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new { name = "get_trip", arguments = new { tripId = trip.Id } }
+            )
+        );
+        Assert.IsFalse(details.GetProperty("isError").GetBoolean(), details.ToString());
+        Assert.AreEqual(
+            canPlan,
+            details
+                .GetProperty("structuredContent")
+                .GetProperty("data")
+                .GetProperty("canPlan")
+                .GetBoolean()
+        );
+        var updated = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new
+                {
+                    name = "update_trip",
+                    arguments = new
+                    {
+                        tripId = trip.Id,
+                        request = new { name = "Changed by ChatGPT", description = "" },
+                    },
+                }
+            )
+        );
+        Assert.AreEqual(!canPlan, updated.GetProperty("isError").GetBoolean(), updated.ToString());
+        Assert.AreEqual(
+            canPlan ? "Changed by ChatGPT" : "Original trip",
+            factory.Database.Trips.Single().Name
+        );
+        var log = await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log");
+        Assert.HasCount(canPlan ? 1 : 0, log!.Entries);
+        if (canPlan)
+        {
+            Assert.AreEqual("ChatGPT", log.Entries[0].Source);
+            Assert.AreEqual(user.Id, log.Entries[0].ActorUserId);
+        }
+    }
+
+    [TestMethod]
     public async Task ChatGptCanCreateTrip_WithActorAttribution_AndCannotReadOtherUsersTrips()
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
@@ -230,6 +332,7 @@ public class McpEndpointTests
         var created = await Result(createdResponse);
         Assert.IsFalse(created.GetProperty("isError").GetBoolean(), created.ToString());
         var trip = created.GetProperty("structuredContent").GetProperty("data");
+        Assert.IsTrue(trip.GetProperty("canPlan").GetBoolean());
         Guid tripId = trip.GetProperty("id").GetGuid();
         Assert.AreEqual(user.Id, trip.GetProperty("ownerUserId").GetGuid());
         SetTestPrincipal(browser, user.Email);
@@ -454,6 +557,13 @@ public class McpEndpointTests
             )
         );
         Assert.IsTrue(write.GetProperty("isError").GetBoolean());
+        string challenge = write
+            .GetProperty("_meta")
+            .GetProperty("mcp/www_authenticate")[0]
+            .GetString()!;
+        StringAssert.Contains(challenge, "error=\"insufficient_scope\"");
+        StringAssert.Contains(challenge, "error_description=\"");
+        StringAssert.Contains(challenge, "scope=\"tripplanner.write\"");
         Assert.IsEmpty(factory.Database.Trips);
         using var tokenClient = CreateClient(factory);
         var refreshed = await tokenClient.PostAsync(

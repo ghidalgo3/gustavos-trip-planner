@@ -382,6 +382,13 @@ actor, trip owner, and current trip members. Former members lose visibility into
 other people's actions; actors retain their own history. Historical names and
 actors survive trip deletion. Existing history is not backfilled.
 
+ChatGPT acts with the connected user's trip permissions: owners and planners can
+modify trips after granting `tripplanner.write`; travellers remain read-only.
+Trip lists and details both return `canPlan` for that user, so agents can reliably
+distinguish editable trips from read-only shares. A read-only OAuth token is never
+silently upgraded: write tools return an OAuth reauthorization challenge. Reconnect
+with `tripplanner.read tripplanner.write offline_access` to grant write access.
+
 `AuditedPlannerDb` decorates the shared `IPlannerDb` write interface. PostgreSQL
 mutations and log inserts share an ambient transaction, so a failed audit insert
 rolls back the write. Rejected writes are not logged. The log is append-only via
