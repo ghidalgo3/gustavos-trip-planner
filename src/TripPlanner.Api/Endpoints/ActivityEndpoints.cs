@@ -481,7 +481,7 @@ public static class ActivityEndpoints
             || files.Sum(file => file.Length) > ActivityImagePayload.MaxTotalBytes
         )
             return Results.Json(
-                new { title = "Images must be at most 10 MB each and 25 MB in total." },
+                new { title = "Images must be at most 10 MB each and 50 MB in total." },
                 statusCode: 413
             );
         var images = new List<ActivityImage>();

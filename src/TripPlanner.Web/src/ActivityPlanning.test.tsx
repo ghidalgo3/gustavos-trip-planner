@@ -16,6 +16,7 @@ import {
   getActivities,
   getActivity,
   saveActivity,
+  deleteActivity,
   suggestActivities,
   importActivityImages,
   waitForActivityJob,
@@ -410,7 +411,12 @@ test.each(["prompt", "image"] as const)(
     };
     vi.mocked(suggestActivities).mockResolvedValue(operation);
     vi.mocked(importActivityImages).mockResolvedValue(operation);
-    vi.mocked(waitForActivityJob).mockResolvedValue(operation);
+    let complete!: (operation: TrackedOperation) => void;
+    vi.mocked(waitForActivityJob).mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
     vi.mocked(getSuggestionResult).mockResolvedValue({
       operationId: "op",
       activities: { type: "FeatureCollection", features: [activity] },
@@ -454,6 +460,22 @@ test.each(["prompt", "image"] as const)(
         name: method === "prompt" ? "Suggest activities" : "Extract activities",
       }),
     );
+    await waitFor(() => expect(waitForActivityJob).toHaveBeenCalled());
+    const progress = drawer.querySelector(
+      ".activity-drawer-progress",
+    ) as HTMLElement;
+    expect(progress).toHaveAttribute("role", "status");
+    expect(progress).toHaveTextContent(
+      method === "image"
+        ? "Extracting activities from your photos"
+        : "Generating activities",
+    );
+    expect(progress.closest(".activity-drawer-footer")).not.toBeNull();
+    expect(within(progress).getByRole("progressbar")).toBeInTheDocument();
+    expect(
+      within(drawer).getByRole("button", { name: "Cancel" }),
+    ).toBeDisabled();
+    await act(async () => complete(operation));
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
@@ -473,9 +495,20 @@ test.each(["prompt", "image"] as const)(
     expect(
       await screen.findByRole("list", { name: "Paris activities" }),
     ).toHaveTextContent("Louvre");
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "1 activities added as Proposed.",
-    );
+    const summary = await screen.findByText("1 activities added as Proposed.");
+    expect(summary).toBeVisible();
+    expect(summary.closest(".activity-planning")).toBeNull();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(summary).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+    click(screen.getByRole("button", { name: "Dismiss activity summary" }));
+    await waitFor(() => expect(summary).not.toBeInTheDocument());
   },
 );
 
@@ -556,7 +589,7 @@ test.each([false, true])(
     expect(within(card).getByText("Proposed")).toBeVisible();
     click(within(card).getByText("See the paintings"));
     expect(
-      within(card).getByRole("button", { name: "Louvre" }),
+      within(list).getByRole("button", { name: "Louvre" }),
     ).toHaveAttribute("aria-pressed", "true");
     click(within(list).getByRole("button", { name: "Unlocated" }));
     const details = screen.getByRole("region", {
@@ -620,7 +653,7 @@ test("image import accepts ten images, removes individual images, and preserves 
   expect(within(drawer).getAllByRole("img")).toHaveLength(10);
   change(input, { target: { files: [files[0]] } });
   expect(within(drawer).getByRole("alert")).toHaveTextContent(
-    "up to 10 images",
+    "Only the first 10 photos were accepted",
   );
   expect(within(drawer).getAllByRole("img")).toHaveLength(10);
   click(within(drawer).getByRole("button", { name: "Extract activities" }));
@@ -773,3 +806,233 @@ test("a Stay marker presents accommodation details separately from activities", 
     screen.getByRole("list", { name: "Paris activities" }).children,
   ).toHaveLength(0);
 });
+
+test("activity costs use a known currency selection and save the selected currency", async () => {
+  show();
+  const drawer = await add();
+  const currency = within(drawer).getByRole("combobox", { name: "Currency" });
+  expect(currency.tagName).toBe("SELECT");
+  expect(currency).toBeDisabled();
+  change(within(drawer).getByLabelText("Name"), {
+    target: { value: "Museum" },
+  });
+  change(within(drawer).getByLabelText("Cost amount"), {
+    target: { value: "25" },
+  });
+  expect(currency).toBeEnabled();
+  expect(currency).toHaveValue("USD");
+  for (const code of ["USD", "EUR", "JPY", "GBP"]) {
+    expect(
+      within(currency).getByRole("option", { name: new RegExp(`^${code} —`) }),
+    ).toHaveValue(code);
+  }
+  expect(
+    within(currency).queryByRole("option", { name: /^XYZ/ }),
+  ).not.toBeInTheDocument();
+  change(currency, { target: { value: "JPY" } });
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
+  await waitFor(() =>
+    expect(saveActivity).toHaveBeenCalledWith(
+      "trip",
+      destinations.features[0],
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          cost: { amount: 25, currency: "JPY", basis: "perPerson" },
+        }),
+      }),
+      undefined,
+    ),
+  );
+});
+
+test.each([
+  {
+    kind: "count",
+    reason: "Only the first 10 photos were accepted",
+    count: 10,
+  },
+  { kind: "format", reason: "unsupported format", count: 1 },
+  { kind: "empty", reason: "the file is empty", count: 1 },
+  { kind: "size", reason: "10 MB limit per photo", count: 1 },
+  { kind: "total", reason: "50 MB total upload limit", count: 5 },
+])(
+  "photo selection previews accepted files and explains $kind rejections",
+  async ({ kind, reason, count }) => {
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL() {
+          return "blob:preview";
+        }
+        static revokeObjectURL() {}
+      },
+    );
+    const photo = (name: string, size = 5) => {
+      const file = new File(["photo"], name, { type: "image/jpeg" });
+      Object.defineProperty(file, "size", { value: size });
+      return file;
+    };
+    const files =
+      kind === "count"
+        ? Array.from({ length: 12 }, (_, i) => photo(`${i}.jpg`))
+        : kind === "total"
+          ? [
+              ...Array.from({ length: 5 }, (_, index) =>
+                photo(`${index}.jpg`, 10_000_000),
+              ),
+              photo("rejected.jpg", 1),
+            ]
+          : [
+              photo("accepted.jpg"),
+              kind === "format"
+                ? new File(["gif"], "rejected.gif", { type: "image/gif" })
+                : photo("rejected.jpg", kind === "empty" ? 0 : 10_000_001),
+            ];
+    show(false, ["LLM"]);
+    const drawer = await add();
+    click(within(drawer).getByRole("tab", { name: "Images" }));
+    change(within(drawer).getByLabelText("Activity images"), {
+      target: { files },
+    });
+    expect(within(drawer).getAllByRole("img")).toHaveLength(count);
+    expect(within(drawer).getByRole("status")).toHaveTextContent(
+      `${count} of 10 photos ready to upload`,
+    );
+    expect(within(drawer).getByRole("alert")).toHaveTextContent(reason);
+    if (kind !== "count")
+      expect(within(drawer).getByRole("alert")).toHaveTextContent("rejected.");
+    expect(within(drawer).getAllByRole("img")[0]).toHaveAttribute(
+      "src",
+      "blob:preview",
+    );
+  },
+);
+
+test("the map can collapse for list browsing and reopen when selecting an activity", async () => {
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [activity],
+  });
+  show();
+  const toggle = await screen.findByRole("button", { name: "Hide map" });
+  const map = screen.getByLabelText("Map");
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const panel = map.closest(".activity-map-panel")!;
+  expect(toggle).toHaveAttribute("aria-controls", panel.id);
+  click(toggle);
+  expect(screen.getByRole("button", { name: "Show map" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  expect(panel.parentElement).toHaveClass("activity-map-collapsed");
+  expect(map).toBeInTheDocument();
+  click(screen.getByRole("button", { name: "Show map" }));
+  expect(panel.parentElement).not.toHaveClass("activity-map-collapsed");
+  click(screen.getByRole("button", { name: "Hide map" }));
+  click(await screen.findByRole("button", { name: "Louvre" }));
+  expect(panel.parentElement).not.toHaveClass("activity-map-collapsed");
+  expect(screen.getByRole("button", { name: "Hide map" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  expect(
+    await screen.findByRole("button", { name: "Edit activity: Louvre" }),
+  ).toBeInTheDocument();
+});
+
+test("map detail state menu saves the complete activity with its current ETag", async () => {
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [activity],
+  });
+  vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"current"' });
+  vi.mocked(saveActivity).mockResolvedValue({
+    ...activity,
+    properties: { ...activity.properties, state: "Planned" },
+  });
+  show();
+  click(await screen.findByRole("button", { name: "Louvre" }));
+  click(
+    await screen.findByRole("button", { name: "State for Louvre: Proposed" }),
+  );
+  click(await screen.findByRole("menuitemradio", { name: "Planned" }));
+  await screen.findByRole("button", { name: "State for Louvre: Planned" });
+  expect(saveActivity).toHaveBeenCalledWith(
+    "trip",
+    destinations.features[0],
+    {
+      ...activity,
+      properties: { ...activity.properties, state: "Planned" },
+    },
+    '"current"',
+  );
+});
+
+test.each([false, true])(
+  "map detail deletion requires confirmation and supports retry, full-screen=%s",
+  async (fullscreen) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"current"' });
+    vi.mocked(deleteActivity)
+      .mockRejectedValueOnce(new Error("Please retry."))
+      .mockResolvedValue(undefined);
+    show();
+    if (fullscreen) {
+      click(
+        await screen.findByRole("button", { name: "Explore map full screen" }),
+      );
+      click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
+    } else {
+      click(await screen.findByRole("button", { name: "Louvre" }));
+    }
+    const stateButton = await screen.findByRole("button", {
+      name: "State for Louvre: Proposed",
+    });
+    const openDelete = async () => {
+      act(() => stateButton.focus());
+      click(stateButton);
+      const item = await screen.findByRole("menuitem", {
+        name: "Delete activity",
+      });
+      act(() => item.focus());
+      click(item);
+    };
+    expect(
+      screen.queryByRole("button", { name: "Delete activity: Louvre" }),
+    ).not.toBeInTheDocument();
+    await openDelete();
+    let dialog = await screen.findByRole("dialog", { name: "Delete Louvre?" });
+    expect(deleteActivity).not.toHaveBeenCalled();
+    click(await within(dialog).findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(deleteActivity).not.toHaveBeenCalled();
+    await openDelete();
+    dialog = await screen.findByRole("dialog", { name: "Delete Louvre?" });
+    click(
+      await within(dialog).findByRole("button", { name: "Delete activity" }),
+    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Please retry.",
+    );
+    click(
+      await within(dialog).findByRole("button", { name: "Delete activity" }),
+    );
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    if (fullscreen)
+      expect(
+        screen.getByRole("dialog", { name: "Map of Paris" }),
+      ).toBeInTheDocument();
+    expect(deleteActivity).toHaveBeenCalledWith(
+      "trip",
+      destinations.features[0],
+      "museum",
+      '"current"',
+    );
+    expect(
+      screen.queryByRole("button", { name: "Louvre" }),
+    ).not.toBeInTheDocument();
+  },
+);

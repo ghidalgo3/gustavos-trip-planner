@@ -3,8 +3,19 @@ import {
   Button,
   Dialog,
   DialogSurface,
+  DialogBody,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Input,
   Spinner,
+  Toaster,
+  Toast,
+  ToastTitle,
+  ToastBody,
+  ToastTrigger,
+  useId,
+  useToastController,
   Tab,
   TabList,
   Text,
@@ -21,10 +32,15 @@ import {
   MenuPopover,
   MenuList,
   MenuItemRadio,
+  MenuItem,
+  MenuDivider,
 } from "@fluentui/react-components";
 import {
   ArrowExpand24Regular,
+  ChevronDown24Regular,
+  ChevronUp24Regular,
   Dismiss24Regular,
+  Delete24Regular,
   Share24Regular,
 } from "@fluentui/react-icons";
 import { destinationDates } from "./tripDates";
@@ -51,6 +67,9 @@ import {
   type Destination,
   type DestinationCollection,
 } from "./activitiesApi";
+
+const currencyNames = new Intl.DisplayNames(["en"], { type: "currency" });
+const currencies = Intl.supportedValuesOf("currency");
 
 type Editor = { value: ActivityInput; etag?: string };
 const emptyActivity = (): ActivityInput => ({
@@ -105,10 +124,16 @@ export default function ActivityPlanning({
   }>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Activity>();
+  const [deleteError, setDeleteError] = useState<string>();
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
+  const toasterId = useId("activity-results");
+  const { dispatchToast } = useToastController(toasterId);
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [mapCollapsed, setMapCollapsed] = useState(false);
+  const mapPanelId = useId("activity-map-panel");
   const [fullscreenContainer, setFullscreenContainer] =
     useState<HTMLDivElement | null>(null);
   const [showMapCard, setShowMapCard] = useState(false);
@@ -121,6 +146,7 @@ export default function ActivityPlanning({
   >([]);
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<File[]>([]);
+  const [imageWarnings, setImageWarnings] = useState<string[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [entryMode, setEntryMode] = useState<"lookup" | "prompt" | "image">(
     "lookup",
@@ -303,6 +329,78 @@ export default function ActivityPlanning({
     }
   }
 
+  async function changeActivityState(item: Activity, state: string) {
+    if (!destination || busy || state === item.properties.state) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const current = await getActivity(trip.id, destination.id, item.id);
+      const saved = await saveActivity(
+        trip.id,
+        destination,
+        {
+          ...current.activity,
+          properties: { ...current.activity.properties, state },
+        },
+        current.etag,
+      );
+      setActivityData({
+        cityId: destination.id,
+        collection: {
+          ...activities,
+          features: activities.features.map((activity) =>
+            activity.id === saved.id ? saved : activity,
+          ),
+        },
+      });
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not update activity state.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmActivityDeletion() {
+    if (!destination || !deleteTarget || busy) return;
+    setBusy(true);
+    setDeleteError(undefined);
+    try {
+      const current = await getActivity(
+        trip.id,
+        destination.id,
+        deleteTarget.id,
+      );
+      await deleteActivity(trip.id, destination, deleteTarget.id, current.etag);
+      setActivityData({
+        cityId: destination.id,
+        collection: {
+          ...activities,
+          features: activities.features.filter(
+            (activity) => activity.id !== deleteTarget.id,
+          ),
+        },
+      });
+      if (selectedId === deleteTarget.id) {
+        setSelectedId(undefined);
+        setShowMapCard(false);
+      }
+      setDeleteTarget(undefined);
+      setMessage("Activity deleted.");
+    } catch (reason) {
+      setDeleteError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not delete the activity.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function searchPlace() {
     if (!destination || !placeQuery.trim()) return;
     placeAbort.current?.abort();
@@ -377,7 +475,7 @@ export default function ActivityPlanning({
     const cityId = destination.id;
     setBusy(true);
     setError(undefined);
-    setMessage("Generating activities…");
+    setMessage(undefined);
     const controller = new AbortController();
     operationAbort.current = controller;
     try {
@@ -399,8 +497,34 @@ export default function ActivityPlanning({
           cityId,
           collection: await getActivities(trip.id, cityId),
         });
-      setMessage(
-        `${result.activities.features.length} activities added as Proposed.${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+      dispatchToast(
+        <Toast>
+          <ToastTitle
+            action={
+              <ToastTrigger>
+                <Button
+                  aria-label="Dismiss activity summary"
+                  icon={<Dismiss24Regular />}
+                />
+              </ToastTrigger>
+            }
+          >
+            {kind === "image"
+              ? "Photo import complete"
+              : "Activity suggestions complete"}
+          </ToastTitle>
+          <ToastBody>
+            {result.activities.features.length} activities added as Proposed.
+            {result.warnings.length > 0 && (
+              <ul>
+                {result.warnings.map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
+            )}
+          </ToastBody>
+        </Toast>,
+        { intent: result.warnings.length ? "warning" : "success", timeout: -1 },
       );
       chooseImages([]);
       setPrompt("");
@@ -420,27 +544,35 @@ export default function ActivityPlanning({
   }
 
   function chooseImages(files: File[]) {
-    if (
-      files.length > 10 ||
-      files.some((file) => file.size > 10_000_000) ||
-      files.reduce((sum, file) => sum + file.size, 0) > 25_000_000
-    ) {
-      setError(
-        "Choose up to 10 images, at most 10 MB each and 25 MB in total.",
+    const accepted: File[] = [];
+    const warnings: string[] = [];
+    let totalBytes = 0;
+    if (files.length > 10) {
+      warnings.push(
+        "Only the first 10 photos were accepted. Additional photos were not added (maximum 10).",
       );
-      return;
     }
-    if (
-      files.some(
-        (file) =>
-          !["image/jpeg", "image/png", "image/webp"].includes(file.type),
-      )
-    ) {
-      setError("Choose JPEG, PNG, or WebP images.");
-      return;
+    for (const file of files.slice(0, 10)) {
+      let reason: string | undefined;
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+        reason = "unsupported format. Choose JPEG, PNG, or WebP.";
+      } else if (file.size === 0) {
+        reason = "the file is empty.";
+      } else if (file.size > 10_000_000) {
+        reason = "exceeds the 10 MB limit per photo.";
+      } else if (totalBytes + file.size > 50_000_000) {
+        reason = "would exceed the 50 MB total upload limit.";
+      }
+      if (reason) {
+        warnings.push(`${file.name}: not added because ${reason}`);
+      } else {
+        accepted.push(file);
+        totalBytes += file.size;
+      }
     }
-    setImages(files);
-    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
+    setImageWarnings(warnings);
+    setImages(accepted);
+    setImagePreviews(accepted.map((file) => URL.createObjectURL(file)));
     setError(undefined);
     if (imageInput.current) imageInput.current.value = "";
   }
@@ -469,6 +601,7 @@ export default function ActivityPlanning({
   }
 
   function selectActivity(id: string) {
+    setMapCollapsed(false);
     setSelectedId(id);
     setShowMapCard(true);
   }
@@ -495,16 +628,58 @@ export default function ActivityPlanning({
           >
             {index + 1}
           </span>
-          <h3>
-            <button
-              type="button"
-              aria-pressed={selectedId === item.id}
-              onClick={() => selectActivity(item.id)}
+          <h3>{item.properties.name}</h3>
+          {canEdit ? (
+            <Menu
+              checkedValues={{ state: [item.properties.state] }}
+              onCheckedValueChange={(_, data) => {
+                if (data.checkedItems[0])
+                  void changeActivityState(item, data.checkedItems[0]);
+              }}
             >
-              {item.properties.name}
-            </button>
-          </h3>
-          <span className="activity-state">{item.properties.state}</span>
+              <MenuTrigger disableButtonEnhancement>
+                <MenuButton
+                  className="activity-state-menu-button"
+                  appearance="secondary"
+                  disabled={busy}
+                  aria-label={`State for ${item.properties.name}: ${item.properties.state}`}
+                >
+                  {item.properties.state}
+                </MenuButton>
+              </MenuTrigger>
+              <MenuPopover>
+                <MenuList>
+                  {Array.from(
+                    new Set([
+                      "Proposed",
+                      "Planned",
+                      "Rejected",
+                      item.properties.state,
+                    ]),
+                  ).map((state) => (
+                    <MenuItemRadio key={state} name="state" value={state}>
+                      {state}
+                    </MenuItemRadio>
+                  ))}
+                  <MenuDivider />
+                  <MenuItem
+                    className="activity-delete-menu-item"
+                    icon={<Delete24Regular />}
+                    disabled={busy}
+                    onClick={() => {
+                      setDeleteError(undefined);
+                      // Let the menu close and restore focus before opening a modal.
+                      window.setTimeout(() => setDeleteTarget(item), 0);
+                    }}
+                  >
+                    Delete activity
+                  </MenuItem>
+                </MenuList>
+              </MenuPopover>
+            </Menu>
+          ) : (
+            <span className="activity-state">{item.properties.state}</span>
+          )}
         </div>
         {!item.geometry && (
           <small className="activity-location-missing">Needs location</small>
@@ -556,7 +731,7 @@ export default function ActivityPlanning({
           )}
           {canEdit && (
             <Button
-              appearance="subtle"
+              appearance="secondary"
               aria-label={`Edit activity: ${item.properties.name}`}
               onClick={() => void openEdit(item)}
             >
@@ -639,6 +814,7 @@ export default function ActivityPlanning({
 
   return (
     <section className="activity-planning" aria-label="Activity planning">
+      <Toaster toasterId={toasterId} position="bottom-end" />
       <TabList
         aria-label="Destinations"
         selectedValue={destination.id}
@@ -646,7 +822,7 @@ export default function ActivityPlanning({
         className="activity-destination-tabs"
       >
         {destinations.features.map((item) => (
-          <Tab value={item.id} key={item.id}>
+          <Tab value={item.id} key={item.id} disabled={busy}>
             <span className="activity-tab-label">
               <strong>{item.properties.name}</strong>
               <small>{destinationDates(item)}</small>
@@ -656,8 +832,19 @@ export default function ActivityPlanning({
       </TabList>
       {error && !editor && <Text role="alert">{error}</Text>}
       {message && <Text role="status">{message}</Text>}
-      <div className="activity-workspace">
-        <div className="activity-map-panel">
+      <Button
+        className="activity-map-toggle"
+        aria-expanded={!mapCollapsed}
+        aria-controls={mapPanelId}
+        icon={mapCollapsed ? <ChevronDown24Regular /> : <ChevronUp24Regular />}
+        onClick={() => setMapCollapsed((collapsed) => !collapsed)}
+      >
+        {mapCollapsed ? "Show map" : "Hide map"}
+      </Button>
+      <div
+        className={`activity-workspace${mapCollapsed ? " activity-map-collapsed" : ""}`}
+      >
+        <div id={mapPanelId} className="activity-map-panel">
           {!mapExpanded && (
             <ActivityMap
               center={destination.geometry}
@@ -723,9 +910,46 @@ export default function ActivityPlanning({
         </section>
       </div>
       <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(_, data) => {
+          if (!data.open && !busy) setDeleteTarget(undefined);
+        }}
+      >
+        <DialogSurface
+          mountNode={
+            mapExpanded ? (fullscreenContainer ?? undefined) : undefined
+          }
+        >
+          <DialogBody>
+            <DialogTitle>Delete {deleteTarget?.properties.name}?</DialogTitle>
+            <DialogContent>
+              <p>
+                This deletes the activity from the trip. This cannot be undone.
+              </p>
+              {deleteError && <Text role="alert">{deleteError}</Text>}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                disabled={busy}
+                onClick={() => setDeleteTarget(undefined)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="activity-delete-button"
+                disabled={busy}
+                onClick={() => void confirmActivityDeletion()}
+              >
+                {busy ? "Deleting…" : "Delete activity"}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+      <Dialog
         open={mapExpanded}
         onOpenChange={(_, data) => {
-          if (!editor) setMapExpanded(data.open);
+          if (!editor && !deleteTarget) setMapExpanded(data.open);
         }}
       >
         <DialogSurface
@@ -812,15 +1036,6 @@ export default function ActivityPlanning({
             </Text>
           )}
           {error && <Text role="alert">{error}</Text>}
-          {busy && (
-            <Spinner
-              label={
-                entryMode === "lookup"
-                  ? "Saving activity"
-                  : "Generating activities"
-              }
-            />
-          )}
           {editor && (
             <fieldset disabled={busy} className="activity-drawer-fields">
               {entryMode === "lookup" ? (
@@ -921,21 +1136,29 @@ export default function ActivityPlanning({
                     </label>
                     <label>
                       Currency
-                      <Input
-                        maxLength={3}
+                      <select
                         value={editor.value.properties.cost?.currency ?? ""}
                         disabled={!editor.value.properties.cost}
-                        onChange={(_, data) =>
+                        onChange={(event) =>
                           updateEditor({
                             cost: editor.value.properties.cost
                               ? {
                                   ...editor.value.properties.cost,
-                                  currency: data.value.toUpperCase(),
+                                  currency: event.target.value,
                                 }
                               : null,
                           })
                         }
-                      />
+                      >
+                        <option value="" disabled>
+                          Select currency
+                        </option>
+                        {currencies.map((currency) => (
+                          <option key={currency} value={currency}>
+                            {currency} — {currencyNames.of(currency)}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                     <label>
                       Cost basis
@@ -1032,7 +1255,7 @@ export default function ActivityPlanning({
                         Choose images
                       </Button>
                       <Text size={200}>
-                        Up to 10 images · 10 MB each · 25 MB total. Only
+                        Up to 10 images · 10 MB each · 50 MB total. Only
                         activities explicitly mentioned in the images will be
                         extracted.
                       </Text>
@@ -1050,6 +1273,18 @@ export default function ActivityPlanning({
                         className="activity-file-input"
                         aria-label="Activity images"
                       />
+                      {imageWarnings.length > 0 && (
+                        <div role="alert">
+                          {imageWarnings.map((warning) => (
+                            <p key={warning}>{warning}</p>
+                          ))}
+                        </div>
+                      )}
+                      {images.length > 0 && (
+                        <Text role="status">
+                          {images.length} of 10 photos ready to upload
+                        </Text>
+                      )}
                       {images.map((file, index) => (
                         <div
                           className="activity-upload-preview"
@@ -1087,6 +1322,30 @@ export default function ActivityPlanning({
           )}
         </DrawerBody>
         <DrawerFooter className="activity-drawer-footer">
+          {busy && (
+            <div
+              className="activity-drawer-progress"
+              role="status"
+              aria-live="polite"
+            >
+              <Spinner
+                size="small"
+                label={
+                  entryMode === "lookup"
+                    ? "Saving activity…"
+                    : entryMode === "image"
+                      ? "Extracting activities from your photos…"
+                      : "Generating activities…"
+                }
+              />
+              {entryMode !== "lookup" && (
+                <Text size={200}>
+                  Please wait while we find activities and resolve their
+                  locations.
+                </Text>
+              )}
+            </div>
+          )}
           {editor?.value.id && (
             <Button disabled={busy} onClick={() => void remove()}>
               Delete activity

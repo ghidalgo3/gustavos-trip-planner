@@ -10,7 +10,7 @@ public static class ActivityImagePayload
     public const string BatchMimeType = "application/vnd.tripplanner.image-batch+json";
     public const int MaxImages = 10;
     public const long MaxImageBytes = 10_000_000;
-    public const long MaxTotalBytes = 25_000_000;
+    public const long MaxTotalBytes = 50_000_000;
 
     public static (byte[] Data, string MimeType) Encode(IReadOnlyList<ActivityImage> images) =>
         images.Count == 1

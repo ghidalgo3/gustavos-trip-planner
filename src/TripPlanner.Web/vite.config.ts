@@ -62,6 +62,9 @@ export default defineConfig({
     },
   },
   test: {
+    // Fluent UI + jsdom tests are CPU-heavy; bound concurrency to avoid
+    // intermittent timeouts when running alongside local development servers.
+    maxWorkers: 2,
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
   },

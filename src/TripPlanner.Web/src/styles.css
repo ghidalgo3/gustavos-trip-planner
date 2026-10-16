@@ -458,7 +458,7 @@ main {
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--colorPaletteRedBorder2);
+  border: 1px solid var(--colorPaletteRedBorderActive);
   border-radius: 8px;
   background: var(--colorPaletteRedBackground1);
 }
@@ -718,7 +718,7 @@ main {
   padding-left: 18px;
 }
 .excluded-fares .fare-card {
-  border-color: var(--colorPaletteRedBorder2);
+  border-color: var(--colorPaletteRedBorderActive);
 }
 .remaining-fares {
   padding: 12px 0;
@@ -1402,6 +1402,12 @@ main {
   gap: 8px;
   padding-bottom: max(24px, env(safe-area-inset-bottom));
 }
+.activity-drawer-progress {
+  flex-basis: 100%;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
 .activity-drawer .fui-TabList {
   flex-wrap: wrap;
 }
@@ -1584,7 +1590,7 @@ main {
   margin: 0;
   font-size: 18px;
 }
-.activity-card-heading button {
+.activity-card-heading h3 button {
   background: transparent;
   border: 0;
   padding: 0;
@@ -1595,7 +1601,7 @@ main {
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.activity-card-heading button:focus-visible {
+.activity-card-heading h3 button:focus-visible {
   outline: 2px solid var(--colorBrandStroke1);
   outline-offset: 4px;
 }
@@ -1983,4 +1989,56 @@ main:has(.trip-workspace-activities) > .topbar {
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+}
+
+.activity-map-toggle {
+  display: none !important;
+}
+@media (max-width: 899px) {
+  .activity-map-toggle {
+    display: inline-flex !important;
+    align-self: flex-start;
+    flex-shrink: 0;
+  }
+  .trip-workspace-activities .activity-workspace.activity-map-collapsed {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .activity-map-collapsed > .activity-map-panel {
+    display: none;
+  }
+}
+.activity-delete-button {
+  background: var(--colorPaletteRedForeground1) !important;
+  color: var(--colorNeutralForegroundOnBrand) !important;
+  border-color: var(--colorPaletteRedBorderActive) !important;
+}
+.activity-delete-button:hover:not(:disabled) {
+  filter: brightness(0.9);
+}
+.activity-delete-button:disabled {
+  opacity: 0.5;
+}
+
+.activity-state-menu-button {
+  background: var(--colorNeutralBackground1) !important;
+  color: var(--colorNeutralForeground1) !important;
+  border: 1px solid var(--colorNeutralStroke1) !important;
+  padding: 6px 12px !important;
+}
+.activity-state-menu-button:hover:not(:disabled) {
+  background: var(--colorNeutralBackground1Hover) !important;
+}
+.activity-delete-menu-item {
+  min-height: 44px;
+  margin: 4px;
+  border: 1px solid var(--colorPaletteRedBorderActive) !important;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorPaletteRedForeground1) !important;
+  color: var(--colorNeutralForegroundOnBrand) !important;
+}
+.activity-delete-menu-item:hover,
+.activity-delete-menu-item:focus-visible {
+  background: var(--colorPaletteRedForeground1) !important;
+  color: var(--colorNeutralForegroundOnBrand) !important;
+  filter: brightness(0.9);
 }

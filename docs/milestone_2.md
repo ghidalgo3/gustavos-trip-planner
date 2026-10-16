@@ -1,12 +1,18 @@
 # Milestone 2: Destination and activity planning
 
-Status: Initial implementation, updated 2026-10-12.
+Status: Implemented scope documented as of 2026-10-15. Remaining work is listed under Follow-ups and validation below.
 
-The trip's destinations are now planned directly. This replaces the earlier decision to derive destinations from the owner's selected flights. A trip owner can select a city from autocomplete, optionally supply arrival and departure dates, and plan activities immediately. The form does not ask for a country code; the selected city result supplies it. Selecting, changing, or removing flights does not change the destination plan or its activities. Flight planning remains a separate part of the trip workspace.
+## Planning model and permissions
+
+A trip contains a name, description, and an object of constraints. Destinations, flights, parties, and activities are separate resources. Destinations are planned directly; flights are not a prerequisite for defining destinations or activities. Selecting, changing, or removing flights does not change the destination plan.
+
+The owner and members with the `Planner` role can edit trip constraints, destinations, activities, Stay locations, and flight plans. `Traveller` members have view access. Only the owner can manage membership and roles or delete the trip. New members default to Traveller. Member PUT replaces membership with a role; an omitted role defaults to Traveller. Trip responses expose the current user's `canPlan` capability. Permission checks also apply to background planning jobs.
+
+Party management has its own **Party** section, separate from Overview and flight search.
 
 ## Destination contract
 
-`GET /trips/{tripId}/destinations` returns a GeoJSON FeatureCollection, including an empty collection for a new trip. `POST` accepts a GeoJSON Feature with a required Point geometry from Azure Maps and properties `name`, `countryCode`, optional `timeZone`, optional object `constraints`, and nullable `arrivalDate`/`departureDate` for the initial stay:
+`GET /trips/{tripId}/destinations` returns a GeoJSON FeatureCollection, including an empty collection for a new trip. `POST` accepts a Feature with a required Point geometry and properties `name`, `countryCode`, optional `timeZone`, optional object `constraints`, and nullable `arrivalDate`/`departureDate` for the initial visit:
 
 ```json
 {
@@ -16,46 +22,98 @@ The trip's destinations are now planned directly. This replaces the earlier deci
 }
 ```
 
-The server assigns a stable URL-safe Feature `id` matching `{destinationCity}`. A city Feature also returns an opaque `contextVersion` and a `stays` array. Adding the same city again creates another stay while preserving its place properties and constraints. The collection's `route` foreign member records every visit in trip order. `PUT /trips/{tripId}/destinations/{destinationCity}` replaces the complete editable place Feature: Point geometry and properties `name`, `countryCode`, `timeZone`, and `constraints`. Its optional body `id` must match the URL. Omitting constraints clears them to `{}`. Stay summaries and context are server-managed; use `PUT .../stays/{stayId}` to replace a stay's dates and `DELETE .../stays/{stayId}` to remove one visit. Dates are optional and independent of flights. Place updates preserve IDs, stays, and activities, and rotate the context so stale activity writes are rejected.
+The server assigns a stable URL-safe Feature `id` matching `{destinationCity}`. Each city returns an opaque `contextVersion` and a `stays` array representing visits. Adding the same city again creates another visit while preserving its place properties, constraints, and shared activity collection. The collection's `route` foreign member records every visit in trip order.
 
-`DELETE /trips/{tripId}/destinations/{destinationCity}` deletes the city resource and all its stays, activities, and generation jobs. Removing individual stays instead keeps the city and its activities available for recovery.
+`PUT /trips/{tripId}/destinations/{destinationCity}` replaces the editable place Feature: Point geometry and properties `name`, `countryCode`, `timeZone`, and `constraints`. An optional body `id` must match the URL. Omitting constraints clears them to `{}`. Visit summaries and context are server-managed. `PUT .../stays/{stayId}` replaces a visit's dates; `DELETE .../stays/{stayId}` removes one visit. Dates are optional and independent of flights. Changes to the destination context invalidate stale activity writes.
 
-A city with no remaining visits is absent from the default collection. `?includeInactive=true` returns cached past cities for read-only activity recovery. Re-adding the same city restores its activity collection. Trip members may read, and only the owner may change the destination plan.
+`DELETE /trips/{tripId}/destinations/{destinationCity}` deletes the city and its visits, activities, generation jobs, and accommodation. Removing individual visits instead preserves the city and its activities for recovery. Cities with no remaining visits are omitted from the default collection; `?includeInactive=true` includes them for read-only activity recovery. Re-adding the same city restores its activity collection.
 
-`destination_places` persists city identity, Point, destination constraints, and context version; `destination_stays` persists ordered visits and optional dates. The city context rotates when a visit is added or removed. Activity and generation writes check that the city is active and the supplied context is current, independently of flight selection.
+Selected coordinates distinguish different cities with the same name and country; nearby selections for the same city become repeat visits.
+
+## Stay location contract
+
+Accommodation is separate from both activities and dated visits. One Stay location is shared across all visits to a destination city.
+
+`GET`, `PUT`, and `DELETE /trips/{tripId}/destinations/{destinationCity}/stay` read, replace, or remove a GeoJSON Feature with Point geometry, `properties.name`, and the canonical id `stay`. The destination response includes it as `properties.stayLocation`. Saving accommodation does not create an activity.
 
 ## Activity contract
 
-A city has `GET` and `POST /activities`, plus `GET`, `PUT`, and `DELETE /activities/{activityId}`. These routes exchange GeoJSON Features with a Point or null geometry, name, nullable duration, editable description, nullable cost, free-form state, and a `links` array of `{ "url": "https://…", "label": "Tickets" }` objects. Labels are optional. Up to 20 HTTP(S) links are allowed; existing activities default to an empty array. Links are replaced with the rest of the resource and can be cleared with `[]`. Updates replace all editable fields. Writes use `Destination-Context`; updates and deletes also use an activity ETag and `If-Match`. Unknown locations stay unpinned rather than being placed at the city center.
+Under `/trips/{tripId}/destinations/{destinationCity}`, `GET` and `POST /activities` list and create activities; `GET`, `PUT`, and `DELETE /activities/{activityId}` operate on one activity.
 
-`POST /trips/{tripId}/destinations/{destinationCity}:suggest` accepts a prompt and `POST .../{destinationCity}:import` accepts one to ten JPEG, PNG, or WebP images. Both create a durable operation, require the `LLM` feature flag, and save valid suggestions immediately with state `Proposed`. The result is available at `GET .../{destinationCity}/suggestions/{operationId}` after polling `/operations/{operationId}`. Imports accept repeated `images` fields (and legacy `image`), with a limit of ten files, 10 MB and 20 megapixels per image, and 25 MB in total. All files are validated before queueing. Images are supplied together to the assistant, which is instructed to extract only image-mentioned activities and readable details, deduplicate them, and return an empty list when none are present. Manual activity creation remains available without the feature flag. The worker rechecks the destination context before saving results.
+Activities are GeoJSON Features with a Point or null geometry, name, nullable duration, editable description, nullable cost, free-form state, and a `links` array of `{ "url": "https://…", "label": "Tickets" }` objects. Labels are optional. Up to 20 HTTP(S) links are allowed. Existing activities default to an empty array; links are replaced with the resource and can be cleared with `[]`.
 
-The worker calls the OpenAI Responses API with a strict activity schema, the user's prompt, destination city/country, and visit dates. It returns at most 10 candidates, checks names and optional cost/duration values, resolves named places through Azure Maps POI search within 50 km of the destination, using the activity name if `placeName` is missing. It normalizes activity verbs, accents, punctuation, and spacing. When POI search has no matching result, high-confidence named landmark geocoding is attempted; city centers and other broad administrative results are excluded. It persists valid activities as Proposed. Unverified places remain unpinned, with warnings in the suggestion result. Refused or incomplete OpenAI responses fail the operation rather than saving partial output. Configuration uses `OpenAI:ApiKey` and `OpenAI:Model`, shared with the flight-form assistant; see [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).
+Writes use `Destination-Context`; updates and deletes also use the activity ETag and `If-Match`. Updates replace all editable fields. Unknown locations remain unpinned rather than being placed at the city center.
 
-Migration `0006_ActivityJobImageHash.sql` upgrades early databases that lack `activity_jobs.image_sha256`, preserving existing jobs and backfilling hashes for retained images. Startup applies it automatically. The hash also preserves image request idempotency after uploaded bytes are cleaned up.
+## AI suggestions and photo extraction
 
-## UI
+`POST /trips/{tripId}/destinations/{destinationCity}:suggest` accepts a prompt. `POST .../{destinationCity}:import` accepts one to ten JPEG, PNG, or WebP images through repeated multipart `images` fields; legacy `image` fields remain supported. Both require the profile's `LLM` feature flag and create durable operations polled at `/operations/{operationId}`. `GET .../{destinationCity}/suggestions/{operationId}` returns created activities and warnings. Valid activities are saved immediately with state `Proposed`.
 
-The default trip view is **Overview**, initially an empty itinerary with an **Add destination** button. The button opens a modal drawer with city autocomplete and optional arrival/departure dates. The drawer fills a phone's width and sits at the right on larger screens. Saving adds the visit and closes the drawer; canceling discards the draft. Overview lists visits chronologically by arrival (or the known departure date), with undated visits last in itinerary order. Each visit offers activity planning and an **Edit dates** action using a single calendar to select arrival and departure. Owners can delete a destination after confirming that all its visits and activities will be removed. Overview cards show linked activity counts grouped by state. A city without activities shows **Plan Activities**; failed counts offer retry rather than implying the city is empty. Activity counts are shared across repeat visits to a city. Shared-trip members have a read-only overview. Flight spacer cards run from the user’s profile home city through the chronological visits and back home. Missing home cities display Home. Cards show matching selected flight numbers (including connecting segments) or Plan Flights links to the existing flight planner; shared members can view flights. Located activities have an Open in Maps link for Apple Maps on Apple devices or Google Maps elsewhere.
+Imports are limited to ten files, 10 MB and 20 megapixels per image, and 50 MB total. The API validates all submitted files before queueing. Images are sent together to the assistant, with instructions to extract only explicitly mentioned activities and readable details, deduplicate across images, and return no activities when none are mentioned. Image instructions can narrow extraction but cannot introduce activities absent from the images.
 
-A single destination calendar selects arrival and departure as a range. Selecting an earlier second day restarts the range; selecting the same day allows a one-day stay. Clear dates restores an undated visit. The calendar highlights other cities' dated stays, including repeat visits and overlapping dates, with colored labels below the month. Keyboard arrows navigate days, and Page Up/Down changes months. Trip-wide date and flexibility editing remain a follow-up.
+The worker calls the OpenAI Responses API with a strict activity schema, the prompt, destination city/country, and visit dates. It returns at most ten candidates and validates their names, optional cost, and duration. Refused or incomplete responses fail the operation. The worker rechecks permissions and destination context before saving.
 
-**Activities** shows destination tabs containing each city's visit dates, followed by a full-width Azure map centered on the selected city and activity cards. Destination tabs share a scroll position, so switching cities does not restore a different per-city offset. The selected city stays in the URL and breadcrumbs link back through Trips, the trip, and the current section. Map loading and failures are visible, with a retry that fetches a fresh SAS token. Destination creation and visit-date editing stay on Overview; Activities has no Destination details section or duplicate city/date heading.
+Location resolution first uses Azure Maps POI search within 50 km of the destination and in its country. It uses the activity name when `placeName` is missing, normalizes names, and can fall back to high-confidence named-landmark geocoding. Broad administrative results and city centers are excluded.
 
-**Add activity** and each card's **Edit** action open a drawer. New activities offer place lookup, an AI prompt, or an image import. Lookup uses [Azure Maps POI search](https://learn.microsoft.com/en-us/rest/api/maps/search/get-search-poi?view=rest-maps-1.0) by name within 50 km of the destination and in its country; returned coordinates and country are also checked in the browser. Choosing a result fills the activity name and location. Activities may also be entered manually. AI suggestions and image imports require the profile's AI feature and save activities immediately as Proposed. Activity state uses a menu button for Proposed, Planned, and Rejected, while retaining any existing custom state. The drawer retains the draft after errors and discards it on cancel. Shared-trip members can view the cards and map without mutation controls.
+For both text prompts and image imports, unresolved candidates can trigger a Responses `web_search` fallback. Research receives the original prompt's place names and descriptive clues, destination, and visit dates. It researches only the existing candidate's venue; it cannot add activities or change names, descriptions, costs, or durations. A supporting URL must appear among the actual search sources and is attached as a **Venue source** link. Azure Maps verifies the researched venue before assigning coordinates. Already resolved activities skip research. Ambiguity or research failure leaves the activity unlocated with a warning. Each fallback has a 20-second timeout within the job deadline.
+
+Configuration uses `OpenAI:ApiKey` and `OpenAI:Model`, shared with the flight-form assistant. The implementation calls Responses directly and does not require an Agents SDK.
+
+## Trip workspace UI
+
+The app uses the available window width. The compact top bar's **Trip Planner** link returns home. The trip page shows the trip name without its description or breadcrumbs. **Overview**, **Activities**, **Flights**, and **Party** navigation appears at the top on both laptops and phones.
+
+### Overview and destination dates
+
+A new trip opens on an empty Overview with **Add destination**. Its drawer offers city-level autocomplete and optional visit dates. The user does not enter a country code; the selected city supplies it. Saving adds the visit and closes the drawer; canceling discards the draft.
+
+Overview lists visits chronologically by arrival, or the known departure date, with undated visits last in itinerary order. Cards show activity counts grouped by state, or **Plan Activities** when empty. Failed counts offer retry. Counts are shared across repeat visits. Editors can change dates or delete a destination after confirming removal of all visits and activities.
+
+One calendar selects arrival and departure as a range. Selecting an earlier second day restarts the range; selecting the same day permits a one-day visit. Dates can be cleared. Today is highlighted. Other cities' dated visits, including repeat visits and overlaps, have highlighted ranges with colored labels below the calendar. Keyboard arrows navigate days; Page Up/Down changes months.
+
+The destination drawer also edits arrival and departure flexibility (±0–5 days) and **Keep this destination after the previous one**. These constraints are shared across visits to the city; other constraint properties are preserved.
+
+Flight spacer cards connect home to the first destination, each successive visit, and the last destination back home. Missing home cities display **Home**. Spacers show selected flight numbers, including connecting segments, or **Plan Flights** links.
+
+Each destination has a **Stay** drawer to select accommodation using location lookup scoped to the destination. Existing accommodation can be replaced or removed.
+
+### Activities and maps
+
+Destination tabs include visit dates and preserve the selected city in the URL. Destination creation and date editing stay on Overview. The Activities page has no duplicate destination details section.
+
+On laptops, a compact activity list sits to the left of the map. The workspace fills the remaining viewport; the activity list scrolls while the map remains visible, without a second page scrollbar. On phones, the map sits above the list and receives more space. A Hide map / Show map control collapses it so the activity list fills the available workspace. Selecting an activity restores the map and its details card. Collapsing keeps the map mounted to preserve its view; desktop layout is unchanged. A full-screen map option supports exploration.
+
+List cards show only the activity number and name. The detail card on the map includes a bordered state dropdown for editors, with a contrasting red Delete activity action inside its menu. State changes preserve the other activity fields. Deletion opens a confirmation modal, with errors retained for retry. Travellers see the state without mutation controls. Tapping a card or map marker selects it and presents a detailed card at the bottom of the map. That card contains description, duration, cost, state, links, and editing actions. Markers are numbered bubbles matching the list, with accessible activity names. Accommodation has its own contrasting hotel icon and does not affect numbering. The initial map framing includes the Stay location.
+
+Maps use light gray or dark gray according to the system theme and update without resetting the view. Loading, failures, and token retry are visible. **Direction**, with a share icon, opens Apple Maps on Apple devices or Google Maps elsewhere, using a routing URL in a new tab; supported devices can hand it to the maps app.
+
+In the full-screen mobile map, tapping a marker slides its details card up from the bottom. Editing opens the activity drawer while keeping the full-screen map mounted; saving or canceling returns to that map view.
+
+### Activity drawers and upload feedback
+
+**Add activity** offers place lookup, an AI prompt, or photo import. Lookup is scoped to the destination's country and a 50 km radius, with returned coordinates and country checked in the browser. Selecting a result fills the name and location; manual entry is also supported.
+
+The activity drawer opens from the window's far-left edge without page dimming. It retains drafts after errors and discards them on cancel. State uses a menu button for Proposed, Planned, and Rejected while preserving existing custom states. Currency uses a known-currency selection instead of free-form input. Travellers see the map and activity details without mutation controls.
+
+Accepted photos show thumbnails, filenames, individual removal buttons, and a selection count. Selecting more than ten retains the first ten candidates and reports the limit. Unsupported, empty, oversized, or total-limit-exceeding files are skipped with a filename and reason. Server validation errors are also displayed. A spinner in the fixed drawer footer remains visible throughout AI processing, including extraction and location resolution. Completion summaries and any warnings appear in a dismissible toast with no automatic dismissal.
 
 ## Flight planning iteration
 
-Party membership is managed in the Overview's Travelers section. The flight page keeps only search and flight selection. Its search document is derived on the server from the current city resources and stays, with home airports from the trip owner's profile. Repeat stays retain their IDs. Local arrival/departure flexibility is stored on the city as `arrivalFlexibilityDays` and `departureFlexibilityDays` (±0–5 days). `keepAfterPrevious`, true by default, requires each visit to follow the preceding chronological visit. The destination drawer edits these constraints alongside the calendar; other constraint properties are preserved. All visits to the same city share its constraints. Actual flight composition enforces these date windows as well as search generation. The existing bounded search still supports up to three visits and 60 trip days.
+The flight page retains search and flight selection; party management lives in Party and the where/when comes from destination resources. The server derives the search document from current cities and visits, with home airports from the trip owner's profile. Repeat visits retain their IDs.
 
-## Iteration notes
+Flight search and composition enforce destination date windows and `keepAfterPrevious`, which defaults to true. The bounded search supports up to three visits and 60 trip days. Saving a complete itinerary persists selected flights, and Overview links display the matching flight numbers.
 
-This version appends visits in the order added; an explicit reorder control is a follow-up. Selected city coordinates distinguish different cities with the same name and country, while nearby selections for the same city become repeat visits. Image validation checks encoded dimensions and signatures but does not fully decode or remove metadata. Operation retention and abandoned-image cleanup, map clustering, and device-level visual and accessibility review remain. PostgreSQL migration `0004_IndependentDestinations.sql` follows the initial activity migration; the local PostgreSQL contract test requires an available Docker-backed database.
+## Persistence and delivery
 
-Multi-image jobs use a JSON batch in the existing binary job payload (`application/vnd.tripplanner.image-batch+json`); single-image jobs retain their original encoding. The existing SHA-256 idempotency check covers the complete payload and still works after source bytes are cleaned up. No database migration is required.
+PostgreSQL stores destination places and contexts, ordered visits, activities, durable generation jobs, roles, and Stay locations. The in-memory implementation enforces the same planning permissions for tests. Relevant migrations include `0004_IndependentDestinations.sql`, `0006_ActivityJobImageHash.sql`, `0007_PartyRoles.sql`, and `0008_StayLocations.sql`; startup applies migrations automatically.
 
-Image imports and AI text prompts use the Responses API's built-in `web_search` tool as a fallback when Azure Maps cannot resolve an activity. Research receives the original user prompt to identify venues from names or descriptions. The candidate list is frozen before research. Only the venue is researched, using the destination and stay dates; descriptions, costs, durations, and activity names are preserved. A supporting URL must appear among the actual search sources and is attached as a “Venue source” link. Azure Maps rechecks the venue before assigning coordinates, including existing country and distance checks. Ambiguous or failed research leaves the activity saved without a pin, with a warning. Already resolved locations do not trigger research. Each fallback has a 20-second timeout within the job deadline. See [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search).
+Multi-image jobs use a JSON batch in the existing binary job payload (`application/vnd.tripplanner.image-batch+json`); single-image jobs retain their original encoding. SHA-256 idempotency covers the complete payload and survives cleanup of source bytes.
 
-Party management is now a separate **Party** navigation section. New members default to `Traveller` (view access); `Planner` includes Traveller access and can edit trip constraints, destinations, activities, and flight plans. The owner alone assigns roles, adds/removes members, and deletes trips. Member PUT replaces membership with a role; omitted roles default to Traveller. The API returns member roles and a current-user `canPlan` trip capability. PostgreSQL migration `0007_PartyRoles.sql` stores roles and centralizes planning authorization; the in-memory store enforces the same rule. Demotion is checked again on mutations and background planning jobs.
+Production HTML cache controls and content-hashed assets support fresh SPA loads after publishing. Shared SPA/API routes distinguish browser navigation from API requests, so refreshing a trip route serves the application.
 
-Overview now has a **Stay** location drawer for each destination. Accommodation is a separate GeoJSON Feature resource at `/trips/{tripId}/destinations/{destinationCity}/stay`, shared across repeat visits to the same city and returned in destination `properties.stayLocation`. It has a distinct house marker on the regular and full-screen maps and does not change activity numbering. The mobile layout gives more height to the map and uses compact activity details without a card scrollbar.
+## Follow-ups and validation
+
+Trip constraints exist in the API, but dedicated trip-wide start/end date and flexibility controls are not implemented in the UI. Visits are appended in creation order; explicit reordering remains a follow-up. Other follow-ups are map clustering, operation retention and abandoned-image cleanup, and fuller image decoding/metadata handling. These are not implemented features and are not assigned to milestone 3 by this document.
+
+The latest frontend verification passed all 148 tests across 26 files, lint, and the production build. Vitest is capped at two workers to reduce intermittent resource-contention timeouts while keeping its five-second test timeout. API tests cover planning permissions, destination/activity persistence, Stay locations, and mocked AI/Maps/research behavior. PostgreSQL contract tests require `TRIPPLANNER_TEST_POSTGRES` and use an isolated temporary database.
+
+A final device-level visual/accessibility review and live OpenAI/Azure Maps extraction verification remain; mocked service tests do not establish live provider behavior. This document records the implemented milestone 2 baseline for subsequent milestone planning.
