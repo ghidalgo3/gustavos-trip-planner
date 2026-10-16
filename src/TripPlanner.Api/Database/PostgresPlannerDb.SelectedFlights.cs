@@ -128,7 +128,7 @@ public sealed partial class PostgresPlannerDb
             : JsonSerializer.Deserialize<SelectedFlight>(json, JsonSerializerOptions.Web)!;
     }
 
-    public async Task DeleteSelectedFlightAsync(
+    public async Task<bool> DeleteSelectedFlightAsync(
         Guid ownerUserId,
         Guid tripId,
         Guid partyId,
@@ -145,6 +145,6 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(partyId.ToString("D"));
         command.Parameters.AddWithValue(tripId);
         command.Parameters.AddWithValue(ownerUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 }

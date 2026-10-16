@@ -8,6 +8,14 @@ namespace TripPlanner.Api.Database;
 
 public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPlannerDb
 {
+    private static async Task<NpgsqlTransaction?> BeginWriteTransactionAsync(
+        NpgsqlConnection connection,
+        CancellationToken cancellationToken
+    ) =>
+        System.Transactions.Transaction.Current is null
+            ? await connection.BeginTransactionAsync(cancellationToken)
+            : null;
+
     public async Task<IReadOnlyList<Party>> GetPartiesAsync(
         Guid viewerUserId,
         Guid tripId,
@@ -276,7 +284,8 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(
             cancellationToken
         );
-        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
             cancellationToken
         );
 
@@ -328,7 +337,8 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
         return trip;
     }
 

@@ -7,6 +7,18 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      "/mcp": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: false,
+      },
+      "/oauth": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: false,
+      },
+      "/.well-known": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: false,
+      },
       "/user": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: true,

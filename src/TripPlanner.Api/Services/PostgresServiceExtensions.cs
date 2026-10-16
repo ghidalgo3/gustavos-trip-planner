@@ -55,6 +55,15 @@ public static class PostgresServiceExtensions
             return dataSourceBuilder.Build();
         });
         builder.Services.AddSingleton<IDatabaseMigrator, DatabaseMigrator>();
-        builder.Services.AddSingleton<IPlannerDb, PostgresPlannerDb>();
+        builder.Services.AddSingleton<PostgresPlannerDb>();
+        builder.Services.AddSingleton<IActivityLogStore, PostgresActivityLogStore>();
+        builder.Services.AddSingleton<IPlannerDb>(services =>
+            AuditedPlannerDb.Create(
+                services.GetRequiredService<PostgresPlannerDb>(),
+                services.GetRequiredService<IActivityLogStore>(),
+                services.GetRequiredService<IHttpContextAccessor>(),
+                services.GetRequiredService<TimeProvider>()
+            )
+        );
     }
 }

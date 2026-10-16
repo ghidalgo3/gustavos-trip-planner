@@ -57,6 +57,7 @@ builder.Services.AddSingleton<IMapTokenProvider>(serviceProvider =>
         : ActivatorUtilities.CreateInstance<AzureMapsSasTokenProvider>(serviceProvider);
 });
 bool authenticationEnabled = builder.AddTripPlannerAuthentication();
+bool mcpEnabled = builder.AddTripPlannerMcp();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
         policy
@@ -69,6 +70,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 await app.Services.GetRequiredService<IDatabaseMigrator>().MigrateAsync();
+if (mcpEnabled)
+    await app.InitializeMcpAsync();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -90,8 +93,13 @@ app.UseSpaNavigation();
 app.UseDefaultFiles();
 app.UseStaticFiles(SpaHosting.StaticFiles());
 app.UseCors();
+if (mcpEnabled)
+    app.UseMcpSecurity();
 app.UseAuthentication();
 app.UseAuthorization();
+if (mcpEnabled)
+    app.MapOAuthEndpoints();
+app.MapMcpEndpoints(mcpEnabled);
 
 app.MapAuthenticationEndpoints(authenticationEnabled);
 app.MapHealthChecks("/health");
@@ -141,6 +149,8 @@ api.MapGet(
     .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
 
 api.MapUserEndpoints();
+api.MapActivityLogEndpoints();
+api.MapMcpAccessEndpoints();
 api.MapTripsEndpoints();
 api.MapFlightPlanningEndpoints();
 api.MapSelectedFlightsEndpoints();

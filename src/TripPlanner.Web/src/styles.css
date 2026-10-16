@@ -2012,6 +2012,36 @@ main:has(.trip-workspace-activities) > .topbar {
   color: var(--colorNeutralForegroundOnBrand) !important;
   border-color: var(--colorPaletteRedBorderActive) !important;
 }
+
+.profile-activity-log {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 24px;
+}
+.activity-log-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.activity-log-entries {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-log-entries li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-log-entries time {
+  color: var(--colorNeutralForeground2);
+  font-size: 13px;
+}
 .activity-delete-button:hover:not(:disabled) {
   filter: brightness(0.9);
 }

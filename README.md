@@ -305,6 +305,91 @@ The prompts do not echo secret values. `scripts/release` requires `google-client
 
 The Microsoft provider is restricted to personal Microsoft accounts through the consumer-account issuer. In the Entra application registration, add both Microsoft callback URLs above to the **Web** platform, leave implicit grant options disabled, and grant the delegated Microsoft Graph `User.Read` permission used to retrieve the profile image. Provider secrets must be rotated before their configured expiration.
 
+## ChatGPT MCP access and Activity Log
+
+The API hosts a stateless Streamable HTTP MCP server at `/mcp`, using the official
+C# MCP SDK. Its tools read and manage trips, destination visits, and activities.
+They call the same handlers as the REST API, enforcing existing membership,
+Planner/owner permissions, validation, destination context versions, and activity
+ETags. MCP requests require OAuth bearer tokens; website cookies cannot authorize
+MCP calls. Tool input cannot choose the acting user.
+
+OpenIddict provides an OAuth authorization server alongside the existing Google
+and Microsoft sign-in. ChatGPT uses a registered public client (`chatgpt`, no
+client secret), authorization-code flow with S256 PKCE, exact callback allowlists,
+explicit CSRF-protected consent, and tokens bound to the canonical `/mcp` resource.
+`tripplanner.read` permits reads; `tripplanner.write` permits reads and writes that
+the connected user is authorized to perform. Request `offline_access` for refresh
+tokens. Access tokens last 15 minutes; refresh tokens last 30 days. Reference access
+tokens and OAuth protocol state persist in PostgreSQL. Token revocation is checked
+on each MCP request. Profile → **Connected agents** can revoke all ChatGPT tokens
+for the current user without removing their Activity Log.
+
+One-time production setup:
+
+```zsh
+./scripts/secrets init-mcp
+./scripts/release
+```
+
+`init-mcp` creates a 3072-bit RSA signing/encryption certificate in Key Vault as
+`mcp-signing-certificate`, using private temporary files that are removed afterward.
+It leaves an existing certificate unchanged. The certificate expires after 730 days;
+rotate before expiry. Replacing this certificate invalidates existing encrypted
+credentials and users must reconnect. The release requires this secret, enables
+MCP, and sets the issuer to the application's public HTTPS URL. Production refuses
+to start MCP without persistent keys. No external identity-provider subscription is
+needed, and existing Google/Microsoft callback registrations stay the same.
+
+In ChatGPT on the web, add a custom MCP server/plugin with:
+
+| Setting | Value |
+| --- | --- |
+| Server URL | `https://<api-app>.azurewebsites.net/mcp` |
+| Authentication | OAuth |
+| OAuth client ID | `chatgpt` |
+| Client secret | Leave empty (public client with PKCE) |
+| Scopes, if requested | `tripplanner.read tripplanner.write offline_access` |
+| Authorization discovery | `https://<api-app>.azurewebsites.net/.well-known/openid-configuration` |
+| Protected-resource discovery | `https://<api-app>.azurewebsites.net/.well-known/oauth-protected-resource/mcp` |
+
+The default registered callback is
+`https://chatgpt.com/connector_platform_oauth_redirect`. Use the **exact** callback
+shown by ChatGPT; if it differs, set `MCP_REDIRECT_URI` when running `scripts/release`.
+Create/install the plugin, connect your TripPlanner account, then use it in a
+conversation. After choosing **Allow access** or **Cancel**, TripPlanner shows the
+consent result. Select **Return to ChatGPT** to finish connecting or canceling;
+approval alone does not complete the OAuth handoff. Workspace restrictions can
+limit custom MCP access. This registers a private integration; public directory
+distribution is a separate workflow. See
+[OpenAI's connection guide](https://developers.openai.com/api/docs/guides/custom-mcp-server)
+and [OAuth requirements](https://developers.openai.com/plugins/build/auth).
+
+Configuration binds to `McpOptions`: `Mcp:Enabled`, `Mcp:Issuer`, `Mcp:Certificate`
+(base64 PFX), and `Mcp:RedirectUris`. Development Compose enables MCP through Vite
+at `http://localhost:5173/mcp` with ephemeral OAuth keys, so restarting invalidates
+development tokens. `LOCAL_MCP_ISSUER` can override the development issuer. For
+ChatGPT testing, use a publicly reachable HTTPS host/tunnel and register its login
+callbacks with Google/Microsoft; a production ChatGPT client cannot reach localhost.
+Vite proxies `/mcp`, `/oauth`, and `/.well-known` to the API.
+
+**Profile → Activity Log** shows new successful trip mutations, newest first, with
+the authorizing user, client/source, trip name, resource, action, and timestamp.
+Website changes, ChatGPT changes, and activities saved by the background assistant
+are attributed separately. The `ChatGPT` label identifies the registered OAuth
+client; it is not derived from a caller-supplied header. Logs are visible to the
+actor, trip owner, and current trip members. Former members lose visibility into
+other people's actions; actors retain their own history. Historical names and
+actors survive trip deletion. Existing history is not backfilled.
+
+`AuditedPlannerDb` decorates the shared `IPlannerDb` write interface. PostgreSQL
+mutations and log inserts share an ambient transaction, so a failed audit insert
+rolls back the write. Rejected writes are not logged. The log is append-only via
+database triggers and stores no OAuth credentials, provider payloads, image uploads,
+or AI prompts. New trip write methods must be added to its explicit action map.
+Migrations `0009` and `0010` add the log and OpenIddict's schema through the existing
+SQL migrator; no schemas need to be dropped.
+
 ## Azure infrastructure and deployment
 
 The intended target is **Gustavo Hidalgo personal subscription**, region **East US 2**. Bicep provisions:
@@ -343,7 +428,7 @@ Deploy application code and runtime configuration separately:
   --resource-group rg-tripplanner-dev
 ```
 
-`release` runs API and web tests, builds the production client, packages it into the API container, pushes `tripplanner-api:release`, applies `infra/release.bicep` with `infra/release.bicepparam`, restarts the application, and verifies both `/health` and the web root. Reusing the stable tag leaves the previous manifest untagged; the purge task installed by `buildout` removes it on its next run.
+`release` runs API and web tests, builds the production client, packages it into the API container, pushes `tripplanner-api:release`, applies `infra/release.bicep` with `infra/release.bicepparam`, restarts the application, and verifies both `/health` and the web root. It also checks OAuth discovery and requires an unauthenticated JSON-RPC POST to `/mcp` to return `401`. The stateless MCP transport supports POST only: other methods return `405` with `Allow: POST`, unknown MCP paths return `404`, and the namespace never serves the website fallback (including when MCP is disabled). Reusing the stable tag leaves the previous manifest untagged; the purge task installed by `buildout` removes it on its next run.
 
 Authentication credentials live only in the provisioned Key Vault. A release requires all four Google and Microsoft credentials plus the Ignav API key and rejects an incomplete set. Run the scripts with `--help` for their options.
 

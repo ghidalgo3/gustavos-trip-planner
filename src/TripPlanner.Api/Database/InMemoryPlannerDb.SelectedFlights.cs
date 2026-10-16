@@ -92,7 +92,7 @@ public sealed partial class InMemoryPlannerDb
         }
     }
 
-    public Task DeleteSelectedFlightAsync(
+    public Task<bool> DeleteSelectedFlightAsync(
         Guid ownerUserId,
         Guid tripId,
         Guid partyId,
@@ -102,9 +102,11 @@ public sealed partial class InMemoryPlannerDb
         cancellationToken.ThrowIfCancellationRequested();
         lock (_tripLock)
         {
-            if (_trips.TryGetValue(tripId, out var trip) && CanPlanTrip(ownerUserId, trip))
-                _selectedFlights.Remove((tripId, partyId));
+            return Task.FromResult(
+                _trips.TryGetValue(tripId, out var trip)
+                    && CanPlanTrip(ownerUserId, trip)
+                    && _selectedFlights.Remove((tripId, partyId))
+            );
         }
-        return Task.CompletedTask;
     }
 }

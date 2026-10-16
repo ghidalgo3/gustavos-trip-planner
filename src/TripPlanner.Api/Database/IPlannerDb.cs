@@ -152,7 +152,7 @@ public interface IPlannerDb
         SelectedFlight selectedFlight,
         CancellationToken cancellationToken = default
     );
-    Task DeleteSelectedFlightAsync(
+    Task<bool> DeleteSelectedFlightAsync(
         Guid ownerUserId,
         Guid tripId,
         Guid partyId,

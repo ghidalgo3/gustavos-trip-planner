@@ -29,6 +29,7 @@ Options:
 Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, NAME_PREFIX, IMAGE_NAME,
 INFRA_DEPLOYMENT_NAME, CONFIG_DEPLOYMENT_NAME, EXPECTED_TENANT_ID,
 NUGET_SOURCE, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
+MCP_REDIRECT_URI overrides the exact ChatGPT OAuth callback URL.
 
 All four authentication credentials must be stored in the deployed Key Vault
 with scripts/secrets set-auth, the Ignav API key with scripts/secrets --set-ignav,
@@ -98,6 +99,7 @@ vault_secret_names=("${(@f)$(az keyvault secret list \
   "could not list secrets in Key Vault '$KEY_VAULT_NAME'; verify your RBAC access"
 (( ${vault_secret_names[(Ie)ignav-api-key]} )) || die "Key Vault is missing ignav-api-key; run scripts/secrets --set-ignav"
 (( ${vault_secret_names[(Ie)openai-api-key]} )) || die "Key Vault is missing openai-api-key; run scripts/secrets --set-openai"
+(( ${vault_secret_names[(Ie)mcp-signing-certificate]} )) || die "Key Vault is missing mcp-signing-certificate; run scripts/secrets init-mcp"
 available_auth_secrets=0
 for secret_name in "${required_auth_secrets[@]}"; do
   if (( ${vault_secret_names[(Ie)$secret_name]} )); then
@@ -111,6 +113,7 @@ if (( available_auth_secrets == ${#required_auth_secrets} )); then
   auth_parameters=(
     googleClientId="$GOOGLE_CLIENT_ID"
     microsoftClientId="$MICROSOFT_CLIENT_ID"
+    mcpRedirectUri="${MCP_REDIRECT_URI:-https://chatgpt.com/connector_platform_oauth_redirect}"
   )
 else
   die "Key Vault has $available_auth_secrets of ${#required_auth_secrets} authentication credentials; run scripts/secrets set-auth"
@@ -188,6 +191,19 @@ done
   "API health or published web build did not become ready; run: az webapp log tail -g $RESOURCE_GROUP -n $WEB_APP_NAME"
 
 curl -fsS --max-time 20 "$WEB_APP_URL" >/dev/null || die "web application did not respond at $WEB_APP_URL"
+curl -fsS --max-time 20 "${WEB_APP_URL}/.well-known/oauth-protected-resource/mcp" >/dev/null \
+  || die "MCP resource metadata is unavailable"
+curl -fsS --max-time 20 "${WEB_APP_URL}/.well-known/openid-configuration" >/dev/null \
+  || die "OAuth discovery is unavailable"
+# Stateless MCP handles JSON-RPC POSTs, not browser GETs. Probe the actual
+# transport so a website fallback cannot be mistaken for an authentication leak.
+mcp_status="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  "${WEB_APP_URL}/mcp")" || die "MCP authentication probe could not reach ${WEB_APP_URL}/mcp"
+[[ "$mcp_status" == 401 ]] || die "MCP must reject unauthenticated requests (received $mcp_status)"
 printf '\nRelease complete.\n'
 printf '  API image:  %s\n' "$IMAGE_REF"
 printf '  Application: %s\n' "$WEB_APP_URL"
+printf '  MCP server:  %s/mcp (OAuth client ID: chatgpt; no client secret)\n' "$WEB_APP_URL"

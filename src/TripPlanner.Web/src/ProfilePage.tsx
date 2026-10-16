@@ -4,6 +4,8 @@ import { useNavigate } from "react-router";
 import HomeAirportPicker from "./HomeAirportPicker";
 import AsyncAutocomplete from "./AsyncAutocomplete";
 import AirlineCombobox from "./AirlineCombobox";
+import ActivityLog from "./ActivityLog";
+import ConnectedAgents from "./ConnectedAgents";
 import {
   resolveCity,
   saveUserProfile,
@@ -112,7 +114,7 @@ export default function ProfilePage({
 
   return (
     <section className="profile-page" aria-label="Your profile">
-      <Button appearance="subtle" onClick={() => navigate("/")}>
+      <Button appearance="secondary" onClick={() => navigate("/")}>
         Back to trips
       </Button>
       <Title1 as="h1">Your profile</Title1>
@@ -177,6 +179,8 @@ export default function ProfilePage({
           </Button>
         </form>
       </Card>
+      <ActivityLog />
+      <ConnectedAgents />
     </section>
   );
 }

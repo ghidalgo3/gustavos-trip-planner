@@ -750,6 +750,10 @@ test.each(["Cancel", "Save activity"])(
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
     expect(map).toBeInTheDocument();
     expect(drawer.closest(".activity-fullscreen-map")).toBe(mapDialog);
+    expect(mapDialog).toHaveAttribute("aria-modal", "false");
+    expect(
+      within(drawer).getByRole("button", { name: "Close activity drawer" }),
+    ).toHaveFocus();
     click(within(drawer).getByRole("button", { name: action }));
     await waitFor(() =>
       expect(
@@ -759,6 +763,7 @@ test.each(["Cancel", "Save activity"])(
     expect(await screen.findByRole("dialog", { name: "Map of Paris" })).toBe(
       mapDialog,
     );
+    expect(mapDialog).toHaveAttribute("aria-modal", "true");
     expect(within(mapDialog).getByLabelText("Map")).toBe(map);
     expect(
       within(mapDialog).getByRole("region", {
@@ -1006,8 +1011,22 @@ test.each([false, true])(
     await openDelete();
     let dialog = await screen.findByRole("dialog", { name: "Delete Louvre?" });
     expect(deleteActivity).not.toHaveBeenCalled();
-    click(await within(dialog).findByRole("button", { name: "Cancel" }));
+    const cancel = await within(dialog).findByRole("button", {
+      name: "Cancel",
+    });
+    expect(cancel).toHaveFocus();
+    if (fullscreen) {
+      expect(dialog.closest(".activity-fullscreen-map")).toHaveAttribute(
+        "aria-modal",
+        "false",
+      );
+    }
+    click(cancel);
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    if (fullscreen)
+      expect(
+        await screen.findByRole("dialog", { name: "Map of Paris" }),
+      ).toHaveAttribute("aria-modal", "true");
     expect(deleteActivity).not.toHaveBeenCalled();
     await openDelete();
     dialog = await screen.findByRole("dialog", { name: "Delete Louvre?" });

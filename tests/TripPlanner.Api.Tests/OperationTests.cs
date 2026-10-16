@@ -123,7 +123,7 @@ public sealed class OperationTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(8L, reader.GetInt64(0));
+                Assert.AreEqual(10L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));

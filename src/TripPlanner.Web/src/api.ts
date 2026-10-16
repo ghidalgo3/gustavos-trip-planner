@@ -9,6 +9,56 @@ export type CurrentUser = {
   profile: UserProfile;
 };
 
+export type ActivityLogEntry = {
+  id: string;
+  occurredAt: string;
+  actorUserId: string;
+  actorName: string;
+  source: string;
+  action: string;
+  tripId: string;
+  tripName: string;
+  resourceId: string | null;
+  description: string;
+};
+
+export async function getMcpAccess(
+  signal?: AbortSignal,
+): Promise<{ enabled: boolean; connected: boolean }> {
+  const response = await fetch(`${apiBaseUrl}/user/mcp-access`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) throw new Error("Unable to load connected agents.");
+  return response.json();
+}
+
+export async function revokeMcpAccess(): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/user/mcp-access`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Unable to disconnect ChatGPT. Try again.");
+}
+
+export async function getActivityLog(
+  skip = 0,
+  signal?: AbortSignal,
+): Promise<{
+  entries: ActivityLogEntry[];
+  hasMore: boolean;
+}> {
+  const response = await fetch(`${apiBaseUrl}/user/activity-log?skip=${skip}`, {
+    credentials: "include",
+    signal,
+  });
+  if (!response.ok) await readTripError(response, "loading the activity log");
+  const page = await response.json();
+  if (!Array.isArray(page.entries) || typeof page.hasMore !== "boolean")
+    throw new Error("Unable to load the activity log.");
+  return page;
+}
+
 export type UserProfile = {
   homeCity: { name: string; longitude: number; latitude: number } | null;
   preferredAirlines: string[];

@@ -34,6 +34,8 @@ services:
       dockerfile: src/TripPlanner.Api/Dockerfile.dev
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      Mcp__Enabled: "true"
+      Mcp__Issuer: ${LOCAL_MCP_ISSUER:-http://localhost:5173/}
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       ConnectionStrings__TripPlanner: Host=database;Port=5432;Database=tripplanner;Username=tripplanner;Password=tripplanner
       Ignav__ApiKey: ${LOCAL_IGNAV_API_KEY:-}

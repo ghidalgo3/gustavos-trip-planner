@@ -44,7 +44,8 @@ public sealed partial class PostgresPlannerDb
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(
             cancellationToken
         );
-        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
             cancellationToken
         );
         // Serialize membership edits for every party in the trip.
@@ -142,7 +143,8 @@ public sealed partial class PostgresPlannerDb
             update.Parameters.AddWithValue(NpgsqlDbType.Jsonb, JsonSerializer.Serialize(roles));
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
         return PartyMemberChangeStatus.Success;
     }
 }

@@ -68,7 +68,7 @@ public static class TripsEndpoints
             .WithName("DeleteTrip");
     }
 
-    private static async Task<IResult> ListTrips(
+    internal static async Task<IResult> ListTrips(
         Guid? userId,
         HttpContext context,
         IPlannerDb database,
@@ -89,7 +89,7 @@ public static class TripsEndpoints
             );
     }
 
-    private static async Task<IResult> GetTrip(
+    internal static async Task<IResult> GetTrip(
         Guid? userId,
         Guid tripId,
         HttpContext context,
@@ -118,7 +118,7 @@ public static class TripsEndpoints
             );
     }
 
-    private static async Task<IResult> CreateTrip(
+    internal static async Task<IResult> CreateTrip(
         Guid? userId,
         CreateTripRequest request,
         HttpContext context,
@@ -153,7 +153,7 @@ public static class TripsEndpoints
         );
     }
 
-    private static async Task<IResult> UpdateTrip(
+    internal static async Task<IResult> UpdateTrip(
         Guid? userId,
         Guid tripId,
         UpdateTripRequest request,
@@ -189,7 +189,7 @@ public static class TripsEndpoints
             : Results.Ok(TripResponse.From(trip) with { CanPlan = true });
     }
 
-    private static async Task<IResult> DeleteTrip(
+    internal static async Task<IResult> DeleteTrip(
         Guid? userId,
         Guid tripId,
         HttpContext context,

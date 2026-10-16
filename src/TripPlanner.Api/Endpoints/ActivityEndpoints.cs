@@ -44,7 +44,7 @@ public static class ActivityEndpoints
             .WithName("GetDestinationActivitySuggestions");
     }
 
-    private static async Task<IResult> GetActivities(
+    internal static async Task<IResult> GetActivities(
         Guid tripId,
         string destinationCity,
         HttpContext context,
@@ -94,7 +94,7 @@ public static class ActivityEndpoints
         );
     }
 
-    private static async Task<IResult> GetActivity(
+    internal static async Task<IResult> GetActivity(
         Guid tripId,
         string destinationCity,
         Guid activityId,
@@ -144,7 +144,7 @@ public static class ActivityEndpoints
         return GeoJson(item.ToFeature());
     }
 
-    private static async Task<IResult> CreateActivity(
+    internal static async Task<IResult> CreateActivity(
         Guid tripId,
         string destinationCity,
         ActivityInput input,
@@ -210,7 +210,7 @@ public static class ActivityEndpoints
         );
     }
 
-    private static async Task<IResult> ReplaceActivity(
+    internal static async Task<IResult> ReplaceActivity(
         Guid tripId,
         string destinationCity,
         Guid activityId,
@@ -277,7 +277,7 @@ public static class ActivityEndpoints
         return GeoJson(saved.ToFeature());
     }
 
-    private static async Task<IResult> DeleteActivity(
+    internal static async Task<IResult> DeleteActivity(
         Guid tripId,
         string destinationCity,
         Guid activityId,

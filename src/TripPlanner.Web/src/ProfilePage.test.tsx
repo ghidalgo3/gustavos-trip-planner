@@ -20,6 +20,10 @@ const user: CurrentUser = {
 test("saves the complete profile when airline preferences change", async () => {
   const fetchMock = vi.fn(
     async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(_input).includes("/user/mcp-access"))
+        return Response.json({ enabled: false, connected: false });
+      if (String(_input).includes("/user/activity-log"))
+        return Response.json({ entries: [], hasMore: false });
       if (String(_input).includes("/airports/home"))
         return Response.json([{ code: "BOS", name: "Logan", city: "Boston" }]);
       expect(init?.method).toBe("PUT");
@@ -81,6 +85,10 @@ test("requires a preferred airport when the home city has multiple airports", as
     },
   };
   const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(_url).includes("/user/mcp-access"))
+      return Response.json({ enabled: false, connected: false });
+    if (String(_url).includes("/user/activity-log"))
+      return Response.json({ entries: [], hasMore: false });
     if (init?.method === "PUT") {
       expect(JSON.parse(init.body as string).preferredAirport).toBe("HND");
       return Response.json({

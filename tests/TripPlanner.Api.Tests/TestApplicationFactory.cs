@@ -2,8 +2,11 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -16,6 +19,7 @@ namespace TripPlanner.Api.Tests;
 public sealed class TestApplicationFactory : WebApplicationFactory<Program>
 {
     public InMemoryPlannerDb Database { get; } = new();
+    public bool McpEnabled { get; set; }
     public ITripFormAssistant? FormAssistant { get; set; }
     public IActivityAssistant? ActivityAssistant { get; set; }
     public ICityPlaceResolver? CityResolver { get; set; }
@@ -25,6 +29,9 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseEnvironment("Development");
+        builder.UseSetting("Mcp:Enabled", McpEnabled.ToString());
+        builder.UseSetting("Mcp:Issuer", "https://localhost/");
         builder.UseSetting("Planning:WorkerEnabled", "false");
         builder.UseSetting(
             "ConnectionStrings:TripPlanner",
@@ -39,6 +46,20 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IDatabaseMigrator>();
             services.RemoveAll<IPlannerDb>();
+            services.RemoveAll<IActivityLogStore>();
+            services.AddSingleton<IActivityLogStore>(new InMemoryActivityLogStore(Database));
+            if (McpEnabled)
+            {
+                services.Configure<OpenIddict.EntityFrameworkCore.OpenIddictEntityFrameworkCoreOptions>(
+                    options => options.DisableBulkOperations = true
+                );
+                services.RemoveAll<DbContextOptions<OAuthDbContext>>();
+                services.RemoveAll<IDbContextOptionsConfiguration<OAuthDbContext>>();
+                string oauthDatabase = Guid.NewGuid().ToString();
+                services.AddDbContext<OAuthDbContext>(options =>
+                    options.UseInMemoryDatabase(oauthDatabase).UseOpenIddict()
+                );
+            }
             services.RemoveAll<IMapTokenProvider>();
             services.RemoveAll<ICityPlaceResolver>();
             services.RemoveAll<IActivityPlaceResolver>();
@@ -61,7 +82,14 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 services.AddSingleton(FormAssistant);
             }
             services.AddSingleton<IDatabaseMigrator, NoOpDatabaseMigrator>();
-            services.AddSingleton<IPlannerDb>(Database);
+            services.AddSingleton<IPlannerDb>(provider =>
+                AuditedPlannerDb.Create(
+                    Database,
+                    provider.GetRequiredService<IActivityLogStore>(),
+                    provider.GetRequiredService<IHttpContextAccessor>(),
+                    provider.GetRequiredService<TimeProvider>()
+                )
+            );
             services.AddSingleton<IMapTokenProvider>(
                 new TestMapTokenProvider(
                     MapTokenOverride

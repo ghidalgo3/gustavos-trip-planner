@@ -126,6 +126,8 @@ export default function ActivityPlanning({
   const [busy, setBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Activity>();
   const [deleteError, setDeleteError] = useState<string>();
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const editorCloseRef = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
   const toasterId = useId("activity-results");
@@ -165,6 +167,15 @@ export default function ActivityPlanning({
   const selected = activities.features.find((item) => item.id === selectedId);
   const canEdit = !readOnly && destination?.properties.isActive === true;
   const canGenerate = canEdit && featureFlags.includes("LLM");
+  const deleteOpen = Boolean(deleteTarget);
+  const editorOpen = Boolean(editor && canEdit);
+
+  useEffect(() => {
+    // Changing the parent map's modal type runs its own initial-focus effect.
+    // Give the child overlay final ownership of focus after that transition.
+    if (deleteOpen) deleteCancelRef.current?.focus();
+    else if (editorOpen) editorCloseRef.current?.focus();
+  }, [deleteOpen, editorOpen]);
 
   useEffect(() => {
     onDestinationChange?.(destination);
@@ -812,6 +823,450 @@ export default function ActivityPlanning({
       </section>
     );
 
+  const deletionDialog = (
+    <Dialog
+      open={Boolean(deleteTarget)}
+      onOpenChange={(_, data) => {
+        if (!data.open && !busy) setDeleteTarget(undefined);
+      }}
+    >
+      <DialogSurface
+        mountNode={mapExpanded ? (fullscreenContainer ?? undefined) : undefined}
+      >
+        <DialogBody>
+          <DialogTitle>Delete {deleteTarget?.properties.name}?</DialogTitle>
+          <DialogContent>
+            <p>
+              This deletes the activity from the trip. This cannot be undone.
+            </p>
+            {deleteError && <Text role="alert">{deleteError}</Text>}
+          </DialogContent>
+          <DialogActions>
+            <Button
+              ref={deleteCancelRef}
+              disabled={busy}
+              onClick={() => setDeleteTarget(undefined)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="activity-delete-button"
+              disabled={busy}
+              onClick={() => void confirmActivityDeletion()}
+            >
+              {busy ? "Deleting…" : "Delete activity"}
+            </Button>
+          </DialogActions>
+        </DialogBody>
+      </DialogSurface>
+    </Dialog>
+  );
+  const activityDrawer = (
+    <OverlayDrawer
+      mountNode={mapExpanded ? (fullscreenContainer ?? undefined) : undefined}
+      modalType={mapExpanded ? "modal" : "non-modal"}
+      backdrop={null}
+      open={Boolean(editor && canEdit)}
+      position="start"
+      className="activity-drawer"
+      onOpenChange={(_, data) => {
+        if (!data.open) closeDrawer();
+      }}
+    >
+      <DrawerHeader>
+        <DrawerHeaderTitle
+          action={
+            <Button
+              appearance="subtle"
+              aria-label="Close activity drawer"
+              ref={editorCloseRef}
+              icon={<Dismiss24Regular />}
+              disabled={busy}
+              onClick={closeDrawer}
+            />
+          }
+        >
+          {editor?.value.id ? "Edit activity" : "Add activity"}
+        </DrawerHeaderTitle>
+      </DrawerHeader>
+      <DrawerBody className="activity-drawer-body">
+        {!editor?.value.id && (
+          <TabList
+            aria-label="Add activity method"
+            selectedValue={entryMode}
+            onTabSelect={(_, data) =>
+              setEntryMode(data.value as typeof entryMode)
+            }
+          >
+            <Tab value="lookup" disabled={busy}>
+              Place lookup
+            </Tab>
+            <Tab value="prompt" disabled={busy || !canGenerate}>
+              AI prompt
+            </Tab>
+            <Tab value="image" disabled={busy || !canGenerate}>
+              Images
+            </Tab>
+          </TabList>
+        )}
+        {!canGenerate && !editor?.value.id && (
+          <Text size={200}>
+            Enable AI in your profile to generate suggestions or import an
+            image.
+          </Text>
+        )}
+        {error && <Text role="alert">{error}</Text>}
+        {editor && (
+          <fieldset disabled={busy} className="activity-drawer-fields">
+            {entryMode === "lookup" ? (
+              <div className="activity-editor">
+                <label>
+                  Activity or place name
+                  <Input
+                    placeholder="Search attractions, restaurants, or places"
+                    value={placeQuery}
+                    onChange={(_, data) => setPlaceQuery(data.value)}
+                  />
+                </label>
+                <div className="activity-place-actions">
+                  <Button
+                    disabled={searching || !placeQuery.trim()}
+                    onClick={() => void searchPlace()}
+                  >
+                    {searching ? "Searching…" : "Search Azure Maps"}
+                  </Button>
+                  {editor.value.geometry && <Text>Location selected</Text>}
+                </div>
+                {places.length > 0 && (
+                  <div
+                    className="activity-place-results"
+                    aria-label="Place results"
+                  >
+                    {places.map((place) => (
+                      <Button
+                        key={place.label}
+                        onClick={() => choosePlace(place)}
+                      >
+                        {place.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                <label>
+                  Name
+                  <Input
+                    value={editor.value.properties.name}
+                    maxLength={200}
+                    onChange={(_, data) => updateEditor({ name: data.value })}
+                  />
+                </label>
+                <label>
+                  Description
+                  <Textarea
+                    value={editor.value.properties.description}
+                    onChange={(_, data) =>
+                      updateEditor({ description: data.value })
+                    }
+                  />
+                </label>
+                <div className="activity-editor-grid">
+                  <label>
+                    Duration, minutes
+                    <Input
+                      type="number"
+                      min={1}
+                      value={
+                        editor.value.properties.durationMinutes?.toString() ??
+                        ""
+                      }
+                      onChange={(_, data) =>
+                        updateEditor({
+                          durationMinutes: data.value
+                            ? Number(data.value)
+                            : null,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Cost amount
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={
+                        editor.value.properties.cost?.amount.toString() ?? ""
+                      }
+                      onChange={(_, data) =>
+                        updateEditor({
+                          cost: data.value
+                            ? {
+                                amount: Number(data.value),
+                                currency:
+                                  editor.value.properties.cost?.currency ??
+                                  "USD",
+                                basis:
+                                  editor.value.properties.cost?.basis ??
+                                  "perPerson",
+                              }
+                            : null,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Currency
+                    <select
+                      value={editor.value.properties.cost?.currency ?? ""}
+                      disabled={!editor.value.properties.cost}
+                      onChange={(event) =>
+                        updateEditor({
+                          cost: editor.value.properties.cost
+                            ? {
+                                ...editor.value.properties.cost,
+                                currency: event.target.value,
+                              }
+                            : null,
+                        })
+                      }
+                    >
+                      <option value="" disabled>
+                        Select currency
+                      </option>
+                      {currencies.map((currency) => (
+                        <option key={currency} value={currency}>
+                          {currency} — {currencyNames.of(currency)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Cost basis
+                    <select
+                      value={editor.value.properties.cost?.basis ?? "perPerson"}
+                      disabled={!editor.value.properties.cost}
+                      onChange={(event) =>
+                        updateEditor({
+                          cost: editor.value.properties.cost
+                            ? {
+                                ...editor.value.properties.cost,
+                                basis: event.target
+                                  .value as ActivityCost["basis"],
+                              }
+                            : null,
+                        })
+                      }
+                    >
+                      <option value="perPerson">Per person</option>
+                      <option value="total">Total</option>
+                    </select>
+                  </label>
+                  <div className="activity-state-picker">
+                    <span id="activity-state-label">State</span>
+                    <Menu
+                      checkedValues={{
+                        state: [editor.value.properties.state],
+                      }}
+                      onCheckedValueChange={(_, data) => {
+                        const state = data.checkedItems[0];
+                        if (state) updateEditor({ state });
+                      }}
+                    >
+                      <MenuTrigger disableButtonEnhancement>
+                        <MenuButton
+                          aria-label={`State: ${editor.value.properties.state}`}
+                          aria-labelledby="activity-state-label activity-state-value"
+                        >
+                          <span id="activity-state-value">
+                            {editor.value.properties.state}
+                          </span>
+                        </MenuButton>
+                      </MenuTrigger>
+                      <MenuPopover>
+                        <MenuList>
+                          {Array.from(
+                            new Set([
+                              "Proposed",
+                              "Planned",
+                              "Rejected",
+                              editor.value.properties.state,
+                            ]),
+                          ).map((state) => (
+                            <MenuItemRadio
+                              key={state}
+                              name="state"
+                              value={state}
+                            >
+                              {state}
+                            </MenuItemRadio>
+                          ))}
+                        </MenuList>
+                      </MenuPopover>
+                    </Menu>
+                  </div>
+                </div>
+                <ActivityLinksEditor
+                  links={editor.value.properties.links ?? []}
+                  onChange={(links) => updateEditor({ links })}
+                />
+              </div>
+            ) : (
+              <div className="activity-composer">
+                <label htmlFor="activity-prompt">
+                  {entryMode === "prompt"
+                    ? "What would you like to do?"
+                    : "Image instructions (optional)"}
+                </label>
+                <Textarea
+                  id="activity-prompt"
+                  placeholder={
+                    entryMode === "image"
+                      ? "Optional: extract only food activities mentioned in these images"
+                      : "Find relaxed art and food activities"
+                  }
+                  value={prompt}
+                  onChange={(_, data) => setPrompt(data.value)}
+                />
+                {entryMode === "image" && (
+                  <>
+                    <Button onClick={() => imageInput.current?.click()}>
+                      Choose images
+                    </Button>
+                    <Text size={200}>
+                      Up to 10 images · 10 MB each · 50 MB total. Only
+                      activities explicitly mentioned in the images will be
+                      extracted.
+                    </Text>
+                    <input
+                      ref={imageInput}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      onChange={(event) =>
+                        chooseImages([
+                          ...images,
+                          ...Array.from(event.target.files ?? []),
+                        ])
+                      }
+                      className="activity-file-input"
+                      aria-label="Activity images"
+                    />
+                    {imageWarnings.length > 0 && (
+                      <div role="alert">
+                        {imageWarnings.map((warning) => (
+                          <p key={warning}>{warning}</p>
+                        ))}
+                      </div>
+                    )}
+                    {images.length > 0 && (
+                      <Text role="status">
+                        {images.length} of 10 photos ready to upload
+                      </Text>
+                    )}
+                    {images.map((file, index) => (
+                      <div
+                        className="activity-upload-preview"
+                        key={`${index}-${file.name}`}
+                      >
+                        {imagePreviews[index] && (
+                          <img
+                            src={imagePreviews[index]}
+                            alt={`Activity source ${index + 1}: ${file.name}`}
+                          />
+                        )}
+                        <span>{file.name}</span>
+                        <Button
+                          aria-label={`Remove image ${index + 1}: ${file.name}`}
+                          onClick={() =>
+                            chooseImages(
+                              images.filter(
+                                (_, imageIndex) => imageIndex !== index,
+                              ),
+                            )
+                          }
+                        >
+                          Remove image
+                        </Button>
+                      </div>
+                    ))}
+                  </>
+                )}
+                <Text size={200}>
+                  AI saves activities immediately with state Proposed.
+                </Text>
+              </div>
+            )}
+          </fieldset>
+        )}
+      </DrawerBody>
+      <DrawerFooter className="activity-drawer-footer">
+        {busy && (
+          <div
+            className="activity-drawer-progress"
+            role="status"
+            aria-live="polite"
+          >
+            <Spinner
+              size="small"
+              label={
+                entryMode === "lookup"
+                  ? "Saving activity…"
+                  : entryMode === "image"
+                    ? "Extracting activities from your photos…"
+                    : "Generating activities…"
+              }
+            />
+            {entryMode !== "lookup" && (
+              <Text size={200}>
+                Please wait while we find activities and resolve their
+                locations.
+              </Text>
+            )}
+          </div>
+        )}
+        {editor?.value.id && (
+          <Button disabled={busy} onClick={() => void remove()}>
+            Delete activity
+          </Button>
+        )}
+        <Button disabled={busy} onClick={closeDrawer}>
+          Cancel
+        </Button>
+        {entryMode === "lookup" ? (
+          <Button
+            appearance="primary"
+            disabled={
+              busy ||
+              !editor?.value.properties.name.trim() ||
+              (editor?.value.properties.links ?? []).some(
+                (link) => !validActivityLink(link),
+              )
+            }
+            onClick={() => void save()}
+          >
+            Save activity
+          </Button>
+        ) : (
+          <Button
+            appearance="primary"
+            disabled={
+              busy ||
+              !canGenerate ||
+              (entryMode === "prompt" ? !prompt.trim() : images.length === 0)
+            }
+            onClick={() =>
+              void generate(entryMode === "image" ? "image" : "text")
+            }
+          >
+            {entryMode === "image"
+              ? "Extract activities"
+              : "Suggest activities"}
+          </Button>
+        )}
+      </DrawerFooter>
+    </OverlayDrawer>
+  );
+
   return (
     <section className="activity-planning" aria-label="Activity planning">
       <Toaster toasterId={toasterId} position="bottom-end" />
@@ -909,45 +1364,10 @@ export default function ActivityPlanning({
           )}
         </section>
       </div>
-      <Dialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(_, data) => {
-          if (!data.open && !busy) setDeleteTarget(undefined);
-        }}
-      >
-        <DialogSurface
-          mountNode={
-            mapExpanded ? (fullscreenContainer ?? undefined) : undefined
-          }
-        >
-          <DialogBody>
-            <DialogTitle>Delete {deleteTarget?.properties.name}?</DialogTitle>
-            <DialogContent>
-              <p>
-                This deletes the activity from the trip. This cannot be undone.
-              </p>
-              {deleteError && <Text role="alert">{deleteError}</Text>}
-            </DialogContent>
-            <DialogActions>
-              <Button
-                disabled={busy}
-                onClick={() => setDeleteTarget(undefined)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="activity-delete-button"
-                disabled={busy}
-                onClick={() => void confirmActivityDeletion()}
-              >
-                {busy ? "Deleting…" : "Delete activity"}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+      {!mapExpanded && deletionDialog}
       <Dialog
         open={mapExpanded}
+        modalType={editor || deleteTarget ? "non-modal" : "modal"}
         onOpenChange={(_, data) => {
           if (!editor && !deleteTarget) setMapExpanded(data.open);
         }}
@@ -962,6 +1382,7 @@ export default function ActivityPlanning({
             <Button
               icon={<Dismiss24Regular />}
               aria-label="Exit full-screen map"
+              disabled={Boolean(editor || deleteTarget)}
               onClick={() => setMapExpanded(false)}
             />
           </div>
@@ -981,412 +1402,12 @@ export default function ActivityPlanning({
             )}
             {renderMapDetails()}
           </div>
+          {/* Portal overlays must share the map's React parent as well as its DOM parent. */}
+          {mapExpanded && deletionDialog}
+          {mapExpanded && activityDrawer}
         </DialogSurface>
       </Dialog>
-      <OverlayDrawer
-        mountNode={mapExpanded ? (fullscreenContainer ?? undefined) : undefined}
-        modalType={mapExpanded ? "modal" : "non-modal"}
-        backdrop={null}
-        open={Boolean(editor && canEdit)}
-        position="start"
-        className="activity-drawer"
-        onOpenChange={(_, data) => {
-          if (!data.open) closeDrawer();
-        }}
-      >
-        <DrawerHeader>
-          <DrawerHeaderTitle
-            action={
-              <Button
-                appearance="subtle"
-                aria-label="Close activity drawer"
-                icon={<Dismiss24Regular />}
-                disabled={busy}
-                onClick={closeDrawer}
-              />
-            }
-          >
-            {editor?.value.id ? "Edit activity" : "Add activity"}
-          </DrawerHeaderTitle>
-        </DrawerHeader>
-        <DrawerBody className="activity-drawer-body">
-          {!editor?.value.id && (
-            <TabList
-              aria-label="Add activity method"
-              selectedValue={entryMode}
-              onTabSelect={(_, data) =>
-                setEntryMode(data.value as typeof entryMode)
-              }
-            >
-              <Tab value="lookup" disabled={busy}>
-                Place lookup
-              </Tab>
-              <Tab value="prompt" disabled={busy || !canGenerate}>
-                AI prompt
-              </Tab>
-              <Tab value="image" disabled={busy || !canGenerate}>
-                Images
-              </Tab>
-            </TabList>
-          )}
-          {!canGenerate && !editor?.value.id && (
-            <Text size={200}>
-              Enable AI in your profile to generate suggestions or import an
-              image.
-            </Text>
-          )}
-          {error && <Text role="alert">{error}</Text>}
-          {editor && (
-            <fieldset disabled={busy} className="activity-drawer-fields">
-              {entryMode === "lookup" ? (
-                <div className="activity-editor">
-                  <label>
-                    Activity or place name
-                    <Input
-                      placeholder="Search attractions, restaurants, or places"
-                      value={placeQuery}
-                      onChange={(_, data) => setPlaceQuery(data.value)}
-                    />
-                  </label>
-                  <div className="activity-place-actions">
-                    <Button
-                      disabled={searching || !placeQuery.trim()}
-                      onClick={() => void searchPlace()}
-                    >
-                      {searching ? "Searching…" : "Search Azure Maps"}
-                    </Button>
-                    {editor.value.geometry && <Text>Location selected</Text>}
-                  </div>
-                  {places.length > 0 && (
-                    <div
-                      className="activity-place-results"
-                      aria-label="Place results"
-                    >
-                      {places.map((place) => (
-                        <Button
-                          key={place.label}
-                          onClick={() => choosePlace(place)}
-                        >
-                          {place.label}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                  <label>
-                    Name
-                    <Input
-                      value={editor.value.properties.name}
-                      maxLength={200}
-                      onChange={(_, data) => updateEditor({ name: data.value })}
-                    />
-                  </label>
-                  <label>
-                    Description
-                    <Textarea
-                      value={editor.value.properties.description}
-                      onChange={(_, data) =>
-                        updateEditor({ description: data.value })
-                      }
-                    />
-                  </label>
-                  <div className="activity-editor-grid">
-                    <label>
-                      Duration, minutes
-                      <Input
-                        type="number"
-                        min={1}
-                        value={
-                          editor.value.properties.durationMinutes?.toString() ??
-                          ""
-                        }
-                        onChange={(_, data) =>
-                          updateEditor({
-                            durationMinutes: data.value
-                              ? Number(data.value)
-                              : null,
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Cost amount
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={
-                          editor.value.properties.cost?.amount.toString() ?? ""
-                        }
-                        onChange={(_, data) =>
-                          updateEditor({
-                            cost: data.value
-                              ? {
-                                  amount: Number(data.value),
-                                  currency:
-                                    editor.value.properties.cost?.currency ??
-                                    "USD",
-                                  basis:
-                                    editor.value.properties.cost?.basis ??
-                                    "perPerson",
-                                }
-                              : null,
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Currency
-                      <select
-                        value={editor.value.properties.cost?.currency ?? ""}
-                        disabled={!editor.value.properties.cost}
-                        onChange={(event) =>
-                          updateEditor({
-                            cost: editor.value.properties.cost
-                              ? {
-                                  ...editor.value.properties.cost,
-                                  currency: event.target.value,
-                                }
-                              : null,
-                          })
-                        }
-                      >
-                        <option value="" disabled>
-                          Select currency
-                        </option>
-                        {currencies.map((currency) => (
-                          <option key={currency} value={currency}>
-                            {currency} — {currencyNames.of(currency)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Cost basis
-                      <select
-                        value={
-                          editor.value.properties.cost?.basis ?? "perPerson"
-                        }
-                        disabled={!editor.value.properties.cost}
-                        onChange={(event) =>
-                          updateEditor({
-                            cost: editor.value.properties.cost
-                              ? {
-                                  ...editor.value.properties.cost,
-                                  basis: event.target
-                                    .value as ActivityCost["basis"],
-                                }
-                              : null,
-                          })
-                        }
-                      >
-                        <option value="perPerson">Per person</option>
-                        <option value="total">Total</option>
-                      </select>
-                    </label>
-                    <div className="activity-state-picker">
-                      <span id="activity-state-label">State</span>
-                      <Menu
-                        checkedValues={{
-                          state: [editor.value.properties.state],
-                        }}
-                        onCheckedValueChange={(_, data) => {
-                          const state = data.checkedItems[0];
-                          if (state) updateEditor({ state });
-                        }}
-                      >
-                        <MenuTrigger disableButtonEnhancement>
-                          <MenuButton
-                            aria-label={`State: ${editor.value.properties.state}`}
-                            aria-labelledby="activity-state-label activity-state-value"
-                          >
-                            <span id="activity-state-value">
-                              {editor.value.properties.state}
-                            </span>
-                          </MenuButton>
-                        </MenuTrigger>
-                        <MenuPopover>
-                          <MenuList>
-                            {Array.from(
-                              new Set([
-                                "Proposed",
-                                "Planned",
-                                "Rejected",
-                                editor.value.properties.state,
-                              ]),
-                            ).map((state) => (
-                              <MenuItemRadio
-                                key={state}
-                                name="state"
-                                value={state}
-                              >
-                                {state}
-                              </MenuItemRadio>
-                            ))}
-                          </MenuList>
-                        </MenuPopover>
-                      </Menu>
-                    </div>
-                  </div>
-                  <ActivityLinksEditor
-                    links={editor.value.properties.links ?? []}
-                    onChange={(links) => updateEditor({ links })}
-                  />
-                </div>
-              ) : (
-                <div className="activity-composer">
-                  <label htmlFor="activity-prompt">
-                    {entryMode === "prompt"
-                      ? "What would you like to do?"
-                      : "Image instructions (optional)"}
-                  </label>
-                  <Textarea
-                    id="activity-prompt"
-                    placeholder={
-                      entryMode === "image"
-                        ? "Optional: extract only food activities mentioned in these images"
-                        : "Find relaxed art and food activities"
-                    }
-                    value={prompt}
-                    onChange={(_, data) => setPrompt(data.value)}
-                  />
-                  {entryMode === "image" && (
-                    <>
-                      <Button onClick={() => imageInput.current?.click()}>
-                        Choose images
-                      </Button>
-                      <Text size={200}>
-                        Up to 10 images · 10 MB each · 50 MB total. Only
-                        activities explicitly mentioned in the images will be
-                        extracted.
-                      </Text>
-                      <input
-                        ref={imageInput}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        multiple
-                        onChange={(event) =>
-                          chooseImages([
-                            ...images,
-                            ...Array.from(event.target.files ?? []),
-                          ])
-                        }
-                        className="activity-file-input"
-                        aria-label="Activity images"
-                      />
-                      {imageWarnings.length > 0 && (
-                        <div role="alert">
-                          {imageWarnings.map((warning) => (
-                            <p key={warning}>{warning}</p>
-                          ))}
-                        </div>
-                      )}
-                      {images.length > 0 && (
-                        <Text role="status">
-                          {images.length} of 10 photos ready to upload
-                        </Text>
-                      )}
-                      {images.map((file, index) => (
-                        <div
-                          className="activity-upload-preview"
-                          key={`${index}-${file.name}`}
-                        >
-                          {imagePreviews[index] && (
-                            <img
-                              src={imagePreviews[index]}
-                              alt={`Activity source ${index + 1}: ${file.name}`}
-                            />
-                          )}
-                          <span>{file.name}</span>
-                          <Button
-                            aria-label={`Remove image ${index + 1}: ${file.name}`}
-                            onClick={() =>
-                              chooseImages(
-                                images.filter(
-                                  (_, imageIndex) => imageIndex !== index,
-                                ),
-                              )
-                            }
-                          >
-                            Remove image
-                          </Button>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  <Text size={200}>
-                    AI saves activities immediately with state Proposed.
-                  </Text>
-                </div>
-              )}
-            </fieldset>
-          )}
-        </DrawerBody>
-        <DrawerFooter className="activity-drawer-footer">
-          {busy && (
-            <div
-              className="activity-drawer-progress"
-              role="status"
-              aria-live="polite"
-            >
-              <Spinner
-                size="small"
-                label={
-                  entryMode === "lookup"
-                    ? "Saving activity…"
-                    : entryMode === "image"
-                      ? "Extracting activities from your photos…"
-                      : "Generating activities…"
-                }
-              />
-              {entryMode !== "lookup" && (
-                <Text size={200}>
-                  Please wait while we find activities and resolve their
-                  locations.
-                </Text>
-              )}
-            </div>
-          )}
-          {editor?.value.id && (
-            <Button disabled={busy} onClick={() => void remove()}>
-              Delete activity
-            </Button>
-          )}
-          <Button disabled={busy} onClick={closeDrawer}>
-            Cancel
-          </Button>
-          {entryMode === "lookup" ? (
-            <Button
-              appearance="primary"
-              disabled={
-                busy ||
-                !editor?.value.properties.name.trim() ||
-                (editor?.value.properties.links ?? []).some(
-                  (link) => !validActivityLink(link),
-                )
-              }
-              onClick={() => void save()}
-            >
-              Save activity
-            </Button>
-          ) : (
-            <Button
-              appearance="primary"
-              disabled={
-                busy ||
-                !canGenerate ||
-                (entryMode === "prompt" ? !prompt.trim() : images.length === 0)
-              }
-              onClick={() =>
-                void generate(entryMode === "image" ? "image" : "text")
-              }
-            >
-              {entryMode === "image"
-                ? "Extract activities"
-                : "Suggest activities"}
-            </Button>
-          )}
-        </DrawerFooter>
-      </OverlayDrawer>
+      {!mapExpanded && activityDrawer}
     </section>
   );
 }

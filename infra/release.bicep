@@ -8,6 +8,7 @@ param imageTag string
 
 param googleClientId string = ''
 param microsoftClientId string = ''
+param mcpRedirectUri string = 'https://chatgpt.com/connector_platform_oauth_redirect'
 
 var sanitizedPrefix = toLower(replace(replace(namePrefix, '-', ''), '_', ''))
 var uniqueSuffix = uniqueString(resourceGroup().id)
@@ -81,6 +82,10 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     Authentication__Microsoft__ClientId: microsoftClientId
     Authentication__Microsoft__ClientSecret: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=microsoft-client-secret)'
     Authentication__DataProtectionKeysPath: '/home/data-protection-keys'
+    Mcp__Enabled: 'true'
+    Mcp__Issuer: 'https://${webApp.properties.defaultHostName}/'
+    Mcp__Certificate: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=mcp-signing-certificate)'
+    Mcp__RedirectUris__0: mcpRedirectUri
   }
 }
 

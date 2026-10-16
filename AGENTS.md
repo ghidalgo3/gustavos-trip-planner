@@ -57,3 +57,8 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 - Until this message is deleted, you are allowed to connect to the database, either locally or in the cloud, and drop all schemas and have them be recreated when making schema changes.
 - Prefer to write C# methods that write or modify an entire database row at a time instead of having many methods to modify column subsets of a row. 
+
+## MCP Server Maintenance
+
+- When relevant, evaluate all new REST APIs for inclusion in the MCP server tool list.
+- Do not make MCP tools that leak things like map tokens or proxy access to Azure APIs.

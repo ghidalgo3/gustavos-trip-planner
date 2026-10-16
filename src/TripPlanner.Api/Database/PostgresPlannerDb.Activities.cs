@@ -480,7 +480,10 @@ public sealed partial class PostgresPlannerDb
     )
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
+            cancellationToken
+        );
         await using var operation = new NpgsqlCommand(
             """
             INSERT INTO operations(id,user_id,resource_id,type,status,items)
@@ -547,7 +550,8 @@ public sealed partial class PostgresPlannerDb
                     "This request ID was already used, or the destination changed."
                 );
         }
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
         return (await GetOperationAsync(ownerUserId, requestId, cancellationToken))!;
     }
 
@@ -557,7 +561,10 @@ public sealed partial class PostgresPlannerDb
     )
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
+            cancellationToken
+        );
         Guid leaseId = Guid.NewGuid();
         await using var command = new NpgsqlCommand(
             """
@@ -600,7 +607,8 @@ public sealed partial class PostgresPlannerDb
             status.Parameters.AddWithValue(job.OperationId);
             await status.ExecuteNonQueryAsync(cancellationToken);
         }
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
         return job;
     }
 
@@ -613,7 +621,10 @@ public sealed partial class PostgresPlannerDb
     )
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
+            cancellationToken
+        );
         await using var lockJob = new NpgsqlCommand(
             "SELECT 1 FROM activity_jobs WHERE operation_id=$1 AND lease_id=$2 AND result IS NULL AND error IS NULL FOR UPDATE;",
             connection,
@@ -701,7 +712,8 @@ public sealed partial class PostgresPlannerDb
         );
         complete.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)error ?? DBNull.Value);
         await complete.ExecuteNonQueryAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
         return true;
     }
 

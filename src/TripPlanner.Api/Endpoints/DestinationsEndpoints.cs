@@ -123,7 +123,7 @@ public static class DestinationsEndpoints
             : Results.NotFound();
     }
 
-    private static async Task<IResult> AddDestination(
+    internal static async Task<IResult> AddDestination(
         Guid tripId,
         CreateDestinationRequest request,
         HttpContext context,
@@ -241,7 +241,7 @@ public static class DestinationsEndpoints
             || order.ValueKind is JsonValueKind.True or JsonValueKind.False;
     }
 
-    private static async Task<IResult> ReplaceDestination(
+    internal static async Task<IResult> ReplaceDestination(
         Guid tripId,
         string destinationCity,
         ReplaceDestinationRequest request,
@@ -300,7 +300,7 @@ public static class DestinationsEndpoints
         return GeoJson(snapshot.Find(destinationCity) ?? InactiveDestination(saved));
     }
 
-    private static async Task<IResult> DeleteDestination(
+    internal static async Task<IResult> DeleteDestination(
         Guid tripId,
         string destinationCity,
         HttpContext context,
@@ -321,7 +321,7 @@ public static class DestinationsEndpoints
             : Results.NotFound();
     }
 
-    private static async Task<IResult> DeleteDestinationStay(
+    internal static async Task<IResult> DeleteDestinationStay(
         Guid tripId,
         string destinationCity,
         Guid stayId,
@@ -344,7 +344,7 @@ public static class DestinationsEndpoints
             : Results.NotFound();
     }
 
-    private static async Task<IResult> ReplaceDestinationStay(
+    internal static async Task<IResult> ReplaceDestinationStay(
         Guid tripId,
         string destinationCity,
         Guid stayId,
@@ -386,7 +386,7 @@ public static class DestinationsEndpoints
         return GeoJson(snapshot.Find(destinationCity)!);
     }
 
-    private static async Task<IResult> GetDestinations(
+    internal static async Task<IResult> GetDestinations(
         Guid tripId,
         bool? includeInactive,
         HttpContext context,
@@ -427,7 +427,7 @@ public static class DestinationsEndpoints
         );
     }
 
-    private static async Task<IResult> GetDestination(
+    internal static async Task<IResult> GetDestination(
         Guid tripId,
         string destinationCity,
         HttpContext context,
