@@ -14,7 +14,7 @@ public static class TelemetryServiceExtensions
             .Services.AddOptions<ApplicationInsightsOptions>()
             .Bind(section)
             .ValidateDataAnnotations();
-        // Export only HTTP traces. Application logs, request/response bodies,
+        // Export HTTP, MCP tool and job traces. Application logs, request/response bodies,
         // database statements and infrastructure metrics are deliberately excluded.
         var options = section.Get<ApplicationInsightsOptions>() ?? new();
         if (string.IsNullOrWhiteSpace(options.ConnectionString))
@@ -27,6 +27,7 @@ public static class TelemetryServiceExtensions
             .WithTracing(tracing =>
                 tracing
                     .SetSampler(new ParentBasedSampler(new AlwaysOnSampler()))
+                    .AddSource(OperationTelemetry.SourceName)
                     .AddAspNetCoreInstrumentation(instrumentation =>
                     {
                         instrumentation.Filter = context =>
@@ -56,5 +57,6 @@ public static class TelemetryServiceExtensions
         || path.StartsWithSegments("/trips")
         || path.StartsWithSegments("/operations")
         || path.StartsWithSegments("/airports")
-        || path == "/service";
+        || path == "/service"
+        || path.StartsWithSegments("/mcp");
 }

@@ -41,6 +41,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.UseSetting("ApplicationInsights:ConnectionString", "");
         builder.UseSetting("Mcp:Enabled", McpEnabled.ToString());
         builder.UseSetting("Mcp:Issuer", "https://localhost/");
         builder.UseSetting("Planning:WorkerEnabled", "false");

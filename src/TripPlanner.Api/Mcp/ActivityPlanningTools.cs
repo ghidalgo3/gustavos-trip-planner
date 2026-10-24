@@ -95,7 +95,7 @@ public sealed class ActivityPlanningTools(
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
     [Description(
-        "Read the destination's shared schedule, selection, restrictions, assessment, shared context, ETag and input-context version. Planned activities may be selected but unscheduled. Stale saved calendar timing remains fixed until an updated plan is accepted."
+        "Read the destination's shared schedule, selection, restrictions, assessment, shared context, ETag and input-context version. Read after creating activity ideas and before placing their IDs on dates/times with replace_activity_plan. context.visits supplies destination visit IDs for days[].stayId; these are not accommodation IDs. Planned activities may be selected but unscheduled. Stale saved calendar timing remains fixed until an updated plan is accepted."
     )]
     public Task<CallToolResult> GetPlan(Guid tripId, string destinationCity) =>
         adapter.ExecuteAsync(
@@ -145,7 +145,7 @@ public sealed class ActivityPlanningTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Save the complete shared plan only when the user chooses to apply it. Preserve all unrelated fields and restrictions. Supply current ETag and request.contextVersion. To accept a proposal, also supply proposalId, choiceId and its exact plan. A 409/412 requires rereading. Conflicting plans are allowed and explained; schedules are never silently optimized."
+        "Save the complete shared plan when the user requests scheduling or chooses to apply a plan. Create missing activity ideas first with create_activity, or reuse existing ideas; schedule their returned IDs here, never by adding dates/times to activity names or descriptions. Include IDs in selectedActivityIds and days[].activityIds in order, with the destination visit's stayId and local date. For user-requested dates/times, add rules by activityId with fixedDate/fixedStart. Preserve all unrelated fields and restrictions. Supply current ETag and request.contextVersion from get_activity_plan read after activity creation. To accept a proposal, also supply proposalId, choiceId and its exact plan. A 409/412 requires rereading. Conflicting plans are allowed and explained; schedules are never silently optimized."
     )]
     public Task<CallToolResult> ReplacePlan(
         Guid tripId,

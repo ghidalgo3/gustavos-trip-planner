@@ -171,7 +171,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Add a destination visit using a complete GeoJSON city Feature, verified longitude/latitude, country and optional dates. Visits may share an arrival/departure day but cannot overlap inside another visit. Requires planning permission."
+        "Add a destination visit using a complete GeoJSON city Feature, verified longitude/latitude, country and optional dates. The server automatically derives the city's timezone from its coordinates; omit timeZone and do not ask the user for it. Visits may share an arrival/departure day but cannot overlap inside another visit. Requires planning permission."
     )]
     public Task<CallToolResult> AddDestination(Guid tripId, CreateDestinationRequest request) =>
         Execute(
@@ -196,7 +196,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Replace a destination's complete city Feature and constraints. Read list_destinations first; preserve unrelated fields. Does not change visit dates."
+        "Replace a destination's complete city Feature and constraints. Read list_destinations first; preserve unrelated fields. A missing timezone is derived automatically from the city coordinates; do not ask the user for it. Does not change visit dates."
     )]
     public Task<CallToolResult> UpdateDestination(
         Guid tripId,
@@ -335,7 +335,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Create an activity with its complete GeoJSON Feature. Supply contextVersion from list_destinations. Returns ETag. Requires planning permission."
+        "Create an undated activity idea with its complete GeoJSON Feature: what to do, place, duration and details. Keep itinerary dates, start times and day numbers out of its name and description. To fulfill a requested date/time, create the idea first, then read get_activity_plan and use replace_activity_plan to place its returned ID and set fixedDate/fixedStart restrictions. Planned state alone does not schedule it. Supply contextVersion from list_destinations. Returns ETag. Requires planning permission."
     )]
     public Task<CallToolResult> CreateActivity(
         Guid tripId,
@@ -372,7 +372,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Replace the complete activity Feature. Preserve unrelated fields. Supply ETag from get_activity and contextVersion from list_destinations. A 412 or 409 means read again before retrying."
+        "Replace the complete activity idea Feature. Keep its definition independent of itinerary dates, start times and day numbers; change scheduling through get_activity_plan and replace_activity_plan, not through the activity name or description. Planned state alone does not schedule it. Preserve unrelated fields. Supply ETag from get_activity and contextVersion from list_destinations. A 412 or 409 means read again before retrying."
     )]
     public Task<CallToolResult> UpdateActivity(
         Guid tripId,

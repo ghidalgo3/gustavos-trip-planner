@@ -1,13 +1,16 @@
+using Microsoft.Spatial;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.Destinations;
 
 namespace TripPlanner.Api.Services.ActivityPlanning;
 
 public sealed class ActivityPlanningService(
     IPlannerDb database,
     ActivityFlightAvailability flights,
-    TimeProvider clock
+    TimeProvider clock,
+    IDestinationTimeZoneResolver timeZones
 )
 {
     public static string ContextVersion(ActivityPlanningContext planningContext) =>
@@ -34,6 +37,17 @@ public sealed class ActivityPlanningService(
             if (trip is null || place is null)
             {
                 return null;
+            }
+            if (string.IsNullOrWhiteSpace(place.TimeZone))
+            {
+                place = place with
+                {
+                    TimeZone =
+                        await timeZones.ResolveAsync(
+                            GeographyPoint.Create(place.Latitude, place.Longitude),
+                            ct
+                        ) ?? "",
+                };
             }
 
             var parties = await database.GetPartiesAsync(userId, tripId, ct);
@@ -96,6 +110,13 @@ public sealed class ActivityPlanningService(
     public ActivityPlanResponse Response(ActivityPlanningContext planningContext)
     {
         var plan = planningContext.SavedPlan?.Plan ?? ActivityPlanRules.Initial(planningContext);
+        if (string.IsNullOrWhiteSpace(plan.TimeZone))
+        {
+            plan = plan with
+            {
+                TimeZone = ActivityPlanRules.EffectiveTimeZone(plan, planningContext),
+            };
+        }
         return new(
             plan,
             planningContext.SavedPlan?.Version ?? 0,

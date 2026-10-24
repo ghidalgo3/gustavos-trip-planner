@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -55,15 +56,24 @@ public sealed record DailyPlanningSettings
 public sealed record ActivityPlan
 {
     [MaxLength(1000)]
+    [Description(
+        "IDs of activity ideas selected for planning. Selection alone does not assign a date or time; place them in days to schedule them."
+    )]
     public Guid[] SelectedActivityIds { get; init; } = [];
 
     [MaxLength(1000)]
     public Guid[] ExcludedActivityIds { get; init; } = [];
 
     [MaxLength(366)]
+    [Description(
+        "Date-specific ordered placements of selected activity IDs. Use a destination visit ID from context.visits as stayId, not an accommodation ID. Keep itinerary dates and times here and in rules, independent of activity definitions."
+    )]
     public ActivityPlanDay[] Days { get; init; } = [];
 
     [MaxLength(1000)]
+    [Description(
+        "Restrictions keyed by activityId. Use fixedDate and fixedStart (local HH:mm:ss) for a user-requested date/time; preserve existing restrictions. Do not encode scheduling in activity names or descriptions."
+    )]
     public ActivityPlanRule[] Rules { get; init; } = [];
 
     [MaxLength(2000)]

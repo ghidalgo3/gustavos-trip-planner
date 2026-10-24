@@ -1,6 +1,7 @@
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Flights;
+using TripPlanner.Api.Telemetry;
 
 namespace TripPlanner.Api.Services.TripForms;
 
@@ -21,9 +22,21 @@ public sealed class TripFormJobProcessor(
         {
             return false;
         }
+        return await OperationTelemetry.TraceJobAsync(
+            "trip_form",
+            () => ProcessClaimedAsync(work, cancellationToken),
+            cancellationToken
+        );
+    }
 
+    private async Task<bool> ProcessClaimedAsync(
+        TripFormWork work,
+        CancellationToken cancellationToken
+    )
+    {
         if (work.Attempts > 3)
         {
+            OperationTelemetry.JobFailed();
             await database.CompleteTripFormWorkAsync(
                 work,
                 null,
@@ -93,6 +106,7 @@ public sealed class TripFormJobProcessor(
                         or OperationCanceledException
             )
         {
+            OperationTelemetry.JobFailed(exception);
             logger.LogWarning(exception, "Trip form fill {OperationId} failed", work.OperationId);
             await database.CompleteTripFormWorkAsync(
                 work,

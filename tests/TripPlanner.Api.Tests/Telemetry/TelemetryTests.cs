@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using Azure.Core.Pipeline;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using Microsoft.AspNetCore.Builder;
@@ -24,6 +25,32 @@ public class TelemetryTests
     private const string ConnectionString =
         "InstrumentationKey=00000000-0000-0000-0000-000000000001;IngestionEndpoint=https://example.invalid/";
 
+    private static WebApplication application = null!;
+    private static readonly CaptureProcessor Capture = new();
+
+    [ClassInitialize]
+    public static async Task StartTelemetryHost(TestContext _)
+    {
+        // Azure's sampling metadata is process-wide. Use one exporter across the parallel cases.
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Configuration["ApplicationInsights:ConnectionString"] = ConnectionString;
+        builder.AddTripPlannerTelemetry();
+        builder.Services.PostConfigureAll<AzureMonitorExporterOptions>(options =>
+            options.Transport = new HttpClientTransport(
+                new HttpClient(new AcceptTelemetryHandler())
+            )
+        );
+        builder.Services.AddOpenTelemetry().WithTracing(tracing => tracing.AddProcessor(Capture));
+        application = builder.Build();
+        application.MapGet("/user/{userId:guid}/trips", () => Results.Unauthorized());
+        application.MapTelemetryEndpoints();
+        await application.StartAsync();
+    }
+
+    [ClassCleanup]
+    public static async Task StopTelemetryHost() => await application.DisposeAsync();
+
     [TestMethod]
     public async Task BrowserConfigurationIsPublicAndDisabledByDefault()
     {
@@ -32,33 +59,20 @@ public class TelemetryTests
         using var response = await client.GetAsync("/telemetry/config");
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.AreEqual("no-store", response.Headers.CacheControl?.ToString());
-        Assert.IsNull(
-            (
-                await response.Content.ReadFromJsonAsync<BrowserTelemetryConfiguration>()
-            )!.ConnectionString
+        Assert.IsTrue(
+            string.IsNullOrWhiteSpace(
+                (
+                    await response.Content.ReadFromJsonAsync<BrowserTelemetryConfiguration>()
+                )!.ConnectionString
+            )
         );
     }
 
     [TestMethod]
     public async Task BrowserTraceParentCorrelatesWithSanitizedServerRequests()
     {
-        var capture = new CaptureProcessor();
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Configuration["ApplicationInsights:ConnectionString"] = ConnectionString;
-        builder.AddTripPlannerTelemetry();
-        // Exercise production instrumentation and exporting without external I/O.
-        builder.Services.PostConfigureAll<AzureMonitorExporterOptions>(options =>
-            options.Transport = new HttpClientTransport(
-                new HttpClient(new AcceptTelemetryHandler())
-            )
-        );
-        builder.Services.AddOpenTelemetry().WithTracing(tracing => tracing.AddProcessor(capture));
-        await using var app = builder.Build();
-        app.MapGet("/user/{userId:guid}/trips", () => Results.Unauthorized());
-        app.MapTelemetryEndpoints();
-        await app.StartAsync();
-        using var client = app.GetTestClient();
+        var capture = Capture;
+        using var client = application.GetTestClient();
         var enabledConfig = await client.GetFromJsonAsync<BrowserTelemetryConfiguration>(
             "/telemetry/config"
         );
@@ -161,25 +175,126 @@ public class TelemetryTests
         Assert.AreEqual(ActivityStatusCode.Error, activity.Status);
     }
 
+    [TestMethod]
+    [DataRow("/mcp", true)]
+    [DataRow("/mcp/", true)]
+    [DataRow("/mapToken", false)]
+    [DataRow("/oauth/token", false)]
+    [DataRow("/calendars/bearer-secret.ics", false)]
+    [DataRow("/health", false)]
+    public void AgentTransportIsTracedWhileCredentialEndpointsRemainExcluded(
+        string path,
+        bool included
+    ) => Assert.AreEqual(included, TelemetryServiceExtensions.IsApplicationRequest(path));
+
+    [TestMethod]
+    [DataRow("api.openai.com", 200)]
+    [DataRow("api.openai.com", 400)]
+    [DataRow("ignav.com", 200)]
+    [DataRow("ignav.com", 429)]
+    public async Task BackgroundProviderCallsHaveCorrelatedSanitizedHttpDependencies(
+        string host,
+        int status
+    )
+    {
+        var capture = Capture;
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var app = builder.Build();
+        app.MapPost("/provider-secret", () => Results.StatusCode(status));
+        await app.StartAsync();
+        var local = new Uri(app.Urls.Single());
+        using var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+            // Exercise real HttpClient diagnostics, but send no traffic to the actual providers.
+            ConnectCallback = async (_, token) =>
+            {
+                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                try
+                {
+                    await socket.ConnectAsync(IPAddress.Loopback, local.Port, token);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            },
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        var traceId = default(ActivityTraceId);
+        async Task<bool> InvokeProvider()
+        {
+            traceId = Activity.Current!.TraceId;
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"http://{host}/provider-secret?key=bearer-secret"
+            );
+            request.Headers.Authorization = new("Bearer", "bearer-secret");
+            request.Content = JsonContent.Create(new { prompt = "bearer-secret" });
+            using var response = await client.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+        if (status >= 400)
+        {
+            await Assert.ThrowsAsync<HttpRequestException>(() =>
+                OperationTelemetry.TraceJobAsync("provider_test", InvokeProvider, default)
+            );
+        }
+        else
+        {
+            await OperationTelemetry.TraceJobAsync("provider_test", InvokeProvider, default);
+        }
+        var job = await capture.WaitForServerSpanAsync(traceId);
+        var dependency = await capture.WaitForSpanAsync(traceId, ActivityKind.Client);
+        Assert.AreEqual(job.SpanId, dependency.ParentSpanId);
+        Assert.AreEqual(host, dependency.GetTagItem("server.address"));
+        Assert.AreEqual("POST /", dependency.DisplayName);
+        Assert.AreEqual($"http://{host}/", dependency.GetTagItem("url.full"));
+        Assert.AreEqual(
+            status >= 400 ? ActivityStatusCode.Error : ActivityStatusCode.Ok,
+            job.Status
+        );
+        Assert.AreEqual("provider_test", job.GetTagItem("tripplanner.job.kind"));
+        Assert.AreEqual(
+            status >= 400 ? ActivityStatusCode.Error : ActivityStatusCode.Unset,
+            dependency.Status
+        );
+        foreach (var activity in new[] { job, dependency })
+        {
+            string exported = activity.DisplayName + string.Join(" ", activity.TagObjects);
+            Assert.DoesNotContain("bearer-secret", exported);
+            Assert.DoesNotContain("provider-secret", exported);
+            Assert.IsNull(activity.StatusDescription);
+            Assert.IsEmpty(activity.Events);
+        }
+    }
+
     private sealed class CaptureProcessor : BaseProcessor<Activity>
     {
         public ConcurrentBag<Activity> Activities { get; } = [];
         private readonly ConcurrentDictionary<
-            ActivityTraceId,
+            (ActivityTraceId, ActivityKind),
             TaskCompletionSource<Activity>
         > serverSpans = new();
 
-        private TaskCompletionSource<Activity> ServerSpan(ActivityTraceId traceId) =>
+        private TaskCompletionSource<Activity> Span(ActivityTraceId traceId, ActivityKind kind) =>
             serverSpans.GetOrAdd(
-                traceId,
+                (traceId, kind),
                 static _ => new(TaskCreationOptions.RunContinuationsAsynchronously)
             );
 
-        public async Task<Activity> WaitForServerSpanAsync(ActivityTraceId traceId)
+        public Task<Activity> WaitForServerSpanAsync(ActivityTraceId traceId) =>
+            WaitForSpanAsync(traceId, ActivityKind.Server);
+
+        public async Task<Activity> WaitForSpanAsync(ActivityTraceId traceId, ActivityKind kind)
         {
             try
             {
-                return await ServerSpan(traceId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+                return await Span(traceId, kind).Task.WaitAsync(TimeSpan.FromSeconds(5));
             }
             catch (TimeoutException)
             {
@@ -199,10 +314,7 @@ public class TelemetryTests
         public override void OnEnd(Activity activity)
         {
             Activities.Add(activity);
-            if (activity.Kind == ActivityKind.Server)
-            {
-                ServerSpan(activity.TraceId).TrySetResult(activity);
-            }
+            Span(activity.TraceId, activity.Kind).TrySetResult(activity);
         }
     }
 

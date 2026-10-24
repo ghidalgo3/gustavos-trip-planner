@@ -179,7 +179,7 @@ public sealed partial record ActivityPlanningContext
     {
         var issues = new List<ActivityPlanIssue>();
         var days = new List<ActivityDayAssessment>();
-        var zone = ActivityPlanRules.Zone(plan.TimeZone ?? Place.TimeZone);
+        var zone = ActivityPlanRules.Zone(ActivityPlanRules.EffectiveTimeZone(plan, this));
         bool knownZone = zone is not null;
         zone ??= TimeZoneInfo.Utc;
         if (!knownZone)
@@ -188,7 +188,7 @@ public sealed partial record ActivityPlanningContext
                 new(
                     "timezone_unknown",
                     "incomplete",
-                    "Set the destination timezone before exporting timed calendar events."
+                    "The city time zone could not be resolved automatically. Retry before exporting timed calendar events."
                 )
             );
         }

@@ -403,6 +403,17 @@ Planner/owner permissions, validation, destination context versions, and activit
 ETags. MCP requests require OAuth bearer tokens; website cookies cannot authorize
 MCP calls. Tool input cannot choose the acting user.
 
+MCP server instructions, tool descriptions and input schemas distinguish activity
+ideas from scheduling. Agents should first create or reuse an undated idea such as
+**Insadong crafts, tea, and Jogyesa**, then read `get_activity_plan` and use
+`replace_activity_plan` to select and place its ID on the requested visit/date.
+Requested times and dates belong in plan `rules` (`fixedDate`/`fixedStart`), with
+ordered activity IDs in `days`; `Planned` alone means selected, not scheduled.
+`days[].stayId` is the destination visit ID from `context.visits`, not the hotel ID.
+Names and descriptions should not carry itinerary dates or day numbers. These are
+agent instructions; existing activity names are preserved, and genuine dated event
+names remain valid.
+
 OpenIddict provides an OAuth authorization server alongside the existing Google
 and Microsoft sign-in. ChatGPT uses a registered public client (`chatgpt`, no
 client secret), authorization-code flow with S256 PKCE, exact callback allowlists,
@@ -545,17 +556,19 @@ entering the agenda collapses the map.
 On tablets and laptops (768px and wider), drag the divider between the activity
 column and the map to resize them. Focus the divider and use the arrow keys for
 keyboard resizing; Home and End move to the minimum and maximum column sizes.
-New destinations automatically resolve their IANA timezone from their coordinates
-using [Azure Maps](https://learn.microsoft.com/en-us/rest/api/maps/timezone/get-timezone-by-coordinates).
-This applies to website and MCP creation without requiring AI. The daily
-plan inherits it for timed calendar events; an explicitly supplied timezone takes
-precedence, and repeat visits reuse the saved destination timezone. Lookup failures
-are logged and leave the timezone unset rather than guessing; destination creation
-still succeeds. Run `./scripts/buildout` to apply the timezone-read permission in
-`infra/main.bicep`; existing Search Reader access alone returns HTTP 403 for this
-lookup. Under **Default timing and transport**, the destination timezone autocomplete
-accepts city searches such as Tokyo or Hong Kong and offers IANA timezone IDs.
-Unrecognized timezone text must be corrected before saving or assessing a plan.
+New destinations automatically resolve and save their IANA timezone from the city's
+coordinates using the bundled [GeoTimeZone boundary data](https://github.com/mattjohnsonpint/GeoTimeZone).
+Normal city lookups work offline and require no Azure Maps permission or user input.
+Azure Maps timezone lookup remains a fallback when no recognized civil zone is found
+in the local data; synthetic ocean offsets are not used as city timezones. API clients
+can omit `timeZone`; repeat visits reuse the saved city timezone. Older destinations
+with a missing timezone also resolve it in destination and planning responses without
+mutating shared data during a read. Destination replacement resolves an omitted zone
+before saving, and saved plans missing a zone inherit the city's zone when loaded.
+The Plan view displays the resolved city timezone under **Default timing and transport**;
+it does not ask users to choose a timezone. Explicit API overrides remain supported.
+If both lookup sources fail, the zone remains unknown with a retry explanation;
+manual planning remains available and calendar entries need known timing rather than a guessed zone.
 Mobile controls move stops earlier/later or to another day. Must-do, fixed day/time,
 relative-order, meal, duration, opening-hours, transport, and daily availability
 restrictions remain editable. Conflicting plans can be saved with explanations.
@@ -679,13 +692,51 @@ The browser SDK adds W3C `traceparent` headers only to application API calls, in
 an explicitly configured `VITE_API_BASE_URL` origin. Existing API CORS policy accepts
 these headers. ASP.NET Core consumes the trace context and OpenTelemetry exports the
 matching request span, status, and duration. Outgoing HTTP dependencies within collected
-requests are included with origin-only URLs. Browser telemetry uses role `TripPlanner.Web`
-and server telemetry uses `TripPlanner.Api`. Inspect related dependencies and requests
-in **Transaction search / end-to-end transaction details** using the shared operation ID.
+requests and jobs are included with origin-only URLs. Browser telemetry uses role
+`TripPlanner.Web` and server telemetry uses `TripPlanner.Api`. Inspect related dependencies
+and requests in **Transaction search / end-to-end transaction details** using the shared
+operation ID.
+
+MCP transport requests at `/mcp` are collected. Each tool invocation adds a span named
+`MCP <registered-tool-name>` with `mcp.tool.name`, `mcp.result.status_code` when available,
+`tripplanner.outcome`, and a bounded error category (`error.type`). This records validation,
+permission and business failures even when the MCP transport returns HTTP 200. Unknown
+tool requests use `unknown_tool` and the numeric `rpc.error_code`; arbitrary client-supplied
+names, arguments, results, error messages and exception stacks are not exported.
+
+Each claimed fare-search, activity-suggestion, trip-form or activity-planning job creates a
+`Job <kind>` server span. Idle polling creates no spans; handled failures and retries mark
+the job attempt as failed. HTTP calls made by the job become child dependency spans, so
+OpenAI and Ignav calls are visible even though processing happens after the enqueue request
+has finished. Queued jobs currently start a new operation; enqueue-to-worker trace context
+is not persisted.
+
+No additional Azure resource or provider-side configuration is needed for Application Map.
+After deploying, run an AI search and a fresh fare search, then select a time range covering
+those calls in **Application Map**. External dependency nodes should appear for
+`api.openai.com` and `ignav.com` (or the configured provider host). Previously omitted
+telemetry cannot be backfilled. See [Microsoft's Application Map documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-map).
+
+To inspect agent failures in the Application Insights Logs view:
+
+```kusto
+dependencies
+| where timestamp > ago(24h) and cloud_RoleName == "TripPlanner.Api"
+| where name startswith "MCP "
+| project timestamp, name, success, duration,
+    status = customDimensions["mcp.result.status_code"],
+    outcome = customDimensions["tripplanner.outcome"],
+    error = customDimensions["error.type"],
+    rpcError = customDimensions["rpc.error_code"], operation_Id
+| order by timestamp desc
+```
+
+Provider HTTP calls appear in `dependencies`; job executions appear in `requests` with
+names starting `Job `. Both share an operation ID for end-to-end inspection.
 
 URLs lose query strings, fragments and identifiers before export; server requests use
-route templates. Third-party browser calls, calendar feeds, authentication endpoints,
-avatars, health probes, token endpoints and configuration requests are excluded from
+route templates or fixed job names. Third-party browser calls, calendar feeds,
+authentication endpoints, avatars, health probes, token endpoints and configuration requests are excluded from
 HTTP telemetry. Headers, bodies, free text, page titles and referrers are not collected.
 Automatic browser exception messages and stacks are omitted to avoid exposing URLs or
 user input; exception types remain available. Existing protections that disable raw

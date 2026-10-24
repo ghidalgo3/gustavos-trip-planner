@@ -378,6 +378,7 @@ public static class DestinationsEndpoints
                 request.Properties.Constraints?.Clone()
                 ?? JsonSerializer.SerializeToElement(new { }),
         };
+        place = await service.ResolveTimeZoneAsync(place, context.RequestAborted);
         var saved = await database.ReplaceDestinationPlaceAsync(
             user!.Id,
             place,

@@ -29,6 +29,13 @@ the in-memory implementation and, when configured, an isolated PostgreSQL databa
 | `Support` | Shared test host, example plans, database seeds, fake clients and clocks |
 | `Verification` | Native solver checks and explicitly invoked live-provider smoke tests |
 
+Telemetry tests exercise production instrumentation with an in-memory Azure exporter.
+Provider dependency tests send real HTTP requests to local stubs, not OpenAI or Ignav.
+A shared instrumented host avoids multiple Azure samplers in one test process while keeping
+method-level parallelism. Ordinary API test hosts explicitly disable telemetry exports.
+MCP telemetry tests cover successful calls, invalid arguments, permission failures, missing
+resources and unknown tools, including errors inside successful HTTP transport responses.
+
 ## Start here to understand activity planning
 
 1. [ActivityPlanningContextTests](Models/ActivityPlanningContextTests.cs):

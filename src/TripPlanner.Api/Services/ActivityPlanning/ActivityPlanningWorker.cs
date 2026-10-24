@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Options;
+using TripPlanner.Api.Telemetry;
 
 namespace TripPlanner.Api.Services.ActivityPlanning;
 
@@ -24,7 +25,18 @@ public sealed class ActivityPlanningJobProcessor(
         {
             return false;
         }
+        return await OperationTelemetry.TraceJobAsync(
+            "activity_planning",
+            () => ProcessClaimedAsync(job, stoppingToken),
+            stoppingToken
+        );
+    }
 
+    private async Task<bool> ProcessClaimedAsync(
+        ActivityPlanningJob job,
+        CancellationToken stoppingToken
+    )
+    {
         ActivityPlanningResult? latest = null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         timeout.CancelAfter(
@@ -229,6 +241,7 @@ public sealed class ActivityPlanningJobProcessor(
 
             if (timeout.IsCancellationRequested && latest is not null)
             {
+                OperationTelemetry.JobFailed();
                 latest = latest with
                 {
                     Status = "timeout",
@@ -242,8 +255,9 @@ public sealed class ActivityPlanningJobProcessor(
 
             await database.CompleteActivityPlanningJobAsync(job, latest, null, true, stoppingToken);
         }
-        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!stoppingToken.IsCancellationRequested)
         {
+            OperationTelemetry.JobFailed(exception);
             await database.CompleteActivityPlanningJobAsync(
                 job,
                 latest is null ? null : latest with { Status = "timeout" },
@@ -255,6 +269,7 @@ public sealed class ActivityPlanningJobProcessor(
         catch (Exception e)
             when (!stoppingToken.IsCancellationRequested && e is not OutOfMemoryException)
         {
+            OperationTelemetry.JobFailed(e);
             // Never persist provider exception bodies: URLs, keys or profile text can occur in them.
             await database.CompleteActivityPlanningJobAsync(
                 job,

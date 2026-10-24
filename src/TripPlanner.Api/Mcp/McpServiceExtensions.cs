@@ -11,6 +11,7 @@ using TripPlanner.Api.Database;
 using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
+using TripPlanner.Api.Telemetry;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace TripPlanner.Api.Mcp;
@@ -204,8 +205,26 @@ public static class McpServiceExtensions
             .Services.AddMcpServer(options =>
             {
                 options.ServerInfo = new() { Name = "TripPlanner", Version = "1.0.0" };
+                options.Filters.Request.CallToolFilters.Add(next =>
+                    async (request, cancellationToken) =>
+                    {
+                        if (ValidatedMcpTool.IsKnownTool(request.Params?.Name))
+                        {
+                            return await next(request, cancellationToken);
+                        }
+                        // Never put an arbitrary client-supplied tool name into telemetry.
+                        return await OperationTelemetry.TraceToolAsync(
+                            "unknown_tool",
+                            async () => await next(request, cancellationToken),
+                            cancellationToken
+                        );
+                    }
+                );
                 options.ServerInstructions =
-                    "Manage the connected user's trips. Read a resource before replacing it. Use returned IDs and concurrency versions; never invent IDs. Changes appear in the user's Activity Log. Duration and cost research are previews: show sources, estimates and pricing conditions before applying accepted values and their evidence with update_activity. Clear durationEvidence or costEvidence when manually changing the corresponding value. Location proposals are candidate pins, not verified entrances: show the source and request user acceptance before saving their geometry with update_activity. Activity planning proposals are previews: never apply without the user choosing one. Preserve unrelated plan fields and explicit restrictions. Use replace_activity_plan with the proposal ID, choice ID, current ETag and context version to apply a reviewed choice. Reread after 409/412 errors. Poll list_operations/get_operation and retrieve results through the planning tools. Personal preferences always refer to the connected user; other travellers' raw profile preferences are private. Calendar subscription URLs are bearer credentials returned only at creation; do not repeat them in diagnostics.";
+                    "Manage the connected user's trips. Read a resource before replacing it. Destination timezones are derived automatically from city coordinates; use the returned city timezone for planning and do not ask the user to supply one. Use returned IDs and concurrency versions; never invent IDs. Changes appear in the user's Activity Log. "
+                    + "Separate activity ideas (what to do) from the activity plan (when to do it). First use create_activity to create an undated idea with its name, place, duration and other details, or reuse an existing idea instead of duplicating it. Do not prefix names with itinerary dates, clock times or day numbers, or use descriptions to encode scheduling. For example, name the idea 'Insadong crafts, tea, and Jogyesa', not 'Dec 30 — Insadong crafts, tea and Jogyesa'. Dates that are part of an event's actual name may remain. "
+                    + "If the user requests a date or time, create the idea first, then reread get_activity_plan and place its returned ID using replace_activity_plan: include it in selectedActivityIds and the appropriate days entry with stayId from context.visits, local date and ordered activityIds. stayId identifies the destination visit, not accommodation. Add rules with activityId and fixedDate/fixedStart for requested scheduling anchors. Planned state alone selects an activity; it does not schedule it. Preserve unrelated plan fields and restrictions. "
+                    + "Duration and cost research are previews: show sources, estimates and pricing conditions before applying accepted values and their evidence with update_activity. Clear durationEvidence or costEvidence when manually changing the corresponding value. Location proposals are candidate pins, not verified entrances: show the source and request user acceptance before saving their geometry with update_activity. Activity planning proposals are previews: never apply without the user choosing one. Preserve unrelated plan fields and explicit restrictions. Use replace_activity_plan with the proposal ID, choice ID, current ETag and context version to apply a reviewed choice. Reread after 409/412 errors. Poll list_operations/get_operation and retrieve results through the planning tools. Personal preferences always refer to the connected user; other travellers' raw profile preferences are private. Calendar subscription URLs are bearer credentials returned only at creation; do not repeat them in diagnostics.";
             })
             .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
             .WithTools(ValidatedMcpTool.CreateTools());

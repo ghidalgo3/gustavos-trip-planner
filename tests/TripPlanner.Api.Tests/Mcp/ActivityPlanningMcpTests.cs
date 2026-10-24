@@ -25,6 +25,82 @@ public sealed class ActivityPlanningMcpTests
     }
 
     [TestMethod]
+    public async Task Mcp_DiscoveryExplainsUndatedIdeasAndSeparateScheduling()
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = McpEndpointTests.CreateClient(factory);
+        await McpEndpointTests.SeedAndSetCookie(factory, browser);
+        var token = await McpEndpointTests.Tokens(browser, "tripplanner.read");
+        using var agent = McpEndpointTests.CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            token.GetProperty("access_token").GetString()
+        );
+        var initialized = await McpEndpointTests.Result(
+            await McpEndpointTests.Rpc(
+                agent,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new { name = "Planning guidance test", version = "1.0" },
+                }
+            )
+        );
+        string instructions = initialized.GetProperty("instructions").GetString()!;
+        StringAssert.Contains(instructions, "undated idea");
+        StringAssert.Contains(instructions, "Insadong crafts, tea, and Jogyesa");
+        StringAssert.Contains(instructions, "fixedDate/fixedStart");
+
+        var listed = await McpEndpointTests.Result(await McpEndpointTests.Rpc(agent, "tools/list"));
+        var tools = listed
+            .GetProperty("tools")
+            .EnumerateArray()
+            .ToDictionary(t => t.GetProperty("name").GetString()!);
+        foreach (string name in new[] { "create_activity", "update_activity" })
+        {
+            StringAssert.Contains(
+                tools[name].GetProperty("description").GetString()!,
+                "replace_activity_plan"
+            );
+            var properties = tools[name]
+                .GetProperty("inputSchema")
+                .GetProperty("properties")
+                .GetProperty("request")
+                .GetProperty("properties")
+                .GetProperty("properties")
+                .GetProperty("properties");
+            StringAssert.Contains(
+                properties.GetProperty("name").GetProperty("description").GetString()!,
+                "undated activity idea"
+            );
+            StringAssert.Contains(
+                properties.GetProperty("state").GetProperty("description").GetString()!,
+                "does not assign a day or time"
+            );
+        }
+
+        var planTool = tools["replace_activity_plan"];
+        StringAssert.Contains(planTool.GetProperty("description").GetString()!, "create_activity");
+        var plan = planTool
+            .GetProperty("inputSchema")
+            .GetProperty("properties")
+            .GetProperty("request")
+            .GetProperty("properties")
+            .GetProperty("plan")
+            .GetProperty("properties");
+        StringAssert.Contains(
+            plan.GetProperty("days").GetProperty("description").GetString()!,
+            "destination visit ID"
+        );
+        StringAssert.Contains(
+            plan.GetProperty("rules").GetProperty("description").GetString()!,
+            "fixedDate and fixedStart"
+        );
+    }
+
+    [TestMethod]
     public async Task Mcp_ReadAssessProposePollInspectApply_UsesSharedVersionsAndAuditing()
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };

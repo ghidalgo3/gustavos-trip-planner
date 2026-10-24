@@ -55,7 +55,8 @@ builder.Services.AddSingleton<DestinationService>();
 builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
 builder.Services.AddSingleton<DestinationFlightPlanning>();
 builder.Services.AddHttpClient<ICityPlaceResolver, AzureCityPlaceResolver>();
-builder.Services.AddHttpClient<IDestinationTimeZoneResolver, AzureDestinationTimeZoneResolver>();
+builder.Services.AddHttpClient<AzureDestinationTimeZoneResolver>();
+builder.Services.AddSingleton<IDestinationTimeZoneResolver, DestinationTimeZoneResolver>();
 builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolver>();
 builder.Services.AddHttpClient<IActivityDetailsResearch, OpenAiActivityDetailsResearch>(client =>
     client.Timeout = TimeSpan.FromSeconds(30)

@@ -13,7 +13,9 @@ public sealed class ActivityFlightAvailability(AirportCatalog airports)
         ActivityPlan plan
     )
     {
-        var zone = ActivityPlanRules.Zone(plan.TimeZone ?? planningContext.Place.TimeZone);
+        var zone = ActivityPlanRules.Zone(
+            ActivityPlanRules.EffectiveTimeZone(plan, planningContext)
+        );
         if (zone is null)
         {
             return [];

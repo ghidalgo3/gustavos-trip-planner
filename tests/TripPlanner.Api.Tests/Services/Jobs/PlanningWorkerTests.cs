@@ -1,15 +1,68 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Services.Jobs;
+using TripPlanner.Api.Telemetry;
 using TripPlanner.Api.Tests.Database;
 using static TripPlanner.Api.Tests.Support.OperationFixture;
+using Activity = System.Diagnostics.Activity;
 
 namespace TripPlanner.Api.Tests.Services.Jobs;
 
 [TestClass]
 public sealed class PlanningWorkerTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task OnlyClaimedWorkCreatesATraceAndHandledProviderFailuresAreRecorded(bool fails)
+    {
+        using var parent = new Activity("worker-test").SetIdFormat(ActivityIdFormat.W3C).Start();
+        var spans = new ConcurrentBag<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == OperationTelemetry.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.TraceId == parent.TraceId)
+                {
+                    spans.Add(activity);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var clock = new TestClock();
+        var db = new InMemoryPlannerDb { OperationClock = clock };
+        var (user, trip, party) = await Seed(db);
+        var worker = new PlanningWorker(
+            db,
+            new FakeIgnav(transientFailures: fails ? 1 : 0),
+            Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
+            Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
+            clock,
+            NullLogger<PlanningWorker>.Instance,
+            null
+        );
+        Assert.IsFalse(await worker.ProcessNextAsync());
+        Assert.IsEmpty(spans);
+        await db.CreateFlightSearchOperationAsync(
+            user.Id,
+            trip.Id,
+            Guid.NewGuid(),
+            Preview(party.Id, Query)
+        );
+        Assert.IsTrue(await worker.ProcessNextAsync());
+        Assert.HasCount(1, spans);
+        var span = spans.Single();
+        Assert.AreEqual(ActivityKind.Server, span.Kind);
+        Assert.AreEqual("fare_search", span.GetTagItem("tripplanner.job.kind"));
+        Assert.AreEqual(fails ? ActivityStatusCode.Error : ActivityStatusCode.Ok, span.Status);
+    }
+
     [TestMethod]
     public async Task Worker_UsesFreshCacheAndRefreshesExpiredEntries()
     {

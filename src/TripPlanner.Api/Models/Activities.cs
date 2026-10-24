@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -92,12 +93,32 @@ public sealed record ActivityLink(
 );
 
 public sealed record ActivityProperties(
-    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property:
+        Required,
+        StringLength(200, MinimumLength = 1),
+        Description(
+            "Name of the undated activity idea, e.g. Insadong crafts, tea, and Jogyesa. Do not prefix itinerary dates, start times or day numbers; schedule through the activity plan. Preserve dates that are part of an event's actual name."
+        )
+    ]
+        string Name,
     [property: DurationRange(1, 10080), JsonConverter(typeof(IsoDurationConverter))]
         TimeSpan? Duration,
-    [property: StringLength(10000)] string Description,
+    [property:
+        StringLength(10000),
+        Description(
+            "Describe what to do. Requested itinerary dates and times belong in the activity plan."
+        )
+    ]
+        string Description,
     ActivityCost? Cost,
-    [property: JsonRequired, EnumDataType(typeof(ActivityState))] ActivityState State,
+    [property:
+        JsonRequired,
+        EnumDataType(typeof(ActivityState)),
+        Description(
+            "Proposed is an idea; Planned selects it for the plan but does not assign a day or time; Rejected excludes it."
+        )
+    ]
+        ActivityState State,
     [property: StringLength(200)] string? PlaceName = null
 )
 {

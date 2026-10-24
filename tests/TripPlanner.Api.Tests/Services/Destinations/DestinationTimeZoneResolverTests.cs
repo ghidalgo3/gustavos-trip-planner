@@ -11,6 +11,32 @@ namespace TripPlanner.Api.Tests.Services.Destinations;
 public sealed class DestinationTimeZoneResolverTests
 {
     [TestMethod]
+    [DataRow(37.5665, 126.9780, "Asia/Seoul")]
+    [DataRow(35.6762, 139.6503, "Asia/Tokyo")]
+    [DataRow(48.8566, 2.3522, "Europe/Paris")]
+    [DataRow(40.7128, -74.0060, "America/New_York")]
+    [DataRow(27.7172, 85.3240, "Asia/Kathmandu")]
+    public async Task CityZonesResolveLocallyWithoutAnAzureRequest(
+        double latitude,
+        double longitude,
+        string expected
+    )
+    {
+        using var handler = new ResponseHandler("{}", HttpStatusCode.Forbidden);
+        using var client = new HttpClient(handler);
+        var resolver = new DestinationTimeZoneResolver(Create(client));
+        var actual = await resolver.ResolveAsync(
+            GeographyPoint.Create(latitude, longitude),
+            default
+        );
+        Assert.AreEqual(expected, actual);
+        Assert.IsNull(
+            handler.Url,
+            "A city's time zone must not depend on an API key or timezone-read permission."
+        );
+    }
+
+    [TestMethod]
     [DataRow("TimeZones", "Id")]
     [DataRow("timeZones", "id")]
     public async Task CoordinatesResolveToAnIanaZoneRatherThanACurrentOffset(

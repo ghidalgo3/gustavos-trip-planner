@@ -5,6 +5,7 @@ using TripPlanner.Api.Options;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.TripForms;
+using TripPlanner.Api.Telemetry;
 
 namespace TripPlanner.Api.Services.Jobs;
 
@@ -153,9 +154,18 @@ public sealed class PlanningWorker(
         {
             return false;
         }
+        return await OperationTelemetry.TraceJobAsync(
+            "fare_search",
+            () => ProcessClaimedAsync(work, cancellationToken),
+            cancellationToken
+        );
+    }
 
+    private async Task<bool> ProcessClaimedAsync(FareWork work, CancellationToken cancellationToken)
+    {
         if (work.Attempts > 3)
         {
+            OperationTelemetry.JobFailed();
             await database.CompleteFareWorkAsync(
                 work,
                 null,
@@ -184,6 +194,7 @@ public sealed class PlanningWorker(
                         or InvalidOperationException
             )
         {
+            OperationTelemetry.JobFailed(exception);
             var transient =
                 exception is OperationCanceledException or System.Text.Json.JsonException
                 || exception is HttpRequestException { StatusCode: null }

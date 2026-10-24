@@ -31,6 +31,11 @@ public static class ActivityPlanRules
         return sleep <= wake && offset < wake ? offset + TimeSpan.FromDays(1) : offset;
     }
 
+    public static string? EffectiveTimeZone(ActivityPlan plan, ActivityPlanningContext context) =>
+        !string.IsNullOrWhiteSpace(plan.TimeZone) ? plan.TimeZone
+        : !string.IsNullOrWhiteSpace(context.Place.TimeZone) ? context.Place.TimeZone
+        : context.Evidence.TimeZone;
+
     public static TimeZoneInfo? Zone(string? id)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -277,7 +282,10 @@ public static class ActivityPlanRules
         }
         if (plan.TimeZone is { Length: > 0 } && Zone(plan.TimeZone) is null)
         {
-            errors["timeZone"] = ["Choose a valid IANA timezone."];
+            errors["timeZone"] =
+            [
+                "Use a recognized IANA time zone, or omit it to use the city's zone.",
+            ];
         }
 
         if (

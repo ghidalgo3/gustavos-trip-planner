@@ -789,63 +789,54 @@ describe("daily planning", () => {
     expect(body.plan.excludedActivityIds).not.toContain(first);
   });
 
-  it.each([
-    ["Tokyo", "Asia/Tokyo"],
-    ["Hong Kong", "Asia/Hong_Kong"],
-    ["UTC", "UTC"],
-  ])(
-    "autocompletes %s and saves the recognized timezone ID",
-    async (query, id) => {
+  it.each(["Asia/Seoul", "Asia/Tokyo", "America/New_York"])(
+    "uses the server-resolved city timezone %s without asking the user",
+    async (timeZone) => {
+      const data = structuredClone(response);
+      data.plan.timeZone = timeZone;
+      vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
       render(<DailyActivityPlan {...props} />);
       fireEvent.click(
         await screen.findByRole("button", { name: "Planning tools" }),
       );
       fireEvent.click(screen.getByText("Default timing and transport"));
-      const picker = screen.getByRole("combobox", {
-        name: "Destination timezone",
-      });
-      fireEvent.change(picker, { target: { value: query } });
-      if (query !== id) {
-        expect(
-          screen.getByRole("button", { name: "Save changes" }),
-        ).toBeDisabled();
-        expect(
-          screen.getByText("Choose a timezone from the suggestions."),
-        ).toBeVisible();
-      }
-      fireEvent.click(picker);
-      fireEvent.click(await screen.findByRole("option", { name: id }));
-      expect(picker).toHaveValue(id);
+      expect(screen.getByText(`City time zone: ${timeZone}`)).toBeVisible();
       expect(
-        screen.queryByText("Choose a timezone from the suggestions."),
-      ).not.toBeInTheDocument();
+        screen.queryByRole("combobox", { name: "Destination timezone" }),
+      ).toBeNull();
+      fireEvent.change(screen.getByLabelText("Default sleep starts"), {
+        target: { value: "22:30" },
+      });
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
       await waitFor(() => expect(planningRequest).toHaveBeenCalledTimes(2));
       const body = vi.mocked(planningRequest).mock.calls[1][1]!.body as {
         plan: ActivityPlan;
       };
-      expect(body.plan.timeZone).toBe(id);
+      expect(body.plan.timeZone).toBe(timeZone);
     },
   );
 
-  it("keeps an invalid timezone out of save and assessment requests", async () => {
+  it("explains an unresolved city zone without asking the user to choose one", async () => {
+    const data = structuredClone(response);
+    data.plan.timeZone = null;
+    vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
     render(<DailyActivityPlan {...props} />);
     fireEvent.click(
       await screen.findByRole("button", { name: "Planning tools" }),
     );
     fireEvent.click(screen.getByText("Default timing and transport"));
-    const picker = screen.getByRole("combobox", {
-      name: "Destination timezone",
-    });
-    fireEvent.change(picker, { target: { value: "Not/A_Zone" } });
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Assess draft" })).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Propose a draft" }),
-    ).toBeDisabled();
-    expect(planningRequest).toHaveBeenCalledTimes(1);
-    fireEvent.change(picker, { target: { value: "" } });
+      screen.getByText("City time zone: Unavailable — reload to retry"),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("combobox", { name: "Destination timezone" }),
+    ).toBeNull();
+    fireEvent.change(screen.getByLabelText("Default sleep starts"), {
+      target: { value: "22:30" },
+    });
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Assess draft" })).toBeEnabled();
+    expect(planningRequest).toHaveBeenCalledTimes(1);
   });
 
   it("saves edited clock times in ISO 8601 format while displaying minute inputs", async () => {

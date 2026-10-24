@@ -8,6 +8,18 @@ namespace TripPlanner.Api.Tests.Services.ActivityPlanning;
 public sealed class ActivityPlanRulesTests
 {
     [TestMethod]
+    [DataRow(null, "Europe/Paris")]
+    [DataRow("", "Europe/Paris")]
+    [DataRow("   ", "Europe/Paris")]
+    [DataRow("Asia/Seoul", "Asia/Seoul")]
+    public void MissingPlanTimezoneUsesTheCityZone(string? supplied, string expected)
+    {
+        var context = Context();
+        var plan = Plan(context) with { TimeZone = supplied };
+        Assert.AreEqual(expected, ActivityPlanRules.EffectiveTimeZone(plan, context));
+    }
+
+    [TestMethod]
     public void RepeatVisits_AllowOneOccurrenceAndRetainUnscheduledSelections()
     {
         var s = Context(TimeSpan.FromMinutes(90));

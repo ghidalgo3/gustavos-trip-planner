@@ -121,6 +121,10 @@ public sealed class DestinationService(
             trip.Id,
             cancellationToken
         );
+        // Fill older missing zones in the representation without making a GET mutate shared data.
+        places = await Task.WhenAll(
+            places.Select(place => ResolveTimeZoneAsync(place, cancellationToken))
+        );
         var features = visits
             .GroupBy(v => v.CityId)
             .Select(group =>
@@ -165,6 +169,22 @@ public sealed class DestinationService(
             .Select(v => new DestinationRouteItem(v.CityId, v.StayId))
             .ToArray();
         return new(new("FeatureCollection", features, route));
+    }
+
+    public async Task<DestinationPlace> ResolveTimeZoneAsync(
+        DestinationPlace place,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!string.IsNullOrWhiteSpace(place.TimeZone))
+        {
+            return place;
+        }
+        string? zone = await timeZones.ResolveAsync(
+            GeographyPoint.Create(place.Latitude, place.Longitude),
+            cancellationToken
+        );
+        return place with { TimeZone = zone ?? "" };
     }
 
     public async Task<DestinationVisit> AddAsync(

@@ -3,6 +3,7 @@ using System.Text;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Telemetry;
 
 namespace TripPlanner.Api.Services.Activities;
 
@@ -26,9 +27,21 @@ public sealed class ActivityJobProcessor(
         {
             return false;
         }
+        return await OperationTelemetry.TraceJobAsync(
+            "activity_suggestions",
+            () => ProcessClaimedAsync(job, cancellationToken),
+            cancellationToken
+        );
+    }
 
+    private async Task<bool> ProcessClaimedAsync(
+        ActivityJob job,
+        CancellationToken cancellationToken
+    )
+    {
         if (job.Attempts > 3)
         {
+            OperationTelemetry.JobFailed();
             await database.CompleteActivityJobAsync(
                 job,
                 null,
@@ -285,6 +298,7 @@ public sealed class ActivityJobProcessor(
                         or OperationCanceledException
             )
         {
+            OperationTelemetry.JobFailed(exception);
             logger.LogWarning(
                 exception,
                 "Activity suggestion {OperationId} failed on attempt {Attempt}; HTTP status {StatusCode}",

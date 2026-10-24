@@ -63,11 +63,113 @@ public class ActivityEndpointTests
         )!;
         Assert.AreEqual(expectedZone, repeat.Properties.TimeZone);
         Assert.HasCount(2, repeat.Properties.Stays);
-        Assert.AreEqual(expectedLookups, resolver.Calls);
+        if (resolvedZone is null)
+        {
+            Assert.IsGreaterThan(
+                1,
+                resolver.Calls,
+                "An older missing zone is retried automatically when read."
+            );
+        }
+        else
+        {
+            Assert.AreEqual(expectedLookups, resolver.Calls);
+        }
         if (expectedLookups > 0)
         {
             Assert.AreEqual(request.Geometry!.Position, resolver.Point);
         }
+    }
+
+    [TestMethod]
+    [DataRow("Seoul", "KR", 37.5665, 126.9780, "Asia/Seoul")]
+    [DataRow("Tokyo", "JP", 35.6762, 139.6503, "Asia/Tokyo")]
+    [DataRow("New York", "US", 40.7128, -74.0060, "America/New_York")]
+    public async Task DestinationAndPlanUseCityZoneWithoutUserInputAndOlderMissingZonesStillWork(
+        string city,
+        string country,
+        double latitude,
+        double longitude,
+        string expected
+    )
+    {
+        await using var factory = new TestApplicationFactory
+        {
+            TimeZoneResolver = new CoordinateZones(),
+        };
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        string path = $"/trips/{trip.Id}/destinations";
+        using var created = await client.PostAsJsonAsync(
+            path,
+            DestinationFeature(
+                city,
+                country,
+                new(2027, 6, 10),
+                new(2027, 6, 11),
+                longitude,
+                latitude
+            )
+        );
+        Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
+        var destination = (
+            await created.Content.ReadFromJsonAsync<GeoJsonFeature<DestinationProperties>>()
+        )!;
+        Assert.AreEqual(expected, destination.Properties.TimeZone);
+        var stored = (
+            await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, destination.Id)
+        )!;
+        Assert.AreEqual(expected, stored.TimeZone);
+        // Simulate a destination created before automatic lookup was available.
+        await factory.Database.ReplaceDestinationPlaceAsync(owner, stored with { TimeZone = "" });
+        var older = (
+            await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(
+                $"{path}/{destination.Id}"
+            )
+        )!;
+        Assert.AreEqual(expected, older.Properties.TimeZone);
+        var plan = (
+            await client.GetFromJsonAsync<ActivityPlanResponse>(
+                $"{path}/{destination.Id}/activity-plan"
+            )
+        )!;
+        Assert.AreEqual(expected, plan.Plan.TimeZone);
+        Assert.IsFalse(plan.Assessment.Issues.Any(issue => issue.Code == "timezone_unknown"));
+        Assert.AreEqual(
+            "",
+            (
+                await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, destination.Id)
+            )!.TimeZone,
+            "A read-only REST or MCP read must not mutate the destination."
+        );
+        // A replacement that omits timezone must derive it, never clear it.
+        using var replacement = await client.PutAsJsonAsync(
+            $"{path}/{destination.Id}",
+            new ReplaceDestinationRequest(
+                "Feature",
+                destination.Id,
+                destination.Geometry,
+                new(city, country)
+            )
+        );
+        Assert.AreEqual(HttpStatusCode.OK, replacement.StatusCode);
+        Assert.AreEqual(
+            expected,
+            (
+                await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, destination.Id)
+            )!.TimeZone
+        );
+    }
+
+    private sealed class CoordinateZones : IDestinationTimeZoneResolver
+    {
+        public Task<string?> ResolveAsync(
+            GeographyPoint point,
+            CancellationToken cancellationToken
+        ) =>
+            Task.FromResult<string?>(
+                GeoTimeZone.TimeZoneLookup.GetTimeZone(point.Latitude, point.Longitude).Result
+            );
     }
 
     private sealed class TimeZoneResolver(string? zone) : IDestinationTimeZoneResolver

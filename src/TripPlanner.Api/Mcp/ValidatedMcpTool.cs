@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Reflection;
@@ -11,6 +12,7 @@ using ModelContextProtocol.Server;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Serialization;
+using TripPlanner.Api.Telemetry;
 using TripPlanner.Api.Validation;
 
 namespace TripPlanner.Api.Mcp;
@@ -33,27 +35,48 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
         },
     };
 
+    private static readonly MethodInfo[] ToolMethods = new[]
+    {
+        typeof(TripPlannerTools),
+        typeof(ActivityPlanningTools),
+    }
+        .SelectMany(type => type.GetMethods())
+        .Where(method => method.IsDefined(typeof(McpServerToolAttribute)))
+        .ToArray();
+
+    public static bool IsKnownTool(string? name) =>
+        ToolMethods.Any(method =>
+            method.GetCustomAttribute<McpServerToolAttribute>()?.Name == name
+        );
+
     public static IEnumerable<McpServerTool> CreateTools() =>
-        new[] { typeof(TripPlannerTools), typeof(ActivityPlanningTools) }
-            .SelectMany(type => type.GetMethods())
-            .Where(method => method.IsDefined(typeof(McpServerToolAttribute)))
-            .Select(method => new ValidatedMcpTool(
-                McpServerTool.Create(
-                    method,
-                    context =>
-                        ActivatorUtilities.CreateInstance(context.Services!, method.DeclaringType!),
-                    new McpServerToolCreateOptions
-                    {
-                        SerializerOptions = SerializerOptions,
-                        SchemaCreateOptions = new() { TransformSchemaNode = TransformSchema },
-                    }
-                ),
-                method
-            ));
+        ToolMethods.Select(method => new ValidatedMcpTool(
+            McpServerTool.Create(
+                method,
+                context =>
+                    ActivatorUtilities.CreateInstance(context.Services!, method.DeclaringType!),
+                new McpServerToolCreateOptions
+                {
+                    SerializerOptions = SerializerOptions,
+                    SchemaCreateOptions = new() { TransformSchemaNode = TransformSchema },
+                }
+            ),
+            method
+        ));
 
     public override ValueTask<CallToolResult> InvokeAsync(
         RequestContext<CallToolRequestParams> request,
         CancellationToken cancellationToken = default
+    ) =>
+        OperationTelemetry.TraceToolAsync(
+            method.GetCustomAttribute<McpServerToolAttribute>()?.Name ?? method.Name,
+            () => InvokeValidatedAsync(request, cancellationToken),
+            cancellationToken
+        );
+
+    private ValueTask<CallToolResult> InvokeValidatedAsync(
+        RequestContext<CallToolRequestParams> request,
+        CancellationToken cancellationToken
     )
     {
         var errors = new Dictionary<string, string[]>();
@@ -120,11 +143,16 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
     {
         if (context.TypeInfo.Type.IsEnum)
         {
-            return new JsonObject
+            var enumSchema = new JsonObject
             {
                 ["type"] = "string",
                 ["enum"] = JsonSerializer.SerializeToNode(Enum.GetNames(context.TypeInfo.Type)),
             };
+            if (context.GetCustomAttribute<DescriptionAttribute>() is { } description)
+            {
+                enumSchema["description"] = description.Description;
+            }
+            return enumSchema;
         }
         // JsonElement exports as the boolean schema `true`, not an object.
         // Materialize it before attaching the DTO's object/field constraints.

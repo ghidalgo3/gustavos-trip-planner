@@ -77,10 +77,14 @@ public sealed class ActivityPlanOptimizer(
             warnings.Add("Mark activities Planned before asking to schedule them.");
             return Result("insufficient_evidence");
         }
-        var zone = ActivityPlanRules.Zone(job.Plan.TimeZone ?? planningContext.Place.TimeZone);
+        var zone = ActivityPlanRules.Zone(
+            ActivityPlanRules.EffectiveTimeZone(job.Plan, planningContext)
+        );
         if (zone is null)
         {
-            warnings.Add("Choose a destination timezone before optimizing.");
+            warnings.Add(
+                "The city time zone could not be resolved automatically. Reload the plan and retry."
+            );
             return Result("insufficient_evidence");
         }
         if (ContradictoryRestrictions(job.Plan))

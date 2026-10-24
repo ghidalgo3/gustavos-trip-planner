@@ -2,7 +2,6 @@ import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import ActivityOrderHandle from "./ActivityOrderHandle";
 import ActivityAgenda from "./ActivityAgenda";
 import { useActivityPlanPreview } from "./useActivityPlanPreview";
-import TimeZonePicker from "../../shared/components/TimeZonePicker";
 import { isTimeZoneId } from "../../shared/time/timeZones";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import {
@@ -426,7 +425,9 @@ export default function DailyActivityPlan({
   async function save(choice?: PlanChoice) {
     if (!plan || !resource) return;
     if (!isTimeZoneId((choice?.plan ?? plan).timeZone)) {
-      throw new Error("Choose a destination timezone from the suggestions.");
+      throw new Error(
+        "The city time zone could not be resolved. Reload the plan to retry.",
+      );
     }
     const result = job?.data.result;
     const body = {
@@ -456,7 +457,9 @@ export default function DailyActivityPlan({
   ) {
     if (!resource || !plan) return;
     if (invalidTimeZone) {
-      throw new Error("Choose a destination timezone from the suggestions.");
+      throw new Error(
+        "The city time zone could not be resolved. Reload the plan to retry.",
+      );
     }
     setJob(undefined);
     setPreview(undefined);
@@ -1151,10 +1154,10 @@ export default function DailyActivityPlan({
                   setAvailabilityCurrent(false);
                 }}
               />
-              <TimeZonePicker
-                value={plan.timeZone}
-                onChange={(timeZone) => setPlan({ ...plan, timeZone })}
-              />
+              <p>
+                City time zone:{" "}
+                {plan.timeZone || "Unavailable — reload to retry"}
+              </p>
             </fieldset>
           </details>
           <ActivityPreferencesEditor

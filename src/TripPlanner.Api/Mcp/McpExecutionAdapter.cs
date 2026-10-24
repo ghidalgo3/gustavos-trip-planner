@@ -42,6 +42,7 @@ public sealed class McpExecutionAdapter(
             return new()
             {
                 IsError = true,
+                StructuredContent = JsonSerializer.SerializeToElement(new { status = 403 }),
                 Content =
                 [
                     new TextContentBlock
@@ -75,6 +76,7 @@ public sealed class McpExecutionAdapter(
             return new()
             {
                 IsError = true,
+                StructuredContent = JsonSerializer.SerializeToElement(new { status = 403 }),
                 Content =
                 [
                     new TextContentBlock

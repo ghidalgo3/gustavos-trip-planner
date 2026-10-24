@@ -19,8 +19,33 @@ public sealed class SanitizeHttpTelemetryProcessor : BaseProcessor<Activity>
         "error.type",
     ];
 
+    private static readonly HashSet<string> OperationTags =
+    [
+        "mcp.tool.name",
+        "mcp.result.status_code",
+        "rpc.error_code",
+        "tripplanner.job.kind",
+        "tripplanner.outcome",
+        "error.type",
+    ];
+
     public override void OnEnd(Activity activity)
     {
+        if (activity.Source.Name == OperationTelemetry.SourceName)
+        {
+            foreach (var tag in activity.TagObjects.ToArray())
+            {
+                if (!OperationTags.Contains(tag.Key))
+                {
+                    activity.SetTag(tag.Key, null);
+                }
+            }
+            activity.DisplayName = activity.GetTagItem("mcp.tool.name") is string tool
+                ? $"MCP {tool}"
+                : $"Job {activity.GetTagItem("tripplanner.job.kind")}";
+            activity.SetStatus(activity.Status);
+            return;
+        }
         string method =
             activity.GetTagItem("http.request.method")?.ToString()
             ?? activity.GetTagItem("http.method")?.ToString()

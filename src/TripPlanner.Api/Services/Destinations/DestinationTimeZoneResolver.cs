@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using GeoTimeZone;
 using Microsoft.Spatial;
 using TripPlanner.Api.Services.Maps;
 
@@ -8,6 +9,27 @@ namespace TripPlanner.Api.Services.Destinations;
 public interface IDestinationTimeZoneResolver
 {
     Task<string?> ResolveAsync(GeographyPoint point, CancellationToken cancellationToken);
+}
+
+public sealed class DestinationTimeZoneResolver(AzureDestinationTimeZoneResolver fallback)
+    : IDestinationTimeZoneResolver
+{
+    public Task<string?> ResolveAsync(GeographyPoint point, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string id = TimeZoneLookup.GetTimeZone(point.Latitude, point.Longitude).Result;
+        // The boundary data is local: ordinary city lookups need no key, permission or network.
+        // Ocean fallback offsets are not evidence of a city's civil time zone.
+        if (
+            !id.StartsWith("Etc/", StringComparison.Ordinal)
+            && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)
+            && zone.HasIanaId
+        )
+        {
+            return Task.FromResult<string?>(zone.Id);
+        }
+        return fallback.ResolveAsync(point, cancellationToken);
+    }
 }
 
 public sealed class AzureDestinationTimeZoneResolver(
