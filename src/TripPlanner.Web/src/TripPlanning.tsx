@@ -74,6 +74,7 @@ export default function TripPlanning({
           constraints={data.document.constraints}
           multiCity={true}
           visitCount={data.document.visits?.length ?? 0}
+          visits={data.document.visits ?? []}
           disabled={false}
           hasUnsavedChanges={false}
           savedVersion={0}

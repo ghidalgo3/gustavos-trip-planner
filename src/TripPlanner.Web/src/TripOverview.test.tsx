@@ -637,7 +637,7 @@ test("flight cards follow chronological visits, including the trip home", async 
   ]);
 });
 
-test("destination flexibility and ordering are saved on the city resource while preserving other constraints", async () => {
+test("destination date flexibility and fixed ordering are saved on the city resource while preserving other constraints", async () => {
   const destination = {
     ...paris,
     properties: {
@@ -678,11 +678,11 @@ test("destination flexibility and ordering are saved on the city resource while 
     within(drawer).getByLabelText("Departure flexibility (± days)"),
     { target: { value: "4" } },
   );
-  fireEvent.click(
-    within(drawer).getByRole("checkbox", {
+  expect(
+    within(drawer).queryByRole("checkbox", {
       name: "Keep this destination after the previous one",
     }),
-  );
+  ).toBeNull();
   fireEvent.click(submit);
   await waitFor(() =>
     expect(replaceDestinationPlace).toHaveBeenCalledWith("trip", destination, {

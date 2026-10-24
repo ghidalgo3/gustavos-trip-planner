@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Services.Flights;
@@ -19,23 +19,21 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         DateOnly ArrivalDate,
         string Origin,
         string Destination
-    );
+    )
+    {
+        public string Key { get; } = FlightChoiceRoute.FlightKey(Value)!;
+    }
 
     private sealed record Offer(Leg[] Legs, decimal Price, string Currency, string Id, string Key);
 
-    private sealed record Path(
-        Leg[] Legs,
-        decimal Price,
-        string Currency,
-        List<object> Bookings,
-        Leg? ReservedReturn
-    );
+    private sealed record Path(Leg[] Legs, decimal Price, string Currency, List<object> Bookings);
 
     public IReadOnlyList<FareSearchResult> Compose(
         PlanningDocument document,
         IReadOnlyList<Party> parties,
         IReadOnlyList<FareSearchResult> fares,
-        IReadOnlyList<FlightChoiceProgress>? savedChoices = null
+        IReadOnlyList<FlightChoiceProgress>? savedChoices = null,
+        bool includeAllConnections = false
     )
     {
         if (document.Visits.Length == 0)
@@ -55,159 +53,96 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                 continue;
             }
 
+            var selectedKeys = chosen.OfType<string>().ToHashSet(StringComparer.Ordinal);
             var offers = raw.SelectMany(f =>
-                    ReadOffers(f, document, party, settings)
+                {
+                    var available = ReadOffers(f, document, party, settings).ToArray();
+                    var rankedOffers = available
                         .GroupBy(o =>
                             Text(o.Legs[0].Segments[0], "operating_carrier_name")
                             ?? Text(o.Legs[0].Segments[0], "marketing_carrier_code")
                         )
                         .SelectMany(carrier => carrier.OrderBy(o => o.Price).Take(12))
                         .OrderBy(o => o.Price)
-                        .Take(100)
+                        .Take(100);
+                    return rankedOffers
+                        .Concat(
+                            available.Where(offer =>
+                                offer.Legs.Any(leg => selectedKeys.Contains(FlightKey(leg)))
+                            )
+                        )
+                        .Distinct();
+                })
+                .ToArray();
+            var gridFlights = GridFlights(document, settings, offers);
+            var flightIndexes = gridFlights
+                .Select(
+                    (flight, index) =>
+                        (
+                            flight.LegIndex,
+                            Key: FlightChoiceRoute.FlightKey(flight.Leg),
+                            Index: index
+                        )
+                )
+                .ToDictionary(flight => (flight.LegIndex, flight.Key), flight => flight.Index);
+            var compositions = BuildRouteGraphs(
+                    document,
+                    party,
+                    settings,
+                    offers,
+                    chosen,
+                    flightIndexes
                 )
                 .ToArray();
-            var complete = new List<Path>();
-            foreach (var order in MultiCityPlanner.Orders(document.Visits))
-            {
-                var homes = settings.Origin!.AirportCodes;
-                var firstAirports = order[0].Location!.AirportCodes;
-                var lastAirports = order[^1].Location!.AirportCodes;
-                var states = offers
-                    .Where(o =>
-                        homes.Contains(o.Legs[0].Origin)
-                        && firstAirports.Contains(o.Legs[0].Destination)
-                        && (
-                            o.Legs.Length == 1
-                            || (
-                                lastAirports.Contains(o.Legs[1].Origin)
-                                && homes.Contains(o.Legs[1].Destination)
-                            )
-                        )
-                    )
-                    .Select(o => new Path(
-                        [o.Legs[0]],
-                        o.Price,
-                        o.Currency,
-                        [
-                            new
-                            {
-                                ignavId = o.Id,
-                                price = new { amount = o.Price, currency = o.Currency },
-                                legIndexes = o.Legs.Length == 1
-                                    ? new[] { 0 }
-                                    : new[] { 0, order.Length },
-                            },
-                        ],
-                        o.Legs.Length == 2 ? o.Legs[1] : null
-                    ))
-                    .Where(p =>
-                        document.TravelDates?.StartDate is null
-                        || document.Constraints.Any(c =>
-                            party.UserIds.Contains(c.UserId) && c.Type == "departureWindow"
-                        )
-                        || p.Legs[0].DepartureDate == document.TravelDates.StartDate
-                    )
-                    .Where(p => chosen.Length == 0 || FlightKey(p.Legs[0]) == chosen[0])
-                    .ToArray();
-                for (int step = 1; step <= order.Length; step++)
-                {
-                    var visit = order[step - 1];
-                    var nextAirports =
-                        step == order.Length ? homes : order[step].Location!.AirportCodes;
-                    var next = new List<Path>();
-                    foreach (var path in states)
-                    {
-                        if (step == order.Length && path.ReservedReturn is { } reserved)
-                        {
-                            if (
-                                StayFits(path.Legs[^1], reserved, visit, document)
-                                && (step >= chosen.Length || FlightKey(reserved) == chosen[step])
-                            )
-                            {
-                                next.Add(path with { Legs = [.. path.Legs, reserved] });
-                            }
-
-                            continue;
-                        }
-                        foreach (
-                            var offer in offers.Where(o =>
-                                o.Legs.Length == 1
-                                && o.Currency == path.Currency
-                                && visit.Location!.AirportCodes.Contains(o.Legs[0].Origin)
-                                && nextAirports.Contains(o.Legs[0].Destination)
-                                && (step >= chosen.Length || FlightKey(o.Legs[0]) == chosen[step])
-                            )
-                        )
-                        {
-                            if (!StayFits(path.Legs[^1], offer.Legs[0], visit, document))
-                            {
-                                continue;
-                            }
-
-                            next.Add(
-                                path with
-                                {
-                                    Legs = [.. path.Legs, offer.Legs[0]],
-                                    Price = path.Price + offer.Price,
-                                    Bookings =
-                                    [
-                                        .. path.Bookings,
-                                        new
-                                        {
-                                            ignavId = offer.Id,
-                                            price = new
-                                            {
-                                                amount = offer.Price,
-                                                currency = offer.Currency,
-                                            },
-                                            legIndexes = new[] { step },
-                                        },
-                                    ],
-                                }
-                            );
-                        }
-                    }
-                    // Keep several ways to reach each distinct next flight. Otherwise
-                    // cheap prefixes can crowd an airline or middle leg out of the beam.
-                    states = Rank(next, settings)
-                        .GroupBy(p =>
-                            (LegSignature(p.Legs[^1]), p.ReservedReturn?.Departure, p.Currency)
-                        )
-                        .SelectMany(g => g.Take(5))
-                        .Take(300)
-                        .ToArray();
-                }
-                complete.AddRange(
-                    states.Where(p =>
-                        p.Legs.Length == order.Length + 1
-                        && (
-                            document.TravelDates?.EndDate is null
-                            || document.Constraints.Any(c =>
-                                party.UserIds.Contains(c.UserId) && c.Type == "returnHomeWindow"
-                            )
-                            || p.Legs[^1].DepartureDate == document.TravelDates.EndDate
-                        )
-                        && p.Legs[^1].Arrival - p.Legs[0].Departure
-                            <= TimeSpan.FromDays(document.SearchLimits.MaxTripDays)
-                        && WindowsFit(document, party, p)
-                    )
-                );
-            }
-            // Keeping only the cheapest full routes can hide every alternative
-            // for a middle leg. Include the cheapest route containing each
-            // distinct flight before filling the rest by total price.
+            var graphCompositions =
+                includeAllConnections && chosen.Length > 0
+                    ? BuildRouteGraphs(document, party, settings, offers, [], flightIndexes)
+                        .ToArray()
+                    : compositions;
+            var flightConnections = graphCompositions
+                .SelectMany(composition => composition.Connections)
+                .Distinct()
+                .ToArray();
+            var connectionIndexes = flightConnections
+                .Select((connection, index) => (connection, index))
+                .ToDictionary(item => item.connection, item => item.index);
+            var routeGraphs = graphCompositions
+                .Select(composition => new FlightGridRouteGraphDto(
+                    composition
+                        .Connections.Select(connection => connectionIndexes[connection])
+                        .Order()
+                        .ToArray(),
+                    composition.Currency,
+                    composition.Costs
+                ))
+                .ToArray();
+            var complete = compositions.SelectMany(composition => composition.Paths);
+            // Retain a priced, reviewable route for every compatible card. Ranking
+            // chooses representatives, never which flights count as connected.
             var ordered = Rank(complete, settings).DistinctBy(Signature).ToArray();
             var diverse = Enumerable
                 .Range(0, document.Visits.Length + 1)
-                .SelectMany(index =>
-                    ordered.DistinctBy(path => LegSignature(path.Legs[index])).Take(25)
-                )
-                .DistinctBy(Signature)
+                .SelectMany(index => ordered.DistinctBy(path => FlightKey(path.Legs[index])));
+            var ranked = Rank(diverse.Concat(ordered.Take(200)).DistinctBy(Signature), settings)
                 .ToArray();
-            var ranked = diverse.Concat(ordered).DistinctBy(Signature).Take(200).ToArray();
+            var roundTripConnections =
+                document.Visits.Length == 1
+                    ? flightConnections
+                        .Select(edge => new FlightGridConnectionDto(
+                            edge.FromFlightIndex,
+                            edge.ToFlightIndex
+                        ))
+                        .Distinct()
+                        .ToArray()
+                    : null;
             var response = JsonSerializer.SerializeToElement(
                 new
                 {
+                    flights = gridFlights,
+                    roundTripConnections,
+                    flightConnections,
+                    routeGraphs,
+                    choiceKeys = chosen,
                     coverage = "Best itineraries found within the search budget. Date and flight coverage is not exhaustive.",
                     itineraries = ranked.Select(p => new
                     {
@@ -248,6 +183,246 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         return results;
     }
 
+    private sealed record RouteNode(
+        Leg Leg,
+        decimal Cost,
+        object? Booking,
+        Path Prefix,
+        int FlightIndex,
+        RouteNode[] Parents
+    );
+
+    private static object Booking(Offer offer, params int[] indexes) =>
+        new
+        {
+            ignavId = offer.Id,
+            price = new { amount = offer.Price, currency = offer.Currency },
+            legIndexes = indexes,
+        };
+
+    // A layered graph avoids enumerating the Cartesian product of flights. Keeping
+    // each outbound offer separate preserves currency, trip duration and paired-fare
+    // restrictions. Within that context only adjacent stays affect connectivity.
+    private static IEnumerable<(
+        FlightGridEdgeDto[] Connections,
+        Path[] Paths,
+        string Currency,
+        FlightGridRouteCostDto[] Costs
+    )> BuildRouteGraphs(
+        PlanningDocument document,
+        Party party,
+        PartySearchSettings settings,
+        Offer[] offers,
+        string?[] chosen,
+        Dictionary<(int, string?), int> flightIndexes
+    )
+    {
+        var visits = document.Visits;
+        var homes = settings.Origin!.AirportCodes;
+        var starts = offers
+            .Where(offer =>
+                homes.Contains(offer.Legs[0].Origin)
+                && visits[0].Location!.AirportCodes.Contains(offer.Legs[0].Destination)
+                && ArrivalFits(offer.Legs[0], visits[0], document)
+                && (
+                    chosen.Length == 0 || chosen[0] is null || FlightKey(offer.Legs[0]) == chosen[0]
+                )
+                && (
+                    offer.Legs.Length == 1
+                    || (
+                        visits[^1].Location!.AirportCodes.Contains(offer.Legs[1].Origin)
+                        && homes.Contains(offer.Legs[1].Destination)
+                    )
+                )
+                && (
+                    document.TravelDates?.StartDate is null
+                    || document.Constraints.Any(c =>
+                        party.UserIds.Contains(c.UserId) && c.Type == "departureWindow"
+                    )
+                    || offer.Legs[0].DepartureDate == document.TravelDates.StartDate
+                )
+                && WindowFits(document, party, "departureWindow", offer.Legs[0].DepartureDate)
+            )
+            .OrderBy(offer => offer.Price)
+            .DistinctBy(offer =>
+                (
+                    FlightKey(offer.Legs[0]),
+                    Return: offer.Legs.Length == 2 ? FlightKey(offer.Legs[1]) : null,
+                    offer.Currency
+                )
+            );
+        var onward = Enumerable
+            .Range(1, visits.Length)
+            .Select(step =>
+                offers
+                    .Where(offer =>
+                        offer.Legs.Length == 1
+                        && visits[step - 1].Location!.AirportCodes.Contains(offer.Legs[0].Origin)
+                        && (
+                            step == visits.Length ? homes : visits[step].Location!.AirportCodes
+                        ).Contains(offer.Legs[0].Destination)
+                        && DepartureFits(offer.Legs[0], visits[step - 1], document)
+                        && (
+                            step == visits.Length
+                            || ArrivalFits(offer.Legs[0], visits[step], document)
+                        )
+                        && (
+                            step >= chosen.Length
+                            || chosen[step] is null
+                            || FlightKey(offer.Legs[0]) == chosen[step]
+                        )
+                    )
+                    .OrderBy(offer => offer.Price)
+                    .DistinctBy(offer => (offer.Currency, Key: FlightKey(offer.Legs[0])))
+                    .ToArray()
+            )
+            .ToArray();
+
+        foreach (var start in starts)
+        {
+            var booking = Booking(start, start.Legs.Length == 2 ? [0, visits.Length] : [0]);
+            var first = new RouteNode(
+                start.Legs[0],
+                start.Price,
+                booking,
+                new Path([start.Legs[0]], start.Price, start.Currency, [booking]),
+                flightIndexes[(0, FlightKey(start.Legs[0]))],
+                []
+            );
+            List<RouteNode[]> layers =
+            [
+                [first],
+            ];
+            for (int step = 1; step <= visits.Length; step++)
+            {
+                var reserved = step == visits.Length && start.Legs.Length == 2;
+                var options = reserved ? [start] : onward[step - 1];
+                var nodes = new List<RouteNode>();
+                foreach (var offer in options.Where(offer => offer.Currency == start.Currency))
+                {
+                    var leg = offer.Legs[reserved ? 1 : 0];
+                    if (
+                        (
+                            step < chosen.Length
+                            && chosen[step] is not null
+                            && FlightKey(leg) != chosen[step]
+                        ) || (step == visits.Length && !EndsFit(document, party, first.Leg, leg))
+                    )
+                    {
+                        continue;
+                    }
+                    var parents = layers[^1]
+                        .Where(parent => StayFits(parent.Leg, leg, visits[step - 1], document))
+                        .ToArray();
+                    if (parents.Length == 0)
+                    {
+                        continue;
+                    }
+                    var prefix = Rank(parents.Select(parent => parent.Prefix), settings).First();
+                    var cost = reserved ? 0 : offer.Price;
+                    var nextBooking = reserved ? null : Booking(offer, step);
+                    nodes.Add(
+                        new RouteNode(
+                            leg,
+                            cost,
+                            nextBooking,
+                            new Path(
+                                [.. prefix.Legs, leg],
+                                prefix.Price + cost,
+                                start.Currency,
+                                nextBooking is null
+                                    ? prefix.Bookings
+                                    : [.. prefix.Bookings, nextBooking]
+                            ),
+                            flightIndexes[(step, FlightKey(leg))],
+                            parents
+                        )
+                    );
+                }
+                layers.Add(nodes.ToArray());
+            }
+            // Walk back only from valid returns. Dead ends cannot mark a flight as
+            // complete. The best suffix and prefix give a priced route through each
+            // surviving node without dropping more expensive alternatives.
+            var suffixes = layers[^1]
+                .ToDictionary(
+                    node => node,
+                    node => new Path(
+                        [node.Leg],
+                        node.Cost,
+                        start.Currency,
+                        node.Booking is null ? [] : [node.Booking]
+                    )
+                );
+            var connections = new List<FlightGridEdgeDto>();
+            for (int step = visits.Length; step > 0; step--)
+            {
+                foreach (var node in layers[step])
+                {
+                    if (!suffixes.TryGetValue(node, out var suffix))
+                    {
+                        continue;
+                    }
+                    foreach (var parent in node.Parents)
+                    {
+                        connections.Add(
+                            new FlightGridEdgeDto(parent.FlightIndex, node.FlightIndex)
+                        );
+                        var candidate = new Path(
+                            [parent.Leg, .. suffix.Legs],
+                            parent.Cost + suffix.Price,
+                            start.Currency,
+                            parent.Booking is null
+                                ? suffix.Bookings
+                                : [parent.Booking, .. suffix.Bookings]
+                        );
+                        suffixes[parent] = suffixes.TryGetValue(parent, out var existing)
+                            ? Rank([existing, candidate], settings).First()
+                            : candidate;
+                    }
+                }
+            }
+            if (connections.Count == 0)
+            {
+                continue;
+            }
+            var paths = suffixes
+                .Select(pair =>
+                {
+                    var (node, suffix) = pair;
+                    return new Path(
+                        [.. node.Prefix.Legs, .. suffix.Legs.Skip(1)],
+                        node.Prefix.Price + suffix.Price - node.Cost,
+                        start.Currency,
+                        [
+                            .. node.Prefix.Bookings,
+                            .. suffix.Bookings.Skip(node.Booking is null ? 0 : 1),
+                        ]
+                    );
+                })
+                .ToArray();
+            yield return (
+                connections.ToArray(),
+                paths,
+                start.Currency,
+                suffixes
+                    .Keys.Select(node => new FlightGridRouteCostDto(node.FlightIndex, node.Cost))
+                    .ToArray()
+            );
+        }
+    }
+
+    private static bool EndsFit(PlanningDocument document, Party party, Leg first, Leg last) =>
+        (
+            document.TravelDates?.EndDate is null
+            || document.Constraints.Any(c =>
+                party.UserIds.Contains(c.UserId) && c.Type == "returnHomeWindow"
+            )
+            || last.DepartureDate == document.TravelDates.EndDate
+        )
+        && last.Arrival - first.Departure <= TimeSpan.FromDays(document.SearchLimits.MaxTripDays)
+        && WindowFits(document, party, "returnHomeWindow", last.DepartureDate);
+
     private static IOrderedEnumerable<Path> Rank(
         IEnumerable<Path> paths,
         PartySearchSettings settings
@@ -271,45 +446,12 @@ public sealed class RouteFareComposer(AirportCatalog airports)
             )
         );
 
+    // Use the same identity as the cards, including arrival timestamps. Otherwise
+    // route deduplication could erase the only witness for a distinct flight card.
     private static string Signature(Path p) =>
-        string.Join(
-            "|",
-            p.Legs.SelectMany(l => l.Segments)
-                .Select(s =>
-                    $"{Text(s, "departure_airport")}:{Text(s, "arrival_airport")}:{Text(s, "departure_time_local")}:{Text(s, "marketing_carrier_code")}:{Text(s, "flight_number")}"
-                )
-        );
+        JsonSerializer.Serialize(new { p.Currency, Keys = p.Legs.Select(FlightKey) });
 
-    private static string LegSignature(Leg leg) =>
-        string.Join(
-            "|",
-            leg.Segments.Select(s =>
-                $"{Text(s, "departure_airport")}:{Text(s, "arrival_airport")}:{Text(s, "departure_time_local")}:{Text(s, "marketing_carrier_code")}:{Text(s, "flight_number")}"
-            )
-        );
-
-    // Match JSON.stringify in the browser. The default .NET encoder escapes
-    // '+' in UTC offsets, which would make the same flight compare unequal.
-    private static readonly JsonSerializerOptions FlightKeyJson = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    private static string FlightKey(Leg leg) =>
-        JsonSerializer.Serialize(
-            leg.Segments.Select(segment =>
-                new string?[]
-                {
-                    Text(segment, "departure_airport"),
-                    Text(segment, "arrival_airport"),
-                    Text(segment, "departure_time_utc") ?? Text(segment, "departure_time_local"),
-                    Text(segment, "arrival_time_utc") ?? Text(segment, "arrival_time_local"),
-                    Text(segment, "marketing_carrier_code"),
-                    Text(segment, "flight_number"),
-                }
-            ),
-            FlightKeyJson
-        );
+    private static string FlightKey(Leg leg) => leg.Key;
 
     private static bool StayFits(
         Leg incoming,
@@ -329,43 +471,89 @@ public sealed class RouteFareComposer(AirportCatalog airports)
             return false;
         }
 
-        int flex = document.SearchLimits.FlexibilityDays;
-        return (
-                visit.PresentFrom is not { } start
-                || (
-                    visit.ArrivalFlexibilityDays is { } arrivalFlex
-                        ? incoming.ArrivalDate >= start.AddDays(-arrivalFlex)
-                            && incoming.ArrivalDate <= start.AddDays(arrivalFlex)
-                        : incoming.ArrivalDate <= start
-                            && incoming.ArrivalDate >= start.AddDays(-flex)
-                )
-            )
-            && (
-                visit.PresentThrough is not { } end
-                || (
-                    visit.DepartureFlexibilityDays is { } departureFlex
-                        ? outgoing.DepartureDate >= end.AddDays(-departureFlex)
-                            && outgoing.DepartureDate <= end.AddDays(departureFlex)
-                        : outgoing.DepartureDate >= end
-                            && outgoing.DepartureDate <= end.AddDays(flex)
-                )
-            );
+        return ArrivalFits(incoming, visit, document) && DepartureFits(outgoing, visit, document);
     }
 
-    private static bool WindowsFit(PlanningDocument document, Party party, Path path) =>
-        document
-            .Constraints.Where(c =>
-                party.UserIds.Contains(c.UserId)
-                && c.Type is "departureWindow" or "returnHomeWindow"
-            )
-            .All(c =>
+    private static bool ArrivalFits(Leg leg, PlannedVisit visit, PlanningDocument document) =>
+        visit.PresentFrom is not { } start
+        || (
+            visit.ArrivalFlexibilityDays is { } flex
+                ? leg.ArrivalDate >= start.AddDays(-flex) && leg.ArrivalDate <= start.AddDays(flex)
+                : leg.ArrivalDate <= start
+                    && leg.ArrivalDate >= start.AddDays(-document.SearchLimits.FlexibilityDays)
+        );
+
+    private static bool DepartureFits(Leg leg, PlannedVisit visit, PlanningDocument document) =>
+        visit.PresentThrough is not { } end
+        || (
+            visit.DepartureFlexibilityDays is { } flex
+                ? leg.DepartureDate >= end.AddDays(-flex) && leg.DepartureDate <= end.AddDays(flex)
+                : leg.DepartureDate >= end
+                    && leg.DepartureDate <= end.AddDays(document.SearchLimits.FlexibilityDays)
+        );
+
+    // Individual offers can arrive before a complete route exists. Keep their
+    // column identity separate from complete paths, especially for repeat visits.
+    private static IReadOnlyList<FlightGridOptionDto> GridFlights(
+        PlanningDocument document,
+        PartySearchSettings settings,
+        Offer[] offers
+    )
+    {
+        var visits = document.Visits;
+        return Enumerable
+            .Range(0, visits.Length + 1)
+            .SelectMany(index =>
             {
-                var date =
-                    c.Type == "departureWindow"
-                        ? path.Legs[0].DepartureDate
-                        : path.Legs[^1].DepartureDate;
-                return date >= c.Window!.Earliest && date <= c.Window.Latest;
-            });
+                var origin = index == 0 ? settings.Origin! : visits[index - 1].Location!;
+                var destination =
+                    index == visits.Length ? settings.Origin! : visits[index].Location!;
+                return offers
+                    .SelectMany(offer =>
+                        offer.Legs.Select(
+                            (leg, offerIndex) =>
+                                new
+                                {
+                                    offer,
+                                    leg,
+                                    offerIndex,
+                                }
+                        )
+                    )
+                    .Where(item =>
+                        (
+                            item.offer.Legs.Length == 1
+                            || (item.offerIndex == 0 ? index == 0 : index == visits.Length)
+                        )
+                        && origin.AirportCodes.Contains(item.leg.Origin)
+                        && destination.AirportCodes.Contains(item.leg.Destination)
+                        && (index == 0 || DepartureFits(item.leg, visits[index - 1], document))
+                        && (
+                            index == visits.Length || ArrivalFits(item.leg, visits[index], document)
+                        )
+                    )
+                    .OrderBy(item => item.offer.Currency, StringComparer.Ordinal)
+                    .ThenBy(item => item.offer.Price)
+                    .DistinctBy(item => FlightKey(item.leg))
+                    .Select(item => new FlightGridOptionDto(
+                        index,
+                        item.leg.Value,
+                        new FlightGridPriceDto(item.offer.Price, item.offer.Currency),
+                        item.offer.Legs.Length
+                    ));
+            })
+            .ToArray();
+    }
+
+    private static bool WindowFits(
+        PlanningDocument document,
+        Party party,
+        string type,
+        DateOnly date
+    ) =>
+        document
+            .Constraints.Where(c => party.UserIds.Contains(c.UserId) && c.Type == type)
+            .All(c => date >= c.Window!.Earliest && date <= c.Window.Latest);
 
     private IEnumerable<Offer> ReadOffers(
         FareSearchResult fare,

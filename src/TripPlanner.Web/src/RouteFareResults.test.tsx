@@ -261,13 +261,13 @@ test("deselecting a saved itinerary clears the choices and restarts at flight on
     return Response.json([]);
   });
   vi.stubGlobal("fetch", fetch);
-  const saveChoices = vi.fn(async (party: string, keys: string[]) => {
+  const saveChoices = vi.fn(async (party: string, keys: (string | null)[]) => {
     expect(party).toBe("party");
     expect(Array.isArray(keys)).toBe(true);
     return true;
   });
   function ControlledResults() {
-    const [keys, setKeys] = useState<string[]>([]);
+    const [keys, setKeys] = useState<(string | null)[]>([]);
     return (
       <MemoryRouter>
         <FluentProvider theme={webLightTheme}>
@@ -319,6 +319,9 @@ test("deselecting a saved itinerary clears the choices and restarts at flight on
       .map((button) => button.textContent),
   ).toEqual(["Itinerary selected", "Deselect itinerary"]);
   fireEvent.click(screen.getByRole("button", { name: "Deselect itinerary" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Deselect flights" }),
+  );
   await waitFor(() =>
     expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
       "aria-selected",
@@ -339,8 +342,8 @@ test("uses saved partial flight choices after the route view reloads", async () 
     "fetch",
     vi.fn(async () => Response.json([])),
   );
-  let stored: string[] = [];
-  const save = vi.fn(async (_party: string, keys: string[]) => {
+  let stored: (string | null)[] = [];
+  const save = vi.fn(async (_party: string, keys: (string | null)[]) => {
     stored = keys;
     return true;
   });
@@ -566,6 +569,10 @@ test("shows every compatible return airline and revisits earlier flights via tab
   ).toHaveLength(4);
   expect(screen.getByText("Delta Air Lines · Nonstop · 13h 0m")).toBeVisible();
   fireEvent.click(screen.getByRole("tab", { name: /Flight 1/ }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Deselect flights" }),
+  );
+  await screen.findByRole("button", { name: "Choose flight 1" });
   expect(screen.getByRole("tab", { name: /Flight 1/ })).toHaveAttribute(
     "aria-selected",
     "true",
@@ -724,4 +731,145 @@ test("saved itinerary stays selected after cache keys and result ordering change
   expect(
     await screen.findByRole("button", { name: "Itinerary selected" }),
   ).toBeDisabled();
+});
+
+test("desktop selections stay individual until explicit review, survive recomposition, and save the exact chosen flights", async () => {
+  const change = vi.fn(async () => true);
+  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/airports/cities"))
+      return Response.json({ ATL: "Atlanta", HKT: "Phuket" });
+    if (init?.method === "PUT")
+      return Response.json({
+        tripId: "trip",
+        partyId: "party",
+        cacheKey: "reviewed",
+        itineraryIndex: 0,
+        request: result.request,
+        itinerary: itineraries[1],
+        selectedAt: "2030-01-01T00:00:00Z",
+      });
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetch);
+  function Desktop() {
+    const [keys, setKeys] = useState<(string | null)[]>([]);
+    const current: FareSearchResult = {
+      ...result,
+      cacheKey: keys.length ? "reviewed" : "assembled",
+      response: {
+        itineraries: keys.length ? [itineraries[1]] : itineraries,
+        choiceKeys: keys,
+        flights: [outbound, ...returns].map((leg, index) => ({
+          leg,
+          legIndex: index === 0 ? 0 : 1,
+          bookingLegCount: 1,
+        })),
+        flightConnections: [
+          { fromFlightIndex: 0, toFlightIndex: 1 },
+          { fromFlightIndex: 0, toFlightIndex: 2 },
+        ],
+        routeGraphs: [
+          {
+            connectionIndexes: [0, 1],
+            currency: "USD",
+            costs: [
+              { flightIndex: 0, amount: 700 },
+              { flightIndex: 1, amount: 200 },
+              { flightIndex: 2, amount: 400 },
+            ],
+          },
+        ],
+      },
+      evaluations: (keys.length ? [itineraries[1]] : itineraries).map(() => ({
+        status: "Eligible",
+        issues: [],
+      })),
+    };
+    return (
+      <RouteFareResults
+        tripId="trip"
+        results={[current]}
+        parties={[]}
+        showGrid
+        visits={[
+          {
+            id: "phuket",
+            location: {
+              code: "HKT",
+              label: "Phuket",
+              timeZone: "Asia/Bangkok",
+            },
+            afterVisitIds: [],
+            nights: null,
+            presentFrom: null,
+            presentThrough: null,
+          },
+        ]}
+        savedChoices={{ party: keys }}
+        onChangeChoices={async (party, next) => {
+          await change();
+          expect(party).toBe("party");
+          setKeys(next);
+          return true;
+        }}
+      />
+    );
+  }
+  render(
+    <MemoryRouter>
+      <FluentProvider theme={webLightTheme}>
+        <Desktop />
+      </FluentProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 20/ }));
+  expect(await screen.findByText("1 of 2 flights selected")).toBeVisible();
+  expect(change).toHaveBeenCalledTimes(1);
+  expect(
+    screen.queryByRole("heading", { name: "Your route is ready" }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 100/ }));
+  expect(await screen.findByText("2 of 2 flights selected")).toBeVisible();
+  expect(change).toHaveBeenCalledTimes(2);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Review selected flights" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Your route is ready" }),
+  ).toBeVisible();
+  expect(change).toHaveBeenCalledTimes(2);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save complete itinerary" }),
+  );
+  await waitFor(() =>
+    expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
+      true,
+    ),
+  );
+  const saved = fetch.mock.calls.find(
+    ([, init]) => init?.method === "PUT",
+  )![1]!;
+  expect(JSON.parse(saved.body as string)).toMatchObject({
+    legKeys: itineraries[1].legs!.map(legKey),
+    priceAmount: 1100,
+    priceCurrency: "USD",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Clear selections" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Keep selections" }),
+  );
+  expect(change).toHaveBeenCalledTimes(2);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Clear selections" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Deselect flights" }),
+  );
+  expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: /Choose flight JL 10/ }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "Your route is ready" }),
+  ).toBeNull();
 });

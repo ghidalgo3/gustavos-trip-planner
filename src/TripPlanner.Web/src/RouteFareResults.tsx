@@ -1,3 +1,6 @@
+import { useFlightChoiceConfirmation } from "./useFlightChoiceConfirmation";
+import FlightRouteGrid from "./FlightRouteGrid";
+import type { PlannedVisit } from "./planningApi";
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -34,7 +37,7 @@ import {
 import type { PartySettings, PlanningParty } from "./planningApi";
 
 type IndexedItinerary = { index: number; itinerary: FareItinerary };
-const emptyChoices: string[] = [];
+const emptyChoices: (string | null)[] = [];
 type LegChoice = {
   key: string;
   leg: FareLeg;
@@ -139,13 +142,22 @@ export default function RouteFareResults({
   partySettings = [],
   savedChoices = {},
   onChangeChoices,
+  visits = [],
+  showGrid = false,
+  searching = false,
 }: {
   tripId: string;
   results: FareSearchResult[];
   parties: PlanningParty[];
   partySettings?: PartySettings[];
-  savedChoices?: Record<string, string[]>;
-  onChangeChoices?: (partyId: string, keys: string[]) => Promise<boolean>;
+  savedChoices?: Record<string, (string | null)[]>;
+  onChangeChoices?: (
+    partyId: string,
+    keys: (string | null)[],
+  ) => Promise<boolean>;
+  visits?: PlannedVisit[];
+  showGrid?: boolean;
+  searching?: boolean;
 }) {
   const [selected, setSelected] = useState<SelectedFlight[]>([]);
   const selectionMutation = useRef(0);
@@ -153,11 +165,12 @@ export default function RouteFareResults({
   const [error, setError] = useState<string>();
   const cities = useAirportCities(
     flightAirportCodes(
-      results.flatMap((result) =>
-        result.response.itineraries.flatMap(
+      results.flatMap((result) => [
+        ...result.response.itineraries.flatMap(
           (itinerary) => itinerary.legs ?? [],
         ),
-      ),
+        ...(result.response.flights ?? []).map((flight) => flight.leg),
+      ]),
     ),
   );
   useEffect(() => {
@@ -250,17 +263,44 @@ export default function RouteFareResults({
 
   return (
     <div className="route-visits">
-      <Text>
-        Choose one flight at a time. Every option shown can still complete a
-        route that fits your required stays. The price shown is for the complete
-        route, not for the individual flight.
-      </Text>
+      {!showGrid && (
+        <Text>
+          Choose one flight at a time. Every option shown can still complete a
+          route that fits your required stays. The price shown is for the
+          complete route, not for the individual flight.
+        </Text>
+      )}
       {error && <Text role="alert">{error}</Text>}
+      {showGrid &&
+        parties
+          .filter(
+            (party) => !results.some((result) => result.partyId === party.id),
+          )
+          .map((party) => (
+            <section key={party.id} className="route-visits">
+              <Title3 as="h3">
+                {party.members.map((member) => member.name).join(", ") ||
+                  "Travel party"}
+              </Title3>
+              <FlightRouteGrid
+                visits={visits}
+                cities={cities}
+                searching={searching}
+                chosen={[]}
+                busy={false}
+                onChoose={() => {}}
+                preferredAirlines={[]}
+              />
+            </section>
+          ))}
       {results.map((result) => (
         <RoutePartyResults
-          key={`${result.partyId}:${result.cacheKey}`}
+          key={result.partyId}
           tripId={tripId}
           result={result}
+          visits={visits}
+          showGrid={showGrid}
+          searching={searching}
           savedChoices={savedChoices[result.partyId] ?? emptyChoices}
           onChangeChoices={onChangeChoices}
           partyName={
@@ -292,6 +332,9 @@ export default function RouteFareResults({
 function RoutePartyResults({
   tripId,
   result,
+  visits,
+  showGrid,
+  searching,
   savedChoices,
   onChangeChoices,
   partyName,
@@ -304,8 +347,14 @@ function RoutePartyResults({
 }: {
   tripId: string;
   result: FareSearchResult;
-  savedChoices: string[];
-  onChangeChoices?: (partyId: string, keys: string[]) => Promise<boolean>;
+  visits: PlannedVisit[];
+  showGrid: boolean;
+  searching: boolean;
+  savedChoices: (string | null)[];
+  onChangeChoices?: (
+    partyId: string,
+    keys: (string | null)[],
+  ) => Promise<boolean>;
   partyName: string;
   selected?: SelectedFlight;
   cities: AirportCities;
@@ -314,14 +363,26 @@ function RoutePartyResults({
   onChoose: (index: number | null) => Promise<boolean>;
   onPurchaseChange: (index: number, purchased: boolean) => Promise<void>;
 }) {
-  const [localChosen, setLocalChosen] = useState<string[]>(savedChoices);
+  const [localChosen, setLocalChosen] =
+    useState<(string | null)[]>(savedChoices);
   const chosen = onChangeChoices ? savedChoices : localChosen;
+  const { confirm, dialog } = useFlightChoiceConfirmation();
+  const [gridReview, setGridReview] = useState<{
+    keys: string[];
+    price?: FareItinerary["price"];
+  }>();
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string>();
-  async function changeChosen(keys: string[]) {
+  async function changeChosen(keys: (string | null)[]) {
+    if (
+      chosen.some((key, index) => key && key !== keys[index]) &&
+      !(await confirm(chosen, keys))
+    )
+      return false;
+    setChoiceError(undefined);
     if (!onChangeChoices) {
       setLocalChosen(keys);
-      return;
+      return true;
     }
     setChoiceBusy(true);
     try {
@@ -329,17 +390,29 @@ function RoutePartyResults({
       setChoiceError(
         saved ? undefined : "Could not save this flight. Please try again.",
       );
+      return saved;
     } catch (reason) {
       setChoiceError(
         reason instanceof Error
           ? reason.message
           : "Could not save this flight. Please try again.",
       );
+      return false;
     } finally {
       setChoiceBusy(false);
     }
   }
+  function editGrid() {
+    setGridReview(undefined);
+  }
+  async function chooseGrid(keys: (string | null)[]) {
+    if (await changeChosen(keys)) editGrid();
+  }
+  function reviewGrid(keys: string[], price?: FareItinerary["price"]) {
+    setGridReview({ keys, price });
+  }
   async function restartChoices() {
+    if (!(await confirm(chosen, []))) return;
     setChoiceBusy(true);
     setChoiceError(undefined);
     try {
@@ -350,6 +423,7 @@ function RoutePartyResults({
       } else {
         setLocalChosen([]);
       }
+      editGrid();
     } catch (reason) {
       setChoiceError(
         reason instanceof Error
@@ -364,9 +438,14 @@ function RoutePartyResults({
     .map((itinerary, index) => ({ itinerary, index }))
     .filter((item) => item.itinerary.legs?.length);
   const matches = options.filter(({ itinerary }) =>
-    chosen.every((key, index) => legKey(itinerary.legs?.[index]) === key),
+    chosen.every(
+      (key, index) => !key || legKey(itinerary.legs?.[index]) === key,
+    ),
   );
-  const step = chosen.length;
+  const step =
+    chosen.findIndex((key) => !key) < 0
+      ? chosen.length
+      : chosen.findIndex((key) => !key);
   const legCount = options[0]?.itinerary.legs?.length ?? 0;
   const complete = step === legCount && legCount > 0;
   const choices = (() => {
@@ -381,20 +460,40 @@ function RoutePartyResults({
     }
     return [...byLeg.values()];
   })();
-  const best = complete ? matches[0] : undefined;
+  const gridReady =
+    gridReview &&
+    (!onChangeChoices ||
+      !result.response.choiceKeys ||
+      JSON.stringify(result.response.choiceKeys) ===
+        JSON.stringify(gridReview.keys));
+  const best = showGrid
+    ? gridReady
+      ? options.find(
+          ({ itinerary }) =>
+            itinerary.legs?.length === gridReview.keys.length &&
+            gridReview.keys.every(
+              (key, index) => legKey(itinerary.legs?.[index]) === key,
+            ) &&
+            (!gridReview.price ||
+              (itinerary.price?.currency === gridReview.price.currency &&
+                Math.round(itinerary.price.amount * 100) <=
+                  Math.round(gridReview.price.amount * 100))),
+        )
+      : undefined
+    : complete
+      ? matches[0]
+      : undefined;
   const bestIsSelected = Boolean(
     selected &&
     best &&
     sameItineraryFlights(selected.itinerary, best.itinerary),
   );
   const tabRoutes = Array.from({ length: legCount }, (_, index) => {
-    const leg =
-      index < chosen.length
-        ? options.find(
-            (option) =>
-              legKey(option.itinerary.legs?.[index]) === chosen[index],
-          )?.itinerary.legs?.[index]
-        : matches[0]?.itinerary.legs?.[index];
+    const leg = chosen[index]
+      ? options.find(
+          (option) => legKey(option.itinerary.legs?.[index]) === chosen[index],
+        )?.itinerary.legs?.[index]
+      : matches[0]?.itinerary.legs?.[index];
     return legRoute(leg);
   });
   const cheapestRoute = options
@@ -412,15 +511,32 @@ function RoutePartyResults({
       className="route-visits"
       aria-label={`${partyName} flight choices`}
     >
+      {dialog}
       <Title3 as="h3">{partyName}</Title3>
-      <FlightLegTabs
-        legCount={legCount}
-        step={step}
-        label={partyName}
-        routes={tabRoutes}
-        busy={choiceBusy}
-        onRevisit={(index) => void changeChosen(chosen.slice(0, index))}
-      />
+      {showGrid ? (
+        <FlightRouteGrid
+          result={result}
+          visits={visits}
+          cities={cities}
+          searching={searching}
+          chosen={chosen}
+          busy={choiceBusy || busy}
+          onChoose={(keys) => void chooseGrid(keys)}
+          onReview={(keys, price) => void reviewGrid(keys, price)}
+          onFilterChange={() => editGrid()}
+          preferredAirlines={preferredAirlines}
+        />
+      ) : (
+        <FlightLegTabs
+          legCount={legCount}
+          chosen={chosen}
+          step={step}
+          label={partyName}
+          routes={tabRoutes}
+          busy={choiceBusy}
+          onRevisit={(index) => void changeChosen(chosen.slice(0, index))}
+        />
+      )}
       {choiceError && <Text role="alert">{choiceError}</Text>}
       {choiceBusy && <Text role="status">Saving flight choice…</Text>}
       {selected && (
@@ -437,13 +553,20 @@ function RoutePartyResults({
       {options.length === 0 && (
         <Text role="status">No complete routes are available yet.</Text>
       )}
-      {options.length > 0 && matches.length === 0 && (
+      {showGrid && gridReview && !best && (
+        <Text role="status">
+          {gridReady
+            ? "These flights are no longer available at the displayed total. Review your selections again."
+            : "Preparing your selected flights for review…"}
+        </Text>
+      )}
+      {!showGrid && options.length > 0 && matches.length === 0 && (
         <Text role="status">
           No complete route remains with these flight choices. Change an earlier
           flight.
         </Text>
       )}
-      {!complete && matches.length > 0 && (
+      {!showGrid && !complete && matches.length > 0 && (
         <>
           <Title3 as="h4">
             Choose{" "}
@@ -553,7 +676,11 @@ function RoutePartyResults({
             <Button
               appearance="primary"
               disabled={choiceBusy}
-              onClick={() => void changeChosen([...chosen, choice.key])}
+              onClick={() => {
+                const keys = [...chosen];
+                keys[step] = choice.key;
+                void changeChosen(keys);
+              }}
             >
               Choose flight {step + 1}
             </Button>

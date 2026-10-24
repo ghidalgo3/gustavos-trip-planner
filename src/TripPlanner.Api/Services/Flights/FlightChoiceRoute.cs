@@ -18,7 +18,7 @@ public static class FlightChoiceRoute
     public static string[]? NextOrigins(
         PlanningDocument document,
         Guid partyId,
-        IReadOnlyList<string> legKeys,
+        IReadOnlyList<string?> legKeys,
         IReadOnlyList<FareSearchResult> fares,
         AirportCatalog airports
     )
@@ -35,9 +35,13 @@ public static class FlightChoiceRoute
         }
 
         var candidates = legKeys
-            .Select(key => SearchEdges(key, partyId, fares).Distinct().ToArray())
+            .Select(key => key is null ? [] : SearchEdges(key, partyId, fares).Distinct().ToArray())
             .ToArray();
-        if (candidates.Any(edges => edges.Length == 0))
+        if (
+            candidates
+                .Where((edges, index) => legKeys[index] is not null)
+                .Any(edges => edges.Length == 0)
+        )
         {
             return null;
         }
@@ -49,6 +53,10 @@ public static class FlightChoiceRoute
             var matches = true;
             for (int i = 0; i < candidates.Length; i++)
             {
+                if (legKeys[i] is null)
+                {
+                    continue;
+                }
                 var origin = i == 0 ? home : order[i - 1].Location;
                 var destination = i == order.Length ? home : order[i].Location;
                 if (
@@ -71,9 +79,15 @@ public static class FlightChoiceRoute
             }
 
             validOrder = true;
-            if (legKeys.Count <= order.Length)
+            var nextIndex = Enumerable
+                .Range(0, order.Length + 1)
+                .FirstOrDefault(
+                    index => index >= legKeys.Count || legKeys[index] is null,
+                    order.Length + 1
+                );
+            if (nextIndex <= order.Length)
             {
-                var location = order[legKeys.Count - 1].Location!;
+                var location = nextIndex == 0 ? home : order[nextIndex - 1].Location!;
                 next.UnionWith(location.AirportCodes);
                 next.Add(airports.SearchCode(location));
             }

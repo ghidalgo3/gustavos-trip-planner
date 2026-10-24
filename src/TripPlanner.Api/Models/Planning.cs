@@ -17,7 +17,7 @@ public sealed record PlanningDocument
     public string? UserTimeZone { get; init; }
     public SearchLocation? Destination { get; init; }
 
-    [MaxLength(3)]
+    [Required]
     public PlannedVisit[] Visits { get; init; } = [];
     public RouteSearchLimits SearchLimits { get; init; } = new();
 
@@ -155,7 +155,10 @@ public sealed record PartySearchPreview(
     IReadOnlyList<string> PreferredAirlines
 );
 
-public sealed record PreparedSearch(IgnavFareRequest Body, string CacheKey, double DateDistance);
+public sealed record PreparedSearch(IgnavFareRequest Body, string CacheKey, double DateDistance)
+{
+    public int[] LegIndexes { get; init; } = [];
+}
 
 public sealed record IgnavFareRequest(
     [property: JsonPropertyName("origin")] string Origin,
@@ -195,7 +198,7 @@ public sealed record PlannedVisit
     [SupportedDate]
     public DateOnly? PresentThrough { get; init; }
 
-    [MaxLength(2)]
+    [Required]
     public Guid[] AfterVisitIds { get; init; } = [];
 
     [StringLength(4000)]
@@ -207,7 +210,7 @@ public sealed record RouteSearchLimits
     [Range(0, 5)]
     public int FlexibilityDays { get; init; } = 5;
 
-    [Range(1, 60)]
+    [Range(1, 36890)]
     public int MaxTripDays { get; init; } = 21;
 }
 

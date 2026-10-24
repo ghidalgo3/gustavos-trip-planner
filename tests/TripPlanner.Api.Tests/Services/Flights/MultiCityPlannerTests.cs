@@ -199,6 +199,311 @@ public sealed class MultiCityPlannerTests
     }
 
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(3)]
+    public async Task PartialChoicesSurviveExpiryAndOnlyUnselectedLegsAreSearched(int selectedIndex)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Subject", "saved-route-owner");
+        client.DefaultRequestHeaders.Add("X-Test-Email", "saved-route@example.com");
+        var profile = await client.PutAsJsonAsync(
+            "/user/profile",
+            new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
+        );
+        profile.EnsureSuccessStatusCode();
+        var user = (await profile.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
+        var created = await client.PostAsJsonAsync(
+            $"/user/{user.Id}/trips",
+            new CreateTripRequest("Saved flights", "")
+        );
+        created.EnsureSuccessStatusCode();
+        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        var party = factory.Database.Parties.Single();
+        var document = Wedding() with
+        {
+            Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
+        };
+        (
+            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+        ).EnsureSuccessStatusCode();
+        var clock = new OperationFixture.TestClock();
+        factory.Database.OperationClock = clock;
+        var offers = Fares()
+            .ToDictionary(fare => SearchPlanBuilder.CacheKey(fare.Request), fare => fare.Response);
+        async Task<List<IgnavFareRequest>> Search()
+        {
+            (
+                await client.PostAsJsonAsync(
+                    $"/trips/{trip.Id}/flights:search",
+                    new StartFlightSearchRequest(Guid.NewGuid())
+                )
+            ).EnsureSuccessStatusCode();
+            var searched = new List<IgnavFareRequest>();
+            while (await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2)) is { } work)
+            {
+                searched.Add(work.Request);
+                await factory.Database.CompleteFareWorkAsync(
+                    work,
+                    offers.GetValueOrDefault(
+                        work.CacheKey,
+                        JsonSerializer.SerializeToElement(
+                            new { itineraries = Array.Empty<object>() }
+                        )
+                    ),
+                    clock.GetUtcNow(),
+                    null
+                );
+            }
+            return searched;
+        }
+        await Search();
+        var keys = Fares()
+            .Take(4)
+            .Select(fare =>
+                FlightChoiceRoute.FlightKey(
+                    fare.Response.GetProperty("itineraries")[0].GetProperty("outbound")
+                )!
+            )
+            .ToArray();
+        var partial = new string?[selectedIndex + 1];
+        partial[selectedIndex] = keys[selectedIndex];
+        var choicesUrl = $"/trips/{trip.Id}/flights/choices/{party.Id}";
+        var saved = await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest(partial));
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            saved.StatusCode,
+            await saved.Content.ReadAsStringAsync()
+        );
+        Assert.IsFalse(
+            (await saved.Content.ReadFromJsonAsync<JsonElement>()).TryGetProperty(
+                "savedFares",
+                out _
+            )
+        );
+        clock.Advance(TimeSpan.FromHours(2));
+        var restored = (
+            await client.GetFromJsonAsync<FlightChoiceProgressDto[]>(
+                $"/trips/{trip.Id}/flights/choices"
+            )
+        )!.Single();
+        CollectionAssert.AreEqual(partial, restored.LegKeys);
+        var grid = (
+            await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(
+                $"/trips/{trip.Id}/flights/search"
+            )
+        )!.Single();
+        Assert.IsTrue(
+            grid.Response.GetProperty("flights")
+                .EnumerateArray()
+                .Any(flight =>
+                    flight.GetProperty("legIndex").GetInt32() == selectedIndex
+                    && FlightChoiceRoute.FlightKey(flight.GetProperty("leg")) == keys[selectedIndex]
+                )
+        );
+        Assert.AreEqual(0, grid.Response.GetProperty("itineraries").GetArrayLength());
+        var searched = await Search();
+        var selectedRequest = Fares()[selectedIndex].Request;
+        Assert.IsFalse(
+            searched.Any(request =>
+                request.SearchKind == "oneWay"
+                && request.Origin == selectedRequest.Origin
+                && request.Destination == selectedRequest.Destination
+            )
+        );
+        Assert.IsGreaterThan(0, searched.Count);
+        if (selectedIndex is 0 or 3)
+        {
+            Assert.IsFalse(searched.Any(request => request.SearchKind == "flexible"));
+        }
+        // Saving the remaining legs can combine fresh results with the expired saved offer.
+        (
+            await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest(keys))
+        ).EnsureSuccessStatusCode();
+        clock.Advance(TimeSpan.FromHours(2));
+        Assert.HasCount(0, await Search());
+        var complete = (
+            await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(
+                $"/trips/{trip.Id}/flights/search"
+            )
+        )!.Single();
+        Assert.IsGreaterThan(0, complete.Response.GetProperty("itineraries").GetArrayLength());
+        Assert.AreEqual(
+            900m,
+            complete
+                .Response.GetProperty("itineraries")[0]
+                .GetProperty("price")
+                .GetProperty("amount")
+                .GetDecimal()
+        );
+        (
+            await client.PutAsJsonAsync(
+                $"/trips/{trip.Id}/flights/{party.Id}",
+                new SelectFlightRequest(complete.CacheKey, 0)
+            )
+        ).EnsureSuccessStatusCode();
+        // Clearing the resource drops snapshots and makes every leg searchable again.
+        (
+            await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest([]))
+        ).EnsureSuccessStatusCode();
+        Assert.HasCount(
+            0,
+            (await factory.Database.GetFlightChoicesAsync(user.Id!.Value, trip.Id))
+                .Single()
+                .SavedFares
+        );
+        var reopened = await Search();
+        Assert.IsTrue(
+            reopened.Any(request =>
+                request.SearchKind == "oneWay"
+                && request.Origin == selectedRequest.Origin
+                && request.Destination == selectedRequest.Destination
+            )
+        );
+    }
+
+    [TestMethod]
+    public async Task LongRouteCanSearchChooseSaveAndMarkEveryFlightPurchased()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Subject", "long-route-owner");
+        client.DefaultRequestHeaders.Add("X-Test-Email", "long-route@example.com");
+        var profile = await client.PutAsJsonAsync(
+            "/user/profile",
+            new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
+        );
+        profile.EnsureSuccessStatusCode();
+        var user = (await profile.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
+        var created = await client.PostAsJsonAsync(
+            $"/user/{user.Id}/trips",
+            new CreateTripRequest("Long route", "")
+        );
+        created.EnsureSuccessStatusCode();
+        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        var party = factory.Database.Parties.Single();
+        var start = new DateOnly(2030, 5, 1);
+        var codes = new[] { "JFK", "BOS", "IAD", "JFK", "BOS" };
+        var document = new PlanningDocument
+        {
+            TravelDates = new(start, null),
+            Visits = codes
+                .Select(
+                    (code, index) =>
+                        new PlannedVisit
+                        {
+                            Id = Guid.NewGuid(),
+                            Location = _airports.Resolve(code),
+                            PresentFrom = start.AddDays(index),
+                            PresentThrough = start.AddDays(index + 1),
+                            ArrivalFlexibilityDays = 0,
+                            DepartureFlexibilityDays = 0,
+                        }
+                )
+                .ToArray(),
+            Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
+        };
+        (
+            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+        ).EnsureSuccessStatusCode();
+        (
+            await client.PostAsJsonAsync(
+                $"/trips/{trip.Id}/flights:search",
+                new StartFlightSearchRequest(Guid.NewGuid())
+            )
+        ).EnsureSuccessStatusCode();
+        while (await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2)) is { } work)
+        {
+            var request = work.Request;
+            object[] itineraries =
+                request.SearchKind == "oneWay"
+                    ?
+                    [
+                        new
+                        {
+                            ignav_id = work.CacheKey,
+                            price = new { amount = 100, currency = "USD" },
+                            outbound = new
+                            {
+                                segments = new[]
+                                {
+                                    new
+                                    {
+                                        departure_airport = request.Origin,
+                                        arrival_airport = request.Destination,
+                                        departure_time_local = $"{request.DepartureDate:yyyy-MM-dd}T10:00:00",
+                                        arrival_time_local = $"{request.DepartureDate:yyyy-MM-dd}T12:00:00",
+                                        departure_time_utc = $"{request.DepartureDate:yyyy-MM-dd}T14:00:00Z",
+                                        arrival_time_utc = $"{request.DepartureDate:yyyy-MM-dd}T16:00:00Z",
+                                        marketing_carrier_code = "AA",
+                                        flight_number = "100",
+                                    },
+                                },
+                            },
+                        },
+                    ]
+                    : [];
+            await factory.Database.CompleteFareWorkAsync(
+                work,
+                JsonSerializer.SerializeToElement(new { itineraries }),
+                DateTimeOffset.UtcNow,
+                null
+            );
+        }
+        var result = (
+            await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(
+                $"/trips/{trip.Id}/flights/search"
+            )
+        )!.Single();
+        var itinerary = result.Response.GetProperty("itineraries")[0];
+        var keys = itinerary.GetProperty("legs").EnumerateArray().Select(BrowserLegKey).ToArray();
+        Assert.HasCount(6, keys);
+        var grid = result.Response.GetProperty("flights").EnumerateArray().ToArray();
+        CollectionAssert.AreEqual(
+            new[] { 0, 1, 2, 3, 4, 5 },
+            grid.Select(f => f.GetProperty("legIndex").GetInt32()).ToArray()
+        );
+        for (var index = 0; index < grid.Length; index++)
+        {
+            Assert.AreEqual(
+                $"{start.AddDays(index):yyyy-MM-dd}T10:00:00",
+                grid[index]
+                    .GetProperty("leg")
+                    .GetProperty("segments")[0]
+                    .GetProperty("departure_time_local")
+                    .GetString()
+            );
+        }
+        (
+            await client.PutAsJsonAsync(
+                $"/trips/{trip.Id}/flights/choices/{party.Id}",
+                new SetFlightChoicesRequest(keys)
+            )
+        ).EnsureSuccessStatusCode();
+        var savedResponse = await client.PutAsJsonAsync(
+            $"/trips/{trip.Id}/flights/{party.Id}",
+            new SelectFlightRequest(result.CacheKey, 0, keys, 600, "USD")
+        );
+        savedResponse.EnsureSuccessStatusCode();
+        var saved = (await savedResponse.Content.ReadFromJsonAsync<SelectedFlight>())!;
+        var purchased = await client.PutAsJsonAsync(
+            $"/trips/{trip.Id}/flights/{party.Id}/purchases",
+            new SetFlightPurchasesRequest(
+                saved.CacheKey,
+                saved.ItineraryIndex,
+                Enumerable.Repeat(true, keys.Length).ToArray()
+            )
+        );
+        purchased.EnsureSuccessStatusCode();
+        Assert.IsTrue(
+            (await purchased.Content.ReadFromJsonAsync<SelectedFlight>())!.PurchasedLegs!.All(
+                value => value
+            )
+        );
+    }
+
+    [TestMethod]
     public void WeddingWithoutTripDates_PreparesCompleteRoutesWithinBudget()
     {
         var document = Wedding();
@@ -518,31 +823,121 @@ public sealed class MultiCityPlannerTests
     }
 
     [TestMethod]
-    public void VisitOrdering_RespectsPrecedenceAndRejectsCycles()
+    public void VisitOrderingAlwaysUsesSavedSequenceIncludingLegacyHints()
     {
         var document = Wedding();
-        Assert.HasCount(1, MultiCityPlanner.Orders(document.Visits).ToArray());
-        Assert.HasCount(
-            6,
-            MultiCityPlanner
-                .Orders(document.Visits.Select(v => v with { AfterVisitIds = [] }).ToArray())
-                .ToArray()
-        );
-        document = document with
+        foreach (
+            var visits in new[]
+            {
+                document.Visits,
+                document.Visits.Select(v => v with { AfterVisitIds = [] }).ToArray(),
+                document
+                    .Visits.Select(v =>
+                        v with
+                        {
+                            AfterVisitIds = document
+                                .Visits.Where(other => other.Id != v.Id)
+                                .Select(other => other.Id)
+                                .ToArray(),
+                        }
+                    )
+                    .ToArray(),
+            }
+        )
         {
-            Visits =
-            [
-                document.Visits[0] with
-                {
-                    AfterVisitIds = [document.Visits[2].Id],
-                },
-                .. document.Visits.Skip(1),
-            ],
+            var order = MultiCityPlanner.Orders(visits).Single();
+            CollectionAssert.AreEqual(
+                visits.Select(v => v.Id).ToArray(),
+                order.Select(v => v.Id).ToArray()
+            );
+            Assert.IsTrue(
+                new MultiCityPlanner(_airports, TimeProvider.System)
+                    .Build(document with { Visits = visits }, [Party], default)
+                    .Ready
+            );
+        }
+    }
+
+    [TestMethod]
+    [DataRow(4)]
+    [DataRow(12)]
+    [DataRow(80)]
+    public void EveryDestinationGetsSearchCoverageEvenBeyondTheRequestBudget(int count)
+    {
+        var codes = new[] { "JFK", "BOS", "IAD" };
+        var start = new DateOnly(2030, 5, 1);
+        var visits = Enumerable
+            .Range(0, count)
+            .Select(index => new PlannedVisit
+            {
+                Id = Guid.NewGuid(),
+                Location = _airports.Resolve(codes[index % codes.Length]),
+                PresentFrom = start.AddDays(index * 2 + 1),
+                PresentThrough = start.AddDays(index * 2 + 2),
+                ArrivalFlexibilityDays = 0,
+                DepartureFlexibilityDays = 0,
+            })
+            .ToArray();
+        var document = Wedding() with
+        {
+            Visits = visits,
+            TravelDates = new(start, null),
+            SearchLimits = new() { MaxTripDays = count * 2 + 2 },
         };
-        Assert.IsFalse(
-            new MultiCityPlanner(_airports, TimeProvider.System)
-                .Build(document, [Party], default)
-                .Ready
+        var plan = new MultiCityPlanner(_airports, TimeProvider.System, 4).Build(
+            document,
+            [Party],
+            default
+        );
+        Assert.IsTrue(plan.Ready, string.Join("; ", plan.Issues.Select(i => i.Message)));
+        var requests = plan.Parties.Single().Requests;
+        Assert.HasCount(count + 1, requests);
+        var locations = new[] { "ATL" }
+            .Concat(visits.Select(v => v.Location!.Code))
+            .Append("ATL")
+            .ToArray();
+        for (var index = 0; index <= count; index++)
+        {
+            Assert.IsTrue(
+                requests.Any(q =>
+                    q.Body.Origin == locations[index]
+                    && q.Body.Destination == locations[index + 1]
+                    && (index == 0 || q.Body.DepartureDate == visits[index - 1].PresentThrough)
+                ),
+                $"Missing leg {index}"
+            );
+        }
+    }
+
+    [TestMethod]
+    public void GridFlightsArriveInEveryColumnBeforeACompleteRouteExists()
+    {
+        var document = Wedding();
+        var fares = Fares();
+        var composer = new RouteFareComposer(_airports);
+        var partial = composer.Compose(document, [Party], [fares[2], fares[4]]).Single();
+        Assert.AreEqual(0, partial.Response.GetProperty("itineraries").GetArrayLength());
+        var flights = partial.Response.GetProperty("flights").EnumerateArray().ToArray();
+        CollectionAssert.AreEquivalent(
+            new[] { 0, 2, 3 },
+            flights.Select(f => f.GetProperty("legIndex").GetInt32()).ToArray()
+        );
+        Assert.AreEqual(
+            2,
+            flights
+                .Single(f => f.GetProperty("legIndex").GetInt32() == 0)
+                .GetProperty("bookingLegCount")
+                .GetInt32()
+        );
+        var complete = composer.Compose(document, [Party], fares).Single();
+        Assert.IsGreaterThan(0, complete.Response.GetProperty("itineraries").GetArrayLength());
+        CollectionAssert.AreEquivalent(
+            new[] { 0, 1, 2, 3 },
+            complete
+                .Response.GetProperty("flights")
+                .EnumerateArray()
+                .Select(f => f.GetProperty("legIndex").GetInt32())
+                .ToArray()
         );
     }
 

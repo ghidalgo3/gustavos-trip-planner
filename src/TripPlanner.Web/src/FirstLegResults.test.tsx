@@ -237,7 +237,10 @@ test("shows the next cached leg after the first flight is saved", async () => {
     expect(screen.getByRole("tab", { name: /Flight 1/ })).not.toBeDisabled(),
   );
   fireEvent.click(screen.getByRole("tab", { name: /Flight 1/ }));
-  expect(choose).toHaveBeenCalledWith("party", []);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Deselect flights" }),
+  );
+  await waitFor(() => expect(choose).toHaveBeenCalledWith("party", []));
 });
 
 test("moves to a waiting second leg when its search has not finished", () => {

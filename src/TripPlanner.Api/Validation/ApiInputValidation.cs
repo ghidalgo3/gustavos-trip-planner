@@ -101,7 +101,8 @@ public static class ApiInputValidation
         object? value,
         string path,
         Dictionary<string, string[]> errors,
-        int depth = 0
+        int depth = 0,
+        bool allowNullItems = false
     )
     {
         if (value is null)
@@ -157,7 +158,7 @@ public static class ApiInputValidation
             foreach (var item in collection)
             {
                 string itemPath = $"{path}[{index++}]";
-                if (item is null)
+                if (item is null && !allowNullItems)
                 {
                     errors[itemPath] = ["Array items cannot be null."];
                 }
@@ -211,7 +212,15 @@ public static class ApiInputValidation
             );
             if (!errors.ContainsKey(memberPath))
             {
-                Visit(member, memberPath, errors, depth + 1);
+                Visit(
+                    member,
+                    memberPath,
+                    errors,
+                    depth + 1,
+                    property
+                        .GetCustomAttribute<TripPlanner.Api.DTO.StringItemsAttribute>()
+                        ?.AllowNullItems == true
+                );
             }
         }
     }

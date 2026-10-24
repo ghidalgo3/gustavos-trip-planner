@@ -32,18 +32,18 @@ public sealed class MultiCityPlanner(
             Issue("Destinations must be objects.");
             return issues;
         }
-        if (document.Visits.Length is < 1 or > 3)
+        if (document.Visits.Length < 1)
         {
-            Issue("Plan between one and three destinations.");
+            Issue("Plan at least one destination.");
         }
 
         if (
             document.SearchLimits is null
             || document.SearchLimits.FlexibilityDays is < 0 or > 5
-            || document.SearchLimits.MaxTripDays is < 1 or > 60
+            || document.SearchLimits.MaxTripDays is < 1 or > 36890
         )
         {
-            Issue("Search limits must allow 0–5 flexible days and 1–60 total trip days.");
+            Issue("Search limits must allow 0–5 flexible days and 1–36890 total trip days.");
         }
 
         if (
@@ -155,10 +155,6 @@ public sealed class MultiCityPlanner(
                     visit.Id
                 );
             }
-        }
-        if (issues.Count == 0 && !Orders(document.Visits).Any())
-        {
-            Issue("The destination order contains a cycle.");
         }
 
         if (
@@ -388,19 +384,8 @@ public sealed class MultiCityPlanner(
             // A schedule can expand to many airport combinations, so admitting it as
             // one all-or-nothing batch starves later legs and nearby dates.
             var legCount = document.Visits.Length + 1;
-            if (queryLimit < legCount)
-            {
-                issues.Add(
-                    new(
-                        "invalidInput",
-                        $"The fare request limit must allow at least {legCount} searches for this route.",
-                        party.Id,
-                        []
-                    )
-                );
-                continue;
-            }
-            var oneWayBudget = Math.Max(legCount, queryLimit * 7 / 8);
+            var requestBudget = Math.Max(queryLimit, legCount);
+            var oneWayBudget = Math.Max(legCount, requestBudget * 7 / 8);
             var perLegBudget = Math.Max(1, oneWayBudget / legCount);
             var legRequests = Enumerable
                 .Range(0, legCount)
@@ -408,7 +393,7 @@ public sealed class MultiCityPlanner(
                 .ToArray();
             var pairedRequests = new Dictionary<string, PreparedSearch>();
             var considered = 0;
-            // Round-robin orders so a cheaper-looking prefix cannot consume the budget for all orders.
+            // Sample dates across the fixed route, reserving coverage for every leg.
             bool moved;
             do
             {
@@ -466,7 +451,11 @@ public sealed class MultiCityPlanner(
                             var key = SearchPlanBuilder.CacheKey(request);
                             if (legRequests[leg].Count < perLegBudget)
                             {
-                                legRequests[leg].TryAdd(key, new(request, key, considered));
+                                legRequests[leg]
+                                    .TryAdd(
+                                        key,
+                                        new(request, key, considered) { LegIndexes = [leg] }
+                                    );
                             }
                         }
                     }
@@ -496,10 +485,13 @@ public sealed class MultiCityPlanner(
                                     ),
                                 ],
                             };
-                            if (pairedRequests.Count < queryLimit - perLegBudget * legCount)
+                            if (pairedRequests.Count < requestBudget - perLegBudget * legCount)
                             {
                                 var key = SearchPlanBuilder.CacheKey(pair);
-                                pairedRequests.TryAdd(key, new(pair, key, considered));
+                                pairedRequests.TryAdd(
+                                    key,
+                                    new(pair, key, considered) { LegIndexes = [0, legCount - 1] }
+                                );
                             }
                         }
                     }
@@ -509,13 +501,23 @@ public sealed class MultiCityPlanner(
                 && considered < 6000
                 && (
                     legRequests.Any(requests => requests.Count < perLegBudget)
-                    || pairedRequests.Count < queryLimit - perLegBudget * legCount
+                    || pairedRequests.Count < requestBudget - perLegBudget * legCount
                 )
             );
             var requests = legRequests
                 .SelectMany(group => group.Values)
                 .Concat(pairedRequests.Values)
-                .DistinctBy(request => request.CacheKey)
+                .GroupBy(request => request.CacheKey)
+                .Select(group =>
+                    group.First() with
+                    {
+                        LegIndexes = group
+                            .SelectMany(request => request.LegIndexes)
+                            .Distinct()
+                            .Order()
+                            .ToArray(),
+                    }
+                )
                 .ToArray();
             foreach (var schedule in schedules)
             {
@@ -540,7 +542,7 @@ public sealed class MultiCityPlanner(
                     considered,
                     requests,
                     [
-                        $"Searching a bounded sample with at most {queryLimit} fare requests; cached responses are reused.",
+                        $"Searching a bounded sample with at most {requestBudget} fare requests; cached responses are reused.",
                         "Separate tickets between stays are allowed. Connections requiring self-transfer are excluded.",
                         "Results are the best combinations found, not an exhaustive search of every date and flight.",
                     ],
@@ -548,7 +550,12 @@ public sealed class MultiCityPlanner(
                 )
             );
         }
-        return new(issues.Count == 0, queryLimit, issues, previews);
+        return new(
+            issues.Count == 0,
+            Math.Max(queryLimit, document.Visits.Length + 1),
+            issues,
+            previews
+        );
     }
 
     private IEnumerable<string> SearchCodes(SearchLocation location)
@@ -557,29 +564,9 @@ public sealed class MultiCityPlanner(
         return airports.FindByCode(code) is null ? [code] : location.AirportCodes;
     }
 
-    public static IEnumerable<PlannedVisit[]> Orders(PlannedVisit[] visits)
-    {
-        return Walk([]);
-        IEnumerable<PlannedVisit[]> Walk(PlannedVisit[] prefix)
-        {
-            if (prefix.Length == visits.Length)
-            {
-                yield return prefix;
-                yield break;
-            }
-            foreach (
-                var v in visits.Where(v =>
-                    !prefix.Contains(v) && v.AfterVisitIds.All(id => prefix.Any(p => p.Id == id))
-                )
-            )
-            {
-                foreach (var result in Walk([.. prefix, v]))
-                {
-                    yield return result;
-                }
-            }
-        }
-    }
+    // The saved visit sequence is authoritative, including legacy documents with
+    // optional ordering hints. Never enumerate permutations of destinations.
+    public static IEnumerable<PlannedVisit[]> Orders(PlannedVisit[] visits) => [visits];
 
     private IEnumerable<DateOnly[]> Schedules(
         PlanningDocument doc,

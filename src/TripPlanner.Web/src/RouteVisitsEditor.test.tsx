@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { expect, test } from "vitest";
 import RouteVisitsEditor from "./RouteVisitsEditor";
@@ -59,93 +59,48 @@ test("edits nights and required stays without requiring flight dates", () => {
       name: "Flexibility around required stays",
     }),
   ).toHaveValue(5);
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Destination 2 nights" }), {
-    target: { value: "5" },
-  });
+  fireEvent.change(
+    screen.getByRole("spinbutton", { name: "Destination 2 nights" }),
+    {
+      target: { value: "5" },
+    },
+  );
   expect(screen.getByRole("status")).toHaveTextContent('"nights":5');
   expect(screen.getByRole("status")).not.toHaveTextContent("travelDates");
-  expect(
-    screen.getByLabelText("Selected destinations before destination 2"),
-  ).toHaveTextContent("Destination 1: Phuket");
   fireEvent.click(screen.getByRole("button", { name: "Remove destination 1" }));
   expect(screen.getByRole("status")).toHaveTextContent('"afterVisitIds":[]');
 });
 
-test("selects multiple preceding visits and removes them with tags", async () => {
-  const draft: PlanningDocument = {
-    schemaVersion: 1,
-    destination: null,
-    parties: [],
-    constraints: [],
-    visits: [
-      {
-        id: "phuket",
-        location: { code: "HKT", timeZone: "Asia/Bangkok", label: "Phuket" },
-        nights: 4,
-        presentFrom: null,
-        presentThrough: null,
-        afterVisitIds: [],
-      },
-      {
-        id: "hongkong",
-        location: {
-          code: "HKG",
-          timeZone: "Asia/Hong_Kong",
-          label: "Hong Kong",
-        },
-        nights: 4,
-        presentFrom: null,
-        presentThrough: null,
-        afterVisitIds: [],
-      },
-      {
-        id: "tokyo",
-        location: { code: "HND", timeZone: "Asia/Tokyo", label: "Tokyo" },
-        nights: 4,
-        presentFrom: null,
-        presentThrough: null,
-        afterVisitIds: [],
-      },
-    ],
-  };
+test("keeps destination order fixed and allows more than three visits", () => {
   function Editor() {
-    const [document, setDocument] = useState(draft);
-    return (
-      <>
-        <RouteVisitsEditor document={document} onChange={setDocument} />
-        <output>{JSON.stringify(document)}</output>
-      </>
-    );
+    const [document, setDocument] = useState<PlanningDocument>({
+      schemaVersion: 1,
+      destination: null,
+      parties: [],
+      constraints: [],
+      visits: Array.from({ length: 3 }, (_, index) => ({
+        id: String(index),
+        location: null,
+        nights: 2,
+        presentFrom: null,
+        presentThrough: null,
+        afterVisitIds: [],
+      })),
+    });
+    return <RouteVisitsEditor document={document} onChange={setDocument} />;
   }
   render(
     <FluentProvider theme={webLightTheme}>
       <Editor />
     </FluentProvider>,
   );
-  const combobox = screen.getByRole("combobox", {
-    name: "Destinations before destination 3",
-  });
-  fireEvent.click(combobox);
-  expect(combobox).toHaveAttribute("aria-expanded", "true");
-  fireEvent.click(
-    await screen.findByRole("menuitemcheckbox", { name: "Destination 1: Phuket" }),
-  );
+  for (let index = 4; index <= 8; index++) {
+    fireEvent.click(screen.getByRole("button", { name: "Add destination" }));
+    expect(
+      screen.getByRole("spinbutton", { name: `Destination ${index} nights` }),
+    ).toBeVisible();
+  }
   expect(
-    screen.getByLabelText("Selected destinations before destination 3"),
-  ).toHaveTextContent("Destination 1: Phuket");
-  fireEvent.click(
-    await screen.findByRole("menuitemcheckbox", { name: "Destination 2: Hong Kong" }),
-  );
-  const tags = screen.getByLabelText("Selected destinations before destination 3");
-  expect(tags).toHaveTextContent("Destination 1: Phuket");
-  expect(tags).toHaveTextContent("Destination 2: Hong Kong");
-  expect(screen.getByRole("status")).toHaveTextContent(
-    '"afterVisitIds":["phuket","hongkong"]',
-  );
-  fireEvent.click(
-    within(tags).getByRole("button", { name: /Destination 1: Phuket/ }),
-  );
-  expect(screen.getByRole("status")).toHaveTextContent(
-    '"afterVisitIds":["hongkong"]',
-  );
+    screen.queryByRole("combobox", { name: /Destinations before/ }),
+  ).toBeNull();
 });

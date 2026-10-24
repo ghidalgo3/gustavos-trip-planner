@@ -70,11 +70,36 @@ export type FareEvaluation = {
   status: "Eligible" | "Rejected" | "Unverifiable";
   issues: { code: string; message: string; constraintIds: string[] }[];
 };
+export type FlightGridOption = {
+  legIndex: number;
+  leg: FareLeg;
+  price?: FareItinerary["price"];
+  bookingLegCount: number;
+};
 export type FareSearchResult = {
   partyId: string;
   cacheKey: string;
   request: PreparedSearch["body"];
-  response: { itineraries: FareItinerary[] };
+  response: {
+    itineraries: FareItinerary[];
+    flights?: FlightGridOption[];
+    flightConnections?: {
+      fromFlightIndex: number;
+      toFlightIndex: number;
+    }[];
+    routeGraphs?: {
+      connectionIndexes: number[];
+      currency?: string;
+      costs?: { flightIndex: number; amount: number }[];
+    }[];
+    choiceKeys?: (string | null)[];
+    roundTripConnections?:
+      | {
+          outboundFlightIndex: number;
+          returnFlightIndex: number;
+        }[]
+      | null;
+  };
   evaluations: FareEvaluation[];
   fetchedAt: string;
   expiresAt: string;

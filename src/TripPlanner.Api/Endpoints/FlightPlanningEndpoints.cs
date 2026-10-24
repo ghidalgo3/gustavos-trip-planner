@@ -148,6 +148,10 @@ public static class FlightPlanningEndpoints
             );
         }
 
+        preview = SavedFlightChoices.RemainingSearches(
+            preview,
+            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+        );
         try
         {
             var operation = await database.CreateFlightSearchOperationAsync(
@@ -213,8 +217,13 @@ public static class FlightPlanningEndpoints
             preview,
             context.RequestAborted
         );
+        var choices = await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted);
+        if (document.Visits.Length > 0)
+        {
+            results = SavedFlightChoices.Restore(results, choices, preview);
+        }
         context.Response.Headers.CacheControl = "no-store";
-        if (results is null)
+        if (results is null || results.Count == 0)
         {
             return Results.NotFound();
         }
@@ -225,16 +234,10 @@ public static class FlightPlanningEndpoints
                 document,
                 parties,
                 results,
-                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+                choices,
+                includeAllConnections: true
             );
-            if (
-                assembled.Any(result =>
-                    result.Response.GetProperty("itineraries").GetArrayLength() > 0
-                )
-            )
-            {
-                results = assembled;
-            }
+            results = assembled;
         }
         return Results.Ok(
             results.Select(result =>
@@ -302,14 +305,14 @@ public static class FlightPlanningEndpoints
             preview,
             context.RequestAborted
         );
+        var choices = await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted);
+        if (document.Visits.Length > 0)
+        {
+            fares = SavedFlightChoices.Restore(fares, choices, preview);
+        }
         if (fares is not null)
         {
-            fares = routes.Compose(
-                document,
-                parties,
-                fares,
-                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
-            );
+            fares = routes.Compose(document, parties, fares, choices);
         }
 
         var matching = fares

@@ -2307,3 +2307,302 @@ main:has(.trip-workspace-activities) > .topbar {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Keep destination columns readable at every screen size; only the board
+   scrolls horizontally, including on phones. */
+.flight-route-explorer {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.flight-grid-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.flight-grid-toolbar > div {
+  display: grid;
+  gap: 6px;
+}
+.flight-grid-status {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--colorNeutralForeground2);
+}
+.flight-grid-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--colorNeutralForeground3);
+  flex-shrink: 0;
+}
+.flight-grid-live.is-searching {
+  background: var(--colorBrandBackground);
+  box-shadow: 0 0 0 4px var(--colorBrandBackground2);
+}
+.flight-grid-scroll {
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  max-height: 75vh;
+  max-width: 100%;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 12px;
+  background: var(--colorNeutralBackground2);
+}
+.flight-grid-canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--flight-columns), minmax(240px, 300px));
+  gap: 32px;
+  padding: 16px;
+  min-width: calc(var(--flight-columns) * 272px);
+  isolation: isolate;
+}
+.flight-grid-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.flight-grid-column-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  padding-bottom: 8px;
+}
+.flight-grid-column-heading h4 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.flight-grid-step {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--colorBrandForeground1);
+}
+.flight-grid-empty {
+  border: 1px dashed var(--colorNeutralStroke1);
+  border-radius: 10px;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--colorNeutralForeground3);
+}
+.flight-grid-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 2px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground1);
+  box-shadow: var(--shadow4);
+  /* Pointer feedback is immediate; fading every card animates the whole grid. */
+}
+.flight-grid-card.is-chosen {
+  border-color: var(--colorPaletteGreenBorder1);
+}
+.flight-grid-card.is-connected {
+  border-color: var(--colorBrandStroke1);
+  box-shadow: 0 0 0 3px var(--colorBrandBackground2);
+}
+.flight-grid-card.is-active,
+.flight-grid-card:focus-visible {
+  border-color: var(--colorBrandBackground);
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 3px;
+}
+.flight-grid-card.is-muted {
+  opacity: 0.5;
+}
+.flight-grid-card-top,
+.flight-grid-times {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.flight-grid-card-top {
+  align-items: flex-start;
+}
+.flight-grid-airline {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.flight-grid-flight-numbers {
+  color: var(--colorNeutralForeground2);
+}
+.flight-grid-fare {
+  display: grid;
+  flex-shrink: 0;
+  text-align: right;
+}
+.flight-grid-times > div {
+  display: grid;
+  gap: 0;
+}
+.flight-grid-times > div:last-child {
+  text-align: right;
+}
+.flight-grid-times strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.flight-grid-times span,
+.flight-grid-price-context {
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--colorNeutralForeground2);
+}
+.flight-grid-route-ready {
+  color: var(--colorBrandForeground1);
+}
+.flight-grid-route-pending {
+  color: var(--colorNeutralForeground3);
+}
+.flight-grid-card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px;
+}
+.flight-grid-card-actions > details[open] {
+  grid-column: 1 / -1;
+}
+.flight-grid-card-actions > .fui-Button {
+  grid-column: 2;
+}
+.flight-grid-card-actions .flight-information {
+  margin-top: 6px;
+}
+.flight-grid-card-actions summary {
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 18px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 6px;
+}
+.flight-grid-connections {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+.flight-grid-connections path {
+  fill: none;
+  stroke: var(--colorBrandBackground);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.flight-planning,
+.flight-planning > .planning-card,
+.flight-planning .route-visits {
+  min-width: 0;
+}
+
+.flight-grid-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 10px;
+  background: var(--colorNeutralBackground2);
+}
+.flight-grid-filters > .fui-Field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.flight-grid-filters > .flight-grid-budget {
+  flex: 2 1 280px;
+}
+.flight-grid-filters .fui-Dropdown {
+  min-width: 0;
+  width: 100%;
+}
+.flight-grid-toolbar > .flight-grid-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.flight-grid-card {
+  position: relative;
+  cursor: pointer;
+}
+.flight-grid-select {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.flight-grid-select:focus-visible {
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 3px;
+}
+.flight-grid-card-actions details {
+  position: relative;
+}
+.flight-grid-card.is-chosen {
+  background: var(--colorPaletteGreenBackground1);
+}
+.flight-grid-skeletons {
+  display: grid;
+  gap: 10px;
+}
+.flight-grid-skeleton {
+  gap: 12px;
+  padding: 14px 10px;
+  box-shadow: none;
+  cursor: default;
+}
+@media (max-width: 600px) {
+  .flight-planning > .planning-card {
+    padding: 12px;
+  }
+  .flight-grid-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .flight-grid-scroll {
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 12px;
+  }
+  .flight-grid-canvas {
+    grid-template-columns: repeat(
+      var(--flight-columns),
+      clamp(240px, 75vw, 300px)
+    );
+    width: max-content;
+    min-width: 100%;
+    gap: 20px;
+    padding: 12px;
+  }
+  .flight-grid-column {
+    scroll-snap-align: start;
+  }
+  .flight-grid-toolbar .fui-Button,
+  .flight-grid-filters .fui-Button,
+  .flight-grid-filters .fui-Dropdown,
+  .flight-grid-card-actions summary {
+    min-height: 44px;
+  }
+  .flight-grid-card-actions summary {
+    padding-block: 12px;
+  }
+}

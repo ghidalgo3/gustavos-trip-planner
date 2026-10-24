@@ -50,7 +50,13 @@ public static class SelectedFlightsEndpoints
         }
 
         return Results.Ok(
-            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+            (await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)).Select(
+                choice => new FlightChoiceProgressDto(
+                    choice.PartyId,
+                    choice.LegKeys,
+                    choice.NextOrigins
+                )
+            )
         );
     }
 
@@ -93,7 +99,9 @@ public static class SelectedFlightsEndpoints
         if (
             keys is null
             || keys.Length > document.Visits.Length + 1
-            || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 4096)
+            || keys.Any(key =>
+                key is not null && (string.IsNullOrWhiteSpace(key) || key.Length > 4096)
+            )
         )
         {
             return Results.BadRequest(
@@ -101,6 +109,7 @@ public static class SelectedFlightsEndpoints
             );
         }
 
+        keys = keys.Reverse().SkipWhile(key => key is null).Reverse().ToArray();
         IReadOnlyList<FareSearchResult> fares = [];
         if (keys.Length > 0)
         {
@@ -119,6 +128,11 @@ public static class SelectedFlightsEndpoints
                     preview,
                     context.RequestAborted
                 ) ?? [];
+            fares = SavedFlightChoices.Restore(
+                fares,
+                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted),
+                preview
+            );
         }
         var nextOrigins = FlightChoiceRoute.NextOrigins(document, partyId, keys, fares, airports);
         if (nextOrigins is null)
@@ -131,13 +145,17 @@ public static class SelectedFlightsEndpoints
             );
         }
 
+        var saved = await database.SetFlightChoicesAsync(
+            user.Id,
+            tripId,
+            new(partyId, keys, nextOrigins)
+            {
+                SavedFares = SavedFlightChoices.Capture(partyId, keys, fares),
+            },
+            context.RequestAborted
+        );
         return Results.Ok(
-            await database.SetFlightChoicesAsync(
-                user.Id,
-                tripId,
-                new(partyId, keys, nextOrigins),
-                context.RequestAborted
-            )
+            new FlightChoiceProgressDto(saved.PartyId, saved.LegKeys, saved.NextOrigins)
         );
     }
 
@@ -205,7 +223,7 @@ public static class SelectedFlightsEndpoints
         if (
             request.LegKeys is { } keys
             && (
-                keys.Length is < 1 or > 4
+                keys.Length < 1
                 || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 4096)
                 || request.PriceAmount is null or < 0
                 || request.PriceCurrency is not { Length: 3 }
@@ -245,7 +263,12 @@ public static class SelectedFlightsEndpoints
             preview,
             context.RequestAborted
         );
-        if (fares is null)
+        var choices = await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted);
+        if (document.Visits.Length > 0)
+        {
+            fares = SavedFlightChoices.Restore(fares, choices, preview);
+        }
+        if (fares is null || fares.Count == 0)
         {
             return Results.Conflict(
                 new
@@ -255,12 +278,7 @@ public static class SelectedFlightsEndpoints
             );
         }
 
-        fares = routes.Compose(
-            document,
-            parties,
-            fares,
-            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
-        );
+        fares = routes.Compose(document, parties, fares, choices);
         FareSearchResult? fare = fares.SingleOrDefault(f =>
             f.PartyId == partyId && f.CacheKey == request.CacheKey
         );

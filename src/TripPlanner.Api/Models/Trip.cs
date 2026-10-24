@@ -38,7 +38,11 @@ public sealed record SelectedFlight(
     bool[]? PurchasedLegs = null
 );
 
-public sealed record FlightChoiceProgress(Guid PartyId, string[] LegKeys, string[] NextOrigins);
+public sealed record FlightChoiceProgress(Guid PartyId, string?[] LegKeys, string[] NextOrigins)
+{
+    // Retain only the provider offers backing saved choices, including indivisible bundles.
+    public FareSearchResult[] SavedFares { get; init; } = [];
+}
 
 public enum PartyMemberChangeStatus
 {

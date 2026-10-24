@@ -5,6 +5,7 @@ export default function FlightLegTabs({
   step,
   label,
   routes = [],
+  chosen,
   busy = false,
   onRevisit,
 }: {
@@ -12,6 +13,7 @@ export default function FlightLegTabs({
   step: number;
   label: string;
   routes?: string[];
+  chosen?: readonly (string | null)[];
   busy?: boolean;
   onRevisit: (index: number) => void;
 }) {
@@ -24,7 +26,12 @@ export default function FlightLegTabs({
       selectedValue={reviewing ? "review" : String(step)}
       onTabSelect={(_, data) => {
         const index = Number(data.value);
-        if (!busy && Number.isInteger(index) && index >= 0 && index < step)
+        if (
+          !busy &&
+          Number.isInteger(index) &&
+          index >= 0 &&
+          (index < step || chosen?.[index])
+        )
           onRevisit(index);
       }}
     >
@@ -32,12 +39,15 @@ export default function FlightLegTabs({
         <Tab
           key={index}
           value={String(index)}
-          disabled={index > step || (busy && index < step)}
+          disabled={
+            (index > step && !chosen?.[index]) ||
+            (busy && (index < step || !!chosen?.[index]))
+          }
         >
           <span className="flight-leg-tab-label">
             <span>Flight {index + 1}</span>
             <span className="flight-leg-tab-detail">
-              {index < step
+              {(chosen ? !!chosen[index] : index < step)
                 ? "Chosen"
                 : index === step
                   ? "Choose now"

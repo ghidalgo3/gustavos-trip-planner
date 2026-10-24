@@ -2,7 +2,6 @@ import { useActionToast } from "./useActionToast";
 import { useState, type FormEvent } from "react";
 import {
   Button,
-  Checkbox,
   Field,
   Input,
   DrawerBody,
@@ -68,14 +67,11 @@ export default function AddDestinationDrawer({
   const initialDepartureFlex = Number(
     originalConstraints.departureFlexibilityDays ?? 0,
   );
-  const initialKeepOrder = originalConstraints.keepAfterPrevious !== false;
   const [arrivalFlex, setArrivalFlex] = useState(initialArrivalFlex);
   const [departureFlex, setDepartureFlex] = useState(initialDepartureFlex);
-  const [keepOrder, setKeepOrder] = useState(initialKeepOrder);
   const constraintsChanged =
     arrivalFlex !== initialArrivalFlex ||
-    departureFlex !== initialDepartureFlex ||
-    keepOrder !== initialKeepOrder;
+    departureFlex !== initialDepartureFlex;
   const invalidFlex =
     !Number.isInteger(arrivalFlex) ||
     !Number.isInteger(departureFlex) ||
@@ -98,7 +94,6 @@ export default function AddDestinationDrawer({
     setSaving(false);
     setArrivalFlex(initialArrivalFlex);
     setDepartureFlex(initialDepartureFlex);
-    setKeepOrder(initialKeepOrder);
   }
 
   function close() {
@@ -122,7 +117,7 @@ export default function AddDestinationDrawer({
         ...originalConstraints,
         arrivalFlexibilityDays: arrivalFlex,
         departureFlexibilityDays: departureFlex,
-        keepAfterPrevious: keepOrder,
+        keepAfterPrevious: true,
       };
       let destination: Destination;
       if (editing) {
@@ -239,7 +234,6 @@ export default function AddDestinationDrawer({
                     setDepartureFlex(
                       Number(existing?.departureFlexibilityDays ?? 0),
                     );
-                    setKeepOrder(existing?.keepAfterPrevious !== false);
                     setCity(option);
                     setQuery(option.label);
                   }}
@@ -265,7 +259,7 @@ export default function AddDestinationDrawer({
                 disabled={saving}
               />
               <div className="destination-flight-constraints">
-                <strong>Flight flexibility and ordering</strong>
+                <strong>Flight date flexibility</strong>
                 <Text size={200}>
                   These constraints apply to every visit to this city.
                 </Text>
@@ -293,11 +287,7 @@ export default function AddDestinationDrawer({
                     onChange={(_, data) => setDepartureFlex(Number(data.value))}
                   />
                 </Field>
-                <Checkbox
-                  label="Keep this destination after the previous one"
-                  checked={keepOrder}
-                  onChange={(_, data) => setKeepOrder(Boolean(data.checked))}
-                />
+                <Text>Flights follow the destination order on Overview.</Text>
                 {invalidFlex && (
                   <Text role="alert">
                     Choose whole numbers from 0 to 5 days.

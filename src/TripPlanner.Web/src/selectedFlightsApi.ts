@@ -15,7 +15,7 @@ export type SelectedFlight = {
 
 export type FlightChoiceProgress = {
   partyId: string;
-  legKeys: string[];
+  legKeys: (string | null)[];
   nextOrigins: string[];
 };
 
@@ -39,7 +39,7 @@ export async function getFlightChoices(
 export async function setFlightChoices(
   tripId: string,
   partyId: string,
-  legKeys: string[],
+  legKeys: (string | null)[],
 ): Promise<FlightChoiceProgress> {
   const response = await fetch(
     `${flightChoicesUrl(tripId)}/${encodeURIComponent(partyId)}`,

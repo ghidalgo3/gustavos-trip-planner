@@ -1,10 +1,11 @@
+import { useFlightChoiceConfirmation } from "./useFlightChoiceConfirmation";
 import { useState } from "react";
 import { Button, Text, Title3 } from "@fluentui/react-components";
 import FlightInformation from "./FlightInformation";
 import FlightLegTabs from "./FlightLegTabs";
 import { legKey, legRoute } from "./flightFormatting";
 import { flightAirportCodes, useAirportCities } from "./airportCities";
-import type { FareSearchResult } from "./operationsApi";
+import type { FareSearchResult, FareLeg, FareItinerary } from "./operationsApi";
 import type { PlanningParty } from "./planningApi";
 import type { PartySettings } from "./planningApi";
 import type { FlightChoiceProgress } from "./selectedFlightsApi";
@@ -23,12 +24,20 @@ export default function FirstLegResults({
   partySettings?: PartySettings[];
   choices: Record<string, FlightChoiceProgress>;
   legCount: number;
-  onChoose: (partyId: string, keys: string[]) => Promise<boolean>;
+  onChoose: (partyId: string, keys: (string | null)[]) => Promise<boolean>;
   searching?: boolean;
 }) {
+  const { confirm, dialog } = useFlightChoiceConfirmation();
   const [busyParty, setBusyParty] = useState<string>();
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
-  async function choose(partyId: string, keys: string[]) {
+  async function choose(partyId: string, keys: (string | null)[]) {
+    if (
+      choices[partyId]?.legKeys.some(
+        (key, index) => key && key !== keys[index],
+      ) &&
+      !(await confirm(choices[partyId].legKeys, keys))
+    )
+      return;
     setBusyParty(partyId);
     try {
       const saved = await onChoose(partyId, keys);
@@ -48,28 +57,44 @@ export default function FirstLegResults({
       setBusyParty(undefined);
     }
   }
-  const options = results.flatMap((result) =>
-    result.request.searchKind !== "oneWay"
-      ? []
-      : result.response.itineraries.flatMap((itinerary, index) => {
-          const leg = itinerary.outbound;
-          if (!leg || result.evaluations[index]?.status === "Rejected")
-            return [];
-          return [
-            {
-              partyId: result.partyId,
-              leg,
-              itinerary,
-              request: result.request,
-            },
-          ];
-        }),
+  const options = results.flatMap<{
+    partyId: string;
+    leg: FareLeg;
+    itinerary: FareItinerary;
+    request: FareSearchResult["request"];
+    legIndex?: number;
+  }>((result) =>
+    result.response.flights
+      ? result.response.flights.map((flight) => ({
+          partyId: result.partyId,
+          leg: flight.leg,
+          itinerary: { price: flight.price },
+          request: result.request,
+          legIndex: flight.legIndex,
+        }))
+      : result.request.searchKind !== "oneWay"
+        ? []
+        : result.response.itineraries.flatMap((itinerary, index) => {
+            const leg = itinerary.outbound;
+            if (!leg || result.evaluations[index]?.status === "Rejected")
+              return [];
+            return [
+              {
+                partyId: result.partyId,
+                leg,
+                itinerary,
+                request: result.request,
+                legIndex: undefined,
+              },
+            ];
+          }),
   );
   const cities = useAirportCities(
     flightAirportCodes(options.map((option) => option.leg)),
   );
   return (
     <div className="first-leg-results">
+      {dialog}
       {parties.map((party) => {
         const preferredAirlines =
           partySettings.find((settings) => settings.partyId === party.id)
@@ -78,16 +103,19 @@ export default function FirstLegResults({
         const partyName =
           party.members.map((member) => member.name).join(", ") ||
           "Travel party";
-        const step = chosen.length;
+        const missing = chosen.findIndex((key) => !key);
+        const step = missing < 0 ? chosen.length : missing;
         const nextOrigins = choices[party.id]?.nextOrigins ?? [];
         const unique = new Map<string, (typeof options)[number]>();
         for (const option of options
           .filter(
             (option) =>
               option.partyId === party.id &&
-              (step === 0
-                ? option.request.searchPriority === 0
-                : nextOrigins.includes(option.request.origin)),
+              (option.legIndex != null
+                ? option.legIndex === step
+                : step === 0
+                  ? option.request.searchPriority === 0
+                  : nextOrigins.includes(option.request.origin)),
           )
           .sort(
             (a, b) =>
@@ -117,16 +145,15 @@ export default function FirstLegResults({
           ).values(),
         ];
         const routes = Array.from({ length: legCount }, (_, index) => {
-          const leg =
-            index < step
-              ? options.find(
-                  (option) =>
-                    option.partyId === party.id &&
-                    legKey(option.leg) === chosen[index],
-                )?.leg
-              : index === step
-                ? choicesForParty[0]?.leg
-                : undefined;
+          const leg = chosen[index]
+            ? options.find(
+                (option) =>
+                  option.partyId === party.id &&
+                  legKey(option.leg) === chosen[index],
+              )?.leg
+            : index === step
+              ? choicesForParty[0]?.leg
+              : undefined;
           return legRoute(leg);
         });
         return (
@@ -134,6 +161,7 @@ export default function FirstLegResults({
             <Title3 as="h3">{partyName}</Title3>
             <FlightLegTabs
               legCount={legCount}
+              chosen={chosen}
               step={step}
               label={partyName}
               routes={routes}
@@ -181,7 +209,16 @@ export default function FirstLegResults({
                           appearance="primary"
                           disabled={busyParty === party.id}
                           onClick={() =>
-                            void choose(party.id, [...chosen, key])
+                            void choose(
+                              party.id,
+                              Array.from(
+                                { length: Math.max(chosen.length, step + 1) },
+                                (_, index) =>
+                                  index === step
+                                    ? key
+                                    : (chosen[index] ?? null),
+                              ),
+                            )
                           }
                         >
                           Choose flight {step + 1}
@@ -211,7 +248,16 @@ export default function FirstLegResults({
                           appearance="primary"
                           disabled={busyParty === party.id}
                           onClick={() =>
-                            void choose(party.id, [...chosen, key])
+                            void choose(
+                              party.id,
+                              Array.from(
+                                { length: Math.max(chosen.length, step + 1) },
+                                (_, index) =>
+                                  index === step
+                                    ? key
+                                    : (chosen[index] ?? null),
+                              ),
+                            )
                           }
                         >
                           Choose flight {step + 1}

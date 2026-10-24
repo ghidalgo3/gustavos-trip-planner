@@ -16,6 +16,26 @@ namespace TripPlanner.Api.Tests.Validation;
 public class InputValidationTests
 {
     [TestMethod]
+    [DataRow(null, true)]
+    [DataRow("flight-key", true)]
+    [DataRow("", false)]
+    [DataRow(" ", false)]
+    public void PartialFlightChoicesAllowUnselectedSlotsButNotInvalidKeys(string? key, bool valid)
+    {
+        var errors = TripPlanner.Api.Validation.ApiInputValidation.Validate(
+            new SetFlightChoicesRequest([null, key]),
+            "request"
+        );
+        Assert.AreEqual(valid, errors.Count == 0);
+        Assert.IsNotEmpty(
+            TripPlanner.Api.Validation.ApiInputValidation.Validate(
+                new SelectFlightRequest("cache", 0, [null!], 100, "USD"),
+                "request"
+            )
+        );
+    }
+
+    [TestMethod]
     [DataRow("\"24:00\"")]
     [DataRow("\"9:00\"")]
     [DataRow("\"09:00\"")]
@@ -86,6 +106,16 @@ public class InputValidationTests
                 ? schemas.GetProperty(reference.GetString()!.Split('/')[^1])
                 : schema;
         var activity = schemas.GetProperty("ActivityProperties").GetProperty("properties");
+        var choiceItemType = schemas
+            .GetProperty("SetFlightChoicesRequest")
+            .GetProperty("properties")
+            .GetProperty("legKeys")
+            .GetProperty("items")
+            .GetProperty("type");
+        CollectionAssert.AreEquivalent(
+            new[] { "string", "null" },
+            choiceItemType.EnumerateArray().Select(item => item.GetString()).ToArray()
+        );
         foreach (
             var (model, field) in new[]
             {
@@ -250,7 +280,7 @@ public class InputValidationTests
         "PUT",
         "{\"cacheKey\":\"fare\",\"itineraryIndex\":-1,\"purchasedLegs\":[true]}"
     )]
-    [DataRow("/trips/{trip}/flights/choices/{party}", "PUT", "{\"legKeys\":[null]}")]
+    [DataRow("/trips/{trip}/flights/choices/{party}", "PUT", "{\"legKeys\":null}")]
     [DataRow(
         "/user/{user}/trips/{trip}/parties/{party}/members/{user}",
         "PUT",

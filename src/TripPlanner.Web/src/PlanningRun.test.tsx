@@ -3,6 +3,7 @@ import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import PlanningRun from "./PlanningRun";
+import { legKey } from "./flightFormatting";
 import type {
   PartySettings,
   PlanningConstraint,
@@ -14,6 +15,7 @@ import {
   getOperations,
   startFlightSearch,
   type TrackedOperation,
+  type FareSearchResult,
 } from "./operationsApi";
 import {
   getFlightChoices,
@@ -107,6 +109,153 @@ beforeEach(() => {
   vi.mocked(getSelectedFlights).mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+test("desktop partial choices save immediately, roll back failures, reload without a search, and require confirmation to clear", async () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({})),
+  );
+  const outbound = {
+    segments: [
+      {
+        departure_airport: "ATL",
+        arrival_airport: "BOS",
+        departure_time_local: "2030-05-01T10:00:00",
+        arrival_time_local: "2030-05-01T12:00:00",
+        marketing_carrier_code: "DL",
+        flight_number: "1",
+      },
+    ],
+  };
+  const inbound = {
+    segments: [
+      {
+        departure_airport: "BOS",
+        arrival_airport: "ATL",
+        departure_time_local: "2030-05-04T10:00:00",
+        arrival_time_local: "2030-05-04T12:00:00",
+        marketing_carrier_code: "DL",
+        flight_number: "2",
+      },
+    ],
+  };
+  const result: FareSearchResult = {
+    partyId: "party",
+    cacheKey: "saved",
+    fetchedAt: "2030-01-01T00:00:00Z",
+    expiresAt: "2030-01-01T01:00:00Z",
+    request: {
+      origin: "ATL",
+      destination: "BOS",
+      departure_date: "2030-05-01",
+      return_date: "2030-05-04",
+      adults: 1,
+      cabin_class: "economy",
+      market: "US",
+      searchKind: "itinerary",
+    },
+    response: {
+      itineraries: [
+        { legs: [outbound, inbound], price: { amount: 400, currency: "USD" } },
+      ],
+    },
+    evaluations: [{ status: "Eligible", issues: [] }],
+  };
+  vi.mocked(getFlightSearchResults).mockResolvedValue([result]);
+  let stored: (string | null)[] = [];
+  vi.mocked(getFlightChoices).mockImplementation(async () => [
+    { partyId: "party", legKeys: stored, nextOrigins: ["ATL"] },
+  ]);
+  vi.mocked(setFlightChoices)
+    .mockRejectedValueOnce(new Error("Flight choice could not be saved"))
+    .mockImplementation(async (_trip, partyId, legKeys) => {
+      stored = legKeys;
+      return { partyId, legKeys, nextOrigins: ["ATL"] };
+    });
+  const page = (
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <PlanningRun
+          tripId="trip"
+          parties={[party]}
+          partySettings={[partySettings]}
+          constraints={[]}
+          multiCity
+          visitCount={1}
+          visits={[
+            {
+              id: "boston",
+              location: {
+                code: "BOS",
+                label: "Boston",
+                timeZone: "America/New_York",
+              },
+              nights: 3,
+              presentFrom: null,
+              presentThrough: null,
+              afterVisitIds: [],
+            },
+          ]}
+          disabled={false}
+          hasUnsavedChanges={false}
+          savedVersion={0}
+          onBeforeSearch={save}
+          onReviewRequirements={reviewRequirements}
+        />
+      </MemoryRouter>
+    </FluentProvider>
+  );
+  const view = render(page);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Choose flight DL 2/ }),
+  );
+  await screen.findAllByText("Flight choice could not be saved");
+  expect(screen.getByText("0 of 2 flights selected")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: /Choose flight DL 2/ }));
+  await waitFor(() => expect(stored).toEqual([null, legKey(inbound)]));
+  expect(screen.getByText("1 of 2 flights selected")).toBeVisible();
+  view.unmount();
+  // Only the retained flight remains after cache expiry; no operation is needed.
+  vi.mocked(getFlightSearchResults).mockResolvedValue([
+    {
+      ...result,
+      response: {
+        itineraries: [],
+        flights: [{ legIndex: 1, leg: inbound, bookingLegCount: 1 }],
+      },
+      evaluations: [],
+    },
+  ]);
+  render(page);
+  expect(await screen.findByText("1 of 2 flights selected")).toBeVisible();
+  const selected = await screen.findByRole("button", {
+    name: /Choose flight DL 2/,
+  });
+  expect(selected).toHaveAttribute("aria-pressed", "true");
+  expect(startFlightSearch).not.toHaveBeenCalled();
+  fireEvent.click(selected);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Keep selections" }),
+  );
+  expect(setFlightChoices).toHaveBeenCalledTimes(2);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Choose flight DL 2/ }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Deselect flights" }),
+  );
+  await waitFor(() => expect(stored).toEqual([]));
+  expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
+  expect(setFlightChoices).toHaveBeenLastCalledWith("trip", "party", []);
+});
 
 test("a saved first flight advances to the second flight after search completes", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
@@ -503,3 +652,119 @@ test("expired destination dates hide an unrelated historical search status and o
   fireEvent.click(screen.getByRole("button", { name: "Review trip details" }));
   expect(reviewRequirements).toHaveBeenCalledWith("tokyo-stay");
 });
+
+test.each([true, false])(
+  "progressive results use the destination grid on desktop and phone screens (wide: %s)",
+  async (wide) => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(min-width: 1100px)" && wide,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({})),
+    );
+    vi.mocked(getOperations).mockResolvedValue([
+      {
+        ...operation,
+        status: "InProgress",
+        progress: { items: 4, completedItems: 1, failedItems: 0 },
+      },
+    ]);
+    vi.mocked(getFlightSearchResults).mockResolvedValue([
+      {
+        partyId: "party",
+        cacheKey: "partial",
+        fetchedAt: "2030-01-01T00:00:00Z",
+        expiresAt: "2030-01-01T01:00:00Z",
+        request: {
+          origin: "ATL",
+          destination: "BOS",
+          departure_date: "2030-05-01",
+          return_date: "2030-05-04",
+          adults: 1,
+          cabin_class: "economy",
+          market: "US",
+          searchKind: "itinerary",
+        },
+        response: {
+          itineraries: [],
+          flights: [
+            {
+              legIndex: 0,
+              bookingLegCount: 1,
+              leg: {
+                segments: [
+                  {
+                    departure_airport: "ATL",
+                    arrival_airport: "BOS",
+                    departure_time_local: "2030-05-01T10:00:00",
+                    arrival_time_local: "2030-05-01T12:00:00",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        evaluations: [],
+      },
+    ]);
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <MemoryRouter>
+          <PlanningRun
+            tripId="trip"
+            parties={[party]}
+            partySettings={[partySettings]}
+            constraints={[]}
+            multiCity
+            visitCount={1}
+            visits={[
+              {
+                id: "boston",
+                location: {
+                  code: "BOS",
+                  label: "Boston",
+                  timeZone: "America/New_York",
+                },
+                nights: 3,
+                presentFrom: null,
+                presentThrough: null,
+                afterVisitIds: [],
+              },
+            ]}
+            disabled={false}
+            hasUnsavedChanges={false}
+            savedVersion={0}
+            onBeforeSearch={save}
+            onReviewRequirements={reviewRequirements}
+          />
+        </MemoryRouter>
+      </FluentProvider>,
+    );
+    await screen.findByText("Prices last retrieved", { exact: false });
+    expect(
+      screen.getByRole("region", {
+        name: "Flight destinations and connections",
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Boston" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Return home" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: /Flight 1/ })).toBeNull();
+    expect(
+      screen
+        .getByRole("slider", { name: "Maximum total trip cost" })
+        .closest(".fui-Slider"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /^Choose flight/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByLabelText("Loading flights for return home"),
+    ).toBeVisible();
+  },
+);

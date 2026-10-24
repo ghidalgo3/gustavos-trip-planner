@@ -55,10 +55,6 @@ public sealed class DestinationFlightPlanning(
                                 nearby.Select(airport => airport.Code).ToArray()
                             );
                     var constraints = item.City.Properties.Constraints;
-                    bool ordered =
-                        constraints.ValueKind != JsonValueKind.Object
-                        || !constraints.TryGetProperty("keepAfterPrevious", out var order)
-                        || order.ValueKind != JsonValueKind.False;
                     return new PlannedVisit
                     {
                         Id = item.Stay.Id,
@@ -70,7 +66,7 @@ public sealed class DestinationFlightPlanning(
                             constraints,
                             "departureFlexibilityDays"
                         ),
-                        AfterVisitIds = ordered && index > 0 ? [visits[index - 1].Stay.Id] : [],
+                        AfterVisitIds = index > 0 ? [visits[index - 1].Stay.Id] : [],
                     };
                 }
             )
@@ -94,7 +90,7 @@ public sealed class DestinationFlightPlanning(
             SearchLimits = new()
             {
                 FlexibilityDays = 0,
-                MaxTripDays = Math.Clamp(span + 14, 21, 60),
+                MaxTripDays = Math.Clamp(Math.Max(span + 14, planned.Length + 1), 21, 36890),
             },
             AiPrompt = null,
             Constraints = saved

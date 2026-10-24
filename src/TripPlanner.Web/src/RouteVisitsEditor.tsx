@@ -1,15 +1,4 @@
-import { useState } from "react";
-import {
-  Button,
-  Card,
-  Combobox,
-  Field,
-  Input,
-  Option,
-  Tag,
-  TagGroup,
-  Text,
-} from "@fluentui/react-components";
+import { Button, Card, Field, Input, Text } from "@fluentui/react-components";
 import FlightAirportPicker from "./FlightAirportPicker";
 import type { PlannedVisit, PlanningDocument } from "./planningApi";
 
@@ -70,9 +59,9 @@ export default function RouteVisitsEditor({
   return (
     <div className="route-visits">
       <Text>
-        Plan up to three destinations. Stays are measured in nights; required
-        dates use the destination's local calendar. Flight dates can be chosen
-        for you.
+        Destinations stay in the order shown. Stays are measured in nights;
+        required dates use the destination's local calendar. Flight dates can be
+        chosen for you.
       </Text>
       {visits.map((visit, index) => (
         <Card key={visit.id} className="route-visit">
@@ -123,14 +112,6 @@ export default function RouteVisitsEditor({
               />
             </Field>
           </div>
-          {visits.length > 1 && (
-            <VisitOrderPicker
-              visit={visit}
-              index={index}
-              visits={visits}
-              onChange={(afterVisitIds) => update(visit.id, { afterVisitIds })}
-            />
-          )}
           {visit.originalInput && (
             <Text size={200}>
               From your description: “{visit.originalInput}”
@@ -157,7 +138,6 @@ export default function RouteVisitsEditor({
         </Card>
       ))}
       <Button
-        disabled={visits.length >= 3}
         onClick={() =>
           onChange({
             ...document,
@@ -205,7 +185,7 @@ export default function RouteVisitsEditor({
           <Input
             type="number"
             min={1}
-            max={60}
+            max={36890}
             value={String(limits.maxTripDays)}
             onChange={(_, data) =>
               onChange({
@@ -217,83 +197,10 @@ export default function RouteVisitsEditor({
         </Field>
       </div>
       <Text size={200}>
-        Up to 40 fare queries per party. Cached searches are reused. Separate
-        tickets between stays are allowed; self-transfer connections are
-        excluded.
+        Searches are sampled across every flight in your route. Cached searches
+        are reused. Separate tickets between stays are allowed; self-transfer
+        connections are excluded.
       </Text>
-    </div>
-  );
-}
-
-function VisitOrderPicker({
-  visit,
-  index,
-  visits,
-  onChange,
-}: {
-  visit: PlannedVisit;
-  index: number;
-  visits: PlannedVisit[];
-  onChange: (afterVisitIds: string[]) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const available = visits.filter((candidate) => candidate.id !== visit.id);
-  const selected = available.filter((candidate) =>
-    visit.afterVisitIds.includes(candidate.id),
-  );
-  const labelFor = (candidate: PlannedVisit) =>
-    `Destination ${visits.indexOf(candidate) + 1}: ${candidate.location?.label ?? "Not set"}`;
-
-  return (
-    <div className="visit-order">
-      {selected.length > 0 && (
-        <TagGroup
-          className="visit-order-tags"
-          aria-label={`Selected destinations before destination ${index + 1}`}
-          dismissible
-          onDismiss={(_, data) =>
-            onChange(visit.afterVisitIds.filter((id) => id !== data.value))
-          }
-        >
-          {selected.map((candidate) => (
-            <Tag key={candidate.id} value={candidate.id} size="small">
-              {labelFor(candidate)}
-            </Tag>
-          ))}
-        </TagGroup>
-      )}
-      <Field
-        label={`Destinations before destination ${index + 1}`}
-        hint="Choose destinations that must happen first. Leave empty to let the planner choose the order."
-      >
-        <Combobox
-          multiselect
-          inlinePopup
-          aria-label={`Destinations before destination ${index + 1}`}
-          placeholder="Choose earlier destinations"
-          value={query}
-          selectedOptions={selected.map((candidate) => candidate.id)}
-          onChange={(event) => setQuery(event.target.value)}
-          onOptionSelect={(_, data) => {
-            onChange(
-              data.selectedOptions.filter((id) =>
-                available.some((candidate) => candidate.id === id),
-              ),
-            );
-            setQuery("");
-          }}
-        >
-          {available.map((candidate) => (
-            <Option
-              key={candidate.id}
-              value={candidate.id}
-              text={labelFor(candidate)}
-            >
-              {labelFor(candidate)}
-            </Option>
-          ))}
-        </Combobox>
-      </Field>
     </div>
   );
 }

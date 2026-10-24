@@ -111,19 +111,21 @@ public sealed class StringItemsAttribute(string pattern, int maxLength) : Valida
 {
     public string Pattern { get; } = pattern;
     public int MaxLength { get; } = maxLength;
+    public bool AllowNullItems { get; set; }
 
     public override bool IsValid(object? value) =>
         value is null
         || value is IEnumerable<string> items
             && items.All(item =>
-                !string.IsNullOrWhiteSpace(item)
-                && item.Length <= MaxLength
-                && System.Text.RegularExpressions.Regex.IsMatch(
-                    item,
-                    Pattern,
-                    System.Text.RegularExpressions.RegexOptions.CultureInvariant,
-                    TimeSpan.FromSeconds(1)
-                )
+                (item is null && AllowNullItems)
+                || !string.IsNullOrWhiteSpace(item)
+                    && item.Length <= MaxLength
+                    && System.Text.RegularExpressions.Regex.IsMatch(
+                        item,
+                        Pattern,
+                        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                        TimeSpan.FromSeconds(1)
+                    )
             );
 
     public override string FormatErrorMessage(string name) =>

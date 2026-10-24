@@ -171,7 +171,7 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
         {
             schema.Items = new OpenApiSchema
             {
-                Type = JsonSchemaType.String,
+                Type = JsonSchemaType.String | (items.AllowNullItems ? JsonSchemaType.Null : 0),
                 MinLength = 1,
                 MaxLength = items.MaxLength,
                 Pattern = items.Pattern,

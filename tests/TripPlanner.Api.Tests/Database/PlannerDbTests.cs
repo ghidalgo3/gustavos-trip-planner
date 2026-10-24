@@ -880,9 +880,37 @@ public sealed class PlannerDbTests
         var saved = await db.SetFlightChoicesAsync(
             user.Id,
             trip.Id,
-            new(party.Id, ["selected-first-flight"], ["CDG"])
+            new(party.Id, [null, "selected-flight"], ["CDG"])
+            {
+                SavedFares =
+                [
+                    new(
+                        party.Id,
+                        "saved-fare",
+                        first,
+                        JsonSerializer.SerializeToElement(
+                            new { itineraries = new[] { new { ignav_id = "retained-offer" } } }
+                        ),
+                        DateTimeOffset.UtcNow,
+                        DateTimeOffset.UtcNow.AddHours(1)
+                    ),
+                ],
+            }
         );
         CollectionAssert.Contains(saved.NextOrigins, "CDG");
+        var restoredChoice = (await db.GetFlightChoicesAsync(user.Id, trip.Id)).Single();
+        CollectionAssert.AreEqual(
+            new string?[] { null, "selected-flight" },
+            restoredChoice.LegKeys
+        );
+        Assert.AreEqual(
+            "retained-offer",
+            restoredChoice
+                .SavedFares.Single()
+                .Response.GetProperty("itineraries")[0]
+                .GetProperty("ignav_id")
+                .GetString()
+        );
         CollectionAssert.Contains(
             (await db.GetFlightChoicesAsync(user.Id, trip.Id)).Single().NextOrigins,
             "CDG"

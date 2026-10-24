@@ -207,7 +207,9 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
         {
             node["items"] = new JsonObject
             {
-                ["type"] = "string",
+                ["type"] = items.AllowNullItems
+                    ? new JsonArray("string", "null")
+                    : JsonValue.Create("string"),
                 ["minLength"] = 1,
                 ["maxLength"] = items.MaxLength,
                 ["pattern"] = items.Pattern,

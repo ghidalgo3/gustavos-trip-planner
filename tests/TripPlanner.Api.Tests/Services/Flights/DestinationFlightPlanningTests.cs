@@ -135,7 +135,7 @@ public class DestinationFlightPlanningTests
         Assert.AreEqual(flex, document.Visits[0].ArrivalFlexibilityDays);
         Assert.AreEqual(flex, document.Visits[0].DepartureFlexibilityDays);
         CollectionAssert.AreEqual(
-            ordered ? new[] { document.Visits[0].Id } : [],
+            new[] { document.Visits[0].Id },
             document.Visits[1].AfterVisitIds
         );
         Assert.IsTrue(document.Parties.Single().Origin!.AirportCodes.Contains("BOS"));

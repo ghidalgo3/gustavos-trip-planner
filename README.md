@@ -143,21 +143,21 @@ Stop local services with `docker compose down`. Add `--volumes` only when you in
 
 ## Flight planning
 
-Define destinations and visit dates on **Overview**, and manage party members in the **Party** navigation section. New members default to **Traveller**; the owner can choose **Planner** when adding a member or change an existing member’s role. The member `PUT` accepts `{ "role": "Traveller" }` or `{ "role": "Planner" }`; a legacy empty request defaults to Traveller. Roles persist per party member, and demotion removes planning access. The destination drawer owns `properties.constraints.arrivalFlexibilityDays` and `departureFlexibilityDays` (independent ±0–5 day windows) and `keepAfterPrevious` (default true). These city constraints apply to every visit, including repeat visits. Existing unrelated destination constraints are preserved when editing these controls.
+Define destinations and visit dates on **Overview**, and manage party members in the **Party** navigation section. New members default to **Traveller**; the owner can choose **Planner** when adding a member or change an existing member’s role. The member `PUT` accepts `{ "role": "Traveller" }` or `{ "role": "Planner" }`; a legacy empty request defaults to Traveller. Roles persist per party member, and demotion removes planning access. The destination drawer owns `properties.constraints.arrivalFlexibilityDays` and `departureFlexibilityDays` (independent ±0–5 day windows) with a fixed destination order. Legacy `keepAfterPrevious` values are accepted but no longer allow reordering. These city constraints apply to every visit, including repeat visits. Existing unrelated destination constraints are preserved when editing these controls.
 
 **Plan Flights** opens `/trips/{tripId}/flights`, which contains the flight search and selection card. It has no separate party, destination, date, advanced-constraint, or AI trip-description form. Search validation issues offer a return to Overview. Home airports come from the trip owner's profile; airline preferences initialize the search settings. Preferred airlines affect ranking rather than excluding other carriers.
 
-The API derives the effective flight document from the current destination resources on every constraints read, search, result read, booking lookup, and selection. Stable stay IDs identify planned visits. Dates determine chronological order; an enabled ordering constraint requires the preceding visit. Destination coordinates and country select nearby catalog airports. Date flexibility applies independently to local arrival and departure, including validation of actual returned flights. Changes take effect without saving a second planning document. Existing API clients with flight-only trips can still use their stored flight documents until destinations are defined.
+The API derives the effective flight document from the current destination resources on every constraints read, search, result read, booking lookup, and selection. Stable stay IDs identify planned visits. Dates determine the same chronological order shown on Overview, with stored visit order breaking ties. Flight searches always preserve that sequence, including repeat visits. Destination coordinates and country select nearby catalog airports. Date flexibility applies independently to local arrival and departure, including validation of actual returned flights. Changes take effect without saving a second planning document. Existing API clients with flight-only trips can still use their stored flight documents until destinations are defined.
 
-**Find flights** prepares a bounded set of provider requests and queues Ignav calls. Invalid requests return HTTP 400 with planning issues; accepted searches return HTTP 202 with a polling URL. The existing engine supports up to three visits and a maximum of 60 trip days. Airport catalog sources and home-airport selection rules are in [Data/README.md](src/TripPlanner.Api/Data/README.md).
+**Find flights** prepares a bounded set of provider requests and queues Ignav calls. Invalid requests return HTTP 400 with planning issues; accepted searches return HTTP 202 with a polling URL. There is no destination-count limit. The total-trip search window is derived from the stays, including trips longer than 60 days. Airport catalog sources and home-airport selection rules are in [Data/README.md](src/TripPlanner.Api/Data/README.md).
 
 The browser supplies the current user time zone through
 `Intl.DateTimeFormat().resolvedOptions().timeZone`; there is no time-zone input.
 Airport time zones come from the catalog and are used internally to handle
 overnight travel and date-line crossings. Calendar values remain date-only strings.
 Planning combines party members' requirements, explains missing inputs and
-conflicts, and prepares at most `Planning:FareRequestLimit` unique fare requests per
-party (default 160). Multi-destination searches reserve request slots across
+conflicts, and uses `Planning:FareRequestLimit` as the sampled fare-request budget per
+party (default 160), increasing it to at least one request per leg for longer routes. Multi-destination searches reserve request slots across
 all legs before paired fares. `Planning:DatePairLimit` defaults to 40 for round-trip date
 candidates before airport expansion. Fresh cache hits conservatively count toward
 the request cap, so actual provider calls can be fewer. The return-flight date is the date the flight home begins and maps directly
@@ -166,8 +166,7 @@ required presence, journey duration, and layover geography when reading cached f
 
 Route planning shares dated legs across candidates and queries one-way fares plus
 paired outbound/homebound open-jaw fares through Ignav's flexible endpoint. It
-prioritizes first-leg searches and displays their fares while later-leg searches
-continue. A first-leg choice carries into the complete-route picker when a
+prioritizes first-leg searches and returns per-column provisional flights alongside complete itineraries as searches finish. A first-leg choice carries into the complete-route picker when a
 compatible itinerary is found. It
 combines complete offers, validates actual flight times and all stays, and ranks
 complete itineraries by price, stops, preferred airlines, home airport, and travel
@@ -175,19 +174,20 @@ time. Separate tickets between stays are allowed and labeled; self-transfer
 connections are excluded. Results are a bounded sample, not a guarantee of the
 cheapest possible itinerary. The same asynchronous flight-search operation,
 one-hour cache, and selected-flight JSONB snapshot serve both planning modes.
-Route results present one flight at a time, showing airline names, flight
-numbers, layover airports and durations, and airline booking options for the
-current flight. While searches run, choosing a flight advances the picker to the
-next leg as its fares arrive. If saving that choice fails, the picker returns to
-the previous leg and shows the server's error beside it. Each saved choice also
+On phones and larger screens, route results show horizontally scrollable destination columns plus a return-home column. Phone columns stay 240–300px wide, with horizontal swipe scrolling and gentle column snapping; the rest of the page stays within the screen. Filters and selection actions wrap above the grid, and controls have larger touch targets. Each arriving flight card has a stable identity within its visit, including repeat destinations. As results arrive, flights with complete paths sort first, followed by preferred airlines within each group, then departure time. Flight numbers for every segment appear below the airline name. Hover or keyboard focus draws and highlights complete server-validated paths containing that flight; provisional flights show when no complete route has been found. Compact connection graphs preserve every valid path among the returned flight cards for any number of visits, independently of price ranking. Separate outbound fare contexts preserve bundled returns, currencies, and whole-trip duration constraints. Shared connection indexes avoid repeating flight details or enumerating every combination. At least one priced, reviewable itinerary is retained for each compatible flight. Multi-stop hover reports connected flights instead of counting only the sampled itineraries. Paired fares display the full booking price and the number of flights covered. Clicking a card selects only that flight, in any column; clicking it again asks for confirmation before clearing it. Alternatives in selected columns dim, while other columns retain only flights on complete paths compatible with all selections. Each flight selection is saved immediately, including partial selections made out of order. **Review selected flights** opens the exact chosen combination for review and saving as a complete itinerary. Filters remain local. **Clear selections** reopens the grid after confirmation. Replacing a saved choice also requires confirmation. The cost slider’s minimum and maximum update from complete paths compatible with the current selections, airline filter, and stops filter as results arrive. Its own price cap does not shrink those bounds; a previously set cap is clamped to the updated range. The maximum total-trip-cost slider uses graph fare costs (charging each bundled fare once), rather than individual card prices or the sampled itineraries. Stops (nonstop, one, or two-plus) and airline multiselects apply to every flight/segment in the path; currencies are filtered separately. Forward/backward minimum-cost searches enforce the cap again when hovering or adding selections, so separately affordable branches cannot form an over-budget highlighted path. Search responses retain the complete weighted graph even after a route has been reviewed. Fluent UI skeleton cards appear in empty columns and below arriving results until the search finishes.
+
+Hover queries reuse a prepared graph with integer flight indexes and reusable cost buffers. Card content is memoized separately from highlight classes, and detailed flight information mounts only when expanded. A stable resize observer caches each card's geometry; pointer movement does not reread layout. All highlighted connections are drawn as subpaths in one SVG path, and highlighting has no fade animation. Geometry is refreshed when results, filters, selections, expanded details, or viewport size change.
+
+The sequential picker remains a fallback for older planning data without destination visits. It shows airline names, flight numbers, layover airports and durations, and airline booking options for the current flight. In either layout, failed saves restore the previous selection and show the server's error beside the flights. Each saved choice also
 recomposes complete routes around
-the chosen flights from cached fares, so the global result cap does not hide
+the chosen flights from cached and retained fares, so the global result cap does not hide
 later-leg alternatives. This does not make another Ignav request while the
-cache is fresh. The server verifies each choice against its cached fare and
+cache is fresh. The server verifies each choice against its cached or previously retained fare and
 uses that fare's searched cities to identify and prioritize the next leg, even
 when Ignav returns a different airport within a city.
+Partial choices store server-owned provider offers alongside nullable, position-specific flight keys in the existing `flight_choices` JSONB resource. Only offers containing a chosen flight are retained; paired offers stay indivisible. Reloading restores these cards even after the one-hour search cache expires. Subsequent searches queue only unselected legs and omit bundled searches that would repeat a selected leg. Clearing a choice releases its retained offers unless another selected flight still needs the same bundle, and makes that leg searchable again. No automatic provider search is needed to restore saved cards. The retained amounts are saved quotes; airline booking prices and availability may change.
 The reusable flight card labels each endpoint with its city and airport code,
-for example Atlanta (ATL) → Phuket (HKT). A flight-step TabList shows the
+for example Atlanta (ATL) → Phuket (HKT). In the sequential fallback, a flight-step TabList shows the
 current leg, chosen legs, and upcoming legs. Known legs show their airport
 codes. Earlier tabs reopen those choices when a paired fare or route constraint
 narrows the returns. The completed route separates flights with the number of
@@ -201,9 +201,8 @@ save action clears the saved itinerary and flight choices so selection restarts
 at the first flight using the available results. Only HTTPS airline-direct
 links returned by Ignav are shown; third-party seller links are omitted.
 The Plans overview also shows airline booking options for each leg of a saved
-route while its original fare search is fresh. When that search expires, run
-**Find flights** again to obtain current links.
-Saving a complete route sends its leg identifiers and displayed price alongside the result key and index. The API resolves that quote against current cached, validated results, so additional search results cannot invalidate an unchanged selection. Changed flights or prices require reviewing the current results. The picker recognizes saved flights independently of temporary cache keys and result ordering, preserving its selected state and purchase indicators across refreshes.
+route using cached or retained provider offers. If the provider no longer recognizes a retained offer, deselect that flight and run **Find flights** again to obtain a new offer.
+Saving a complete route sends its leg identifiers and displayed price alongside the result key and index. The API resolves that quote against cached or retained, validated results, so additional search results cannot invalidate an unchanged selection. Changed flights or prices require reviewing the current results. The picker recognizes saved flights independently of temporary cache keys and result ordering, preserving its selected state and purchase indicators across refreshes.
 
 The owner can mark each flight as purchased on the saved route or in Plans;
 those booleans persist in the trip's selected-flight JSONB snapshot. Travel
@@ -646,8 +645,8 @@ cross-field/domain checks still run in the existing handlers.
 | Destination constraints | Object; arrival/departure flexibility 0–5 and `keepAfterPrevious` boolean when present |
 | Trips / profile | Trip name 1–200, description up to 4000; home-city name up to 200; bounded airline/airport codes and valid home coordinates |
 | Party role | Exactly `Traveller` or `Planner` |
-| Flight planning | Cabin `economy`, `premium_economy`, `business`, or `first`; stops 0–2, journey hours 1–168, flexibility 0–5, trip length 1–60 days; supported constraint/location types and bounded arrays |
-| Flight selection | Nonnegative itinerary indexes and prices, three-letter currencies, bounded non-null leg identifiers; choices must still match current server fares |
+| Flight planning | Cabin `economy`, `premium_economy`, `business`, or `first`; stops 0–2, journey hours 1–168, flexibility 0–5, trip length 1–36890 days; no destination-count cap; supported constraint/location types |
+| Flight selection | Nonnegative itinerary indexes and prices, three-letter currencies, leg identifiers of at most 4096 characters each (null slots allowed for unselected legs in partial choices); choices must match server-owned current or retained fares |
 | Activity planning | Proposal kind `draft` or `improvements`; transport `walking`, `taxi`, or `driving`; meals `breakfast`, `lunch`, or `dinner`; clocks ISO 8601 `HH:mm:ss` with zero seconds, allowances 0–1440 minutes, bounded plan arrays |
 | IDs / pagination | Nonempty UUIDs; reuse returned opaque destination/context IDs and quoted ETags; operation page size 1–100 and offsets 0–100000; operation filters accept known operation types |
 | Authentication / uploads | OAuth parameters remain validated by OpenIddict; login/logout redirects must target local paths or configured origins and cannot contain backslashes/control characters; image uploads retain count, byte-size, MIME-signature, and pixel limits |

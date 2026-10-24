@@ -1,3 +1,4 @@
+import type { PlannedVisit } from "./planningApi";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -37,6 +38,7 @@ export default function PlanningRun({
   currentAiPrompt,
   multiCity = false,
   visitCount = 0,
+  visits = [],
   disabled,
   hasUnsavedChanges,
   savedVersion,
@@ -50,12 +52,14 @@ export default function PlanningRun({
   currentAiPrompt?: string | null;
   multiCity?: boolean;
   visitCount?: number;
+  visits?: PlannedVisit[];
   disabled: boolean;
   hasUnsavedChanges: boolean;
   savedVersion: number;
   onBeforeSearch: () => Promise<void>;
   onReviewRequirements: (constraintId?: string) => void;
 }) {
+  const showGrid = multiCity && visits.length > 0;
   const [operation, setOperation] = useState<TrackedOperation>();
   const [results, setResults] = useState<FareSearchResult[]>([]);
   const [resultsKey, setResultsKey] = useState("");
@@ -99,7 +103,7 @@ export default function PlanningRun({
 
   async function saveFlightChoices(
     partyId: string,
-    legKeys: string[],
+    legKeys: (string | null)[],
   ): Promise<boolean> {
     choiceMutation.current += 1;
     const previous = flightChoices[partyId];
@@ -108,7 +112,16 @@ export default function PlanningRun({
       [partyId]: {
         partyId,
         legKeys,
-        nextOrigins: nextOriginFromKey(legKeys.at(-1)),
+        nextOrigins: nextOriginFromKey(
+          legKeys
+            .slice(
+              0,
+              legKeys.findIndex((key) => !key) < 0
+                ? legKeys.length
+                : legKeys.findIndex((key) => !key),
+            )
+            .at(-1),
+        ),
       },
     }));
     try {
@@ -151,32 +164,29 @@ export default function PlanningRun({
         setOperation(latest);
         setCheckedAt(Date.now());
         setPollError(undefined);
+        // Saved offers can be restored without a live operation or fresh cache.
+        const resultVersion = latest?.id ?? "saved";
         if (
-          latest &&
-          (latest.progress.completedItems > 0 || latest.status === "Completed")
+          loadedResults !== resultVersion ||
+          latest?.status === "InProgress" ||
+          latest?.status === "pending"
         ) {
-          if (latest.status !== "Completed" || loadedResults !== latest.id) {
-            const found = await getFlightSearchResults(
-              tripId,
-              controller.signal,
-            );
-            if (controller.signal.aborted) return;
-            setResults(found);
-            setResultsKey(`${tripId}:${savedVersion}`);
-            if (latest.status === "Completed") loadedResults = latest.id;
-          }
-          if (latest.status === "Completed") delay = 15000;
-        } else if (latest?.status === "Failed") {
-          delay = 15000;
-        } else {
-          setResults([]);
-          loadedResults = "";
+          const found = await getFlightSearchResults(tripId, controller.signal);
+          if (controller.signal.aborted) return;
+          setResults(found);
+          setResultsKey(`${tripId}:${savedVersion}`);
+          loadedResults = resultVersion;
         }
-        if (!latest) delay = 15000;
+        if (
+          !latest ||
+          latest.status === "Completed" ||
+          latest.status === "Failed"
+        )
+          delay = 15000;
       } catch (reason) {
         if (controller.signal.aborted) return;
-        setResults([]);
         if (reason instanceof FlightSearchValidationError) {
+          setResults([]);
           setIssues(reason.issues);
           setOperation(undefined);
           setPollError(undefined);
@@ -208,7 +218,6 @@ export default function PlanningRun({
       await onBeforeSearch();
       const started = await startFlightSearch(tripId, requestId.current);
       setOperation(started);
-      setResults([]);
       requestId.current = undefined;
       setRefresh((value) => value + 1);
     } catch (reason) {
@@ -313,54 +322,70 @@ export default function PlanningRun({
       {hasUnsavedChanges && currentResults.length > 0 && (
         <Text>Save planning details to refresh these flight options.</Text>
       )}
-      {!hasUnsavedChanges && currentResults.length > 0 && (
-        <>
-          {currentResults.some((r) => r.request.searchKind === "itinerary") ? (
-            <RouteFareResults
-              tripId={tripId}
-              results={currentResults}
-              parties={parties}
-              partySettings={partySettings}
-              savedChoices={Object.fromEntries(
-                Object.entries(flightChoices).map(([partyId, choice]) => [
-                  partyId,
-                  choice.legKeys,
-                ]),
-              )}
-              onChangeChoices={saveFlightChoices}
-            />
-          ) : multiCity ? (
-            <FirstLegResults
-              results={currentResults}
-              parties={parties}
-              partySettings={partySettings}
-              choices={flightChoices}
-              legCount={visitCount + 1}
-              searching={active}
-              onChoose={saveFlightChoices}
-            />
-          ) : (
-            <FareResults
-              tripId={tripId}
-              results={currentResults}
-              parties={parties}
-              partySettings={partySettings}
-            />
-          )}
-          <Text size={200}>
-            Prices last retrieved{" "}
-            {new Date(currentResults[0].fetchedAt).toLocaleString()}.{" "}
-            {Date.parse(currentResults[0].expiresAt) <= checkedAt
-              ? "These results have expired. Plan again to refresh prices."
-              : "Prices can change."}
-          </Text>
-        </>
-      )}
+      {!hasUnsavedChanges &&
+        (currentResults.length > 0 ||
+          (showGrid && (operation || starting))) && (
+          <>
+            {showGrid ||
+            currentResults.some(
+              (r) =>
+                r.request.searchKind === "itinerary" &&
+                r.response.itineraries.length > 0,
+            ) ? (
+              <RouteFareResults
+                tripId={tripId}
+                results={currentResults}
+                visits={visits}
+                showGrid={showGrid}
+                searching={Boolean(active || starting)}
+                parties={parties}
+                partySettings={partySettings}
+                savedChoices={Object.fromEntries(
+                  Object.entries(flightChoices).map(([partyId, choice]) => [
+                    partyId,
+                    choice.legKeys,
+                  ]),
+                )}
+                onChangeChoices={saveFlightChoices}
+              />
+            ) : multiCity ? (
+              <FirstLegResults
+                results={currentResults}
+                parties={parties}
+                partySettings={partySettings}
+                choices={flightChoices}
+                legCount={visitCount + 1}
+                searching={active}
+                onChoose={saveFlightChoices}
+              />
+            ) : (
+              <FareResults
+                tripId={tripId}
+                results={currentResults}
+                parties={parties}
+                partySettings={partySettings}
+              />
+            )}
+            {currentResults.length > 0 && (
+              <Text size={200}>
+                Prices last retrieved{" "}
+                {new Date(currentResults[0].fetchedAt).toLocaleString()}.{" "}
+                {Date.parse(currentResults[0].expiresAt) <= checkedAt
+                  ? Object.values(flightChoices).some((choice) =>
+                      choice.legKeys.some(Boolean),
+                    )
+                    ? "Saved flight quotes are retained. Search again to refresh unselected flights. Airline prices can change."
+                    : "These results have expired. Plan again to refresh prices."
+                  : "Prices can change."}
+              </Text>
+            )}
+          </>
+        )}
     </Card>
   );
 }
 
-function nextOriginFromKey(key?: string): string[] {
+function nextOriginFromKey(key?: string | null): string[] {
   if (!key) return [];
   try {
     const segments: unknown = JSON.parse(key);
