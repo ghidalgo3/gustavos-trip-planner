@@ -53,7 +53,7 @@ const results: FareSearchResult[] = [
       itineraries: [
         {
           ignav_id: "fare-1",
-          price: { amount: 100, currency: "USD" },
+          price: { status: "verified", amount: 100, currency: "USD" },
           outbound: {
             carrier: "Delta",
             duration_minutes: 300,
@@ -72,7 +72,7 @@ const results: FareSearchResult[] = [
           },
         },
         {
-          price: { amount: 130, currency: "USD" },
+          price: { status: "verified", amount: 130, currency: "USD" },
           outbound: {
             carrier: "United",
             segments: [
@@ -89,7 +89,7 @@ const results: FareSearchResult[] = [
           },
         },
         {
-          price: { amount: 140, currency: "USD" },
+          price: { status: "verified", amount: 140, currency: "USD" },
           outbound: {
             carrier: "British Airways",
             segments: [segment("BA", "2030-01-05T10:00", "2030-01-05T14:00")],
@@ -100,7 +100,7 @@ const results: FareSearchResult[] = [
           },
         },
         {
-          price: { amount: 150, currency: "USD" },
+          price: { status: "verified", amount: 150, currency: "USD" },
           outbound: {
             carrier: "Air France",
             segments: [

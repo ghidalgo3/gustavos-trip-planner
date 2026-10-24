@@ -46,7 +46,7 @@ test("shows a saved flight after fare search and can clear it", async () => {
                   return_date: "2030-04-10",
                 },
                 itinerary: {
-                  price: { amount: 400, currency: "USD" },
+                  price: { status: "verified", amount: 400, currency: "USD" },
                   outbound: { segments: [{ flight_number: "123" }] },
                   inbound: { segments: [{ flight_number: "456" }] },
                 },
@@ -145,7 +145,7 @@ test("shows the preferred-airline tag on matching saved flight legs", async () =
           itineraryIndex: 0,
           request: { origin: "ATL", destination: "CDG", adults: 1 },
           itinerary: {
-            price: { amount: 400, currency: "USD" },
+            price: { status: "verified", amount: 400, currency: "USD" },
             legs: [
               {
                 segments: [

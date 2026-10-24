@@ -73,18 +73,19 @@ function fares(graphs: boolean): FareSearchResult {
         legIndex: index < 2 ? 0 : 1,
         bookingLegCount: 2,
         price: {
+          status: "verified",
           amount: index === 0 || index === 2 ? 2627 : 2315,
           currency: "USD",
         },
       })),
       itineraries: pairings.map(([outbound, returning, amount], index) => ({
         legs: [flights[outbound], flights[returning]],
-        price: { amount, currency: "USD" },
+        price: { status: "verified", amount, currency: "USD" },
         bookingOffers: [
           {
             ignavId: `pair-${index}`,
             legIndexes: [0, 1],
-            price: { amount, currency: "USD" },
+            price: { status: "verified", amount, currency: "USD" },
           },
         ],
       })),
@@ -102,8 +103,14 @@ function fares(graphs: boolean): FareSearchResult {
                 currency: "USD",
                 bundledReturn: true,
                 costs: [
-                  { flightIndex: outbound, amount, ignavId: `pair-${index}` },
                   {
+                    status: "verified",
+                    flightIndex: outbound,
+                    amount,
+                    ignavId: `pair-${index}`,
+                  },
+                  {
+                    status: "verified",
                     flightIndex: returning,
                     amount: 0,
                     ignavId: `pair-${index}`,
@@ -153,8 +160,8 @@ test("cheaper separate tickets replace a bundled quote without hiding the return
     currency: "USD",
     bundledReturn: false,
     costs: [
-      { flightIndex: 0, amount: 1800 },
-      { flightIndex: 3, amount: 1100 },
+      { status: "verified", flightIndex: 0, amount: 1800 },
+      { status: "verified", flightIndex: 3, amount: 1100 },
     ],
   });
   const paths = filterFlightPaths(buildFlightGraph(result, 2), [
@@ -163,17 +170,17 @@ test("cheaper separate tickets replace a bundled quote without hiding the return
   ]);
   expect(paths.minTotal).toBe(2900);
   expect(paths.fares.get(flightNodeId(0, legKey(flights[0])))).toEqual({
-    price: { amount: 1800, currency: "USD" },
+    price: { status: "verified", amount: 1800, currency: "USD" },
     legIndexes: [0],
   });
   expect(paths.fares.get(flightNodeId(1, legKey(flights[3])))).toEqual({
-    price: { amount: 1100, currency: "USD" },
+    price: { status: "verified", amount: 1100, currency: "USD" },
     legIndexes: [1],
   });
 });
 
 test.each([false, true])(
-  "shared fares update with selections and appear once in the summary and review (return first: %s)",
+  "shared fares update directly on grid cards (return first: %s)",
   async (returnFirst) => {
     vi.stubGlobal(
       "fetch",
@@ -226,51 +233,71 @@ test.each([false, true])(
           name: new RegExp(`Choose flight DL ${number},`),
         })
         .closest('[role="group"]') as HTMLElement;
-    const click = (number: string) =>
-      fireEvent.click(within(card(number)).getByRole("button"));
+    const click = async (number: string) => {
+      const button = within(card(number)).getByRole("button", {
+        name: /^Choose flight/,
+      });
+      const selected = button.getAttribute("aria-pressed") === "true";
+      fireEvent.click(button);
+      if (!selected)
+        await waitFor(() =>
+          expect(button).toHaveAttribute("aria-pressed", "true"),
+        );
+    };
     expect(within(card("295")).getByText("USD $2,627")).toBeVisible();
     expect(within(card("294")).getByText("USD $2,315")).toBeVisible();
-    click(returnFirst ? "294" : "295");
-    const summary = await screen.findByRole("region", {
-      name: "Selected flights",
-    });
-    expect(within(summary).getByText("Outbound + return from")).toBeVisible();
+    expect(within(grid).queryByRole("switch", { name: "Booked" })).toBeNull();
+    await click(returnFirst ? "294" : "295");
+    expect(
+      within(card(returnFirst ? "294" : "295")).getByRole("switch", {
+        name: "Booked",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(card(returnFirst ? "294" : "295")).getByText("Booked"),
+    ).toBeVisible();
+    expect(
+      within(card(returnFirst ? "295" : "294")).queryByRole("switch", {
+        name: "Booked",
+      }),
+    ).toBeNull();
+    expect(
+      within(card(returnFirst ? "294" : "295")).getByText(
+        "Outbound + return from",
+      ),
+    ).toBeVisible();
     expect(
       within(card(returnFirst ? "295" : "294")).getByText("USD $3,229"),
     ).toBeVisible();
-    click(returnFirst ? "295" : "294");
+    await click(returnFirst ? "295" : "294");
     expect(
-      await within(summary).findByText("Outbound + return fare"),
+      within(card("295")).getByText("Outbound + return fare"),
     ).toBeVisible();
-    expect(within(summary).getAllByText("USD $3,229")).toHaveLength(1);
-    expect(
-      within(summary).getByText("Included in flight 1 fare"),
-    ).toBeVisible();
+    expect(within(card("295")).getByText("USD $3,229")).toBeVisible();
     expect(within(card("294")).queryByText("USD $3,229")).toBeNull();
     expect(
       within(card("294")).getByText("Included in flight 1 fare"),
     ).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review selected flights" }),
-    );
-    await screen.findByRole("heading", { name: "Your route is ready" });
     expect(
       screen.queryByRole("region", { name: "Selected flights" }),
     ).toBeNull();
-    const journey = document.querySelector(".journey-legs") as HTMLElement;
-    expect(within(journey).getAllByText("USD $3,229")).toHaveLength(1);
     expect(
-      within(journey).getByText("Included in flight 1 fare"),
-    ).toBeVisible();
-    click("294");
+      screen.queryByRole("button", { name: "Review selected flights" }),
+    ).toBeNull();
+    expect(document.querySelector(".journey-legs")).toBeNull();
+    await click("294");
     fireEvent.click(
       await screen.findByRole("button", { name: "Deselect flights" }),
     );
-    const partial = await screen.findByRole("region", {
-      name: "Selected flights",
-    });
-    expect(within(partial).getByText("USD $2,627")).toBeVisible();
-    expect(within(partial).getByText("Outbound + return from")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        within(card("294")).getByRole("button", { name: /^Choose flight/ }),
+      ).toHaveAttribute("aria-pressed", "false"),
+    );
+    expect(within(card("295")).getByText("USD $2,627")).toBeVisible();
+    expect(
+      within(card("295")).getByText("Outbound + return from"),
+    ).toBeVisible();
   },
 );
 
@@ -289,7 +316,11 @@ test.each([
       ignavId: paired ? "pair-2" : "one-way",
       legIndexes: paired ? [0, 1] : [0],
       legKeys: keys,
-      price: { amount: paired ? 3229 : 600, currency: "USD" },
+      price: {
+        status: "verified",
+        amount: paired ? 3229 : 600,
+        currency: "USD",
+      },
     };
     if (!completePath) {
       result.response.itineraries = [];
@@ -328,6 +359,7 @@ test.each([
                     provider_name: "Delta",
                     fare_name: "Main Extra",
                     price: {
+                      status: "verified",
                       amount: booking.price.amount + 120,
                       currency: "USD",
                     },
@@ -385,10 +417,10 @@ test.each([
         </FluentProvider>,
       );
     const rendered = show();
-    const summary = screen.getByRole("region", { name: "Selected flights" });
-    const label = paired
-      ? "Request round-trip booking link"
-      : "Request booking link";
+    const summary = screen
+      .getByRole("button", { name: /Choose flight DL 295,/ })
+      .closest(".flight-grid-card") as HTMLElement;
+    const label = "Booking Link";
     expect(within(summary).getAllByRole("switch")).toHaveLength(1);
     expect(within(summary).getByRole("switch")).not.toBeChecked();
     expect(
@@ -412,9 +444,7 @@ test.each([
     if (paired) expect(link).toHaveTextContent("also covers flight 2");
     if (paired)
       expect(
-        within(summary).getByText(
-          /Booking and purchase status are shared with flight 1/,
-        ),
+        within(summary).getByText("Shared booking for flights 1 + 2."),
       ).toBeVisible();
     fireEvent.click(within(summary).getByRole("switch"));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -428,17 +458,35 @@ test.each([
     expect(save).toHaveBeenLastCalledWith([booking.ignavId]);
     rendered.unmount();
     show();
-    const restored = screen.getByRole("region", { name: "Selected flights" });
+    const restored = screen
+      .getByRole("button", { name: /Choose flight DL 295,/ })
+      .closest(".flight-grid-card") as HTMLElement;
     expect(within(restored).getByRole("switch")).toBeChecked();
-    if (paired)
+    if (paired) {
+      const returnCard = screen
+        .getByRole("button", { name: /Choose flight DL 294,/ })
+        .closest(".flight-grid-card") as HTMLElement;
       expect(
-        within(restored).getByText(/shared with flight 1. Purchased/),
+        within(returnCard).getByRole("switch", { name: "Booked" }),
+      ).toBeChecked();
+      expect(
+        within(returnCard).getByText("Shared booking for flights 1 + 2."),
       ).toBeVisible();
-    fireEvent.click(within(restored).getByRole("switch"));
+    }
+    const toggleCard = paired
+      ? (screen
+          .getByRole("button", { name: /Choose flight DL 294,/ })
+          .closest(".flight-grid-card") as HTMLElement)
+      : restored;
+    fireEvent.click(within(toggleCard).getByRole("switch"));
     await waitFor(() =>
       expect(within(restored).getByRole("switch")).not.toBeChecked(),
     );
     expect(save).toHaveBeenLastCalledWith([]);
+    expect(
+      within(restored).getByRole("button", { name: /^Choose flight/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("dialog")).toBeNull();
   },
 );
 
@@ -454,7 +502,7 @@ test("a shared booking shows both separately priced directions without comparing
         ignavId: "pair-2",
         legIndexes: [0, 1],
         legKeys: keys,
-        price: { amount: 3229, currency: "USD" },
+        price: { status: "verified", amount: 3229, currency: "USD" },
       },
     ],
   };
@@ -472,6 +520,7 @@ test("a shared booking shows both separately priced directions without comparing
                     provider_name: "Delta",
                     fare_name: index === 0 ? "Main Classic" : "Main Extra",
                     price: {
+                      status: "verified",
                       amount: index === 0 ? 1800 : 1700,
                       currency: "USD",
                     },
@@ -509,10 +558,12 @@ test("a shared booking shows both separately priced directions without comparing
       />
     </FluentProvider>,
   );
-  const summary = screen.getByRole("region", { name: "Selected flights" });
+  const summary = screen
+    .getByRole("button", { name: /Choose flight DL 295,/ })
+    .closest(".flight-grid-card") as HTMLElement;
   fireEvent.click(
     within(summary).getByRole("button", {
-      name: "Request round-trip booking link",
+      name: "Booking Link",
     }),
   );
   expect(

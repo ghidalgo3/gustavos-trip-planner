@@ -32,7 +32,7 @@ test("uses the route as the heading and shows the fare without redundant labels"
   render(
     <FluentProvider theme={webLightTheme}>
       <FlightInformation
-        price={{ amount: 825, currency: "USD" }}
+        price={{ status: "verified", amount: 825, currency: "USD" }}
         cities={{ ATL: "Atlanta", HKT: "Phuket" }}
         badge="This flight is on the cheapest route"
         leg={{

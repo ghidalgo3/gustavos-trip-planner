@@ -324,6 +324,17 @@ public sealed class MultiCityPlannerTests
         (
             await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest(keys))
         ).EnsureSuccessStatusCode();
+        var automaticallySelected = (
+            await client.GetFromJsonAsync<SelectedFlight[]>($"/trips/{trip.Id}/flights")
+        )!.Single();
+        CollectionAssert.AreEqual(
+            keys,
+            automaticallySelected
+                .Itinerary.GetProperty("legs")
+                .EnumerateArray()
+                .Select(FlightChoiceRoute.FlightKey)
+                .ToArray()
+        );
         clock.Advance(TimeSpan.FromHours(2));
         Assert.HasCount(0, await Search());
         var complete = (
@@ -340,12 +351,7 @@ public sealed class MultiCityPlannerTests
                 .GetProperty("amount")
                 .GetDecimal()
         );
-        (
-            await client.PutAsJsonAsync(
-                $"/trips/{trip.Id}/flights/{party.Id}",
-                new SelectFlightRequest(complete.CacheKey, 0)
-            )
-        ).EnsureSuccessStatusCode();
+        // No separate itinerary-save request is needed after choosing all legs.
         // Clearing the resource drops snapshots and makes every leg searchable again.
         (
             await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest([]))
@@ -355,6 +361,10 @@ public sealed class MultiCityPlannerTests
             (await factory.Database.GetFlightChoicesAsync(user.Id!.Value, trip.Id))
                 .Single()
                 .SavedFares
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.GetAsync($"/trips/{trip.Id}/flights")).StatusCode
         );
         var reopened = await Search();
         Assert.IsTrue(
@@ -426,7 +436,12 @@ public sealed class MultiCityPlannerTests
                         new
                         {
                             ignav_id = work.CacheKey,
-                            price = new { amount = 100, currency = "USD" },
+                            price = new
+                            {
+                                amount = 100,
+                                currency = "USD",
+                                status = "verified",
+                            },
                             outbound = new
                             {
                                 segments = new[]
@@ -775,7 +790,12 @@ public sealed class MultiCityPlannerTests
                 {
                     new
                     {
-                        price = new { amount = 150, currency = "USD" },
+                        price = new
+                        {
+                            amount = 150,
+                            currency = "USD",
+                            status = "verified",
+                        },
                         outbound = new
                         {
                             segments = new[]
@@ -942,6 +962,72 @@ public sealed class MultiCityPlannerTests
                 .Select(f => f.GetProperty("legIndex").GetInt32())
                 .ToArray()
         );
+    }
+
+    [TestMethod]
+    [DataRow("verified")]
+    [DataRow("unverified")]
+    [DataRow(null)]
+    public void ComposedPrices_PreserveVerificationIncludingMissingProviderStatus(string? status)
+    {
+        var fares = Fares();
+        // This one-way offer is required by every complete itinerary.
+        var response = JsonNode.Parse(fares[1].Response.GetRawText())!;
+        var price = response["itineraries"]![0]!["price"]!.AsObject();
+        if (status is null)
+        {
+            price.Remove("status");
+        }
+        else
+        {
+            price["status"] = status;
+        }
+        fares[1] = fares[1] with { Response = JsonSerializer.SerializeToElement(response) };
+        var composer = new RouteFareComposer(_airports);
+        var result = composer.Compose(Wedding(), [Party], fares).Single().Response;
+        var expected = status == "verified" ? "verified" : "unverified";
+        var itineraries = result.GetProperty("itineraries").EnumerateArray().ToArray();
+        Assert.IsGreaterThan(0, itineraries.Length);
+        foreach (var itinerary in itineraries)
+        {
+            Assert.AreEqual(
+                expected,
+                itinerary.GetProperty("price").GetProperty("status").GetString()
+            );
+            var booking = itinerary
+                .GetProperty("bookingOffers")
+                .EnumerateArray()
+                .Single(b => b.GetProperty("ignavId").GetString() == "fare-1");
+            Assert.AreEqual(
+                expected,
+                booking.GetProperty("price").GetProperty("status").GetString()
+            );
+        }
+        var flight = result
+            .GetProperty("flights")
+            .EnumerateArray()
+            .Single(f => f.GetProperty("legIndex").GetInt32() == 1);
+        Assert.AreEqual(expected, flight.GetProperty("price").GetProperty("status").GetString());
+        var costs = result
+            .GetProperty("routeGraphs")
+            .EnumerateArray()
+            .SelectMany(g => g.GetProperty("costs").EnumerateArray())
+            .Where(c => c.GetProperty("ignavId").GetString() == "fare-1")
+            .ToArray();
+        Assert.IsGreaterThan(0, costs.Length);
+        Assert.IsTrue(costs.All(c => c.GetProperty("status").GetString() == expected));
+        var choice = new FlightChoiceProgress(
+            _party,
+            itineraries[0].GetProperty("legs").EnumerateArray().Select(BrowserLegKey).ToArray(),
+            []
+        )
+        {
+            SavedFares = fares,
+        };
+        var saved = composer
+            .ChoiceBookings(Wedding(), Party, choice)
+            .Single(b => b.IgnavId == "fare-1");
+        Assert.AreEqual(expected, saved.Price.Status);
     }
 
     [TestMethod]
@@ -1448,7 +1534,12 @@ public sealed class MultiCityPlannerTests
                         {
                             new
                             {
-                                price = new { amount = i is 0 or 3 ? 600 : 100, currency = "USD" },
+                                price = new
+                                {
+                                    amount = i is 0 or 3 ? 600 : 100,
+                                    currency = "USD",
+                                    status = "verified",
+                                },
                                 outbound = legs[i],
                                 ignav_id = $"fare-{i}",
                             },
@@ -1480,7 +1571,12 @@ public sealed class MultiCityPlannerTests
                         {
                             new
                             {
-                                price = new { amount = 700, currency = "USD" },
+                                price = new
+                                {
+                                    amount = 700,
+                                    currency = "USD",
+                                    status = "verified",
+                                },
                                 legs = new[] { legs[0], legs[3] },
                                 ignav_id = "open-jaw",
                             },

@@ -1,9 +1,19 @@
-import { legKey, legUsesPreferredAirline } from "./flightFormatting";
+import {
+  isVerifiedPrice,
+  legKey,
+  legUsesPreferredAirline,
+} from "./flightFormatting";
 import type {
   FareItinerary,
   FareSearchResult,
   FlightGridOption,
 } from "../../api/operationsApi";
+
+// Displaying retained selections does not require a live search request or quote timestamp.
+export type FlightRouteResult = Pick<
+  FareSearchResult,
+  "partyId" | "cacheKey" | "response" | "evaluations"
+> & { savedOnly?: boolean };
 
 export type FlightNode = FlightGridOption & {
   id: string;
@@ -12,7 +22,7 @@ export type FlightNode = FlightGridOption & {
 export type FlightEdge = { from: string; to: string };
 export type FlightFare = {
   ignavId?: string;
-  price: { amount: number; currency: string };
+  price: { amount: number; currency: string; status?: string };
   legIndexes: number[];
 };
 
@@ -56,7 +66,7 @@ export function flightNodeId(index: number, key: string): string {
 // Path membership comes from complete server-validated itineraries. Joining
 // adjacent airports alone would invent routes that violate dates or paired fares.
 export function buildFlightGraph(
-  result: FareSearchResult | undefined,
+  result: FlightRouteResult | undefined,
   legCount: number,
   preferredAirlines: readonly string[] = [],
 ): FlightGraph {
@@ -141,7 +151,7 @@ export function buildFlightGraph(
       to: flightNodeId(to.legIndex, legKey(to.leg)),
     };
   });
-  const routeGraphs = result?.response.routeGraphs?.map((context) => {
+  const routeGraphs = result?.response.routeGraphs?.flatMap((context) => {
     const incoming = new Map<string, FlightEdge[]>();
     const outgoing = new Map<string, FlightEdge[]>();
     for (const index of context.connectionIndexes) {
@@ -161,7 +171,8 @@ export function buildFlightGraph(
               flightNodeId(flight.legIndex, legKey(flight.leg)),
               cost.ignavId,
             );
-          return flight
+          return flight &&
+            isVerifiedPrice({ ...cost, currency: context.currency ?? "" })
             ? [
                 [
                   flightNodeId(flight.legIndex, legKey(flight.leg)),
@@ -184,12 +195,23 @@ export function buildFlightGraph(
           price: {
             amount: bundled ? costs.get(outbound!)! : amount,
             currency: context.currency,
+            status: "verified",
           },
           legIndexes: bundled ? [0, legCount - 1] : [index],
         });
       }
     }
-    return { incoming, outgoing, costs, fares, currency: context.currency };
+    const priced = {
+      incoming,
+      outgoing,
+      costs,
+      fares,
+      currency: context.currency,
+    };
+    // Keep unpriced flights selectable. Only the verified subgraph contributes amounts.
+    return costs && costs.size === context.costs?.length
+      ? [priced]
+      : [{ incoming, outgoing, currency: context.currency }, priced];
   });
   const completeFlights = new Set([
     ...routes.flatMap((route) =>
@@ -323,8 +345,7 @@ export function flightMatchesFilters(
 // Older responses have priced itinerary samples but no weighted graph. A sample
 // remains one indivisible path; its total is never summed once per flight.
 function pricedContexts(graph: FlightGraph): RouteGraph[] {
-  if (graph.routeGraphs?.some((context) => context.costs && context.currency))
-    return graph.routeGraphs;
+  if (graph.routeGraphs?.length) return graph.routeGraphs;
   return graph.routes.map(({ itinerary, keys }) => {
     const ids = keys.map((key, index) => flightNodeId(index, key));
     const incoming = new Map<string, FlightEdge[]>();
@@ -342,7 +363,7 @@ function pricedContexts(graph: FlightGraph): RouteGraph[] {
           const offer = itinerary.bookingOffers?.find((offer) =>
             offer.legIndexes.includes(index),
           );
-          return offer?.price
+          return isVerifiedPrice(offer?.price)
             ? [
                 [
                   id,
@@ -357,7 +378,7 @@ function pricedContexts(graph: FlightGraph): RouteGraph[] {
         }),
       ),
       currency: itinerary.price?.currency,
-      costs: itinerary.price
+      costs: isVerifiedPrice(itinerary.price)
         ? new Map(
             ids.map((id, index) => [
               id,
@@ -451,7 +472,10 @@ export function createFlightPathFilter(graph: FlightGraph) {
   return (selected: FlightSelections = [], filters: FlightPathFilters = {}) => {
     const nodes = new Set<string>();
     const edges = new Set<FlightEdge>();
-    const prices = new Map<string, { amount: number; currency: string }>();
+    const prices = new Map<
+      string,
+      { amount: number; currency: string; status?: string }
+    >();
     const fares = new Map<string, FlightFare>();
     let minTotal = Infinity;
     let maxTotal = -Infinity;
@@ -512,7 +536,11 @@ export function createFlightPathFilter(graph: FlightGraph) {
             context.currency &&
             total < (prices.get(id)?.amount ?? Infinity) * 100
           ) {
-            prices.set(id, { amount: total / 100, currency: context.currency });
+            prices.set(id, {
+              amount: total / 100,
+              currency: context.currency,
+              status: "verified",
+            });
             const fare = context.fares[index];
             if (fare) fares.set(id, fare);
             else fares.delete(id);

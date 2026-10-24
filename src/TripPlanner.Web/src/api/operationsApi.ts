@@ -33,6 +33,7 @@ export type FareSegment = {
   arrival_time_utc?: string;
   marketing_carrier_code?: string;
   operating_carrier_name?: string;
+  aircraft?: string | null;
   flight_number?: string;
   duration_minutes?: number;
 };
@@ -46,7 +47,7 @@ export type FareItinerary = {
   bookingOffers?: {
     ignavId: string;
     legIndexes: number[];
-    price?: { amount: number; currency: string };
+    price?: { amount: number; currency: string; status?: string };
   }[];
   stops?: number;
   durationMinutes?: number;
@@ -90,7 +91,12 @@ export type FareSearchResult = {
     routeGraphs?: {
       connectionIndexes: number[];
       currency?: string;
-      costs?: { flightIndex: number; amount: number; ignavId?: string }[];
+      costs?: {
+        flightIndex: number;
+        amount: number;
+        ignavId?: string;
+        status?: string;
+      }[];
       bundledReturn?: boolean;
     }[];
     choiceKeys?: (string | null)[];

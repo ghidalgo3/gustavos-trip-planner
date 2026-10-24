@@ -30,7 +30,7 @@ export type FlightChoiceBooking = {
   ignavId: string;
   legIndexes: number[];
   legKeys: string[];
-  price: { amount: number; currency: string };
+  price: { amount: number; currency: string; status?: string };
 };
 
 export async function getChoiceBookingLinks(

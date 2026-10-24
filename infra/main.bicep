@@ -31,6 +31,10 @@ var postgresServerName = 'psql-${namePrefix}-${uniqueSuffix}'
 var postgresAdminIdentityName = '${namePrefix}-postgres-admin-${uniqueSuffix}'
 var azureMapsAccountName = '${namePrefix}-maps-${uniqueSuffix}'
 var azureMapsSasIdentityName = '${namePrefix}-maps-sas-${uniqueSuffix}'
+// Consent to in-country processing required for Korean address requests.
+var azureMapsProcessingLocations = [
+  { locationName: 'Korea Central' }
+]
 var applicationInsightsName = '${namePrefix}-insights-${uniqueSuffix}'
 
 // Workspace-backed Application Insights for browser behavior and HTTP traces.
@@ -205,7 +209,7 @@ resource azureMapsSasIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@
   tags: tags
 }
 
-resource azureMapsAccount 'Microsoft.Maps/accounts@2023-06-01' = {
+resource azureMapsAccount 'Microsoft.Maps/accounts@2024-07-01-preview' = {
   name: azureMapsAccountName
   location: azureMapsLocation
   tags: tags
@@ -221,6 +225,7 @@ resource azureMapsAccount 'Microsoft.Maps/accounts@2023-06-01' = {
   }
   properties: {
     disableLocalAuth: false
+    locations: azureMapsProcessingLocations
   }
 }
 
@@ -230,6 +235,7 @@ module azureMapsCors './azure-maps-cors.bicep' = {
     accountName: azureMapsAccount.name
     location: azureMapsLocation
     sasIdentityResourceId: azureMapsSasIdentity.id
+    processingLocations: azureMapsProcessingLocations
     allowedOrigins: [
       'https://${webApp.properties.defaultHostName}'
       'http://localhost:5173'

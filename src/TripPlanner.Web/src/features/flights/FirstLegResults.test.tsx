@@ -30,7 +30,7 @@ test("shows a first-leg fare while the rest of a route is searching", async () =
     response: {
       itineraries: [
         {
-          price: { amount: 800, currency: "USD" },
+          price: { status: "verified", amount: 800, currency: "USD" },
           outbound: {
             segments: [
               {
@@ -112,7 +112,11 @@ test("features different airlines before repeating cheaper airline options", () 
     response: {
       itineraries: [
         {
-          price: { amount: 100 + index * 10, currency: "USD" },
+          price: {
+            status: "verified",
+            amount: 100 + index * 10,
+            currency: "USD",
+          },
           outbound: {
             carrier: index === 6 ? "Turkish Airlines" : "Etihad",
             segments: [
@@ -197,7 +201,10 @@ test("shows the next cached leg after the first flight is saved", async () => {
     },
     response: {
       itineraries: [
-        { outbound: second, price: { amount: 200, currency: "USD" } },
+        {
+          outbound: second,
+          price: { status: "verified", amount: 200, currency: "USD" },
+        },
       ],
     },
     evaluations: [{ status: "Unverifiable", issues: [] }],

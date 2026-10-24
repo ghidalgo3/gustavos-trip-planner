@@ -24,9 +24,23 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         public string Key { get; } = FlightChoiceRoute.FlightKey(Value)!;
     }
 
-    private sealed record Offer(Leg[] Legs, decimal Price, string Currency, string Id, string Key);
+    private sealed record Offer(
+        Leg[] Legs,
+        decimal Price,
+        string Currency,
+        string Id,
+        string Key,
+        string Status
+    );
 
-    private sealed record Path(Leg[] Legs, decimal Price, string Currency, List<object> Bookings);
+    private sealed record BookingOffer(string IgnavId, FlightGridPriceDto Price, int[] LegIndexes);
+
+    private sealed record Path(
+        Leg[] Legs,
+        decimal Price,
+        string Currency,
+        List<BookingOffer> Bookings
+    );
 
     // Only whole provider offers whose flights were all chosen are bookable.
     public FlightChoiceBookingDto[] ChoiceBookings(
@@ -67,7 +81,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                         offer.Id,
                         group,
                         keys,
-                        new(offer.Price, offer.Currency)
+                        new(offer.Price, offer.Currency, offer.Status)
                     ));
             })
             .DistinctBy(booking => (booking.IgnavId, string.Join(",", booking.LegIndexes)))
@@ -208,7 +222,14 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                     coverage = "Best itineraries found within the search budget. Date and flight coverage is not exhaustive.",
                     itineraries = ranked.Select(p => new
                     {
-                        price = new { amount = p.Price, currency = p.Currency },
+                        price = new
+                        {
+                            amount = p.Price,
+                            currency = p.Currency,
+                            status = p.Bookings.All(b => b.Price.Status == "verified")
+                                ? "verified"
+                                : "unverified",
+                        },
                         legs = p.Legs.Select(l => l.Value),
                         bookingOffers = p.Bookings,
                         stops = p.Legs.Sum(l => l.Segments.Length - 1),
@@ -248,20 +269,16 @@ public sealed class RouteFareComposer(AirportCatalog airports)
     private sealed record RouteNode(
         Leg Leg,
         decimal Cost,
-        object? Booking,
+        BookingOffer? Booking,
         Path Prefix,
         int FlightIndex,
         string OfferId,
+        string PriceStatus,
         RouteNode[] Parents
     );
 
-    private static object Booking(Offer offer, params int[] indexes) =>
-        new
-        {
-            ignavId = offer.Id,
-            price = new { amount = offer.Price, currency = offer.Currency },
-            legIndexes = indexes,
-        };
+    private static BookingOffer Booking(Offer offer, params int[] indexes) =>
+        new(offer.Id, new(offer.Price, offer.Currency, offer.Status), indexes);
 
     // A layered graph avoids enumerating the Cartesian product of flights. Keeping
     // each outbound offer separate preserves currency, trip duration and paired-fare
@@ -352,6 +369,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                 new Path([start.Legs[0]], start.Price, start.Currency, [booking]),
                 flightIndexes[(0, FlightKey(start.Legs[0]))],
                 start.Id,
+                start.Status,
                 []
             );
             List<RouteNode[]> layers =
@@ -401,6 +419,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                             ),
                             flightIndexes[(step, FlightKey(leg))],
                             offer.Id,
+                            offer.Status,
                             parents
                         )
                     );
@@ -475,7 +494,8 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                     .Keys.Select(node => new FlightGridRouteCostDto(
                         node.FlightIndex,
                         node.Cost,
-                        node.OfferId
+                        node.OfferId,
+                        node.PriceStatus
                     ))
                     .ToArray(),
                 start.Legs.Length == 2
@@ -609,7 +629,11 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                     .Select(item => new FlightGridOptionDto(
                         index,
                         item.leg.Value,
-                        new FlightGridPriceDto(item.offer.Price, item.offer.Currency),
+                        new FlightGridPriceDto(
+                            item.offer.Price,
+                            item.offer.Currency,
+                            item.offer.Status
+                        ),
                         item.offer.Legs.Length
                     ));
             })
@@ -751,7 +775,14 @@ public sealed class RouteFareComposer(AirportCatalog airports)
             }
             if (valid)
             {
-                yield return new(complete, cost, currency, id, fare.CacheKey);
+                yield return new(
+                    complete,
+                    cost,
+                    currency,
+                    id,
+                    fare.CacheKey,
+                    Text(price, "status") == "verified" ? "verified" : "unverified"
+                );
             }
         }
     }

@@ -70,6 +70,7 @@ export default function TripPlanning({
           multiCity={true}
           visitCount={data.document.visits?.length ?? 0}
           visits={data.document.visits ?? []}
+          returnDate={data.document.travelDates?.endDate}
           disabled={false}
           hasUnsavedChanges={false}
           savedVersion={0}

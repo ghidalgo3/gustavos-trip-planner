@@ -1,3 +1,8 @@
+import FlightPriceStatus from "./FlightPriceStatus";
+import {
+  restoreFlightResults,
+  restoredFlightKeys,
+} from "./restoreFlightResults";
 import { useFlightChoiceConfirmation } from "./useFlightChoiceConfirmation";
 import { partialFlightBookings } from "./flightChoiceBookings";
 import {
@@ -9,16 +14,17 @@ import FlightRouteGrid from "./FlightRouteGrid";
 import type { PlannedVisit } from "./planningApi";
 import {
   Fragment,
-  memo,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
-  flightNodeId,
   presentFlightFare,
   type FlightFare,
+  type FlightNode,
+  type FlightRouteResult,
 } from "./flightRouteGraph";
 import {
   Badge,
@@ -37,6 +43,7 @@ import {
   legRoute,
   sameItineraryFlights,
   priceLabel,
+  isVerifiedPrice,
   stayNights,
   type AirportCities,
 } from "./flightFormatting";
@@ -188,6 +195,7 @@ export default function RouteFareResults({
   choiceProgress = {},
   onChangeChoices,
   visits = [],
+  returnDate,
   showGrid = false,
   searching = false,
 }: {
@@ -203,6 +211,7 @@ export default function RouteFareResults({
     purchasedOfferIds?: string[],
   ) => Promise<boolean>;
   visits?: PlannedVisit[];
+  returnDate?: string | null;
   showGrid?: boolean;
   searching?: boolean;
 }) {
@@ -210,9 +219,34 @@ export default function RouteFareResults({
   const selectionMutation = useRef(0);
   const [busyParty, setBusyParty] = useState<string>();
   const [error, setError] = useState<string>();
+  const effectiveChoices = useMemo(
+    () =>
+      showGrid ? restoredFlightKeys(savedChoices, selected) : savedChoices,
+    [showGrid, savedChoices, selected],
+  );
+  const displayResults = useMemo(
+    () =>
+      showGrid
+        ? restoreFlightResults(
+            results,
+            choiceProgress,
+            selected,
+            effectiveChoices,
+            visits.length + 1,
+          )
+        : results,
+    [
+      showGrid,
+      results,
+      choiceProgress,
+      selected,
+      effectiveChoices,
+      visits.length,
+    ],
+  );
   const cities = useAirportCities(
     flightAirportCodes(
-      results.flatMap((result) => [
+      displayResults.flatMap((result) => [
         ...result.response.itineraries.flatMap(
           (itinerary) => itinerary.legs ?? [],
         ),
@@ -234,7 +268,7 @@ export default function RouteFareResults({
     return () => controller.abort();
   }, [tripId]);
 
-  async function choose(result: FareSearchResult, index: number | null) {
+  async function choose(result: FlightRouteResult, index: number | null) {
     selectionMutation.current += 1;
     setBusyParty(result.partyId);
     setError(undefined);
@@ -269,7 +303,7 @@ export default function RouteFareResults({
   }
 
   async function changePurchase(
-    result: FareSearchResult,
+    result: FlightRouteResult,
     legIndex: number,
     purchased: boolean,
   ) {
@@ -321,7 +355,8 @@ export default function RouteFareResults({
       {showGrid &&
         parties
           .filter(
-            (party) => !results.some((result) => result.partyId === party.id),
+            (party) =>
+              !displayResults.some((result) => result.partyId === party.id),
           )
           .map((party) => (
             <section key={party.id} className="route-visits">
@@ -331,6 +366,7 @@ export default function RouteFareResults({
               </Title3>
               <FlightRouteGrid
                 visits={visits}
+                returnDate={returnDate}
                 cities={cities}
                 searching={searching}
                 chosen={[]}
@@ -340,15 +376,16 @@ export default function RouteFareResults({
               />
             </section>
           ))}
-      {results.map((result) => (
+      {displayResults.map((result) => (
         <RoutePartyResults
           key={result.partyId}
           tripId={tripId}
           result={result}
           visits={visits}
+          returnDate={returnDate}
           showGrid={showGrid}
           searching={searching}
-          savedChoices={savedChoices[result.partyId] ?? emptyChoices}
+          savedChoices={effectiveChoices[result.partyId] ?? emptyChoices}
           progress={choiceProgress[result.partyId]}
           onChangeChoices={onChangeChoices}
           partyName={
@@ -381,6 +418,7 @@ function RoutePartyResults({
   tripId,
   result,
   visits,
+  returnDate,
   showGrid,
   searching,
   savedChoices,
@@ -395,8 +433,9 @@ function RoutePartyResults({
   onPurchaseChange,
 }: {
   tripId: string;
-  result: FareSearchResult;
+  result: FlightRouteResult;
   visits: PlannedVisit[];
+  returnDate?: string | null;
   showGrid: boolean;
   searching: boolean;
   savedChoices: (string | null)[];
@@ -418,10 +457,6 @@ function RoutePartyResults({
     useState<(string | null)[]>(savedChoices);
   const chosen = onChangeChoices ? savedChoices : localChosen;
   const { confirm, dialog } = useFlightChoiceConfirmation();
-  const [gridReview, setGridReview] = useState<{
-    keys: string[];
-    price?: FareItinerary["price"];
-  }>();
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string>();
   async function changePurchases(ids: string[]) {
@@ -472,15 +507,6 @@ function RoutePartyResults({
       setChoiceBusy(false);
     }
   }
-  function editGrid() {
-    setGridReview(undefined);
-  }
-  async function chooseGrid(keys: (string | null)[]) {
-    if (await changeChosen(keys)) editGrid();
-  }
-  function reviewGrid(keys: string[], price?: FareItinerary["price"]) {
-    setGridReview({ keys, price });
-  }
   async function restartChoices() {
     if (!(await confirm(chosen, []))) return;
     setChoiceBusy(true);
@@ -493,7 +519,6 @@ function RoutePartyResults({
       } else {
         setLocalChosen([]);
       }
-      editGrid();
     } catch (reason) {
       setChoiceError(
         reason instanceof Error
@@ -530,33 +555,7 @@ function RoutePartyResults({
     }
     return [...byLeg.values()];
   })();
-  const reviewingChosen =
-    gridReview &&
-    chosen.length === gridReview.keys.length &&
-    gridReview.keys.every((key, index) => chosen[index] === key);
-  const gridReady =
-    reviewingChosen &&
-    (!onChangeChoices ||
-      !result.response.choiceKeys ||
-      JSON.stringify(result.response.choiceKeys) ===
-        JSON.stringify(gridReview.keys));
-  const best = showGrid
-    ? gridReady
-      ? options.find(
-          ({ itinerary }) =>
-            itinerary.legs?.length === gridReview.keys.length &&
-            gridReview.keys.every(
-              (key, index) => legKey(itinerary.legs?.[index]) === key,
-            ) &&
-            (!gridReview.price ||
-              (itinerary.price?.currency === gridReview.price.currency &&
-                Math.round(itinerary.price.amount * 100) <=
-                  Math.round(gridReview.price.amount * 100))),
-        )
-      : undefined
-    : complete
-      ? matches[0]
-      : undefined;
+  const best = !showGrid && complete ? matches[0] : undefined;
   const bestIsSelected = Boolean(
     selected &&
     best &&
@@ -571,7 +570,7 @@ function RoutePartyResults({
     return legRoute(leg);
   });
   const cheapestRoute = options
-    .filter((option) => Number.isFinite(option.itinerary.price?.amount))
+    .filter((option) => isVerifiedPrice(option.itinerary.price))
     .sort((left, right) => {
       const leftPrice = left.itinerary.price!;
       const rightPrice = right.itinerary.price!;
@@ -591,31 +590,30 @@ function RoutePartyResults({
         <FlightRouteGrid
           result={result}
           visits={visits}
+          returnDate={returnDate}
           cities={cities}
           searching={searching}
           chosen={chosen}
           busy={choiceBusy || busy}
-          onChoose={(keys) => void chooseGrid(keys)}
-          onReview={(keys, price) => void reviewGrid(keys, price)}
-          onFilterChange={() => editGrid()}
+          onChoose={(keys) => void changeChosen(keys)}
           preferredAirlines={preferredAirlines}
-          renderSelections={(fares) =>
-            !best &&
-            chosen.some(Boolean) && (
-              <SelectedGridFlights
-                result={result}
-                chosen={chosen}
-                visits={visits}
-                cities={cities}
-                preferredAirlines={preferredAirlines}
-                fares={fares}
-                tripId={tripId}
-                progress={progress}
-                busy={choiceBusy || busy}
-                onPurchase={onChangeChoices ? changePurchases : undefined}
-              />
-            )
-          }
+          renderCardActions={(node, isSelected, fares) => (
+            <GridFlightBookingActions
+              key={`${node.id}:${fares.get(node.id)?.ignavId ?? "saved"}`}
+              node={node}
+              isSelected={isSelected}
+              chosen={chosen}
+              quote={fares.get(node.id)}
+              currency={fares.values().next().value?.price.currency}
+              tripId={tripId}
+              partyId={result.partyId}
+              progress={progress}
+              savedItinerary={selected}
+              busy={choiceBusy || busy}
+              onPurchase={onChangeChoices ? changePurchases : undefined}
+              onSavedPurchase={onPurchaseChange}
+            />
+          )}
         />
       ) : (
         <FlightLegTabs
@@ -630,7 +628,7 @@ function RoutePartyResults({
       )}
       {choiceError && <Text role="alert">{choiceError}</Text>}
       {choiceBusy && <Text role="status">Saving flight choice…</Text>}
-      {selected && (
+      {!showGrid && selected && (
         <div className="route-saved-choice">
           <Text weight="semibold">
             Selected itinerary · {priceLabel(selected.itinerary.price)}
@@ -641,15 +639,8 @@ function RoutePartyResults({
           </Text>
         </div>
       )}
-      {options.length === 0 && (
+      {!showGrid && options.length === 0 && (
         <Text role="status">No complete routes are available yet.</Text>
-      )}
-      {showGrid && reviewingChosen && !best && (
-        <Text role="status">
-          {gridReady
-            ? "These flights are no longer available at the displayed total. Review your selections again."
-            : "Preparing your selected flights for review…"}
-        </Text>
       )}
       {!showGrid && options.length > 0 && matches.length === 0 && (
         <Text role="status">
@@ -698,32 +689,6 @@ function RoutePartyResults({
             itinerary={best.itinerary}
             cities={cities}
             preferredAirlines={preferredAirlines}
-            renderBooking={
-              showGrid && progress
-                ? (index) => (
-                    <ChoiceBookingActions
-                      key={
-                        best.itinerary.bookingOffers?.find((offer) =>
-                          offer.legIndexes.includes(index),
-                        )?.ignavId
-                      }
-                      tripId={tripId}
-                      partyId={result.partyId}
-                      index={index}
-                      booking={progress.bookings?.find(
-                        (booking) =>
-                          booking.ignavId ===
-                          best.itinerary.bookingOffers?.find((offer) =>
-                            offer.legIndexes.includes(index),
-                          )?.ignavId,
-                      )}
-                      progress={progress}
-                      busy={choiceBusy || busy}
-                      onPurchase={changePurchases}
-                    />
-                  )
-                : undefined
-            }
             booking={{
               tripId,
               cacheKey: result.cacheKey,
@@ -814,113 +779,97 @@ function RoutePartyResults({
   }
 }
 
-// Keep the original leg indexes: a return flight can be selected before the
-// outbound, and a partial selection does not imply a stay between its cards.
-const SelectedGridFlights = memo(function SelectedGridFlights({
-  result,
+function GridFlightBookingActions({
+  node,
+  isSelected,
   chosen,
-  visits,
-  cities,
-  preferredAirlines,
-  fares,
+  quote,
+  currency,
   tripId,
+  partyId,
   progress,
+  savedItinerary,
   busy,
   onPurchase,
+  onSavedPurchase,
 }: {
-  result: FareSearchResult;
+  node: FlightNode;
+  isSelected: boolean;
   chosen: (string | null)[];
-  visits: PlannedVisit[];
-  cities: AirportCities;
-  preferredAirlines: string[];
-  fares: ReadonlyMap<string, FlightFare>;
+  quote?: FlightFare;
+  currency?: string;
   tripId: string;
+  partyId: string;
   progress?: FlightChoiceProgress;
+  savedItinerary?: SelectedFlight;
   busy: boolean;
   onPurchase?: (ids: string[]) => Promise<void>;
+  onSavedPurchase: (index: number, purchased: boolean) => Promise<void>;
 }) {
-  const partialBookings = partialFlightBookings(
-    progress,
-    chosen,
-    fares.values().next().value?.price.currency,
-  );
+  const index = node.legIndex;
+  const matches = isSelected
+    ? (progress?.bookings?.filter(
+        (booking) =>
+          booking.legIndexes.includes(index) &&
+          booking.legIndexes.every(
+            (leg, i) => chosen[leg] === booking.legKeys[i],
+          ),
+      ) ?? [])
+    : [];
+  const booking =
+    matches.find((booking) =>
+      progress?.purchasedOfferIds?.includes(booking.ignavId),
+    ) ??
+    (quote
+      ? matches.find((booking) => booking.ignavId === quote.ignavId)
+      : undefined) ??
+    (isSelected
+      ? partialFlightBookings(progress, chosen, currency).get(index)
+      : undefined);
+  // Older complete itineraries still own their booking/purchase state until choices are saved.
+  const savedLeg = savedItinerary?.itinerary.legs?.[index];
+  if (
+    !booking &&
+    !progress &&
+    savedItinerary &&
+    isSelected &&
+    savedLeg &&
+    legKey(savedLeg) === legKey(node.leg)
+  ) {
+    return (
+      <div className="route-booking-links">
+        <RouteBookingLinks
+          tripId={tripId}
+          cacheKey={savedItinerary.cacheKey}
+          itinerary={savedItinerary.itinerary}
+          legIndex={index}
+          buttonLabel="Booking Link"
+          disabled={busy}
+        />
+        <Switch
+          label="Booked"
+          checked={savedItinerary.purchasedLegs?.[index] ?? false}
+          disabled={busy}
+          onChange={(_, data) => void onSavedPurchase(index, data.checked)}
+        />
+      </div>
+    );
+  }
   return (
-    <section className="route-visits" aria-label="Selected flights">
-      <Title3 as="h4">Selected flights</Title3>
-      {chosen.map((key, index) => {
-        if (!key) return null;
-        const flight = result.response.flights?.find(
-          (option) => option.legIndex === index && legKey(option.leg) === key,
-        );
-        const itinerary = result.response.itineraries.find(
-          (option) => legKey(option.legs?.[index]) === key,
-        );
-        const leg = flight?.leg ?? itinerary?.legs?.[index];
-        const quote = fares.get(flightNodeId(index, key));
-        const matches =
-          progress?.bookings?.filter(
-            (booking) =>
-              booking.legIndexes.includes(index) &&
-              booking.legIndexes.every(
-                (leg, i) => chosen[leg] === booking.legKeys[i],
-              ),
-          ) ?? [];
-        const booking =
-          matches.find((booking) =>
-            progress?.purchasedOfferIds?.includes(booking.ignavId),
-          ) ??
-          (quote
-            ? matches.find((booking) => booking.ignavId === quote.ignavId)
-            : partialBookings.get(index));
-        const fare = presentFlightFare(booking ?? quote, index, chosen);
-        const destination =
-          index === visits.length
-            ? "Return home"
-            : (visits[index]?.location?.label ??
-              visits[index]?.location?.code ??
-              "Destination");
-        const label = `Flight ${index + 1}: ${destination}`;
-        return (
-          <div
-            className="route-visits"
-            role="group"
-            aria-label={label}
-            key={`${index}:${key}`}
-          >
-            <Text weight="semibold">{label}</Text>
-            {leg ? (
-              <FlightInformation
-                leg={leg}
-                cities={cities}
-                preferredAirlines={preferredAirlines}
-                price={fare.price}
-                priceContext={fare.label}
-                summary={!fare.price ? fare.label : undefined}
-                actions={
-                  <ChoiceBookingActions
-                    key={booking?.ignavId ?? quote?.ignavId ?? "pending"}
-                    tripId={tripId}
-                    partyId={result.partyId}
-                    index={index}
-                    booking={booking}
-                    progress={progress}
-                    busy={busy}
-                    onPurchase={onPurchase}
-                    bundled={quote?.legIndexes.length === 2}
-                  />
-                }
-              />
-            ) : (
-              <Text>
-                Selected flight details are not available in these results.
-              </Text>
-            )}
-          </div>
-        );
-      })}
-    </section>
+    <ChoiceBookingActions
+      key={booking?.ignavId ?? "pending"}
+      tripId={tripId}
+      partyId={partyId}
+      index={index}
+      booking={booking}
+      progress={progress}
+      busy={busy}
+      onPurchase={onPurchase}
+      bundled={(quote?.legIndexes.length ?? node.bookingLegCount) > 1}
+      isSelected={isSelected}
+    />
   );
-});
+}
 
 function ChoiceBookingActions({
   tripId,
@@ -931,6 +880,7 @@ function ChoiceBookingActions({
   busy,
   onPurchase,
   bundled,
+  isSelected = true,
 }: {
   tripId: string;
   partyId: string;
@@ -940,18 +890,10 @@ function ChoiceBookingActions({
   busy: boolean;
   onPurchase?: (ids: string[]) => Promise<void>;
   bundled?: boolean;
+  isSelected?: boolean;
 }) {
   const purchased =
     !!booking && !!progress?.purchasedOfferIds?.includes(booking.ignavId);
-  if (booking && booking.legIndexes[0] !== index) {
-    return (
-      <Text size={200}>
-        Booking and purchase status are shared with flight{" "}
-        {booking.legIndexes[0] + 1}.{" "}
-        {purchased ? "Purchased." : "Not purchased."}
-      </Text>
-    );
-  }
   const paired = booking ? booking.legIndexes.length > 1 : bundled;
   return (
     <div className="route-booking-links">
@@ -963,33 +905,50 @@ function ChoiceBookingActions({
           legIndex={index}
           loadLinks={(id) => getChoiceBookingLinks(tripId, partyId, id)}
           wholeBooking
-          buttonLabel={
-            paired ? "Request round-trip booking link" : "Request booking link"
-          }
+          buttonLabel="Booking Link"
           disabled={busy}
         />
       ) : (
         <>
-          <Button disabled>Request booking link</Button>
-          <Text size={200}>
-            {paired
-              ? "Select both outbound and return flights to book or mark this fare purchased."
-              : "Booking details will appear after this flight selection is saved."}
-          </Text>
+          <Button
+            disabled
+            title={
+              !isSelected
+                ? "Select this flight to manage its booking."
+                : undefined
+            }
+          >
+            Booking Link
+          </Button>
+          {isSelected && (
+            <Text size={200}>
+              {paired
+                ? "Select both outbound and return flights to manage this booking."
+                : "Booking details will appear after this flight selection is saved."}
+            </Text>
+          )}
         </>
       )}
-      <Switch
-        label={paired ? "Purchased outbound + return" : "Purchased"}
-        checked={purchased}
-        disabled={busy || !booking || !onPurchase}
-        onChange={(_, data) => {
-          if (!booking || !onPurchase) return;
-          const ids = (progress?.purchasedOfferIds ?? []).filter(
-            (id) => id !== booking.ignavId,
-          );
-          void onPurchase(data.checked ? [...ids, booking.ignavId] : ids);
-        }}
-      />
+      {paired && booking && (
+        <Text size={200}>
+          Shared booking for flights{" "}
+          {booking.legIndexes.map((leg) => leg + 1).join(" + ")}.
+        </Text>
+      )}
+      {isSelected && (
+        <Switch
+          label="Booked"
+          checked={purchased}
+          disabled={busy || !booking || !onPurchase}
+          onChange={(_, data) => {
+            if (!booking || !onPurchase) return;
+            const ids = (progress?.purchasedOfferIds ?? []).filter(
+              (id) => id !== booking.ignavId,
+            );
+            void onPurchase(data.checked ? [...ids, booking.ignavId] : ids);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1059,6 +1018,7 @@ function RouteBookingLinks({
       label: string;
       priceDescription: string;
       priceTotal: string;
+      price?: BookingPrice;
       priceDifference?: string;
     }[]
   >();
@@ -1131,6 +1091,7 @@ function RouteBookingLinks({
                       label,
                       priceDescription,
                       priceTotal: priceLabel(link.price),
+                      price: link.price,
                       priceDifference: bookingPriceBadge(
                         link.price,
                         offer.price,
@@ -1174,6 +1135,7 @@ function RouteBookingLinks({
           >
             <span className="route-booking-option-heading">
               <span>Book on {link.label}</span>
+              <FlightPriceStatus price={link.price} />
               {link.priceDifference && (
                 <Badge
                   appearance="tint"

@@ -18,7 +18,11 @@ public sealed record EvaluatedFareSearchResultDto(
 );
 
 // A flight is provisional until it belongs to a composed, validated itinerary.
-public sealed record FlightGridPriceDto(decimal Amount, string Currency);
+public sealed record FlightGridPriceDto(
+    decimal Amount,
+    string Currency,
+    string Status = "unverified"
+);
 
 public sealed record FlightGridOptionDto(
     int LegIndex,
@@ -36,7 +40,8 @@ public sealed record FlightGridEdgeDto(int FromFlightIndex, int ToFlightIndex);
 public sealed record FlightGridRouteCostDto(
     int FlightIndex,
     decimal Amount,
-    string? IgnavId = null
+    string? IgnavId = null,
+    string Status = "unverified"
 );
 
 // Indexes into response.flightConnections. Each graph keeps one outbound fare's constraints, including its bundled return.

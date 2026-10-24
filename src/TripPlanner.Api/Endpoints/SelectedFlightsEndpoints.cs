@@ -207,18 +207,79 @@ public static class SelectedFlightsEndpoints
         var selected = (
             await database.GetSelectedFlightsAsync(user.Id, tripId, context.RequestAborted)
         ).FirstOrDefault(flight => flight.PartyId == partyId);
+        // Choosing every leg is enough to save a complete itinerary. Other features
+        // consume this resource, so they must not depend on a separate UI review step.
+        FareSearchResult? completeFare = null;
+        int completeIndex = -1;
         if (
-            selected is not null
-            && selected.Itinerary.TryGetProperty("legs", out var selectedLegs)
-            && selectedLegs.EnumerateArray().Select(FlightChoiceRoute.FlightKey).SequenceEqual(keys)
+            document.Visits.Length > 0
+            && keys.Length == document.Visits.Length + 1
+            && keys.All(key => key is not null)
         )
         {
+            foreach (
+                var fare in routes.Compose(
+                    document,
+                    [parties.Single(p => p.Id == partyId)],
+                    fares,
+                    [saved]
+                )
+            )
+            {
+                var itineraries = fare.Response.GetProperty("itineraries");
+                for (int index = 0; index < itineraries.GetArrayLength(); index++)
+                {
+                    if (
+                        itineraries[index]
+                            .GetProperty("legs")
+                            .EnumerateArray()
+                            .Select(FlightChoiceRoute.FlightKey)
+                            .SequenceEqual(keys)
+                    )
+                    {
+                        completeFare = fare;
+                        completeIndex = index;
+                        break;
+                    }
+                }
+                if (completeFare is not null)
+                {
+                    break;
+                }
+            }
+        }
+        if (completeFare is not null)
+        {
+            var itinerary = completeFare.Response.GetProperty("itineraries")[completeIndex].Clone();
+            bool sameFlights =
+                selected is not null
+                && selected.Itinerary.TryGetProperty("legs", out var selectedLegs)
+                && selectedLegs
+                    .EnumerateArray()
+                    .Select(FlightChoiceRoute.FlightKey)
+                    .SequenceEqual(keys);
             await database.SetSelectedFlightAsync(
                 user.Id,
-                selected with
-                {
-                    PurchasedLegs = PurchaseFlags(selected.Itinerary, saved.PurchasedOfferIds),
-                },
+                new SelectedFlight(
+                    tripId,
+                    partyId,
+                    completeFare.CacheKey,
+                    completeIndex,
+                    completeFare.Request,
+                    itinerary,
+                    sameFlights ? selected!.SelectedAt : DateTimeOffset.UtcNow,
+                    PurchaseFlags(itinerary, saved.PurchasedOfferIds)
+                ),
+                context.RequestAborted
+            );
+        }
+        else if (selected is not null)
+        {
+            // A changed or incomplete choice must not leave an old route active.
+            await database.DeleteSelectedFlightAsync(
+                user.Id,
+                tripId,
+                partyId,
                 context.RequestAborted
             );
         }

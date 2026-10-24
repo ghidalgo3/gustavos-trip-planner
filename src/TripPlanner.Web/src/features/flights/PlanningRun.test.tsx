@@ -110,6 +110,138 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+test.each(["pending status", "failed results", "saved itinerary"])(
+  "shows retained flights immediately without a search: %s",
+  async (scenario) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({})),
+    );
+    const leg = {
+      segments: [
+        {
+          departure_airport: "ATL",
+          arrival_airport: "BOS",
+          departure_time_local: "2030-05-01T10:00:00",
+          arrival_time_local: "2030-05-01T12:00:00",
+          marketing_carrier_code: "DL",
+          flight_number: "123",
+        },
+      ],
+    };
+    if (scenario === "saved itinerary") {
+      vi.mocked(getSelectedFlights).mockResolvedValue([
+        {
+          tripId: "trip",
+          partyId: "party",
+          cacheKey: "old-quote",
+          itineraryIndex: 0,
+          request: {
+            origin: "ATL",
+            destination: "BOS",
+            departure_date: "2030-05-01",
+            return_date: "2030-05-04",
+            adults: 1,
+            cabin_class: "economy",
+            market: "US",
+          },
+          itinerary: {
+            legs: [
+              leg,
+              {
+                segments: [
+                  {
+                    ...leg.segments[0],
+                    departure_airport: "BOS",
+                    arrival_airport: "ATL",
+                    departure_time_local: "2030-05-04T10:00:00",
+                    arrival_time_local: "2030-05-04T12:00:00",
+                    flight_number: "124",
+                  },
+                ],
+              },
+            ],
+          },
+          selectedAt: "2030-01-01T00:00:00Z",
+        },
+      ]);
+    } else {
+      vi.mocked(getFlightChoices).mockResolvedValue([
+        {
+          partyId: "party",
+          legKeys: [legKey(leg), null],
+          nextOrigins: ["BOS"],
+          flights: [{ legIndex: 0, leg }],
+        },
+      ]);
+    }
+    if (scenario === "failed results") {
+      vi.mocked(getFlightSearchResults).mockRejectedValue(
+        new FlightSearchValidationError([
+          {
+            code: "invalidInput",
+            message: "Update destination dates before searching.",
+            partyId: null,
+            constraintIds: [],
+          },
+        ]),
+      );
+    } else {
+      vi.mocked(getOperations).mockImplementation(() => new Promise(() => {}));
+    }
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <MemoryRouter>
+          <PlanningRun
+            tripId="trip"
+            parties={[party]}
+            partySettings={[partySettings]}
+            constraints={[]}
+            multiCity
+            visits={[
+              {
+                id: "boston",
+                location: {
+                  code: "BOS",
+                  label: "Boston",
+                  timeZone: "America/New_York",
+                },
+                nights: 3,
+                presentFrom: null,
+                presentThrough: null,
+                afterVisitIds: [],
+              },
+            ]}
+            disabled={false}
+            hasUnsavedChanges={false}
+            savedVersion={0}
+            onBeforeSearch={save}
+            onReviewRequirements={reviewRequirements}
+          />
+        </MemoryRouter>
+      </FluentProvider>,
+    );
+    const flight = await screen.findByRole("button", { name: /DL 123/ });
+    expect(flight).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText(
+        `${scenario === "saved itinerary" ? 2 : 1} of 2 flights selected`,
+      ),
+    ).toBeVisible();
+    expect(startFlightSearch).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Review selected flights" }),
+    ).toBeNull();
+    if (scenario === "failed results") {
+      expect(
+        await screen.findByText("Update destination dates before searching."),
+      ).toBeVisible();
+      expect(flight).toBeVisible();
+    }
+  },
+);
+
 test("desktop partial choices save immediately, roll back failures, reload without a search, and require confirmation to clear", async () => {
   vi.stubGlobal(
     "matchMedia",
@@ -164,7 +296,10 @@ test("desktop partial choices save immediately, roll back failures, reload witho
     },
     response: {
       itineraries: [
-        { legs: [outbound, inbound], price: { amount: 400, currency: "USD" } },
+        {
+          legs: [outbound, inbound],
+          price: { status: "verified", amount: 400, currency: "USD" },
+        },
       ],
     },
     evaluations: [{ status: "Eligible", issues: [] }],
@@ -319,7 +454,10 @@ test("a saved first flight advances to the second flight after search completes"
       },
       response: {
         itineraries: [
-          { legs: [first, second], price: { amount: 500, currency: "USD" } },
+          {
+            legs: [first, second],
+            price: { status: "verified", amount: 500, currency: "USD" },
+          },
         ],
       },
       evaluations: [{ status: "Eligible", issues: [] }],
@@ -399,7 +537,7 @@ test("a saved first flight advances while later route searches continue", async 
     response: {
       itineraries: [
         {
-          price: { amount: 200, currency: "USD" },
+          price: { status: "verified", amount: 200, currency: "USD" },
           outbound: {
             segments: [
               {

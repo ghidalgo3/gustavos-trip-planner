@@ -2487,9 +2487,21 @@ main:has(.trip-workspace-activities) > .topbar {
 .flight-grid-flight-numbers {
   color: var(--colorNeutralForeground2);
 }
+.flight-grid-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.flight-grid-badges > .fui-Badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .flight-grid-fare {
   display: grid;
+  justify-items: end;
   flex-shrink: 0;
+  margin-left: auto;
   max-width: 55%;
   text-align: right;
 }
@@ -2522,14 +2534,24 @@ main:has(.trip-workspace-activities) > .topbar {
   align-items: start;
   gap: 6px;
 }
+.flight-grid-booking-actions {
+  position: relative;
+  grid-column: 1 / -1;
+  cursor: default;
+}
 .flight-grid-card-actions > details[open] {
   grid-column: 1 / -1;
 }
 .flight-grid-card-actions > .fui-Button {
   grid-column: 2;
 }
-.flight-grid-card-actions .flight-information {
+.flight-onboard-details {
+  display: grid;
+  gap: 6px;
   margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--colorNeutralForeground2);
 }
 .flight-grid-card-actions summary {
   cursor: pointer;

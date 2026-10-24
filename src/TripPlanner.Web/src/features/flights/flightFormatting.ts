@@ -71,8 +71,19 @@ export function airportLabel(code: string, cities: AirportCities = {}): string {
   return city ? `${city} (${code})` : code;
 }
 
+export function isVerifiedPrice(
+  price: FareItinerary["price"],
+): price is NonNullable<FareItinerary["price"]> {
+  return (
+    price?.status === "verified" &&
+    Number.isFinite(price.amount) &&
+    price.amount >= 0 &&
+    /^[A-Z]{3}$/.test(price.currency)
+  );
+}
+
 export function priceLabel(price?: FareItinerary["price"]): string {
-  if (!price || !Number.isFinite(price.amount)) return "Price unavailable";
+  if (!isVerifiedPrice(price)) return "Price unconfirmed";
   try {
     const amount = new Intl.NumberFormat(undefined, {
       style: "currency",

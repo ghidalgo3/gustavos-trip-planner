@@ -14,15 +14,15 @@ test.each([
   (amount, expected, badge) => {
     expect(
       bookingPriceBadge(
-        { amount, currency: "USD" },
-        { amount: 700, currency: "USD" },
+        { status: "verified", amount, currency: "USD" },
+        { status: "verified", amount: 700, currency: "USD" },
         true,
       ),
     ).toBe(badge);
     expect(
       bookingPriceDescription(
-        { amount, currency: "USD" },
-        { amount: 700, currency: "USD" },
+        { status: "verified", amount, currency: "USD" },
+        { status: "verified", amount: 700, currency: "USD" },
         true,
       ),
     ).toBe(expected);
@@ -32,33 +32,33 @@ test.each([
 test.each([
   [
     undefined,
-    { amount: 700, currency: "USD" },
+    { status: "verified", amount: 700, currency: "USD" },
     true,
-    "Price unavailable · difference unavailable",
+    "Price unconfirmed · difference unavailable",
   ],
   [
-    { amount: 800, currency: "EUR" },
-    { amount: 700, currency: "USD" },
+    { status: "verified", amount: 800, currency: "EUR" },
+    { status: "verified", amount: 700, currency: "USD" },
     true,
     "Different currency; difference unavailable",
   ],
   [
-    { amount: 350, currency: "USD" },
-    { amount: 700, currency: "USD" },
+    { status: "verified", amount: 350, currency: "USD" },
+    { status: "verified", amount: 700, currency: "USD" },
     false,
     "Partial booking; difference unavailable",
   ],
   [
-    { amount: 800, currency: "USD" },
+    { status: "verified", amount: 800, currency: "USD" },
     undefined,
     true,
     "Original quote unavailable",
   ],
   [
-    { amount: NaN, currency: "USD" },
-    { amount: 700, currency: "USD" },
+    { status: "verified", amount: NaN, currency: "USD" },
+    { status: "verified", amount: 700, currency: "USD" },
     true,
-    "Price unavailable · difference unavailable",
+    "Price unconfirmed · difference unavailable",
   ],
 ])(
   "does not invent a difference when prices are not comparable (%j)",
@@ -66,6 +66,22 @@ test.each([
     expect(bookingPriceBadge(price, quoted, sameFlights)).toBeUndefined();
     expect(bookingPriceDescription(price, quoted, sameFlights)).toContain(
       expected,
+    );
+  },
+);
+
+test.each(["unverified", undefined, "unknown"])(
+  "never reveals an unconfirmed %s booking quote or a difference based on one",
+  (status) => {
+    const unconfirmed = { amount: 98765, currency: "USD", status };
+    const verified = { amount: 100, currency: "USD", status: "verified" };
+    expect(bookingPriceDescription(unconfirmed, verified, true)).toBe(
+      "Price unconfirmed · difference unavailable",
+    );
+    expect(bookingPriceBadge(unconfirmed, verified, true)).toBeUndefined();
+    expect(bookingPriceBadge(verified, unconfirmed, true)).toBeUndefined();
+    expect(bookingPriceDescription(verified, unconfirmed, true)).toBe(
+      "USD $100 · Original quote unavailable",
     );
   },
 );

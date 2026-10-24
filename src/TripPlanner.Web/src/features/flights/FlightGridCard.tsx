@@ -1,30 +1,36 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useState, type ReactNode } from "react";
 import { Badge, Text } from "@fluentui/react-components";
 import {
   airportLabel,
   flightNumbers,
   legKey,
   priceLabel,
+  isVerifiedPrice,
   type AirportCities,
 } from "./flightFormatting";
 import type { FlightNode } from "./flightRouteGraph";
 import type { FareItinerary } from "../../api/operationsApi";
-import FlightInformation from "./FlightInformation";
+import FlightOnboardDetails from "./FlightOnboardDetails";
+import FlightPriceStatus from "./FlightPriceStatus";
 
 type ContentProps = {
   node: FlightNode;
   selected: boolean;
+  preferred: boolean;
+  actions?: ReactNode;
   total?: FareItinerary["price"];
   farePrice?: FareItinerary["price"];
+  verificationPrice?: FareItinerary["price"];
   fareLabel: string;
   restrict: boolean;
+  hasCompletePath?: boolean;
   searching: boolean;
   busy: boolean;
   cities: AirportCities;
-  preferredAirlines: string[];
 };
 type Props = ContentProps & {
   active: boolean;
+  highlightEnabled: boolean;
   connected: boolean;
   muted: boolean;
   register: (id: string, element: HTMLDivElement | null) => void;
@@ -36,6 +42,7 @@ type Props = ContentProps & {
 // Hover changes the shell's classes, never the flight details or fare formatting.
 const FlightGridCard = memo(function FlightGridCard({
   active,
+  highlightEnabled,
   connected,
   muted,
   register,
@@ -57,16 +64,26 @@ const FlightGridCard = memo(function FlightGridCard({
       className={`flight-grid-card${active ? " is-active" : connected ? " is-connected" : ""}${muted ? " is-muted" : ""}${selected ? " is-chosen" : ""}`}
       role="group"
       onClick={(event) => {
-        if (busy || (event.target as HTMLElement).closest("details")) return;
+        if (
+          busy ||
+          (event.target as HTMLElement).closest(
+            "details, .flight-grid-booking-actions",
+          )
+        )
+          return;
         onChoose(node.legIndex, legKey(node.leg));
       }}
       aria-label={`${first.departure_airport} to ${last.arrival_airport}, ${first.departure_time_local}, ${node.leg.carrier ?? first.marketing_carrier_code ?? "Flight"}`}
-      onMouseEnter={() => onHover(node.id)}
-      onMouseLeave={() => onHover(undefined)}
-      onFocus={() => {
-        onHover(undefined);
-        onFocus(node.id);
-      }}
+      onMouseEnter={highlightEnabled ? () => onHover(node.id) : undefined}
+      onMouseLeave={highlightEnabled ? () => onHover(undefined) : undefined}
+      onFocus={
+        highlightEnabled
+          ? () => {
+              onHover(undefined);
+              onFocus(node.id);
+            }
+          : undefined
+      }
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget))
           onFocus(undefined);
@@ -87,14 +104,17 @@ export default FlightGridCard;
 const FlightGridCardContent = memo(function FlightGridCardContent({
   node,
   selected,
+  preferred,
+  actions,
   total,
   farePrice,
+  verificationPrice,
   fareLabel,
   restrict,
+  hasCompletePath,
   searching,
   busy,
   cities,
-  preferredAirlines,
 }: ContentProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const first = node.leg.segments[0];
@@ -119,14 +139,12 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
           <Text size={200} className="flight-grid-flight-numbers">
             {flightNumbers(node.leg)}
           </Text>
-          {selected && (
-            <Badge appearance="outline" color="success">
-              Chosen
-            </Badge>
-          )}
         </div>
         <div className="flight-grid-fare">
-          {farePrice && (
+          <FlightPriceStatus
+            price={verificationPrice ?? farePrice ?? node.price}
+          />
+          {isVerifiedPrice(farePrice) && (
             <Text size={200} weight="semibold">
               {priceLabel(farePrice)}
             </Text>
@@ -134,6 +152,20 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
           <span className="flight-grid-price-context">{fareLabel}</span>
         </div>
       </div>
+      {(preferred || selected) && (
+        <div className="flight-grid-badges">
+          {preferred && (
+            <Badge appearance="tint" color="brand">
+              Preferred Airline
+            </Badge>
+          )}
+          {selected && (
+            <Badge appearance="outline" color="success">
+              Chosen
+            </Badge>
+          )}
+        </div>
+      )}
       <div
         className="flight-grid-times"
         title={`${airportLabel(first.departure_airport, cities)} → ${airportLabel(last.arrival_airport, cities)}`}
@@ -169,25 +201,24 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
           total ? "flight-grid-route-ready" : "flight-grid-route-pending"
         }
       >
-        {total
+        {isVerifiedPrice(total)
           ? `Complete trip from ${priceLabel(total)}`
-          : restrict
-            ? "No matching complete trip"
-            : searching
-              ? "Waiting for a complete path"
-              : "No complete path found"}
+          : hasCompletePath
+            ? "Complete trip · price unconfirmed"
+            : restrict
+              ? "No matching complete trip"
+              : searching
+                ? "Waiting for a complete path"
+                : "No complete path found"}
       </Text>
       <div className="flight-grid-card-actions">
         <details onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
           <summary>Flight details</summary>
-          {detailsOpen && (
-            <FlightInformation
-              leg={node.leg}
-              cities={cities}
-              preferredAirlines={preferredAirlines}
-            />
-          )}
+          {detailsOpen && <FlightOnboardDetails leg={node.leg} />}
         </details>
+        {actions && (
+          <div className="flight-grid-booking-actions">{actions}</div>
+        )}
       </div>
     </>
   );

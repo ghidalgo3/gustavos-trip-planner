@@ -1,9 +1,11 @@
+import FlightPriceStatus from "./FlightPriceStatus";
 import { useEffect, useMemo, useState } from "react";
 import FlightInformation from "./FlightInformation";
 import {
   airportLabel,
   legUsesPreferredAirline,
   priceLabel,
+  isVerifiedPrice,
   type AirportCities,
 } from "./flightFormatting";
 import { flightAirportCodes, useAirportCities } from "./airportCities";
@@ -459,6 +461,7 @@ function FareCard({
         </div>
         <Text className="fare-card-price" weight="semibold">
           {formatPrice(option)}
+          <FlightPriceStatus price={option.itinerary.price} />
         </Text>
       </div>
       <div className="round-trip-flight-legs">
@@ -550,7 +553,7 @@ function sameItinerary(selected: SelectedFlight, option: FareOption): boolean {
 
 function cheapestOption(options: FareOption[]) {
   return [...options]
-    .filter((option) => option.itinerary.price !== undefined)
+    .filter((option) => isVerifiedPrice(option.itinerary.price))
     .sort(
       (left, right) =>
         left.itinerary.price!.amount - right.itinerary.price!.amount,
@@ -574,18 +577,21 @@ function stops(option: FareOption) {
 function differenceFromCheapest(option: FareOption, cheapest: FareOption) {
   const price = option.itinerary.price;
   const baseline = cheapest.itinerary.price;
-  if (!price || !baseline || price.currency !== baseline.currency)
+  if (
+    !isVerifiedPrice(price) ||
+    !isVerifiedPrice(baseline) ||
+    price.currency !== baseline.currency
+  )
     return undefined;
   const difference = price.amount - baseline.amount;
   return difference === 0
     ? "Same price as the cheapest overall option."
-    : `${priceLabel({ amount: difference, currency: price.currency })} more than the cheapest overall option.`;
+    : `${priceLabel({ amount: difference, currency: price.currency, status: "verified" })} more than the cheapest overall option.`;
 }
 
 function formatPrice(option: FareOption) {
   const price = option.itinerary.price;
-  if (!price) return "Unavailable";
-  return `${priceLabel(price)}${price.status === "unverified" ? " (unverified)" : ""}`;
+  return isVerifiedPrice(price) ? priceLabel(price) : "";
 }
 
 function firstBookingUrl(response: unknown): string | undefined {

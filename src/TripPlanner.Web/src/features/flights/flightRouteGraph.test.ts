@@ -44,7 +44,10 @@ const result: FareSearchResult = {
       [a, b, c],
       [a, d, e],
       [f, d, c],
-    ].map((legs) => ({ legs, price: { amount: 300, currency: "USD" } })),
+    ].map((legs) => ({
+      legs,
+      price: { status: "verified", amount: 300, currency: "USD" },
+    })),
     flights: [{ legIndex: 1, leg: pending, bookingLegCount: 1 }],
   },
   evaluations: Array.from({ length: 3 }, () => ({
@@ -331,6 +334,7 @@ test("path filters count a bundled fare once and evaluate unsampled combinations
             currency: "USD",
             bundledReturn: true,
             costs: [500, 10, 80, 10, 80, 0].map((amount, flightIndex) => ({
+              status: "verified",
               amount,
               flightIndex,
             })),
@@ -347,14 +351,14 @@ test("path filters count a bundled fare once and evaluate unsampled combinations
   expect(all.maxTotal).toBe(660);
   expect(all.prices.get(flightNodeId(0, legKey(a)))?.amount).toBe(520);
   expect(all.fares.get(flightNodeId(0, legKey(a)))).toEqual({
-    price: { amount: 500, currency: "USD" },
+    price: { status: "verified", amount: 500, currency: "USD" },
     legIndexes: [0, 3],
   });
   expect(all.fares.get(flightNodeId(3, legKey(f)))).toEqual(
     all.fares.get(flightNodeId(0, legKey(a))),
   );
   expect(all.fares.get(flightNodeId(1, legKey(b)))).toEqual({
-    price: { amount: 10, currency: "USD" },
+    price: { status: "verified", amount: 10, currency: "USD" },
     legIndexes: [1],
   });
   const selected = filterFlightPaths(graph, [null, legKey(d)], {
@@ -397,18 +401,18 @@ test("selection and cost filtering never connect an outbound with another bundle
             connectionIndexes: [0, 2],
             currency: "USD",
             costs: [
-              { flightIndex: 0, amount: 500 },
-              { flightIndex: 2, amount: 100 },
-              { flightIndex: 3, amount: 0 },
+              { status: "verified", flightIndex: 0, amount: 500 },
+              { status: "verified", flightIndex: 2, amount: 100 },
+              { status: "verified", flightIndex: 3, amount: 0 },
             ],
           },
           {
             connectionIndexes: [1, 3],
             currency: "USD",
             costs: [
-              { flightIndex: 1, amount: 200 },
-              { flightIndex: 2, amount: 100 },
-              { flightIndex: 4, amount: 0 },
+              { status: "verified", flightIndex: 1, amount: 200 },
+              { status: "verified", flightIndex: 2, amount: 100 },
+              { status: "verified", flightIndex: 4, amount: 0 },
             ],
           },
         ],
@@ -444,8 +448,14 @@ test("all segments must satisfy the airline filter and currencies remain separat
       ...result,
       response: {
         itineraries: [
-          { legs: [a, mixed, c], price: { amount: 500, currency: "USD" } },
-          { legs: [a, mixed, c], price: { amount: 400, currency: "EUR" } },
+          {
+            legs: [a, mixed, c],
+            price: { status: "verified", amount: 500, currency: "USD" },
+          },
+          {
+            legs: [a, mixed, c],
+            price: { status: "verified", amount: 400, currency: "EUR" },
+          },
         ],
       },
     },
@@ -462,6 +472,7 @@ test("all segments must satisfy the airline filter and currencies remain separat
   });
   expect(euros.nodes.size).toBe(3);
   expect(euros.prices.get(flightNodeId(1, legKey(mixed)))).toEqual({
+    status: "verified",
     amount: 400,
     currency: "EUR",
   });
@@ -507,6 +518,7 @@ test.each(
           : [],
       ),
       costs: flights.map((_, flightIndex) => ({
+        status: "verified",
         flightIndex,
         amount:
           flightIndex < 3
@@ -615,3 +627,54 @@ test.each(
     expect(find(selected)).toEqual(first);
   },
 );
+
+test("mixed verification keeps unpriced routes selectable without contaminating confirmed totals", () => {
+  const found: FareSearchResult = {
+    ...result,
+    response: {
+      itineraries: [],
+      flights: [a, b, c, d].map((leg, i) => ({
+        leg,
+        legIndex: i === 0 ? 0 : i === 3 ? 2 : 1,
+        bookingLegCount: 1,
+      })),
+      flightConnections: [
+        [0, 1],
+        [1, 3],
+        [0, 2],
+        [2, 3],
+      ].map(([fromFlightIndex, toFlightIndex]) => ({
+        fromFlightIndex,
+        toFlightIndex,
+      })),
+      routeGraphs: [
+        {
+          currency: "USD",
+          connectionIndexes: [0, 1, 2, 3],
+          costs: [
+            { flightIndex: 0, amount: 100, status: "verified" },
+            { flightIndex: 1, amount: 10, status: "unverified" },
+            { flightIndex: 2, amount: 200, status: "verified" },
+            { flightIndex: 3, amount: 100, status: "verified" },
+          ],
+        },
+      ],
+    },
+  };
+  const graph = buildFlightGraph(found, 3);
+  const all = filterFlightPaths(graph);
+  expect(all.nodes.size).toBe(4);
+  expect(all.minTotal).toBe(400);
+  expect(all.maxTotal).toBe(400);
+  expect(all.prices.has(flightNodeId(1, legKey(b)))).toBe(false);
+  expect(all.prices.get(flightNodeId(0, legKey(a)))?.amount).toBe(400);
+  const unknown = filterFlightPaths(graph, [null, legKey(b)]);
+  expect(unknown.nodes.size).toBe(3);
+  expect(unknown.prices.size).toBe(0);
+  expect(unknown.minTotal).toBe(Infinity);
+  expect(
+    filterFlightPaths(graph, [], { maxPrice: 500 }).nodes.has(
+      flightNodeId(1, legKey(b)),
+    ),
+  ).toBe(false);
+});

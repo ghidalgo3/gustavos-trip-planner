@@ -78,7 +78,7 @@ const returns = [
 const itineraries: FareItinerary[] = [
   {
     legs: [outbound, returns[0]],
-    price: { amount: 900, currency: "USD" },
+    price: { status: "verified", amount: 900, currency: "USD" },
     stops: 1,
     bookingOffers: [
       { ignavId: "outbound-offer", legIndexes: [0] },
@@ -87,7 +87,7 @@ const itineraries: FareItinerary[] = [
   },
   {
     legs: [outbound, returns[1]],
-    price: { amount: 1100, currency: "USD" },
+    price: { status: "verified", amount: 1100, currency: "USD" },
     stops: 1,
     bookingOffers: [
       { ignavId: "outbound-offer", legIndexes: [0] },
@@ -542,7 +542,7 @@ test("shows every compatible return airline and revisits earlier flights via tab
   const alternatives = [...returns, ...extraReturns].map((leg, index) => ({
     ...itineraries[0],
     legs: [outbound, leg],
-    price: { amount: 900 + index * 20, currency: "USD" },
+    price: { status: "verified", amount: 900 + index * 20, currency: "USD" },
   }));
   vi.stubGlobal(
     "fetch",
@@ -773,9 +773,9 @@ test("desktop selections stay individual until explicit review, survive recompos
             connectionIndexes: [0, 1],
             currency: "USD",
             costs: [
-              { flightIndex: 0, amount: 700 },
-              { flightIndex: 1, amount: 200 },
-              { flightIndex: 2, amount: 400 },
+              { status: "verified", flightIndex: 0, amount: 700 },
+              { status: "verified", flightIndex: 1, amount: 200 },
+              { status: "verified", flightIndex: 2, amount: 400 },
             ],
           },
         ],
@@ -824,54 +824,29 @@ test("desktop selections stay individual until explicit review, survive recompos
   );
   fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 20/ }));
   expect(await screen.findByText("1 of 2 flights selected")).toBeVisible();
-  const selectedFlights = screen.getByRole("region", {
-    name: "Selected flights",
-  });
+  const returnCard = screen
+    .getByRole("button", { name: /Choose flight AA 20/ })
+    .closest(".flight-grid-card") as HTMLElement;
   expect(
-    within(selectedFlights).getByRole("group", {
-      name: "Flight 2: Return home",
-    }),
-  ).toBeVisible();
-  expect(within(selectedFlights).getByText(/AA 20/)).toBeVisible();
+    within(returnCard).getByRole("switch", { name: "Booked" }),
+  ).toBeDisabled();
   expect(
-    within(selectedFlights).queryByRole("group", { name: /Flight 1/ }),
-  ).toBeNull();
+    within(returnCard).getByRole("button", { name: "Booking Link" }),
+  ).toBeDisabled();
+  expect(screen.queryByRole("region", { name: "Selected flights" })).toBeNull();
   expect(change).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 100/ }));
+  expect(await screen.findByText("2 of 2 flights selected")).toBeVisible();
+  expect(change).toHaveBeenCalledTimes(2);
   expect(
     screen.queryByRole("heading", { name: "Your route is ready" }),
   ).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 100/ }));
-  expect(await screen.findByText("2 of 2 flights selected")).toBeVisible();
   expect(
-    within(selectedFlights)
-      .getAllByRole("group", { name: /^Flight \d/ })
-      .map((group) => group.getAttribute("aria-label")),
-  ).toEqual(["Flight 1: Phuket", "Flight 2: Return home"]);
-  expect(change).toHaveBeenCalledTimes(2);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Review selected flights" }),
+    screen.queryByRole("button", { name: "Review selected flights" }),
+  ).toBeNull();
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
+    false,
   );
-  expect(
-    await screen.findByRole("heading", { name: "Your route is ready" }),
-  ).toBeVisible();
-  expect(change).toHaveBeenCalledTimes(2);
-  expect(screen.queryByRole("region", { name: "Selected flights" })).toBeNull();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Save complete itinerary" }),
-  );
-  await waitFor(() =>
-    expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
-      true,
-    ),
-  );
-  const saved = fetch.mock.calls.find(
-    ([, init]) => init?.method === "PUT",
-  )![1]!;
-  expect(JSON.parse(saved.body as string)).toMatchObject({
-    legKeys: itineraries[1].legs!.map(legKey),
-    priceAmount: 1100,
-    priceCurrency: "USD",
-  });
   fireEvent.click(screen.getByRole("button", { name: "Clear selections" }));
   fireEvent.click(
     await screen.findByRole("button", { name: "Keep selections" }),
@@ -885,7 +860,7 @@ test("desktop selections stay individual until explicit review, survive recompos
   );
   expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
   expect(
-    screen.getByRole("button", { name: /Choose flight JL 10/ }),
+    await screen.findByRole("button", { name: /Choose flight JL 10/ }),
   ).toBeVisible();
   expect(
     screen.queryByRole("heading", { name: "Your route is ready" }),
@@ -893,7 +868,7 @@ test("desktop selections stay individual until explicit review, survive recompos
 });
 
 test.each([false, true])(
-  "shows selected flights below the grid without a complete route (restored: %s)",
+  "shows booking controls on selected grid cards without a complete route (restored: %s)",
   async (restored) => {
     vi.stubGlobal(
       "fetch",
@@ -915,7 +890,7 @@ test.each([false, true])(
             legIndex: 1,
             leg: returns[1],
             bookingLegCount: 2,
-            price: { amount: 400, currency: "USD" },
+            price: { status: "verified", amount: 400, currency: "USD" },
           },
         ],
       },
@@ -967,25 +942,25 @@ test.each([false, true])(
         screen.getByRole("button", { name: /Choose flight AA 20/ }),
       );
     }
-    const summary = await screen.findByRole("region", {
-      name: "Selected flights",
-    });
+    const card = screen
+      .getByRole("button", { name: /Choose flight AA 20/ })
+      .closest(".flight-grid-card") as HTMLElement;
     expect(
-      within(summary).getByRole("group", { name: "Flight 2: Return home" }),
-    ).toBeVisible();
-    expect(within(summary).getByText(/AA 20/)).toBeVisible();
+      within(card).getByRole("button", { name: "Booking Link" }),
+    ).toBeDisabled();
+    expect(within(card).getByRole("switch", { name: "Booked" })).toBeDisabled();
+    expect(within(card).queryByText("USD $400")).toBeNull();
     expect(
-      within(summary).getByText("Fare available with a complete path"),
-    ).toBeVisible();
-    expect(within(summary).queryByText("USD $400")).toBeNull();
-    expect(
-      screen
-        .getByRole("region", { name: "Flight destinations and connections" })
-        .compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      screen.queryByRole("region", { name: "Selected flights" }),
+    ).toBeNull();
     expect(
       screen.queryByRole("heading", { name: "Your route is ready" }),
     ).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Choose flight AA 20/ }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: /Choose flight AA 20/ }),
     );
@@ -993,8 +968,8 @@ test.each([false, true])(
       await screen.findByRole("button", { name: "Keep selections" }),
     );
     expect(
-      await screen.findByRole("region", { name: "Selected flights" }),
-    ).toBeVisible();
+      await screen.findByRole("button", { name: /Choose flight AA 20/ }),
+    ).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(
       await screen.findByRole("button", { name: /Choose flight AA 20/ }),
     );
@@ -1014,7 +989,7 @@ test("booking links show fare names and price differences without collapsing var
     provider_type: "airline",
     provider_name: "Delta",
     fare_name: "Main Extra",
-    price: { amount: 850, currency: "USD" },
+    price: { status: "verified", amount: 850, currency: "USD" },
     url: "https://delta.example/book",
   };
   vi.stubGlobal(
@@ -1030,19 +1005,31 @@ test("booking links show fare names and price differences without collapsing var
                     {
                       ...mainExtra,
                       fare_name: "Basic",
-                      price: { amount: 700, currency: "USD" },
+                      price: {
+                        status: "verified",
+                        amount: 700,
+                        currency: "USD",
+                      },
                     },
                     mainExtra,
                     mainExtra,
                     {
                       ...mainExtra,
                       fare_name: "Main Classic",
-                      price: { amount: 650, currency: "USD" },
+                      price: {
+                        status: "verified",
+                        amount: 650,
+                        currency: "USD",
+                      },
                     },
                     {
                       ...mainExtra,
                       fare_name: "Comfort",
-                      price: { amount: 900, currency: "EUR" },
+                      price: {
+                        status: "verified",
+                        amount: 900,
+                        currency: "EUR",
+                      },
                     },
                     { ...mainExtra, fare_name: undefined, price: undefined },
                   ],
@@ -1063,7 +1050,7 @@ test("booking links show fare names and price differences without collapsing var
             {
               ignavId: "quote",
               legIndexes: [0],
-              price: { amount: 700, currency: "USD" },
+              price: { status: "verified", amount: 700, currency: "USD" },
             },
           ],
         },
@@ -1090,6 +1077,65 @@ test("booking links show fare names and price differences without collapsing var
   );
   expect(
     screen.getByRole("link", { name: /Fare name unavailable/ }),
-  ).toHaveTextContent("Price unavailable · difference unavailable");
+  ).toHaveTextContent("Price unconfirmed · difference unavailable");
   expect(screen.getAllByRole("link")).toHaveLength(5);
 });
+
+test.each(["unverified", undefined])(
+  "booking links hide %s prices and price differences",
+  async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        Response.json(
+          init?.method === "POST"
+            ? {
+                booking_options: [
+                  {
+                    legs: ["outbound"],
+                    links: [
+                      {
+                        provider_type: "airline",
+                        provider_name: "EASTAR JET",
+                        price: { amount: 98765, currency: "USD", status },
+                        url: "https://airline.example/book",
+                      },
+                    ],
+                  },
+                ],
+              }
+            : [],
+        ),
+      ),
+    );
+    const quoted: FareSearchResult = {
+      ...result,
+      response: {
+        itineraries: [
+          {
+            ...itineraries[0],
+            bookingOffers: [
+              {
+                ignavId: "quote",
+                legIndexes: [0],
+                price: { amount: 700, currency: "USD", status: "verified" },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <RouteFareResults tripId="trip" results={[quoted]} parties={[]} />
+      </FluentProvider>,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Airline booking options" }),
+    );
+    const link = await screen.findByRole("link", { name: /EASTAR JET/ });
+    expect(link).toHaveTextContent("Price unconfirmed");
+    expect(link).not.toHaveTextContent(/98,?765|\$/);
+    expect(link.querySelector("[title*='quoted']")).toBeNull();
+  },
+);

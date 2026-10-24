@@ -1,3 +1,4 @@
+import FlightPriceStatus from "./FlightPriceStatus";
 import type { ReactNode } from "react";
 import { Badge, Card, Switch, Text, Title3 } from "@fluentui/react-components";
 import type { FareItinerary, FareLeg } from "../../api/operationsApi";
@@ -6,7 +7,7 @@ import {
   legUsesPreferredAirline,
   type AirportCities,
 } from "./flightFormatting";
-import { priceLabel } from "./flightFormatting";
+import { isVerifiedPrice, priceLabel } from "./flightFormatting";
 
 function displayTime(value?: string, timeOnly = false): string {
   if (!value) return "Time unavailable";
@@ -109,7 +110,10 @@ export default function FlightInformation({
         {price && (
           <div className="flight-information-price">
             {priceContext && <Text size={200}>{priceContext}</Text>}
-            <Text weight="semibold">{priceLabel(price)}</Text>
+            <FlightPriceStatus price={price} />
+            {isVerifiedPrice(price) && (
+              <Text weight="semibold">{priceLabel(price)}</Text>
+            )}
           </div>
         )}
       </div>

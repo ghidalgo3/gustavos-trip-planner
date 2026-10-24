@@ -40,6 +40,7 @@ export default function PlanningRun({
   multiCity = false,
   visitCount = 0,
   visits = [],
+  returnDate,
   disabled,
   hasUnsavedChanges,
   savedVersion,
@@ -54,6 +55,7 @@ export default function PlanningRun({
   multiCity?: boolean;
   visitCount?: number;
   visits?: PlannedVisit[];
+  returnDate?: string | null;
   disabled: boolean;
   hasUnsavedChanges: boolean;
   savedVersion: number;
@@ -335,66 +337,65 @@ export default function PlanningRun({
       {hasUnsavedChanges && currentResults.length > 0 && (
         <Text>Save planning details to refresh these flight options.</Text>
       )}
-      {!hasUnsavedChanges &&
-        (currentResults.length > 0 ||
-          (showGrid && (operation || starting))) && (
-          <>
-            {showGrid ||
-            currentResults.some(
-              (r) =>
-                r.request.searchKind === "itinerary" &&
-                r.response.itineraries.length > 0,
-            ) ? (
-              <RouteFareResults
-                tripId={tripId}
-                results={currentResults}
-                visits={visits}
-                showGrid={showGrid}
-                searching={Boolean(active || starting)}
-                parties={parties}
-                partySettings={partySettings}
-                savedChoices={Object.fromEntries(
-                  Object.entries(flightChoices).map(([partyId, choice]) => [
-                    partyId,
-                    choice.legKeys,
-                  ]),
-                )}
-                onChangeChoices={saveFlightChoices}
-                choiceProgress={flightChoices}
-              />
-            ) : multiCity ? (
-              <FirstLegResults
-                results={currentResults}
-                parties={parties}
-                partySettings={partySettings}
-                choices={flightChoices}
-                legCount={visitCount + 1}
-                searching={active}
-                onChoose={saveFlightChoices}
-              />
-            ) : (
-              <FareResults
-                tripId={tripId}
-                results={currentResults}
-                parties={parties}
-                partySettings={partySettings}
-              />
-            )}
-            {currentResults.length > 0 && (
-              <Text size={200}>
-                Prices last retrieved{" "}
-                {new Date(currentResults[0].fetchedAt).toLocaleString()}.{" "}
-                {Date.parse(currentResults[0].expiresAt) <= checkedAt
-                  ? Object.values(flightChoices).some((choice) =>
-                      choice.legKeys.some(Boolean),
-                    )
-                    ? "Saved flight quotes are retained. Search again to refresh unselected flights. Airline prices can change."
-                    : "These results have expired. Plan again to refresh prices."
-                  : "Prices can change."}
-              </Text>
-            )}
-          </>
-        )}
+      {!hasUnsavedChanges && (currentResults.length > 0 || showGrid) && (
+        <>
+          {showGrid ||
+          currentResults.some(
+            (r) =>
+              r.request.searchKind === "itinerary" &&
+              r.response.itineraries.length > 0,
+          ) ? (
+            <RouteFareResults
+              tripId={tripId}
+              results={currentResults}
+              visits={visits}
+              returnDate={returnDate}
+              showGrid={showGrid}
+              searching={Boolean(active || starting)}
+              parties={parties}
+              partySettings={partySettings}
+              savedChoices={Object.fromEntries(
+                Object.entries(flightChoices).map(([partyId, choice]) => [
+                  partyId,
+                  choice.legKeys,
+                ]),
+              )}
+              onChangeChoices={saveFlightChoices}
+              choiceProgress={flightChoices}
+            />
+          ) : multiCity ? (
+            <FirstLegResults
+              results={currentResults}
+              parties={parties}
+              partySettings={partySettings}
+              choices={flightChoices}
+              legCount={visitCount + 1}
+              searching={active}
+              onChoose={saveFlightChoices}
+            />
+          ) : (
+            <FareResults
+              tripId={tripId}
+              results={currentResults}
+              parties={parties}
+              partySettings={partySettings}
+            />
+          )}
+          {currentResults.length > 0 && (
+            <Text size={200}>
+              Prices last retrieved{" "}
+              {new Date(currentResults[0].fetchedAt).toLocaleString()}.{" "}
+              {Date.parse(currentResults[0].expiresAt) <= checkedAt
+                ? Object.values(flightChoices).some((choice) =>
+                    choice.legKeys.some(Boolean),
+                  )
+                  ? "Saved flight quotes are retained. Search again to refresh unselected flights. Airline prices can change."
+                  : "These results have expired. Plan again to refresh prices."
+                : "Prices can change."}
+            </Text>
+          )}
+        </>
+      )}
     </Card>
   );
 }

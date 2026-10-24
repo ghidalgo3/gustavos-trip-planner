@@ -1,6 +1,10 @@
-import { priceLabel } from "./flightFormatting";
+import { isVerifiedPrice, priceLabel } from "./flightFormatting";
 
-export type BookingPrice = { amount: number; currency: string };
+export type BookingPrice = {
+  amount: number;
+  currency: string;
+  status?: string;
+};
 
 export function bookingPriceBadge(
   price: BookingPrice | undefined,
@@ -9,13 +13,8 @@ export function bookingPriceBadge(
 ) {
   if (
     !sameFlights ||
-    !price ||
-    !quoted ||
-    !Number.isFinite(price.amount) ||
-    !Number.isFinite(quoted.amount) ||
-    price.amount < 0 ||
-    quoted.amount < 0 ||
-    !price.currency ||
+    !isVerifiedPrice(price) ||
+    !isVerifiedPrice(quoted) ||
     price.currency.toUpperCase() !== quoted.currency.toUpperCase()
   )
     return undefined;
@@ -40,17 +39,11 @@ export function bookingPriceDescription(
   quoted: BookingPrice | undefined,
   sameFlights: boolean,
 ) {
-  if (
-    !price ||
-    !Number.isFinite(price.amount) ||
-    price.amount < 0 ||
-    !price.currency
-  )
-    return "Price unavailable · difference unavailable";
+  if (!isVerifiedPrice(price))
+    return "Price unconfirmed · difference unavailable";
   const total = priceLabel(price);
   if (!sameFlights) return `${total} · Partial booking; difference unavailable`;
-  if (!quoted || !Number.isFinite(quoted.amount) || quoted.amount < 0)
-    return `${total} · Original quote unavailable`;
+  if (!isVerifiedPrice(quoted)) return `${total} · Original quote unavailable`;
   if (price.currency.toUpperCase() !== quoted.currency.toUpperCase())
     return `${total} · Different currency; difference unavailable`;
   const difference =
@@ -58,6 +51,7 @@ export function bookingPriceDescription(
   if (difference === 0) return `${total} · Same as quoted`;
   const change = priceLabel({
     amount: Math.abs(difference) / 100,
+    status: "verified",
     currency: price.currency,
   });
   return `${total} · ${difference > 0 ? "+" : "−"}${change} vs quoted`;

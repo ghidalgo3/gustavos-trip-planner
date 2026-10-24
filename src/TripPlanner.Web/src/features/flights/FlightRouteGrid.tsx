@@ -11,14 +11,26 @@ import {
   Dropdown,
   Field,
   Option,
+  Menu,
+  MenuTrigger,
+  MenuPopover,
+  MenuList,
+  MenuItemRadio,
+  SplitButton,
+  type MenuButtonProps,
   Skeleton,
   SkeletonItem,
   Slider,
   Text,
 } from "@fluentui/react-components";
 import type { PlannedVisit } from "./planningApi";
-import type { FareSearchResult } from "../../api/operationsApi";
-import { legKey, priceLabel, type AirportCities } from "./flightFormatting";
+import {
+  isVerifiedPrice,
+  legUsesPreferredAirline,
+  legKey,
+  priceLabel,
+  type AirportCities,
+} from "./flightFormatting";
 import {
   buildFlightGraph,
   createFlightPathFilter,
@@ -29,37 +41,48 @@ import {
   flightNodeId,
   presentFlightFare,
   type FlightFare,
+  type FlightNode,
+  type FlightRouteResult,
 } from "./flightRouteGraph";
 import FlightGridCard from "./FlightGridCard";
 import FlightConnections from "./FlightConnections";
 
+const sortFields = {
+  price: "Price",
+  departure: "Departure",
+  arrival: "Arrival",
+  duration: "Duration",
+};
+type SortField = keyof typeof sortFields;
+
 export default function FlightRouteGrid({
   result,
   visits,
+  returnDate,
   cities,
   searching,
   chosen,
   busy,
   onChoose,
-  onReview,
   onFilterChange,
   preferredAirlines,
-  renderSelections,
+  renderCardActions,
 }: {
-  result?: FareSearchResult;
+  result?: FlightRouteResult;
   visits: PlannedVisit[];
+  returnDate?: string | null;
   cities: AirportCities;
   searching: boolean;
   chosen: FlightSelections;
   busy: boolean;
   onChoose: (keys: (string | null)[]) => void;
-  onReview?: (
-    keys: string[],
-    price?: { amount: number; currency: string },
-  ) => void;
   onFilterChange?: () => void;
   preferredAirlines: string[];
-  renderSelections?: (fares: ReadonlyMap<string, FlightFare>) => ReactNode;
+  renderCardActions?: (
+    node: FlightNode,
+    selected: boolean,
+    fares: ReadonlyMap<string, FlightFare>,
+  ) => ReactNode;
 }) {
   const graph = useMemo(
     () => buildFlightGraph(result, visits.length + 1, preferredAirlines),
@@ -68,6 +91,10 @@ export default function FlightRouteGrid({
   const findPaths = useMemo(() => createFlightPathFilter(graph), [graph]);
   const [hovered, setHovered] = useState<string>();
   const [focused, setFocused] = useState<string>();
+  const [sortField, setSortField] = useState<SortField>("price");
+  const [sortOrder, setSortOrder] = useState<"ascending" | "descending">(
+    "ascending",
+  );
   const [limit, setLimit] = useState<number>();
   const [stops, setStops] = useState<string[]>();
   const [airlines, setAirlines] = useState<string[]>();
@@ -96,6 +123,22 @@ export default function FlightRouteGrid({
     () => findPaths(chosen, filters),
     [findPaths, chosen, filters],
   );
+  const cardActions = useMemo(
+    () =>
+      new Map(
+        graph.columns
+          .flat()
+          .map((node) => [
+            node.id,
+            renderCardActions?.(
+              node,
+              chosen[node.legIndex] === legKey(node.leg),
+              available.fares,
+            ),
+          ]),
+      ),
+    [graph, chosen, available.fares, renderCardActions],
+  );
   const selectedCount = chosen.filter(Boolean).length;
   const hasFilters =
     limit !== undefined ||
@@ -103,24 +146,38 @@ export default function FlightRouteGrid({
     airlines !== undefined ||
     chosenCurrency !== undefined;
   const restrict = selectedCount > 0 || hasFilters || currencies.length > 1;
-  const active = hovered ?? focused;
-  const activeNode = graph.columns.flat().find((node) => node.id === active);
-  const replacingSelection = Boolean(
-    activeNode &&
-    chosen[activeNode.legIndex] &&
-    chosen[activeNode.legIndex] !== legKey(activeNode.leg),
-  );
+  const allChosen = graph.columns.every((_, index) => Boolean(chosen[index]));
+  const active = [hovered, focused].find((id) => {
+    const node = graph.columns.flat().find((node) => node.id === id);
+    return (
+      node &&
+      (!chosen[node.legIndex] || chosen[node.legIndex] === legKey(node.leg))
+    );
+  });
   const highlighted = useMemo(() => {
+    if (allChosen) {
+      // This line shows the user's saved choices, even when retained flights
+      // have no current search graph. It does not assert route feasibility.
+      const selectedNodes = graph.columns.map((column, index) =>
+        column.find((node) => legKey(node.leg) === chosen[index]),
+      );
+      if (selectedNodes.some((node) => !node))
+        return { nodes: new Set<string>(), edges: [] };
+      const ids = selectedNodes.map((node) => node!.id);
+      return {
+        nodes: new Set(ids),
+        edges: ids.slice(1).map((to, index) => ({ from: ids[index], to })),
+      };
+    }
     const node = graph.columns.flat().find((node) => node.id === active);
-    if (!node || replacingSelection)
-      return { nodes: new Set<string>(), edges: [] };
+    if (!node) return { nodes: new Set<string>(), edges: [] };
     const keys = Array.from(
       { length: graph.columns.length },
       (_, index) => chosen[index] ?? null,
     );
     keys[node.legIndex] = legKey(node.leg);
     return findPaths(keys, filters);
-  }, [graph, findPaths, active, chosen, filters, replacingSelection]);
+  }, [graph, findPaths, active, chosen, filters, allChosen]);
   const airlineOptions = useMemo(() => {
     const options = new Map<string, string>();
     for (const node of graph.columns.flat()) {
@@ -137,9 +194,6 @@ export default function FlightRouteGrid({
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [graph]);
-  const complete =
-    selectedCount === graph.columns.length && available.nodes.size > 0;
-  const tripPrice = available.prices.get(flightNodeId(0, chosen[0] ?? ""));
   const toggleFlight = useCallback(
     (index: number, key: string) => {
       const keys = Array.from(
@@ -167,18 +221,106 @@ export default function FlightRouteGrid({
     },
     [],
   );
+  const columnFares = useMemo(
+    () =>
+      graph.columns.map((_, index) => {
+        if (!chosen[index]) return available.fares;
+        const alternatives = [...chosen];
+        alternatives[index] = null;
+        return findPaths(alternatives, filters).fares;
+      }),
+    [graph, chosen, findPaths, filters, available.fares],
+  );
   const visibleColumns = useMemo(
     () =>
-      graph.columns.map((column, index) =>
-        column.filter((node) =>
-          chosen[index]
-            ? chosen[index] === legKey(node.leg) ||
-              flightMatchesFilters(node, filters)
-            : !restrict || available.nodes.has(node.id),
-        ),
-      ),
-    [graph, chosen, filters, restrict, available],
+      graph.columns.map((column, index) => {
+        const price = (node: (typeof column)[number]) => {
+          const quote = columnFares[index].get(node.id)?.price ?? node.price;
+          return isVerifiedPrice(quote) &&
+            (!currency || quote.currency === currency)
+            ? quote
+            : undefined;
+        };
+        return column
+          .filter((node) =>
+            chosen[index]
+              ? chosen[index] === legKey(node.leg) ||
+                flightMatchesFilters(node, filters)
+              : !restrict || available.nodes.has(node.id),
+          )
+          .sort((a, b) => {
+            const selected =
+              Number(chosen[index] === legKey(b.leg)) -
+              Number(chosen[index] === legKey(a.leg));
+            if (selected) return selected;
+            if (sortField !== "price") {
+              const value = (node: typeof a) => {
+                if (sortField === "departure")
+                  return (
+                    node.leg.segments[0]?.departure_time_local || undefined
+                  );
+                if (sortField === "arrival")
+                  return (
+                    node.leg.segments.at(-1)?.arrival_time_local || undefined
+                  );
+                const duration = node.leg.duration_minutes;
+                return duration != null &&
+                  Number.isFinite(duration) &&
+                  duration > 0
+                  ? duration
+                  : undefined;
+              };
+              const left = value(a),
+                right = value(b);
+              if (left === undefined) return right === undefined ? 0 : 1;
+              if (right === undefined) return -1;
+              const comparison =
+                typeof left === "number" && typeof right === "number"
+                  ? left - right
+                  : String(left).localeCompare(String(right));
+              return sortOrder === "ascending" ? comparison : -comparison;
+            }
+            const left = price(a),
+              right = price(b);
+            if (left === undefined) return right === undefined ? 0 : 1;
+            if (right === undefined) return -1;
+            return (
+              left.currency.localeCompare(right.currency) ||
+              (sortOrder === "ascending"
+                ? left.amount - right.amount
+                : right.amount - left.amount)
+            );
+          });
+      }),
+    [
+      graph,
+      chosen,
+      filters,
+      restrict,
+      available,
+      columnFares,
+      currency,
+      sortOrder,
+      sortField,
+    ],
   );
+  const returnFlights = visibleColumns[visits.length] ?? [];
+  const selectedReturn = returnFlights.find(
+    (node) => chosen[visits.length] === legKey(node.leg),
+  );
+  const returnDays = [
+    ...new Set(
+      returnFlights
+        .map((node) => node.leg.segments[0].departure_time_local?.slice(0, 10))
+        .filter((date): date is string => Boolean(date)),
+    ),
+  ].sort();
+  const returnDateLabel =
+    selectedReturn?.leg.segments[0].departure_time_local?.slice(0, 10) ??
+    (returnDays.length > 1
+      ? `${returnDays[0]} – ${returnDays.at(-1)}`
+      : returnDays[0]) ??
+    returnDate;
 
   return (
     <div className="flight-route-explorer">
@@ -200,18 +342,6 @@ export default function FlightRouteGrid({
           >
             Clear selections
           </Button>
-          <Button
-            appearance="primary"
-            disabled={busy || !complete}
-            onClick={() =>
-              onReview?.(
-                chosen.map((key) => key!),
-                tripPrice,
-              )
-            }
-          >
-            Review selected flights
-          </Button>
         </div>
       </div>
       <div
@@ -221,14 +351,18 @@ export default function FlightRouteGrid({
       >
         <Field
           className="flight-grid-budget"
-          label={`Total trip cost${currency && priced ? ` · ${priceLabel({ amount: effectiveLimit ?? maximum, currency })} maximum` : ""}`}
+          label={`Total trip cost${currency && priced ? ` · ${priceLabel({ amount: effectiveLimit ?? maximum, currency, status: "verified" })} maximum` : ""}`}
         >
           <Slider
             aria-label="Maximum total trip cost"
             aria-valuetext={
-              currency
-                ? priceLabel({ amount: effectiveLimit ?? maximum, currency })
-                : undefined
+              currency && priced
+                ? priceLabel({
+                    amount: effectiveLimit ?? maximum,
+                    currency,
+                    status: "verified",
+                  })
+                : "Price unconfirmed"
             }
             min={minimum}
             max={maximum}
@@ -243,7 +377,7 @@ export default function FlightRouteGrid({
           />
           <Text size={200}>
             {Number.isFinite(range.minTotal) && currency
-              ? `Complete trips from ${priceLabel({ amount: range.minTotal, currency })}. Shared outbound and return fares counted once.`
+              ? `Complete trips from ${priceLabel({ amount: range.minTotal, currency, status: "verified" })}. Shared outbound and return fares counted once.`
               : "Prices appear when complete trips are found."}
           </Text>
         </Field>
@@ -330,6 +464,45 @@ export default function FlightRouteGrid({
             ))}
           </Dropdown>
         </Field>
+        <Menu checkedValues={{ sortField: [sortField] }}>
+          <MenuTrigger disableButtonEnhancement>
+            {(triggerProps: MenuButtonProps) => (
+              <SplitButton
+                menuButton={{
+                  ...triggerProps,
+                  "aria-label": "Choose sort field",
+                }}
+                primaryActionButton={{
+                  "aria-label": `${sortFields[sortField]}: ${sortOrder}`,
+                  title: `Sort ${sortOrder === "ascending" ? "descending" : "ascending"}. Selected flights stay first; missing values stay last.`,
+                  onClick: () =>
+                    setSortOrder((order) =>
+                      order === "ascending" ? "descending" : "ascending",
+                    ),
+                }}
+              >
+                {sortFields[sortField]}{" "}
+                <span aria-hidden="true">
+                  {sortOrder === "ascending" ? "↑" : "↓"}
+                </span>
+              </SplitButton>
+            )}
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              {(Object.keys(sortFields) as SortField[]).map((field) => (
+                <MenuItemRadio
+                  key={field}
+                  name="sortField"
+                  value={field}
+                  onClick={() => setSortField(field)}
+                >
+                  {sortFields[field]}
+                </MenuItemRadio>
+              ))}
+            </MenuList>
+          </MenuPopover>
+        </Menu>
         <Button disabled={!hasFilters} onClick={resetFilters}>
           Reset filters
         </Button>
@@ -340,8 +513,8 @@ export default function FlightRouteGrid({
             searching ? "flight-grid-live is-searching" : "flight-grid-live"
           }
         />
-        {replacingSelection
-          ? "Choose this flight to replace your selection in this column."
+        {result?.savedOnly && !searching
+          ? "Your saved flights are shown. Find flights to load more options."
           : available.nodes.size === 0 && restrict
             ? "No complete trips match these selections and filters. Clear a selection or adjust the filters."
             : active
@@ -352,7 +525,7 @@ export default function FlightRouteGrid({
                   : "No complete path matches this flight and your filters."
               : searching
                 ? "Flights appear as searches finish. Choose a flight in any column."
-                : "Choose one flight in each column, then review your selected flights."}
+                : "Choose flights, open booking links, and mark booked flights on their cards."}
       </div>
       <div
         className="flight-grid-scroll"
@@ -397,17 +570,23 @@ export default function FlightRouteGrid({
                     </h4>
                     <Text size={200}>
                       {nodes.length} flight{nodes.length === 1 ? "" : "s"}
-                      {index < visits.length && visits[index].presentFrom
-                        ? ` · ${visits[index].presentFrom}`
+                      {(
+                        index < visits.length
+                          ? visits[index].presentFrom
+                          : returnDateLabel
+                      )
+                        ? ` · ${index < visits.length ? visits[index].presentFrom : returnDateLabel}`
                         : ""}
                     </Text>
                   </div>
                 </header>
                 {nodes.length === 0 && !searching && (
                   <div className="flight-grid-empty">
-                    {restrict
-                      ? "No matching flights. Adjust your selections or filters."
-                      : "No flights found for this leg."}
+                    {result?.savedOnly
+                      ? "No flight selected. Find flights to see options."
+                      : restrict
+                        ? "No matching flights. Adjust your selections or filters."
+                        : "No flights found for this leg."}
                   </div>
                 )}
                 {nodes.map((node) => {
@@ -426,20 +605,29 @@ export default function FlightRouteGrid({
                       key={node.id}
                       node={node}
                       active={active === node.id}
+                      highlightEnabled={!chosen[index] || selected}
                       connected={connected}
                       selected={selected}
+                      preferred={legUsesPreferredAirline(
+                        node.leg,
+                        preferredAirlines,
+                      )}
+                      actions={cardActions.get(node.id)}
                       muted={
                         Boolean(chosen[index] && !selected) ||
                         Boolean(active && active !== node.id && !connected)
                       }
                       total={available.prices.get(node.id)}
                       farePrice={fare.price}
+                      verificationPrice={
+                        available.fares.get(node.id)?.price ?? node.price
+                      }
                       fareLabel={fare.label}
                       restrict={restrict}
+                      hasCompletePath={available.nodes.has(node.id)}
                       searching={searching}
                       busy={busy}
                       cities={cities}
-                      preferredAirlines={preferredAirlines}
                       register={registerCard}
                       onChoose={toggleFlight}
                       onHover={setHovered}
@@ -477,7 +665,6 @@ export default function FlightRouteGrid({
           })}
         </div>
       </div>
-      {renderSelections?.(available.fares)}
     </div>
   );
 }

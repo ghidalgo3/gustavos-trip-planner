@@ -17,7 +17,7 @@ usage() {
 Usage: scripts/release [options]
 
 Build, configure, deploy, and verify the application.
-Run scripts/buildout at least once before this command.
+Run scripts/buildout before the first release and after infrastructure changes.
 
 Options:
   -g, --resource-group NAME   Resource group (default: rg-tripplanner-dev)
@@ -83,6 +83,20 @@ read_output() {
     --resource-group "$RESOURCE_GROUP" \
     --query "properties.outputs.$1.value" -o tsv
 }
+
+APPLICATION_INSIGHTS_NAME="$(read_output applicationInsightsName)"
+[[ -n "$APPLICATION_INSIGHTS_NAME" ]] || die \
+  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' predates Application Insights; run scripts/buildout with the same resource group and name prefix, then retry scripts/release"
+az resource show \
+  --resource-group "$RESOURCE_GROUP" \
+  --resource-type Microsoft.Insights/components \
+  --name "$APPLICATION_INSIGHTS_NAME" \
+  --output none || die \
+  "cannot access Application Insights '$APPLICATION_INSIGHTS_NAME'; if missing, run scripts/buildout with the same resource group and name prefix, then retry scripts/release"
+
+log "Validating Bicep"
+az bicep build --file infra/release.bicep --stdout >/dev/null
+az bicep build-params --file infra/release.bicepparam --stdout >/dev/null
 
 ACR_NAME="$(read_output acrName)"
 ACR_LOGIN_SERVER="$(read_output acrLoginServer)"
@@ -158,8 +172,6 @@ fi
 docker push "$IMAGE_REF"
 
 log "Applying release configuration"
-az bicep build --file infra/release.bicep --stdout >/dev/null
-az bicep build-params --file infra/release.bicepparam --stdout >/dev/null
 az deployment group create \
   --name "$CONFIG_DEPLOYMENT_NAME" \
   --resource-group "$RESOURCE_GROUP" \
