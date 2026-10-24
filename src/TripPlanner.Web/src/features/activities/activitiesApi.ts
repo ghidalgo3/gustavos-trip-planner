@@ -10,6 +10,7 @@ export type Stay = {
   departureDate: string | null;
   arrivalAt: string;
   departureAt: string;
+  stayLocation?: StayLocation | null;
 };
 export type StayLocation = {
   type: "Feature";
@@ -22,7 +23,6 @@ export type Destination = {
   id: string;
   geometry: Point;
   properties: {
-    stayLocation?: StayLocation | null;
     name: string;
     countryCode: string;
     timeZone: string | null;
@@ -431,6 +431,7 @@ export type StayAddressSuggestion = {
   source: { url: string; label: string };
   geometry: Point | null;
   warning: string | null;
+  mapAddress?: string | null;
 };
 
 export async function researchStayAddress(
@@ -456,10 +457,11 @@ export async function researchStayAddress(
 export async function saveStayLocation(
   tripId: string,
   cityId: string,
+  stayId: string,
   feature: StayLocation | null,
 ): Promise<void> {
   const response = await fetch(
-    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/destinations/${encodeURIComponent(cityId)}/stay`,
+    `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/destinations/${encodeURIComponent(cityId)}/stays/${encodeURIComponent(stayId)}/location`,
     {
       method: feature ? "PUT" : "DELETE",
       credentials: "include",

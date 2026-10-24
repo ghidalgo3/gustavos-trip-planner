@@ -139,7 +139,7 @@ public sealed class DestinationService(
                         v.DepartureDate,
                         v.ArrivalDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "",
                         v.DepartureDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? ""
-                    ))
+                    ) { StayLocation = stayLocations.GetValueOrDefault(v.StayId) })
                     .ToArray();
                 return new GeoJsonFeature<DestinationProperties>(
                     "Feature",
@@ -159,7 +159,6 @@ public sealed class DestinationService(
                     )
                     {
                         Constraints = place.Constraints,
-                        StayLocation = stayLocations.GetValueOrDefault(place.CityId),
                     }
                 );
             })

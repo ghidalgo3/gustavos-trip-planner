@@ -6,27 +6,27 @@ namespace TripPlanner.Api.Tests.Database;
 public sealed partial class InMemoryPlannerDb
 {
     private readonly Dictionary<
-        (Guid TripId, string CityId),
+        (Guid TripId, string CityId, Guid StayId),
         GeoJsonFeature<StayLocationProperties>
     > _stayLocations = [];
 
     public Task<
-        IReadOnlyDictionary<string, GeoJsonFeature<StayLocationProperties>>
+        IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>>
     > GetStayLocationsAsync(Guid userId, Guid tripId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_tripLock)
         {
             return Task.FromResult<
-                IReadOnlyDictionary<string, GeoJsonFeature<StayLocationProperties>>
+                IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>>
             >(
                 _trips.TryGetValue(tripId, out var trip) && CanViewTrip(userId, trip)
                     ? _stayLocations
                         .Where(item =>
-                            item.Key.TripId == tripId && _destinationPlaces.ContainsKey(item.Key)
+                            item.Key.TripId == tripId && _destinationVisits.ContainsKey(item.Key.StayId)
                         )
-                        .ToDictionary(item => item.Key.CityId, item => item.Value)
-                    : new Dictionary<string, GeoJsonFeature<StayLocationProperties>>()
+                        .ToDictionary(item => item.Key.StayId, item => item.Value)
+                    : new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>()
             );
         }
     }
@@ -35,6 +35,7 @@ public sealed partial class InMemoryPlannerDb
         Guid userId,
         Guid tripId,
         string cityId,
+        Guid stayId,
         GeoJsonFeature<StayLocationProperties>? feature,
         CancellationToken cancellationToken = default
     )
@@ -45,7 +46,9 @@ public sealed partial class InMemoryPlannerDb
             if (
                 !_trips.TryGetValue(tripId, out var trip)
                 || !CanPlanTrip(userId, trip)
-                || !_destinationPlaces.ContainsKey((tripId, cityId))
+                || !_destinationVisits.TryGetValue(stayId, out var visit)
+                || visit.TripId != tripId
+                || visit.CityId != cityId
             )
             {
                 return Task.FromResult(false);
@@ -53,11 +56,11 @@ public sealed partial class InMemoryPlannerDb
 
             if (feature is null)
             {
-                _stayLocations.Remove((tripId, cityId));
+                _stayLocations.Remove((tripId, cityId, stayId));
             }
             else
             {
-                _stayLocations[(tripId, cityId)] = feature;
+                _stayLocations[(tripId, cityId, stayId)] = feature;
             }
 
             return Task.FromResult(true);

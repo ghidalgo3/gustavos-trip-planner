@@ -8,7 +8,10 @@ using TripPlanner.Api.Services.Destinations;
 
 namespace TripPlanner.Api.Services.Activities;
 
-public sealed record ActivityVenue(string PlaceName, string Address, ActivityLink Source);
+public sealed record ActivityVenue(string PlaceName, string Address, ActivityLink Source)
+{
+    public StructuredAddress? AddressComponents { get; init; }
+}
 
 public interface IActivityVenueResearch
 {
@@ -96,8 +99,21 @@ public sealed class OpenAiActivityVenueResearch(HttpClient client, IOptions<Open
                 placeName = new { type = new[] { "string", "null" } },
                 address = new { type = new[] { "string", "null" } },
                 sourceUrl = new { type = new[] { "string", "null" } },
+                addressComponents = new
+                {
+                    type = new[] { "object", "null" },
+                    properties = new
+                    {
+                        addressLine = new { type = new[] { "string", "null" } },
+                        locality = new { type = new[] { "string", "null" } },
+                        adminDistrict = new { type = new[] { "string", "null" } },
+                        postalCode = new { type = new[] { "string", "null" } },
+                    },
+                    required = new[] { "addressLine", "locality", "adminDistrict", "postalCode" },
+                    additionalProperties = false,
+                },
             },
-            required = new[] { "placeName", "address", "sourceUrl" },
+            required = new[] { "placeName", "address", "sourceUrl", "addressComponents" },
             additionalProperties = false,
         };
         object schema = multiple
@@ -130,7 +146,8 @@ public sealed class OpenAiActivityVenueResearch(HttpClient client, IOptions<Open
             {
                 model = options.Value.Model,
                 store = false,
-                instructions,
+                instructions = instructions
+                    + " Also split the same sourced address into addressComponents: addressLine (street/block/building number only, without city, prefecture/state, postcode or country), locality (city/ward), adminDistrict (prefecture/state) and postalCode. Preserve the published spelling and building numbers; copy components only when established by that source, and use null for unknown components. Never add a venue name, floor, suite or room to addressLine. Return null for addressComponents if a street/block line cannot be established. Do not infer missing address components or coordinates.",
                 input = JsonSerializer.Serialize(input),
                 tools = new[] { new { type = "web_search" } },
                 tool_choice = new { type = "web_search" },
@@ -273,6 +290,26 @@ public sealed class OpenAiActivityVenueResearch(HttpClient client, IOptions<Open
             return null;
         }
 
-        return new(place, address, new(sourceUrl, "Venue source"));
+        StructuredAddress? components = null;
+        if (
+            result.TryGetProperty("addressComponents", out var parts)
+            && parts.ValueKind == JsonValueKind.Object
+        )
+        {
+            string? Part(string name) =>
+                parts.TryGetProperty(name, out var value)
+                && value.ValueKind == JsonValueKind.String
+                && value.GetString()?.Trim() is { Length: > 0 and <= 500 } text
+                    ? text
+                    : null;
+            if (Part("addressLine") is { } line)
+            {
+                components = new(line, Part("locality"), Part("adminDistrict"), Part("postalCode"));
+            }
+        }
+        return new(place, address, new(sourceUrl, "Venue source"))
+        {
+            AddressComponents = components,
+        };
     }
 }

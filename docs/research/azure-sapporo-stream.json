@@ -1,0 +1,548 @@
+{
+  "checkedAt": "2026-10-24T21:42:08.103558+00:00",
+  "geocodingApiVersion": "2026-01-01",
+  "structuredQuery": {
+    "addressLine": "南4条西4丁目1番1",
+    "locality": "札幌市中央区",
+    "adminDistrict": "北海道",
+    "postalCode": "064-0804",
+    "countryRegion": "JP",
+    "coordinates": "141.3545,43.0618",
+    "top": 5
+  },
+  "matchingAddressCandidate": {
+    "name": null,
+    "type": "Address",
+    "confidence": "Medium",
+    "matchCodes": [
+      "Ambiguous"
+    ],
+    "address": {
+      "addressLine": "4 Chome -1-1",
+      "streetName": "4 Chome ",
+      "streetNumber": "1-1",
+      "postalCode": "064-0804",
+      "neighborhood": "Minami4jonishi",
+      "locality": "Sapporo",
+      "formattedAddress": "4 Chome 1-1, Minami4jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0804, Japan",
+      "countryRegion": {
+        "name": "Japan",
+        "ISO": "JP"
+      },
+      "adminDistricts": [
+        {
+          "shortName": "Hokkaido"
+        }
+      ]
+    },
+    "coordinates": [
+      141.3524322,
+      43.0552182
+    ]
+  },
+  "distanceFromOverturePlaceMetres": 10.05,
+  "caveat": "Matching address candidate is Medium/Ambiguous; proximity to the Overture place point does not verify the hotel entrance. Raw provider results are preserved below.",
+  "results": [
+    {
+      "case": "Autocomplete English hotel",
+      "status": 200,
+      "results": []
+    },
+    {
+      "case": "Autocomplete Japanese hotel",
+      "status": 200,
+      "results": []
+    },
+    {
+      "case": "POI English hotel",
+      "status": 200,
+      "results": [
+        {
+          "name": "Ramada Sapporo",
+          "type": "POI",
+          "score": 0.8132044673,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.0625,
+            "lon": 141.3495
+          }
+        },
+        {
+          "name": "Hotel Monterey Edelhof Sapporo",
+          "type": "POI",
+          "score": 0.8068706989,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.0646,
+            "lon": 141.3557
+          }
+        },
+        {
+          "name": "Hotel Monterey Sapporo",
+          "type": "POI",
+          "score": 0.7695573568,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.065,
+            "lon": 141.3604
+          }
+        },
+        {
+          "name": "ANA Crowne Plaza Hotel Sapporo",
+          "type": "POI",
+          "score": 0.7254481912,
+          "address": {
+            "streetName": "Kita 3 Jonishi 1-2-9 9",
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "postalCode": "060-0003",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Kita 3 Jonishi 1-2-9 9, Sapporo",
+            "localName": "Sapporo"
+          },
+          "coordinates": {
+            "lat": 43.065734,
+            "lon": 141.355233
+          }
+        },
+        {
+          "name": "Sheraton Sapporo Hotel",
+          "type": "POI",
+          "score": 0.7193672061,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.0549,
+            "lon": 141.3453
+          }
+        }
+      ]
+    },
+    {
+      "case": "Fuzzy English hotel",
+      "status": 200,
+      "results": [
+        {
+          "name": "Ramada Sapporo",
+          "type": "POI",
+          "score": 0.8132044673,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.0625,
+            "lon": 141.3495
+          }
+        },
+        {
+          "name": "Hotel Monterey Edelhof Sapporo",
+          "type": "POI",
+          "score": 0.8068706989,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.0646,
+            "lon": 141.3557
+          }
+        },
+        {
+          "name": "Hotel Monterey Sapporo",
+          "type": "POI",
+          "score": 0.7695573568,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.065,
+            "lon": 141.3604
+          }
+        },
+        {
+          "name": "ANA Crowne Plaza Hotel Sapporo",
+          "type": "POI",
+          "score": 0.7254481912,
+          "address": {
+            "streetName": "Kita 3 Jonishi 1-2-9 9",
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "postalCode": "060-0003",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Kita 3 Jonishi 1-2-9 9, Sapporo",
+            "localName": "Sapporo"
+          },
+          "coordinates": {
+            "lat": 43.065734,
+            "lon": 141.355233
+          }
+        },
+        {
+          "name": "Sheraton Sapporo Hotel",
+          "type": "POI",
+          "score": 0.7193672061,
+          "address": {
+            "municipality": "Sapporo",
+            "countrySubdivision": "Hokkaido",
+            "countrySubdivisionName": "Hokkaido",
+            "countrySubdivisionCode": "1",
+            "countryCode": "JP",
+            "country": "Japan",
+            "countryCodeISO3": "JPN",
+            "freeformAddress": "Hokkaidō",
+            "localName": "Hokkaidō"
+          },
+          "coordinates": {
+            "lat": 43.0549,
+            "lon": 141.3453
+          }
+        }
+      ]
+    },
+    {
+      "case": "Structured Japanese address",
+      "status": 200,
+      "results": [
+        {
+          "name": null,
+          "type": "Address",
+          "confidence": "Medium",
+          "matchCodes": [
+            "Ambiguous"
+          ],
+          "address": {
+            "addressLine": "4 Chome -1",
+            "streetName": "4 Chome ",
+            "streetNumber": "1",
+            "postalCode": "064-0804",
+            "neighborhood": "Minami4jonishi",
+            "locality": "Sapporo",
+            "formattedAddress": "4 Chome 1, Minami4jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0804, Japan",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ]
+          },
+          "coordinates": [
+            141.3531377,
+            43.0553709
+          ]
+        },
+        {
+          "name": null,
+          "type": "Address",
+          "confidence": "Medium",
+          "matchCodes": [
+            "Ambiguous"
+          ],
+          "address": {
+            "addressLine": "4 Chome -1-1",
+            "streetName": "4 Chome ",
+            "streetNumber": "1-1",
+            "postalCode": "064-0804",
+            "neighborhood": "Minami4jonishi",
+            "locality": "Sapporo",
+            "formattedAddress": "4 Chome 1-1, Minami4jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0804, Japan",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ]
+          },
+          "coordinates": [
+            141.3524322,
+            43.0552182
+          ]
+        },
+        {
+          "name": null,
+          "type": "Address",
+          "confidence": "Medium",
+          "matchCodes": [
+            "Ambiguous"
+          ],
+          "address": {
+            "addressLine": "4 Chome -1-1",
+            "streetName": "4 Chome ",
+            "streetNumber": "1-1",
+            "postalCode": "064-0805",
+            "neighborhood": "Minami5jonishi",
+            "locality": "Sapporo",
+            "formattedAddress": "4 Chome 1-1, Minami5jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0805, Japan",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ]
+          },
+          "coordinates": [
+            141.3534266,
+            43.0539822
+          ]
+        },
+        {
+          "name": null,
+          "type": "Address",
+          "confidence": "Medium",
+          "matchCodes": [
+            "Ambiguous"
+          ],
+          "address": {
+            "addressLine": "4 Chome 1-1",
+            "streetName": "4 Chome 1",
+            "streetNumber": "1",
+            "postalCode": "064-0809",
+            "neighborhood": "Minami9jonishi",
+            "locality": "Sapporo",
+            "formattedAddress": "4 Chome 1-1, Minami9jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0809, Japan",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ]
+          },
+          "coordinates": [
+            141.3545962,
+            43.0497605
+          ]
+        },
+        {
+          "name": null,
+          "type": "Address",
+          "confidence": "Medium",
+          "matchCodes": [
+            "Ambiguous"
+          ],
+          "address": {
+            "addressLine": "4 Chome -4-1",
+            "streetName": "4 Chome ",
+            "streetNumber": "4-1",
+            "postalCode": "064-0806",
+            "neighborhood": "Minami6jonishi",
+            "locality": "Sapporo",
+            "formattedAddress": "4 Chome 4-1, Minami6jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0806, Japan",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ]
+          },
+          "coordinates": [
+            141.352689,
+            43.052597
+          ]
+        }
+      ]
+    },
+    {
+      "case": "Geocode English hotel",
+      "status": 200,
+      "results": [
+        {
+          "name": null,
+          "type": "PopulatedPlace",
+          "confidence": "High",
+          "matchCodes": null,
+          "address": {
+            "locality": "Sapporo",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ],
+            "formattedAddress": "Sapporo, Japan"
+          },
+          "coordinates": [
+            141.35452270507812,
+            43.062076568603516
+          ]
+        },
+        {
+          "name": null,
+          "type": "PopulatedPlace",
+          "confidence": "Low",
+          "matchCodes": null,
+          "address": {
+            "locality": "Sapporo",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ],
+            "formattedAddress": "Sapporo, United Arab Emirates"
+          },
+          "coordinates": [
+            141.35452270507812,
+            43.062076568603516
+          ]
+        },
+        {
+          "name": null,
+          "type": "Island",
+          "confidence": "Low",
+          "matchCodes": null,
+          "address": {
+            "countryRegion": {
+              "name": "United Arab Emirates",
+              "ISO": "AE"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "DU"
+              }
+            ],
+            "formattedAddress": "Sapporo, Japan"
+          },
+          "coordinates": [
+            55.18050003051758,
+            25.250242233276367
+          ]
+        },
+        {
+          "name": null,
+          "type": "RailwayStation",
+          "confidence": "Low",
+          "matchCodes": null,
+          "address": {
+            "locality": "Sapporo",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ],
+            "formattedAddress": "Sapporo, Japan"
+          },
+          "coordinates": [
+            141.35072326660156,
+            43.06597137451172
+          ]
+        },
+        {
+          "name": null,
+          "type": "RailwayStation",
+          "confidence": "Low",
+          "matchCodes": null,
+          "address": {
+            "locality": "Sapporo",
+            "countryRegion": {
+              "name": "Japan",
+              "ISO": "JP"
+            },
+            "adminDistricts": [
+              {
+                "shortName": "Hokkaido"
+              }
+            ]
+          },
+          "coordinates": [
+            141.35079956054688,
+            43.068626403808594
+          ]
+        }
+      ]
+    }
+  ]
+}

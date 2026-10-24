@@ -84,7 +84,7 @@ export default function TripOverview({
     destination: Destination;
     stay: Stay;
   }>();
-  const [stayDestination, setStayDestination] = useState<Destination>();
+  const [stayVisit, setStayVisit] = useState<{ destination: Destination; stay: Stay }>();
   const [showDateDrawer, setShowDateDrawer] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const { notify, toaster } = useActionToast();
@@ -398,19 +398,19 @@ export default function TripOverview({
                     </Button>
                   )}
                 </div>
-                {readOnly && destination.properties.stayLocation && (
+                {readOnly && stay.stayLocation && (
                   <Text className="overview-stay-name">
-                    {destination.properties.stayLocation.properties.name}
+                    {stay.stayLocation.properties.name}
                   </Text>
                 )}
                 {!readOnly && (
                   <Button
                     appearance="subtle"
                     icon={<BuildingPeople24Regular />}
-                    aria-label={`${destination.properties.stayLocation?.properties.name ?? "Choose stay"} in ${destination.properties.name}`}
-                    onClick={() => setStayDestination(destination)}
+                    aria-label={`${stay.stayLocation?.properties.name ?? "Choose stay"} in ${destination.properties.name}`}
+                    onClick={() => setStayVisit({ destination, stay })}
                   >
-                    {destination.properties.stayLocation?.properties.name ??
+                    {stay.stayLocation?.properties.name ??
                       "Choose stay"}
                   </Button>
                 )}
@@ -509,11 +509,13 @@ export default function TripOverview({
           onDelete={() => void removeDestination()}
         />
       )}
-      {!readOnly && stayDestination && (
+      {!readOnly && stayVisit && (
         <StayLocationDrawer
           tripId={trip.id}
-          destination={stayDestination}
-          onClose={() => setStayDestination(undefined)}
+          key={stayVisit.stay.id}
+          destination={stayVisit.destination}
+          visit={stayVisit.stay}
+          onClose={() => setStayVisit(undefined)}
           onSaved={async () => {
             setDestinations(
               (await getDestinations(trip.id)) ?? emptyDestinations,

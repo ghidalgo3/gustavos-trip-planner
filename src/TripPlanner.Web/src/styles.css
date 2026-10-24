@@ -2932,6 +2932,11 @@ main:has(.trip-workspace-activities) > .topbar {
   border-color: var(--colorBrandStroke1);
   background: var(--colorBrandBackground2);
 }
+.stay-map-address {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--colorNeutralForeground2);
+}
 @media (max-width: 480px) {
   .stay-search-form > button {
     margin-top: 0;

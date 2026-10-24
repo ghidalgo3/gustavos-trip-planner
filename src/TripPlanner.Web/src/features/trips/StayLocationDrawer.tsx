@@ -25,6 +25,7 @@ import {
   type Destination,
   type Activity,
   type StayLocation,
+  type Stay,
 } from "../activities/activitiesApi";
 
 const noActivities: Activity[] = [];
@@ -33,15 +34,17 @@ const selectStayMarker = () => {};
 export default function StayLocationDrawer({
   tripId,
   destination,
+  visit,
   onClose,
   onSaved,
 }: {
   tripId: string;
   destination: Destination;
+  visit: Stay;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const existing = destination.properties.stayLocation;
+  const existing = visit.stayLocation;
   const [query, setQuery] = useState(existing?.properties.name ?? "");
   const [selectedStay, setSelectedStay] = useState<StayLocation | null>(
     existing ?? null,
@@ -106,6 +109,7 @@ export default function StayLocationDrawer({
       await saveStayLocation(
         tripId,
         destination.id,
+        visit.id,
         remove ? null : selectedStay,
       );
       await onSaved();
@@ -150,6 +154,9 @@ export default function StayLocationDrawer({
           </DrawerHeaderTitle>
         </DrawerHeader>
         <DrawerBody>
+          <Text block>
+            {visit.arrivalDate ?? "Arrival not set"} – {visit.departureDate ?? "Departure not set"}
+          </Text>
           <form
             className="stay-search-form"
             onSubmit={(event) => {
@@ -203,20 +210,28 @@ export default function StayLocationDrawer({
               {results.map((match, index) => (
                 <div
                   className={`stay-search-result${selectedIndex === String(index) ? " is-selected" : ""}`}
-                  key={`${match.name}|${match.address}`}
+                  key={`${match.name}|${match.address}|${match.geometry?.coordinates.join(",") ?? index}`}
                 >
                   <Radio
                     value={String(index)}
                     disabled={busy || !match.geometry}
                     label={
-                      <PlaceSearchResult
-                        place={{
-                          id: String(index),
-                          name: match.name,
-                          label: match.name,
-                          address: match.address,
-                        }}
-                      />
+                      <div className="place-search-result">
+                        <PlaceSearchResult
+                          place={{
+                            id: String(index),
+                            name: match.name,
+                            label: match.name,
+                            address: match.address,
+                          }}
+                        />
+                        {match.mapAddress &&
+                          match.mapAddress !== match.address && (
+                            <span className="stay-map-address">
+                              Map address: {match.mapAddress}
+                            </span>
+                          )}
+                      </div>
                     }
                   />
                   <Link

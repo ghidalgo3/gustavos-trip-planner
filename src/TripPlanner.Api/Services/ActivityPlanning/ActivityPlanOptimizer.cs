@@ -718,7 +718,7 @@ public sealed class ActivityPlanOptimizer(
                     new LinearExpr[] { LinearExpr.Constant(0), allowance - LinearExpr.Sum(credits) }
                 );
                 meals.Add(remaining);
-                if (planningContext.StayLocation is null && name == "breakfast")
+                if (planningContext.StayLocationFor(days[d].StayId) is null && name == "breakfast")
                 {
                     for (int i = 0; i < n; i++)
                     {
@@ -727,7 +727,7 @@ public sealed class ActivityPlanOptimizer(
                             .OnlyEnforceIf(firstInDay[i, d]);
                     }
                 }
-                if (planningContext.StayLocation is null && name == "dinner")
+                if (planningContext.StayLocationFor(days[d].StayId) is null && name == "dinner")
                 {
                     var needsDinner = model.NewBoolVar($"needs_dinner_{d}");
                     model.Add(remaining > 0).OnlyEnforceIf(needsDinner);

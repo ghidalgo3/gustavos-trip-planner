@@ -41,7 +41,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Search for up to five matching accommodations using OpenAI web search, then geocode their sourced street addresses. Requires planning permission and LLM. Preview only: let the user choose a result and show its source, address, warning and map. Unknown coordinates stay null. Does not save or change the stay."
+        "Search for up to five matching accommodations using OpenAI web search, then geocode their sourced street addresses with Azure Maps, including a structured-address fallback. Each accommodation may return multiple candidate pins: show the researched address, mapAddress, warning, source and map so the user can choose and confirm the correct pin. A possible or ambiguous match is not a verified hotel location. Requires planning permission and LLM. Preview only; unknown coordinates stay null. Does not save or change the stay."
     )]
     public Task<CallToolResult> CreateStayAddressProposal(
         Guid tripId,
@@ -62,6 +62,34 @@ public sealed class TripPlannerTools(
                     stayAddressResearch
                 )
         );
+
+    [McpServerTool(Name = "get_visit_stay_location", ReadOnly = true, OpenWorld = false)]
+    [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
+    [Description("Read accommodation for exactly one destination visit. Get stayId from list_destinations properties.stays[].id. Repeat visits have independent accommodation; 404 means this visit has no saved stay.")]
+    public Task<CallToolResult> GetVisitStayLocation(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        Guid stayId
+    ) => Execute(false, context => DestinationsEndpoints.GetStayLocation(tripId, destinationId, stayId, context, database, currentUser));
+
+    [McpServerTool(Name = "replace_visit_stay_location", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description("Save the complete accommodation Point Feature for exactly one visit after the user chooses a location. Use stayId from list_destinations properties.stays[].id. Does not affect other visits, dates or activity selection. Requires planning permission. Reread the activity plan afterwards: changing accommodation invalidates its input-context version and travel estimates.")]
+    public Task<CallToolResult> ReplaceVisitStayLocation(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        Guid stayId,
+        StayLocationRequest request
+    ) => Execute(true, context => DestinationsEndpoints.SaveStayLocation(tripId, destinationId, stayId, request, context, database, currentUser));
+
+    [McpServerTool(Name = "delete_visit_stay_location", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description("Remove accommodation from exactly one visit, leaving other visits unchanged. Use stayId from list_destinations properties.stays[].id. Does not remove the visit or activities. Requires planning permission.")]
+    public Task<CallToolResult> DeleteVisitStayLocation(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        Guid stayId
+    ) => Execute(true, context => DestinationsEndpoints.DeleteStayLocation(tripId, destinationId, stayId, context, database, currentUser));
 
     [McpServerTool(Name = "get_profile", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]

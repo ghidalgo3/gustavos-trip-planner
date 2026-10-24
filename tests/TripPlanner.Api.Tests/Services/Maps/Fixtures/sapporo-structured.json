@@ -1,0 +1,180 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3531377,
+          43.0553709
+        ]
+      },
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "address": {
+          "addressLine": "4 Chome -1",
+          "streetName": "4 Chome ",
+          "streetNumber": "1",
+          "postalCode": "064-0804",
+          "neighborhood": "Minami4jonishi",
+          "locality": "Sapporo",
+          "formattedAddress": "4 Chome 1, Minami4jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0804, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3524322,
+          43.0552182
+        ]
+      },
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "address": {
+          "addressLine": "4 Chome -1-1",
+          "streetName": "4 Chome ",
+          "streetNumber": "1-1",
+          "postalCode": "064-0804",
+          "neighborhood": "Minami4jonishi",
+          "locality": "Sapporo",
+          "formattedAddress": "4 Chome 1-1, Minami4jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0804, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3534266,
+          43.0539822
+        ]
+      },
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "address": {
+          "addressLine": "4 Chome -1-1",
+          "streetName": "4 Chome ",
+          "streetNumber": "1-1",
+          "postalCode": "064-0805",
+          "neighborhood": "Minami5jonishi",
+          "locality": "Sapporo",
+          "formattedAddress": "4 Chome 1-1, Minami5jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0805, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3545962,
+          43.0497605
+        ]
+      },
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "address": {
+          "addressLine": "4 Chome 1-1",
+          "streetName": "4 Chome 1",
+          "streetNumber": "1",
+          "postalCode": "064-0809",
+          "neighborhood": "Minami9jonishi",
+          "locality": "Sapporo",
+          "formattedAddress": "4 Chome 1-1, Minami9jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0809, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.352689,
+          43.052597
+        ]
+      },
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "address": {
+          "addressLine": "4 Chome -4-1",
+          "streetName": "4 Chome ",
+          "streetNumber": "4-1",
+          "postalCode": "064-0806",
+          "neighborhood": "Minami6jonishi",
+          "locality": "Sapporo",
+          "formattedAddress": "4 Chome 4-1, Minami6jonishi, Chuo-Ku, Sapporo, Hokkaido, 064-0806, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

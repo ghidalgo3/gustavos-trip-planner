@@ -8,7 +8,7 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb : IActivityPlanningDb
 {
-    Task<IReadOnlyDictionary<string, GeoJsonFeature<StayLocationProperties>>> GetStayLocationsAsync(
+    Task<IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>>> GetStayLocationsAsync(
         Guid userId,
         Guid tripId,
         CancellationToken cancellationToken = default
@@ -17,6 +17,7 @@ public interface IPlannerDb : IActivityPlanningDb
         Guid userId,
         Guid tripId,
         string cityId,
+        Guid stayId,
         GeoJsonFeature<StayLocationProperties>? feature,
         CancellationToken cancellationToken = default
     );

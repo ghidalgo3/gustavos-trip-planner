@@ -103,6 +103,7 @@ public sealed partial class InMemoryPlannerDb
             )
             {
                 _destinationVisits.Remove(id);
+                _stayLocations.Remove((tripId, cityId, id));
             }
 
             foreach (
@@ -116,7 +117,6 @@ public sealed partial class InMemoryPlannerDb
                 _operations.Remove(id);
             }
             _destinationPlaces.Remove((tripId, cityId));
-            _stayLocations.Remove((tripId, cityId));
             _activityPlans.Remove((tripId, cityId));
             _planningEvidence.Remove((tripId, cityId));
             _activityPreferences.Remove((tripId, "destination", cityId));
@@ -265,6 +265,7 @@ public sealed partial class InMemoryPlannerDb
             }
 
             _destinationVisits.Remove(stayId);
+            _stayLocations.Remove((tripId, cityId, stayId));
             ReconcileActivityPlans(tripId);
             if (_destinationPlaces.TryGetValue((tripId, cityId), out var place))
             {

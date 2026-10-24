@@ -91,9 +91,7 @@ public sealed class ActivityPlanningService(
                 (
                     await database.GetActivityPreferencesAsync(tripId, "destination", cityId, ct)
                 ).Preferences,
-                (await database.GetStayLocationsAsync(userId, tripId, ct)).GetValueOrDefault(
-                    cityId
-                ),
+                await database.GetStayLocationsAsync(userId, tripId, ct),
                 (await database.GetSelectedFlightsAsync(userId, tripId, ct)).ToArray(),
                 await database.GetActivityPlanAsync(userId, tripId, cityId, ct),
                 await database.GetActivityPlanningEvidenceAsync(userId, tripId, cityId, ct),

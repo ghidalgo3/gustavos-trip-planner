@@ -32,6 +32,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public ICityPlaceResolver? CityResolver { get; set; }
     public IDestinationTimeZoneResolver? TimeZoneResolver { get; set; }
     public IActivityPlaceResolver? ActivityPlaceResolver { get; set; }
+    public IAddressGeocoder? AddressGeocoder { get; set; }
     public IActivityVenueResearch? ActivityVenueResearch { get; set; }
     public IStayVenueSearch? StayVenueSearch { get; set; }
     public IActivityDetailsResearch? ActivityDetailsResearch { get; set; }
@@ -85,6 +86,8 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 TimeZoneResolver ?? new TestDestinationTimeZoneResolver()
             );
             services.RemoveAll<IActivityPlaceResolver>();
+            services.RemoveAll<IAddressGeocoder>();
+            services.AddSingleton<IAddressGeocoder>(AddressGeocoder ?? new TestAddressGeocoder());
             services.RemoveAll<IActivityDetailsResearch>();
             services.AddSingleton<IActivityDetailsResearch>(
                 ActivityDetailsResearch ?? new NoDetailsResearch()
@@ -225,6 +228,18 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
         ) => Task.FromResult<ActivityVenue?>(null);
     }
 
+    private sealed class TestAddressGeocoder : IAddressGeocoder
+    {
+        public Task<IReadOnlyList<TripPlanner.Api.Models.AddressLocationCandidate>> FindAsync(
+            string address,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken,
+            TripPlanner.Api.Models.GeoJsonPoint? center = null,
+            TripPlanner.Api.Models.StructuredAddress? structuredAddress = null
+        ) => Task.FromResult<IReadOnlyList<TripPlanner.Api.Models.AddressLocationCandidate>>([]);
+    }
+
     private sealed class TestActivityPlaceResolver : IActivityPlaceResolver
     {
         public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAddressAsync(
@@ -232,7 +247,8 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             string city,
             string countryCode,
             CancellationToken cancellationToken,
-            TripPlanner.Api.Models.GeoJsonPoint? center = null
+            TripPlanner.Api.Models.GeoJsonPoint? center = null,
+            TripPlanner.Api.Models.StructuredAddress? structuredAddress = null
         ) => ResolveAsync(address, city, countryCode, cancellationToken, center);
 
         public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAsync(

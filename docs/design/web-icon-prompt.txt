@@ -1,0 +1,15 @@
+Generated with the built-in image generation tool.
+Asset: src/TripPlanner.Web/public/icons/trip-planner-icon.png
+Full-resolution source (not served): docs/design/trip-planner-icon-source.png
+
+The browser favicon is a 48x48 PNG exported from the source with macOS sips:
+sips --resampleHeightWidth 48 48 docs/design/trip-planner-icon-source.png --out src/TripPlanner.Web/public/icons/trip-planner-icon.png
+Keep this deployed favicon below 10,000 bytes; retain the full-resolution source outside public/.
+
+Original design prompt (transparency requirements superseded by the correction below):
+Use case: logo-brand. Asset type: a distinctive favicon and web app icon for the existing Trip Planner web application, whose UI uses Azure blue (#0f6cbd), white, and deep navy. Create ONE finished icon, not a presentation sheet or mockup. A bold, beautifully simple white folded-map silhouette on a saturated azure-blue rounded-square tile, with a single deep-blue route cut through the map and a prominent circular waypoint. Shape the negative-space route so it subtly suggests a T for trip; the overall silhouette should feel proprietary and memorable. Limit the map to two or three broad, clean geometric planes. Make the mark large, centered, balanced and instantly legible at 16px and 32px: thick shapes, generous internal negative space, no hairlines, no tiny map grids, no intricate detail. Flat vector-like finish, precise smooth edges, confident contemporary design. Use only the existing blue/white/navy palette. The rounded-square tile should fill almost the entire square canvas with a small even transparent margin; true transparent alpha outside its rounded corners. No text, no lettering labels, no shadows, no 3D, no gradients, no frame, no border, no watermark, no surrounding page or device. Render the icon itself at high quality.
+
+Final background correction, using the built-in image tool with transparent_background=false:
+Use case: precise-object-edit. This is the Trip Planner icon edit target. Make its background FULLY OPAQUE: a perfectly uniform solid azure blue #0f6cbd covering the entire square canvas edge to edge, INCLUDING ALL FOUR CORNERS. There must be NO transparency anywhere in the output and no semi-transparent cloud. Remove the rounded-square cutout: extend the blue tile color through the corner areas to create one continuous full-square solid-blue background. Preserve the existing central white folded map and dark navy route and both waypoint shapes EXACTLY as shown, at the same size, positions, proportions and geometry. Do not redesign, resize, reposition or add anything to the map or route. Flat solid colors only: no shading, texture, clouds, gradients, noise, shadow, border, glow, checkerboard, labels or text. Return just the finished square icon with a full-bleed opaque blue background; no mockup or surrounding page. Full opacity is the most important requirement.
+
+Verification: the final PNG is RGB with no alpha channel; every pixel is fully opaque.

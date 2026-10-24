@@ -16,7 +16,7 @@ the in-memory implementation and, when configured, an isolated PostgreSQL databa
 | `Services/Destinations` | Resolving coordinate-based IANA timezones, including provider failures and daylight-saving offsets |
 | `Services/Flights` | Flight search construction, route choices, fare checks and provider requests |
 | `Services/Jobs` | Background processing, retries and cache expiry |
-| `Services/Maps` | Azure Maps token generation |
+| `Services/Maps` | Azure Maps tokens, structured-address fallback, candidate filtering and the Sapporo geocoding regression |
 | `Services/TripForms` | Turning free-text trip requests into draft forms |
 | `Database` | Queue leases, migrations, atomic plan updates, state synchronization and audit transactions; also contains the in-memory test stores |
 | `Endpoints` | HTTP requests and responses, authorization, concurrency and saved resource behavior |
@@ -81,3 +81,5 @@ the explicit verification commands are documented in the repository README.
 Location research tests in `Services/Activities/ActivityCoordinateResearchTests.cs` verify that OpenAI identifies a consulted source while coordinates come from independently fetched Wikidata data. They reject different venues, distant points, deprecated claims, and non-Earth coordinates, and check that credentials are not sent to Wikidata. `Endpoints/ActivityEndpointTests.cs` covers preview-only research, the LLM gate, concurrency, provider failure, explicit saving, and unaccepted candidates in suggestion/import jobs. The frontend activity tests cover reviewing, accepting, and dismissing candidates.
 
 `Services/Activities/ActivityDetailsResearchTests.cs` checks duration/cost research against consulted sources, ISO duration rules, free versus unknown prices, partial results, and malformed or incomplete model output. Endpoint and MCP tests verify preview-only behavior, version/scope checks, and accepting one field while preserving the other. Frontend tests cover source display, individual acceptance, dismissal, failure toasts, and clearing evidence on manual edits.
+
+`Services/Maps/AzureAddressGeocoderTests.cs` uses a captured Sapporo response to show why a structured query can recover street addresses from a failed free-form query. Medium/ambiguous candidates are available for review; country, postcode, precision and distance checks still apply. `Services/Destinations/StayAddressResearchTests.cs` covers sourced components, multiple pin choices, bounded concurrency, cancellation and partial failures. `Verification/StayAddressVerification.cs` is the opt-in live OpenAI/Azure smoke test (`--verify-stay-address`); normal tests use fake providers.

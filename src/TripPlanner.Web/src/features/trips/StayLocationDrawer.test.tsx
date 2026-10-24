@@ -199,6 +199,62 @@ test("editing the query clears the draft pin and old results while preserving th
   expect(saveStayLocation).not.toHaveBeenCalled();
 });
 
+test("ambiguous Azure street addresses remain selectable and only the reviewed pin is saved", async () => {
+  const warning =
+    "Possible address match. Check the map address and pin before saving this stay.";
+  const candidates = [
+    {
+      ...matches[0],
+      name: "Sapporo Stream Hotel",
+      mapAddress: "4 Chome 1, Sapporo, 064-0804, Japan",
+      warning,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [141.3531377, 43.0553709] as [number, number],
+      },
+    },
+    {
+      ...matches[0],
+      name: "Sapporo Stream Hotel",
+      mapAddress: "4 Chome 1-1, Sapporo, 064-0804, Japan",
+      warning,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [141.3524322, 43.0552182] as [number, number],
+      },
+    },
+  ];
+  vi.mocked(researchStayAddress).mockResolvedValue(candidates);
+  vi.mocked(saveStayLocation).mockResolvedValue();
+  showDrawer();
+  typeQuery("Sapporo Stream Hotel");
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  const options = await screen.findAllByRole("radio");
+  expect(options).toHaveLength(2);
+  expect(
+    options.every((option) => !(option as HTMLInputElement).disabled),
+  ).toBe(true);
+  expect(screen.getAllByText(warning)).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  fireEvent.click(
+    screen.getByRole("radio", { name: /Map address: 4 Chome 1-1,/ }),
+  );
+  expect(screen.getByRole("img", { name: "Stay map preview" })).toHaveAttribute(
+    "data-center",
+    "[141.3524322,43.0552182]",
+  );
+  expect(saveStayLocation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
+  await waitFor(() =>
+    expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", {
+      type: "Feature",
+      id: "stay",
+      geometry: candidates[1].geometry,
+      properties: { name: "Sapporo Stream Hotel" },
+    }),
+  );
+});
+
 test.each(["unresolved", "missing", "failed"])(
   "search %s cannot reuse a stale pin or save an unlocated result",
   async (scenario) => {

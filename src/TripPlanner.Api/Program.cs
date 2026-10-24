@@ -58,6 +58,7 @@ builder.Services.AddHttpClient<ICityPlaceResolver, AzureCityPlaceResolver>();
 builder.Services.AddHttpClient<AzureDestinationTimeZoneResolver>();
 builder.Services.AddSingleton<IDestinationTimeZoneResolver, DestinationTimeZoneResolver>();
 builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolver>();
+builder.Services.AddHttpClient<IAddressGeocoder, AzureAddressGeocoder>();
 builder.Services.AddHttpClient<IActivityDetailsResearch, OpenAiActivityDetailsResearch>(client =>
     client.Timeout = TimeSpan.FromSeconds(30)
 );

@@ -841,6 +841,7 @@ public class ActivityEndpointTests
         {
             StayVenueSearch = research,
             ActivityPlaceResolver = places,
+            AddressGeocoder = places,
         };
         using var client = factory.CreateClient();
         var (trip, owner, _) = await CreateTrip(client, factory);
@@ -1655,17 +1656,39 @@ public class ActivityEndpointTests
     }
 
     private sealed class ResearchPlaceResolver(bool initiallyResolved, bool verifiesVenue)
-        : IActivityPlaceResolver
+        : IActivityPlaceResolver,
+            TripPlanner.Api.Services.Maps.IAddressGeocoder
     {
         public string? LastPlace { get; private set; }
         public string? LastAddress { get; private set; }
+
+        public async Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
+            string address,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken,
+            GeoJsonPoint? center = null,
+            StructuredAddress? structuredAddress = null
+        )
+        {
+            var point = await ResolveAddressAsync(
+                address,
+                city,
+                countryCode,
+                cancellationToken,
+                center,
+                structuredAddress
+            );
+            return point is null ? [] : [new(point, address, AddressMatchConfidence.High, false)];
+        }
 
         public Task<GeoJsonPoint?> ResolveAddressAsync(
             string address,
             string city,
             string countryCode,
             CancellationToken cancellationToken,
-            GeoJsonPoint? center = null
+            GeoJsonPoint? center = null,
+            StructuredAddress? structuredAddress = null
         )
         {
             LastAddress = address;

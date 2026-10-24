@@ -38,8 +38,8 @@ public sealed partial class InMemoryPlannerDb
                     .OrderBy(p => p.CityId),
                 Stays = _stayLocations
                     .Where(p => p.Key.TripId == tripId)
-                    .OrderBy(p => p.Key.CityId)
-                    .Select(p => p.Value),
+                    .OrderBy(p => p.Key.StayId)
+                    .Select(p => new { p.Key.StayId, p.Value }),
                 Flights = _selectedFlights
                     .Where(p => p.Key.TripId == tripId)
                     .OrderBy(p => p.Key.PartyId)

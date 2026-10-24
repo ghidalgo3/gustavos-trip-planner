@@ -1,0 +1,107 @@
+{
+  "type": "FeatureCollection",
+  "research": {
+    "checkedAt": "2026-10-24T21:38:02.688439+00:00",
+    "release": "2026-10-21.0",
+    "catalog": "https://stac.overturemaps.org/catalog.json",
+    "documentation": "https://docs.overturemaps.org/guides/places/",
+    "client": "overturemaps 1.0.2",
+    "queryBounds": {
+      "xmin": 141.348,
+      "ymin": 43.052,
+      "xmax": 141.357,
+      "ymax": 43.058
+    },
+    "officialIdentitySource": "https://www.tokyuhotels.co.jp/en/sapporostream/access/index.html",
+    "identityChecks": [
+      "hotel name",
+      "street address and postcode",
+      "telephone number",
+      "hotel website redirects to official Tokyu Hotels website"
+    ],
+    "caveat": "The coordinate is a published place point, not a verified entrance. Overture confidence measures existence, not coordinate accuracy."
+  },
+  "features": [
+    {
+      "id": "c57440d1-63a4-450a-acde-e8ed8d51a196",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.35251463,
+          43.05528555
+        ]
+      },
+      "properties": {
+        "confidence": 0.9939769619703293,
+        "websites": [
+          "https://www.streamhotel.co.jp/sapporo/"
+        ],
+        "socials": [
+          "https://www.facebook.com/113821831810606"
+        ],
+        "phones": [
+          "+81112061099"
+        ],
+        "brand": {
+          "wikidata": null,
+          "names": {
+            "primary": null,
+            "common": null,
+            "rules": null
+          }
+        },
+        "addresses": [
+          {
+            "freeform": "4 Chome-1-1 Minami 4 Jonishi",
+            "locality": "札幌市中央区",
+            "postcode": "064-0804",
+            "region": null,
+            "country": "JP"
+          }
+        ],
+        "names": {
+          "primary": "Sapporo Stream Hotel",
+          "common": null,
+          "rules": null
+        },
+        "sources": [
+          {
+            "property": "",
+            "dataset": "meta",
+            "license": "CDLA-Permissive-2.0",
+            "record_id": "113821831810606",
+            "update_time": "2026-10-12T00:00:00.000Z",
+            "confidence": 0.9738128781318665,
+            "between": null,
+            "provider": "meta",
+            "resource": "meta",
+            "version": "2026-10-12"
+          },
+          {
+            "property": "/properties/confidence",
+            "dataset": "Overture",
+            "license": "CDLA-Permissive-2.0",
+            "record_id": null,
+            "update_time": "2026-10-15T18:00:21Z",
+            "confidence": null,
+            "between": null,
+            "provider": "overture",
+            "resource": "confidence_calculation",
+            "version": "2026-10-15"
+          }
+        ],
+        "basic_category": "hotel",
+        "taxonomy": {
+          "primary": "hotel",
+          "hierarchy": [
+            "lodging",
+            "hotel"
+          ],
+          "alternates": null
+        },
+        "version": 9
+      }
+    }
+  ]
+}

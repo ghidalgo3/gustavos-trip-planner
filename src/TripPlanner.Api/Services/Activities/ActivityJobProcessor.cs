@@ -163,7 +163,8 @@ public sealed class ActivityJobProcessor(
                                 destination.Properties.Name,
                                 destination.Properties.CountryCode,
                                 researchTimeout.Token,
-                                destination.Geometry
+                                destination.Geometry,
+                                venue.AddressComponents
                             );
                             if (verified is not null)
                             {

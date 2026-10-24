@@ -19,13 +19,13 @@ public static class DestinationsEndpoints
             .MapPost("/{destinationCity}/stay/address-proposals", CreateStayAddressProposal)
             .WithName("CreateStayAddressProposal");
         destinations
-            .MapGet("/{destinationCity}/stay", GetStayLocation)
+            .MapGet("/{destinationCity}/stays/{stayId:guid}/location", GetStayLocation)
             .WithName("GetDestinationStayLocation");
         destinations
-            .MapPut("/{destinationCity}/stay", SaveStayLocation)
+            .MapPut("/{destinationCity}/stays/{stayId:guid}/location", SaveStayLocation)
             .WithName("SaveDestinationStayLocation");
         destinations
-            .MapDelete("/{destinationCity}/stay", DeleteStayLocation)
+            .MapDelete("/{destinationCity}/stays/{stayId:guid}/location", DeleteStayLocation)
             .WithName("DeleteDestinationStayLocation");
         destinations.MapGet("", GetDestinations).WithName("GetTripDestinations");
         destinations.MapPost("", AddDestination).WithName("AddTripDestination");
@@ -116,9 +116,10 @@ public static class DestinationsEndpoints
         }
     }
 
-    private static async Task<IResult> GetStayLocation(
+    internal static async Task<IResult> GetStayLocation(
         Guid tripId,
         string destinationCity,
+        Guid stayId,
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser
@@ -130,19 +131,25 @@ public static class DestinationsEndpoints
             return error;
         }
 
+        var visits = await database.GetDestinationVisitsAsync(user!.Id, tripId, context.RequestAborted);
+        if (!visits.Any(v => v.StayId == stayId && v.CityId == destinationCity))
+        {
+            return Results.NotFound();
+        }
         var locations = await database.GetStayLocationsAsync(
             user!.Id,
             tripId,
             context.RequestAborted
         );
-        return locations.TryGetValue(destinationCity, out var feature)
+        return locations.TryGetValue(stayId, out var feature)
             ? GeoJson(feature)
             : Results.NotFound();
     }
 
-    private static async Task<IResult> SaveStayLocation(
+    internal static async Task<IResult> SaveStayLocation(
         Guid tripId,
         string destinationCity,
+        Guid stayId,
         StayLocationRequest request,
         HttpContext context,
         IPlannerDb database,
@@ -170,7 +177,7 @@ public static class DestinationsEndpoints
 
         var feature = new GeoJsonFeature<StayLocationProperties>(
             "Feature",
-            "stay",
+            stayId.ToString("D"),
             point,
             new(name)
         );
@@ -178,6 +185,7 @@ public static class DestinationsEndpoints
             user!.Id,
             tripId,
             destinationCity,
+            stayId,
             feature,
             context.RequestAborted
         )
@@ -185,9 +193,10 @@ public static class DestinationsEndpoints
             : Results.NotFound();
     }
 
-    private static async Task<IResult> DeleteStayLocation(
+    internal static async Task<IResult> DeleteStayLocation(
         Guid tripId,
         string destinationCity,
+        Guid stayId,
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser
@@ -203,6 +212,7 @@ public static class DestinationsEndpoints
             user!.Id,
             tripId,
             destinationCity,
+            stayId,
             null,
             context.RequestAborted
         )

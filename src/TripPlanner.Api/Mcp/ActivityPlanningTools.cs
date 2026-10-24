@@ -239,7 +239,7 @@ public sealed class ActivityPlanningTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Request draft alternatives or incremental improvements for review. Use kind=schedule to schedule exactly the selected activities, minimizing travel on daily routes starting and ending at the saved accommodation. This mode requires a stay location and never drops selected activities. Does not change the plan. Supply current contextVersion and a fresh requestId; identical retries are idempotent. Respect must-do, day/time/order and transport restrictions. Poll get_operation and inspect the proposal before offering a choice."
+        "Request draft alternatives or incremental improvements for review. Use kind=schedule to schedule exactly the selected activities, minimizing travel on daily routes starting and ending at each visit's saved accommodation. Visits without accommodation use no travel before the first or after the last activity. Never drops selected activities. Does not change the plan. Supply current contextVersion and a fresh requestId; identical retries are idempotent. Respect must-do, day/time/order and transport restrictions. Poll get_operation and inspect the proposal before offering a choice."
     )]
     public Task<CallToolResult> CreateProposal(
         Guid tripId,

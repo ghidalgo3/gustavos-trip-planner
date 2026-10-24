@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using TripPlanner.Api.Options;
+using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.ActivityPlanning;
+using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Tests.Verification;
@@ -20,10 +22,11 @@ public static class VerificationProgram
             ActivitySolverVerification.Run();
             return 0;
         }
-        if (args is not ["--verify-planning-providers"])
+        bool verifyStay = args is ["--verify-stay-address"];
+        if (!verifyStay && args is not ["--verify-planning-providers"])
         {
             Console.Error.WriteLine(
-                "Use dotnet test, --verify-solver, or --verify-planning-providers."
+                "Use dotnet test, --verify-solver, --verify-planning-providers, or --verify-stay-address."
             );
             return 1;
         }
@@ -44,6 +47,13 @@ public static class VerificationProgram
         );
         builder.Services.AddHttpClient();
         builder.Services.AddHttpClient<ActivityPlanningProviders>().RemoveAllLoggers();
+        builder.Services.AddHttpClient<IAddressGeocoder, AzureAddressGeocoder>().RemoveAllLoggers();
+        builder
+            .Services.AddHttpClient<IStayVenueSearch, OpenAiActivityVenueResearch>(client =>
+                client.Timeout = TimeSpan.FromSeconds(20)
+            )
+            .RemoveAllLoggers();
+        builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
         builder.Services.AddSingleton<IMapTokenProvider>(services =>
             !string.IsNullOrWhiteSpace(
                 services.GetRequiredService<IOptions<AzureMapsOptions>>().Value.SasToken
@@ -52,6 +62,14 @@ public static class VerificationProgram
                 : ActivatorUtilities.CreateInstance<AzureMapsSasTokenProvider>(services)
         );
         using var host = builder.Build();
+        if (verifyStay)
+        {
+            return await StayAddressVerification.RunAsync(
+                host.Services.GetRequiredService<IStayAddressResearch>()
+            )
+                ? 0
+                : 1;
+        }
         return await ActivityPlanningProviderVerification.RunAsync(
             host.Services.GetRequiredService<ActivityPlanningProviders>()
         )

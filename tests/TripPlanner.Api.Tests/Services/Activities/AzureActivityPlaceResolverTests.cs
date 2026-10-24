@@ -56,7 +56,15 @@ public sealed class AzureActivityPlaceResolverTests
             }
         );
         using var handler = new OpenAiActivityAssistantTests.ResponseHandler(response);
-        var resolver = new AzureActivityPlaceResolver(new HttpClient(handler), new Tokens());
+        var resolver = new AzureActivityPlaceResolver(
+            new HttpClient(handler),
+            new Tokens(),
+            new AzureAddressGeocoder(
+                new HttpClient(handler),
+                new Tokens(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureAddressGeocoder>.Instance
+            )
+        );
         const string address = "1-1 Yoyogikamizonocho, Shibuya, Tokyo 151-8557, Japan";
         var point = await resolver.ResolveAddressAsync(
             address,
@@ -100,7 +108,15 @@ public sealed class AzureActivityPlaceResolverTests
             }
         );
         using var handler = new OpenAiActivityAssistantTests.ResponseHandler(response);
-        var resolver = new AzureActivityPlaceResolver(new HttpClient(handler), new Tokens());
+        var resolver = new AzureActivityPlaceResolver(
+            new HttpClient(handler),
+            new Tokens(),
+            new AzureAddressGeocoder(
+                new HttpClient(handler),
+                new Tokens(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureAddressGeocoder>.Instance
+            )
+        );
         Assert.IsNull(
             await resolver.ResolveAddressAsync(
                 "1 Main Street, Tokyo, Japan",

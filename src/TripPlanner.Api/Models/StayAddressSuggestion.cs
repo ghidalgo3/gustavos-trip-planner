@@ -6,4 +6,7 @@ public sealed record StayAddressSuggestion(
     ActivityLink Source,
     GeoJsonPoint? Geometry,
     string? Warning
-);
+)
+{
+    public string? MapAddress { get; init; }
+}

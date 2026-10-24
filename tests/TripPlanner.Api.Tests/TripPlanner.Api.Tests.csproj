@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+    <EmbeddedResource Include="Services/Maps/Fixtures/*.json" />
   </ItemGroup>
 
   <ItemGroup>

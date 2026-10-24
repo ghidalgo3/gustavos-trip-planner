@@ -3,6 +3,7 @@ using Microsoft.Spatial;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Tests.Services.Destinations;
 
@@ -46,6 +47,7 @@ public sealed class StayAddressResearchTests
         CollectionAssert.AreEqual(Destination.Properties.Stays.ToArray(), venue.Stays!.ToArray());
         Assert.AreEqual("3-29-17 Shibuya, Tokyo", places.Address);
         Assert.AreEqual(Destination.Geometry, places.Center);
+        Assert.AreEqual(venue.Result![0].AddressComponents, places.Components);
         Assert.HasCount(1, matches);
         var result = matches[0];
         Assert.AreEqual(venue.Result![0].Address, result.Address);
@@ -122,19 +124,71 @@ public sealed class StayAddressResearchTests
         Assert.AreEqual(matches[0].Source, results[0].Source);
     }
 
-    private sealed class BatchPlaces : IActivityPlaceResolver
+    [TestMethod]
+    public async Task AmbiguousStreetAddressesBecomeDistinctReviewableStayOptions()
+    {
+        var venue = new VenueResearch();
+        var candidates = new[]
+        {
+            new AddressLocationCandidate(
+                Places.Point,
+                "3-29-17 Shibuya, Tokyo",
+                AddressMatchConfidence.Medium,
+                true
+            ),
+            new AddressLocationCandidate(
+                new("Point", GeographyPoint.Create(35.656, 139.704)),
+                "3-29 Shibuya, Tokyo",
+                AddressMatchConfidence.Medium,
+                true
+            ),
+        };
+        var results = await new StayAddressResearch(
+            venue,
+            new CandidateGeocoder(candidates),
+            NullLogger<StayAddressResearch>.Instance
+        ).FindAsync("Hotel", Destination, default);
+        Assert.HasCount(2, results);
+        CollectionAssert.AreEqual(
+            candidates.Select(candidate => candidate.FormattedAddress).ToArray(),
+            results.Select(result => result.MapAddress).ToArray()
+        );
+        Assert.IsTrue(
+            results.All(result => result.Warning is not null && result.Geometry is not null)
+        );
+        Assert.IsTrue(
+            results.All(result =>
+                result.Address == venue.Result[0].Address && result.Source == venue.Result[0].Source
+            )
+        );
+    }
+
+    private sealed class CandidateGeocoder(AddressLocationCandidate[] candidates) : IAddressGeocoder
+    {
+        public Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
+            string address,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken,
+            GeoJsonPoint? center = null,
+            StructuredAddress? structuredAddress = null
+        ) => Task.FromResult<IReadOnlyList<AddressLocationCandidate>>(candidates);
+    }
+
+    private sealed class BatchPlaces : IAddressGeocoder
     {
         private int active;
         private int calls;
         public int Calls => calls;
         public int MaxConcurrent { get; private set; }
 
-        public async Task<GeoJsonPoint?> ResolveAddressAsync(
+        public async Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
             string address,
             string city,
             string countryCode,
             CancellationToken cancellationToken,
-            GeoJsonPoint? center = null
+            GeoJsonPoint? center = null,
+            StructuredAddress? structuredAddress = null
         )
         {
             Interlocked.Increment(ref calls);
@@ -147,21 +201,13 @@ public sealed class StayAddressResearchTests
                 {
                     throw new HttpRequestException("One result is unavailable");
                 }
-                return Places.Point;
+                return [new(Places.Point, address, AddressMatchConfidence.High, false)];
             }
             finally
             {
                 Interlocked.Decrement(ref active);
             }
         }
-
-        public Task<GeoJsonPoint?> ResolveAsync(
-            string placeName,
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken,
-            GeoJsonPoint? center = null
-        ) => throw new AssertFailedException("Never use fuzzy POI search for stays.");
     }
 
     private sealed class VenueResearch : IStayVenueSearch
@@ -172,7 +218,10 @@ public sealed class StayAddressResearchTests
                 "Hotel Mets Shibuya",
                 "3-29-17 Shibuya, Tokyo",
                 new("https://www.hotelmets.jp/en/shibuya/access.html", "Venue source")
-            ),
+            )
+            {
+                AddressComponents = new("3-29-17 Shibuya", "Shibuya", "Tokyo", "150-0002"),
+            },
         ];
         public string? Query { get; private set; }
         public string? City { get; private set; }
@@ -196,7 +245,7 @@ public sealed class StayAddressResearchTests
     }
 
     private sealed class Places(string outcome, CancellationTokenSource? cancel = null)
-        : IActivityPlaceResolver
+        : IAddressGeocoder
     {
         public static readonly GeoJsonPoint Point = new(
             "Point",
@@ -204,36 +253,30 @@ public sealed class StayAddressResearchTests
         );
         public string? Address { get; private set; }
         public GeoJsonPoint? Center { get; private set; }
+        public StructuredAddress? Components { get; private set; }
 
-        public Task<GeoJsonPoint?> ResolveAddressAsync(
+        public Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
             string address,
             string city,
             string countryCode,
             CancellationToken cancellationToken,
-            GeoJsonPoint? center = null
+            GeoJsonPoint? center = null,
+            StructuredAddress? structuredAddress = null
         )
         {
             Address = address;
             Center = center;
+            Components = structuredAddress;
             cancel?.Cancel();
             return outcome switch
             {
                 "failure" => throw new HttpRequestException("Geocoder unavailable"),
                 "timeout" => throw new OperationCanceledException(),
-                "unknown" => Task.FromResult<GeoJsonPoint?>(null),
-                _ => Task.FromResult<GeoJsonPoint?>(Point),
+                "unknown" => Task.FromResult<IReadOnlyList<AddressLocationCandidate>>([]),
+                _ => Task.FromResult<IReadOnlyList<AddressLocationCandidate>>([
+                    new(Point, address, AddressMatchConfidence.High, false),
+                ]),
             };
         }
-
-        public Task<GeoJsonPoint?> ResolveAsync(
-            string placeName,
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken,
-            GeoJsonPoint? center = null
-        ) =>
-            throw new AssertFailedException(
-                "Never use fuzzy POI results for a researched street address."
-            );
     }
 }

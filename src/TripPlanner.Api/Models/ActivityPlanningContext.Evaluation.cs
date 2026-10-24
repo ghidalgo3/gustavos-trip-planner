@@ -74,6 +74,7 @@ public sealed partial record ActivityPlanningContext
         DateTimeOffset now
     )
     {
+        var stayLocation = StayLocationFor(day.StayId);
         var settings = day.Settings ?? plan.Settings;
         var change = plan.TransportOverrides.LastOrDefault(t =>
             t.Date == day.Date && t.FromActivityId == fromId && t.ToActivityId == toId
@@ -84,7 +85,7 @@ public sealed partial record ActivityPlanningContext
                 : change?.Mode ?? settings.TransportMode;
         // Without accommodation, optimize an open path through the activities.
         // Old accommodation overrides must not introduce a journey to a deleted stay.
-        if (StayLocation is null && (fromId is null || toId is null))
+        if (stayLocation is null && (fromId is null || toId is null))
         {
             return new(
                 fromId,
@@ -103,7 +104,7 @@ public sealed partial record ActivityPlanningContext
         GeographyPoint? Position(Guid? id) =>
             id is { } value
                 ? Activities.FirstOrDefault(a => a.Id == value)?.Geometry?.Position
-                : StayLocation?.Geometry?.Position;
+                : stayLocation?.Geometry?.Position;
         var from = Position(fromId);
         var to = Position(toId);
         var key = RouteKey(from, to, departure, mode);
@@ -231,7 +232,8 @@ public sealed partial record ActivityPlanningContext
         var orderedDays = plan.Days.OrderBy(d => d.Date).ToArray();
         foreach (var day in orderedDays)
         {
-            var settings = day.Settings ?? plan.Settings;
+            var stayLocation = StayLocationFor(day.StayId);
+        var settings = day.Settings ?? plan.Settings;
             var visit = Visits.First(v => v.StayId == day.StayId);
             if (visit.ArrivalDate is null || visit.DepartureDate is null)
             {
@@ -407,12 +409,12 @@ public sealed partial record ActivityPlanningContext
                         zone
                     )
                     : null;
-                bool lastWithoutStay = StayLocation is null && id == day.ActivityIds[^1];
+                bool lastWithoutStay = stayLocation is null && id == day.ActivityIds[^1];
                 // With no stay, breakfast precedes the first stop and dinner precedes
                 // the last. Keep conflicting bookings at their requested times and report them.
                 while (
                     pending.TryPeek(out var meal)
-                    && (StayLocation is not null || meal.Name != "dinner" || lastWithoutStay)
+                    && (stayLocation is not null || meal.Name != "dinner" || lastWithoutStay)
                     && (
                         lastWithoutStay
                         || entries.Count == 0 && meal.Name == "breakfast"
@@ -421,7 +423,7 @@ public sealed partial record ActivityPlanningContext
                     )
                     && (
                         lastWithoutStay
-                        || StayLocation is null && entries.Count == 0 && meal.Name == "breakfast"
+                        || stayLocation is null && entries.Count == 0 && meal.Name == "breakfast"
                         || fixedTime is null
                         || cursor.Add(
                             meal.Duration
@@ -441,7 +443,7 @@ public sealed partial record ActivityPlanningContext
                 }
 
                 var leg = Travel(plan, day, previous, id, cursor, now) with { Departure = cursor };
-                if (previous is not null || StayLocation is not null)
+                if (previous is not null || stayLocation is not null)
                 {
                     travel.Add(leg);
                 }
@@ -637,7 +639,7 @@ public sealed partial record ActivityPlanningContext
                 );
                 previous = id;
             }
-            if (previous is not null && StayLocation is not null)
+            if (previous is not null && stayLocation is not null)
             {
                 var leg = Travel(plan, day, previous, null, cursor, now) with
                 {

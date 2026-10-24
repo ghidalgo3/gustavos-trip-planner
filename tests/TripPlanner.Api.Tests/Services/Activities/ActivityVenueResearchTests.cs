@@ -9,6 +9,103 @@ namespace TripPlanner.Api.Tests.Services.Activities;
 public class ActivityVenueResearchTests
 {
     [TestMethod]
+    [DataRow("南4条西4丁目1番1", true)]
+    [DataRow(null, false)]
+    public async Task ResearchRetainsSourcedAddressComponentsWithoutInventingMissingParts(
+        string? street,
+        bool hasComponents
+    )
+    {
+        const string source = "https://www.tokyuhotels.co.jp/sapporostream/access/index.html";
+        var response = JsonSerializer.Serialize(
+            new
+            {
+                status = "completed",
+                output = new object[]
+                {
+                    new
+                    {
+                        type = "web_search_call",
+                        status = "completed",
+                        action = new { sources = new[] { new { url = source } } },
+                    },
+                    new
+                    {
+                        type = "message",
+                        content = new[]
+                        {
+                            new
+                            {
+                                type = "output_text",
+                                text = JsonSerializer.Serialize(
+                                    new
+                                    {
+                                        places = new[]
+                                        {
+                                            new
+                                            {
+                                                placeName = "Sapporo Stream Hotel",
+                                                address = "〒064-0804 北海道札幌市中央区南4条西4丁目1番1",
+                                                sourceUrl = source,
+                                                addressComponents = new
+                                                {
+                                                    addressLine = street,
+                                                    locality = "札幌市中央区",
+                                                    adminDistrict = "北海道",
+                                                    postalCode = "064-0804",
+                                                },
+                                            },
+                                        },
+                                    }
+                                ),
+                            },
+                        },
+                    },
+                },
+            }
+        );
+        using var handler = new OpenAiActivityAssistantTests.ResponseHandler(response);
+        var research = new OpenAiActivityVenueResearch(
+            new HttpClient(handler),
+            Microsoft.Extensions.Options.Options.Create(new OpenAiOptions { ApiKey = "test" })
+        );
+        var venues = await research.SearchAsync(
+            "Sapporo Stream Hotel",
+            "Sapporo",
+            "JP",
+            [],
+            default
+        );
+        Assert.HasCount(1, venues);
+        Assert.AreEqual(hasComponents, venues[0].AddressComponents is not null);
+        if (hasComponents)
+        {
+            Assert.AreEqual(
+                new StructuredAddress(street!, "札幌市中央区", "北海道", "064-0804"),
+                venues[0].AddressComponents
+            );
+        }
+        using var request = JsonDocument.Parse(handler.Request!);
+        var schema = request
+            .RootElement.GetProperty("text")
+            .GetProperty("format")
+            .GetProperty("schema")
+            .GetProperty("properties")
+            .GetProperty("places")
+            .GetProperty("items")
+            .GetProperty("properties")
+            .GetProperty("addressComponents");
+        CollectionAssert.AreEquivalent(
+            new[] { "addressLine", "locality", "adminDistrict", "postalCode" },
+            schema
+                .GetProperty("required")
+                .EnumerateArray()
+                .Select(value => value.GetString())
+                .ToArray()
+        );
+    }
+
+    [TestMethod]
     public async Task StaySearchReturnsDistinctSourcedMatchesInOrderAndDiscardsInvalidEntries()
     {
         const string source = "https://hotel.test/locations";

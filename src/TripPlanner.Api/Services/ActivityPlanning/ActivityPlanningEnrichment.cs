@@ -221,7 +221,7 @@ public sealed class ActivityPlanningEnrichment(
                                 ? planningContext
                                     .Activities.FirstOrDefault(a => a.Id == value)
                                     ?.Geometry?.Position
-                                : planningContext.StayLocation?.Geometry?.Position;
+                                : planningContext.StayLocationFor(day.StayId)?.Geometry?.Position;
                         if (
                             Point(leg.FromActivityId) is not { } from
                             || Point(leg.ToActivityId) is not { } to

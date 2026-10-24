@@ -12,9 +12,13 @@ public sealed partial record ActivityPlanningContext(
     Dictionary<Guid, ActivityPreferences> ProfilePreferences,
     ActivityPreferences TripPreferences,
     ActivityPreferences DestinationPreferences,
-    GeoJsonFeature<StayLocationProperties>? StayLocation,
+    IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>> StayLocations,
     SelectedFlight[] Flights,
     StoredActivityPlan? SavedPlan,
     ActivityPlanningEvidence Evidence,
     long InputRevision
-);
+)
+{
+    public GeoJsonFeature<StayLocationProperties>? StayLocationFor(Guid stayId) =>
+        StayLocations.GetValueOrDefault(stayId);
+}

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Activities;
+using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Services.Destinations;
 
@@ -26,7 +27,7 @@ public interface IStayAddressResearch
 
 public sealed class StayAddressResearch(
     IStayVenueSearch venues,
-    IActivityPlaceResolver places,
+    IAddressGeocoder places,
     ILogger<StayAddressResearch> logger
 ) : IStayAddressResearch
 {
@@ -46,7 +47,7 @@ public sealed class StayAddressResearch(
             deadline.Token
         );
         using var concurrency = new SemaphoreSlim(2);
-        return await Task.WhenAll(
+        var located = await Task.WhenAll(
             matches
                 .DistinctBy(
                     venue => $"{venue.PlaceName}|{venue.Address}",
@@ -71,16 +72,17 @@ public sealed class StayAddressResearch(
                     }
                 })
         );
+        return located.SelectMany(results => results).ToArray();
     }
 
-    private async Task<StayAddressSuggestion> LocateAsync(
+    private async Task<StayAddressSuggestion[]> LocateAsync(
         ActivityVenue venue,
         GeoJsonFeature<DestinationProperties> destination,
         CancellationToken deadline,
         CancellationToken cancellationToken
     )
     {
-        GeoJsonPoint? geometry = null;
+        IReadOnlyList<AddressLocationCandidate> locations = [];
         using var geocoding = CancellationTokenSource.CreateLinkedTokenSource(deadline);
         geocoding.CancelAfter(TimeSpan.FromSeconds(8));
         try
@@ -88,12 +90,13 @@ public sealed class StayAddressResearch(
             // Geocode researched street addresses, never similarly named fuzzy POIs.
             if (!deadline.IsCancellationRequested)
             {
-                geometry = await places.ResolveAddressAsync(
+                locations = await places.FindAsync(
                     venue.Address,
                     destination.Properties.Name,
                     destination.Properties.CountryCode,
                     geocoding.Token,
-                    destination.Geometry
+                    destination.Geometry,
+                    venue.AddressComponents
                 );
             }
         }
@@ -113,14 +116,35 @@ public sealed class StayAddressResearch(
             );
         }
         cancellationToken.ThrowIfCancellationRequested();
-        return new(
-            venue.PlaceName,
-            venue.Address,
-            venue.Source,
-            geometry,
-            geometry is null
-                ? "Address found, but its map location could not be confirmed. Try searching the full address."
-                : null
-        );
+        if (locations.Count == 0)
+        {
+            return
+            [
+                new(
+                    venue.PlaceName,
+                    venue.Address,
+                    venue.Source,
+                    null,
+                    "Hotel address found, but Azure Maps returned no usable street-address pin. Try the hotel name or another published address."
+                ),
+            ];
+        }
+        return locations
+            .Take(3)
+            .Select(location => new StayAddressSuggestion(
+                venue.PlaceName,
+                venue.Address,
+                venue.Source,
+                location.Geometry,
+                location.Confidence == AddressMatchConfidence.Medium
+                || location.Ambiguous
+                || locations.Count > 1
+                    ? "Possible address match. Check the map address and pin before saving this stay."
+                    : null
+            )
+            {
+                MapAddress = location.FormattedAddress,
+            })
+            .ToArray();
     }
 }
