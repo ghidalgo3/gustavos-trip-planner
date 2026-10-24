@@ -2759,3 +2759,40 @@ main:has(.trip-workspace-activities) > .topbar {
   font-weight: 400;
   color: var(--colorNeutralForeground2);
 }
+
+.stay-search-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 12px;
+}
+.stay-search-form > :first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.stay-search-form > button {
+  margin-top: 28px;
+}
+.stay-search-results {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.stay-search-result {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.stay-search-result.is-selected {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorBrandBackground2);
+}
+@media (max-width: 480px) {
+  .stay-search-form > button {
+    margin-top: 0;
+  }
+}

@@ -861,7 +861,7 @@ test.each([null, "Hotel Paris"])(
     fireEvent.click(button);
     const drawer = await screen.findByRole("dialog", { name: "Stay in Paris" });
     expect(
-      within(drawer).getByRole("combobox", { name: "Stay location" }),
+      within(drawer).getByRole("textbox", { name: "Stay location" }),
     ).toBeVisible();
     if (!stayName) {
       expect(

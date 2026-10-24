@@ -9,6 +9,101 @@ namespace TripPlanner.Api.Tests.Services.Activities;
 public class ActivityVenueResearchTests
 {
     [TestMethod]
+    public async Task StaySearchReturnsDistinctSourcedMatchesInOrderAndDiscardsInvalidEntries()
+    {
+        const string source = "https://hotel.test/locations";
+        var places = new[]
+        {
+            new
+            {
+                placeName = "Hotel East",
+                address = "1 East Street",
+                sourceUrl = source,
+            },
+            new
+            {
+                placeName = "Hotel West",
+                address = "2 West Street",
+                sourceUrl = source,
+            },
+            new
+            {
+                placeName = "Hotel East",
+                address = "1 East Street",
+                sourceUrl = source,
+            },
+            new
+            {
+                placeName = "Invented source",
+                address = "3 Street",
+                sourceUrl = "https://not-consulted.test",
+            },
+            new
+            {
+                placeName = "Missing address",
+                address = "",
+                sourceUrl = source,
+            },
+            new
+            {
+                placeName = "Beyond provider budget",
+                address = "6 Street",
+                sourceUrl = source,
+            },
+        };
+        string response = JsonSerializer.Serialize(
+            new
+            {
+                status = "completed",
+                output = new object[]
+                {
+                    new
+                    {
+                        type = "web_search_call",
+                        status = "completed",
+                        action = new { sources = new[] { new { url = source } } },
+                    },
+                    new
+                    {
+                        type = "message",
+                        content = new[]
+                        {
+                            new
+                            {
+                                type = "output_text",
+                                text = JsonSerializer.Serialize(new { places }),
+                            },
+                        },
+                    },
+                },
+            }
+        );
+        using var handler = new OpenAiActivityAssistantTests.ResponseHandler(response);
+        using var client = new HttpClient(handler);
+        var research = new OpenAiActivityVenueResearch(
+            client,
+            Microsoft.Extensions.Options.Options.Create(
+                new OpenAiOptions { ApiKey = "test", Model = "configured-model" }
+            )
+        );
+        var results = await research.SearchAsync("Hotel", "Tokyo", "JP", [], default);
+        CollectionAssert.AreEqual(
+            new[] { "Hotel East", "Hotel West" },
+            results.Select(result => result.PlaceName).ToArray()
+        );
+        Assert.IsTrue(results.All(result => result.Source.Url == source));
+        using var request = JsonDocument.Parse(handler.Request!);
+        Assert.AreEqual(
+            "web_search",
+            request.RootElement.GetProperty("tool_choice").GetProperty("type").GetString()
+        );
+        using var input = JsonDocument.Parse(request.RootElement.GetProperty("input").GetString()!);
+        Assert.AreEqual("Hotel", input.RootElement.GetProperty("query").GetString());
+        Assert.AreEqual("Tokyo", input.RootElement.GetProperty("city").GetString());
+        Assert.AreEqual("JP", input.RootElement.GetProperty("countryCode").GetString());
+    }
+
+    [TestMethod]
     [DataRow("Grand Museum", "1 Main Street", "https://venue.test/event", true, true)]
     [DataRow("Grand Museum", null, "https://venue.test/event", true, false)]
     [DataRow("Grand Museum", " ", "https://venue.test/event", true, false)]

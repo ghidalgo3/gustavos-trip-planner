@@ -1,21 +1,23 @@
-import { useActionToast } from "../../shared/hooks/useActionToast";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   DrawerBody,
   DrawerFooter,
   DrawerHeader,
   DrawerHeaderTitle,
-  OverlayDrawer,
+  Field,
+  Input,
   Link,
+  OverlayDrawer,
+  Radio,
+  RadioGroup,
   Text,
 } from "@fluentui/react-components";
-import { Dismiss24Regular } from "@fluentui/react-icons";
-import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
-import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import { Dismiss24Regular, Search20Regular } from "@fluentui/react-icons";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import { useActionToast } from "../../shared/hooks/useActionToast";
 import ActivityMap from "../../maps/ActivityMap";
-import { searchPlaces } from "../../api/api";
 import {
   saveStayLocation,
   researchStayAddress,
@@ -25,10 +27,6 @@ import {
   type StayLocation,
 } from "../activities/activitiesApi";
 
-type Place = Awaited<ReturnType<typeof searchPlaces>>[number] & {
-  longitude: number;
-  latitude: number;
-};
 const noActivities: Activity[] = [];
 const selectStayMarker = () => {};
 
@@ -45,107 +43,71 @@ export default function StayLocationDrawer({
 }) {
   const existing = destination.properties.stayLocation;
   const [query, setQuery] = useState(existing?.properties.name ?? "");
-  const [place, setPlace] = useState<Place | undefined>(
-    existing
-      ? {
-          id: "stay",
-          label: existing.properties.name,
-          name: existing.properties.name,
-          longitude: existing.geometry.coordinates[0],
-          latitude: existing.geometry.coordinates[1],
-        }
-      : undefined,
+  const [selectedStay, setSelectedStay] = useState<StayLocation | null>(
+    existing ?? null,
   );
+  const [results, setResults] = useState<StayAddressSuggestion[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<string>("");
+  const [searched, setSearched] = useState(false);
   const [researching, setResearching] = useState(false);
-  const [suggestion, setSuggestion] = useState<StayAddressSuggestion | null>(
-    null,
-  );
   const researchRequest = useRef<AbortController | null>(null);
   useEffect(() => () => researchRequest.current?.abort(), []);
   const [busy, setBusy] = useState(false);
   const { notify, toaster } = useActionToast();
-  const search = useCallback(
-    (text: string, signal: AbortSignal) =>
-      searchPlaces(
-        text,
-        signal,
-        destination.geometry.coordinates,
-        destination.properties.countryCode,
-        { typeahead: true },
-      ).then((places) =>
-        places.filter(
-          (place): place is Place =>
-            typeof place.longitude === "number" &&
-            typeof place.latitude === "number",
-        ),
-      ),
-    [destination],
-  );
-  const selectedStay = useMemo<StayLocation | null>(
-    () =>
-      place
-        ? {
-            type: "Feature",
-            id: "stay",
-            geometry: {
-              type: "Point",
-              coordinates: [place.longitude, place.latitude],
-            },
-            properties: { name: (place.name ?? place.label).slice(0, 200) },
-          }
-        : null,
-    [place],
-  );
-  async function searchAddress() {
+
+  async function search() {
+    if (busy || researching || !query.trim()) return;
     const controller = new AbortController();
     researchRequest.current = controller;
     setResearching(true);
-    setPlace(undefined);
-    setSuggestion(null);
+    setSelectedStay(null);
+    setSelectedIndex("");
+    setResults([]);
+    setSearched(false);
     try {
-      const result = await researchStayAddress(
+      const matches = await researchStayAddress(
         tripId,
         destination.id,
-        (place?.name ?? query).trim(),
+        query.trim(),
         controller.signal,
       );
       if (controller.signal.aborted) return;
-      setSuggestion(result);
-      if (result?.geometry) {
-        const label = `${result.name}, ${result.address}`;
-        setPlace({
-          id: "researched-stay",
-          name: result.name,
-          address: result.address,
-          label,
-          longitude: result.geometry.coordinates[0],
-          latitude: result.geometry.coordinates[1],
-        });
-        setQuery(label);
-      } else if (!result) {
-        notify(
-          "No confirmed address found. Try a more specific hotel name or address.",
-          "error",
-        );
-      }
+      setResults(matches);
+      setSearched(true);
     } catch (reason) {
       if (!controller.signal.aborted)
         notify(
           reason instanceof Error
             ? reason.message
-            : "Could not search the stay address.",
+            : "Could not search for stays.",
           "error",
         );
     } finally {
       if (!controller.signal.aborted) setResearching(false);
     }
   }
+
+  function selectResult(index: string) {
+    const match = results[Number(index)];
+    if (!match?.geometry) return;
+    setSelectedIndex(index);
+    setSelectedStay({
+      type: "Feature",
+      id: "stay",
+      geometry: match.geometry,
+      properties: { name: match.name.slice(0, 200) },
+    });
+  }
+
   async function save(remove = false) {
     if (!remove && !selectedStay) return;
     setBusy(true);
     try {
-      const feature = remove ? null : selectedStay;
-      await saveStayLocation(tripId, destination.id, feature);
+      await saveStayLocation(
+        tripId,
+        destination.id,
+        remove ? null : selectedStay,
+      );
       await onSaved();
       onClose();
     } catch (reason) {
@@ -159,6 +121,7 @@ export default function StayLocationDrawer({
       setBusy(false);
     }
   }
+
   return (
     <>
       {toaster}
@@ -187,79 +150,107 @@ export default function StayLocationDrawer({
           </DrawerHeaderTitle>
         </DrawerHeader>
         <DrawerBody>
-          <AsyncAutocomplete
-            disabled={busy || researching}
-            label="Stay location"
-            placeholder="Search hotels or accommodation"
-            inputValue={query}
-            selectedOptionValue={
-              place ? `${place.longitude},${place.latitude}` : undefined
-            }
-            selectedOptionLabel={place?.label}
-            search={search}
-            getOptionValue={(item) => `${item.longitude},${item.latitude}`}
-            getOptionText={(item) => item.label}
-            renderOption={(item) => <PlaceSearchResult place={item} />}
-            onInputChange={(value) => {
-              setQuery(value);
-              setPlace(undefined);
-              setSuggestion(null);
+          <form
+            className="stay-search-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void search();
             }}
-            onOptionSelect={(item) => {
-              setPlace(item);
-              setQuery(item.label);
-              setSuggestion(null);
-            }}
-            debounceMs={300}
-            hint="Search by hotel name or address. Use Search Address to research it on the web."
-            emptyMessage="No stays found nearby. Try another name or address."
-          />
+          >
+            <Field
+              label="Stay location"
+              hint="Enter a hotel name or address, then search the web for matching stays."
+            >
+              <Input
+                value={query}
+                placeholder="Hotel name or address"
+                maxLength={200}
+                disabled={busy || researching}
+                onChange={(_, data) => {
+                  setQuery(data.value);
+                  setSelectedStay(null);
+                  setSelectedIndex("");
+                  setResults([]);
+                  setSearched(false);
+                }}
+              />
+            </Field>
+            <Button
+              type="submit"
+              appearance="primary"
+              icon={<Search20Regular />}
+              disabled={busy || researching || !query.trim()}
+            >
+              Search
+            </Button>
+          </form>
+          {researching && <ContentSkeleton label="Searching stays" count={2} />}
+          {searched && results.length === 0 && (
+            <Text role="status">
+              No matching stays found. Try a more specific hotel name or
+              address.
+            </Text>
+          )}
+          {results.length > 0 && (
+            <RadioGroup
+              className="stay-search-results"
+              aria-label="Matching stays"
+              value={selectedIndex}
+              onChange={(_, data) => selectResult(data.value)}
+            >
+              {results.map((match, index) => (
+                <div
+                  className={`stay-search-result${selectedIndex === String(index) ? " is-selected" : ""}`}
+                  key={`${match.name}|${match.address}`}
+                >
+                  <Radio
+                    value={String(index)}
+                    disabled={busy || !match.geometry}
+                    label={
+                      <PlaceSearchResult
+                        place={{
+                          id: String(index),
+                          name: match.name,
+                          label: match.name,
+                          address: match.address,
+                        }}
+                      />
+                    }
+                  />
+                  <Link
+                    href={match.source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Source for ${match.name}`}
+                  >
+                    {match.source.label}
+                  </Link>
+                  {match.warning && <Text size={200}>{match.warning}</Text>}
+                </div>
+              ))}
+            </RadioGroup>
+          )}
           <section
             className="stay-location-preview"
             aria-label="Confirm stay location"
           >
             <Text>
-              {suggestion
-                ? suggestion.address
-                : place
-                  ? place.label
-                  : "Choose a stay to preview its location."}
+              {selectedStay
+                ? selectedStay.properties.name
+                : "Select a matching stay to preview its location."}
             </Text>
-            <Button
-              disabled={busy || researching || !query.trim()}
-              onClick={() => void searchAddress()}
-            >
-              Search Address
-            </Button>
-            {researching && (
-              <ContentSkeleton label="Searching stay address" count={1} />
-            )}
-            {suggestion && (
-              <>
-                <Link
-                  href={suggestion.source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {suggestion.source.label}
-                </Link>
-                {suggestion.warning && (
-                  <Text role="status">{suggestion.warning}</Text>
-                )}
-              </>
-            )}
             <ActivityMap
               center={selectedStay?.geometry ?? destination.geometry}
               destinationName={
-                place?.name ?? place?.label ?? destination.properties.name
+                selectedStay?.properties.name ?? destination.properties.name
               }
-              zoom={place ? 15 : 11}
+              zoom={selectedStay ? 15 : 11}
               activities={noActivities}
               stayLocation={selectedStay}
               selectedId="stay"
               onSelect={selectStayMarker}
             />
-            {place && (
+            {selectedStay && (
               <Text size={200}>
                 Check that the pin is where you expect to stay, then choose Save
                 Stay to confirm.
@@ -269,7 +260,10 @@ export default function StayLocationDrawer({
         </DrawerBody>
         <DrawerFooter className="activity-drawer-footer">
           {existing && (
-            <Button disabled={busy} onClick={() => void save(true)}>
+            <Button
+              disabled={busy || researching}
+              onClick={() => void save(true)}
+            >
               Remove Stay
             </Button>
           )}
@@ -278,7 +272,7 @@ export default function StayLocationDrawer({
           </Button>
           <Button
             appearance="primary"
-            disabled={!place || busy || researching}
+            disabled={!selectedStay || busy || researching}
             onClick={() => void save()}
           >
             Save Stay

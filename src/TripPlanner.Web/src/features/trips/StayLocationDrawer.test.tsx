@@ -1,10 +1,4 @@
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import ColorSchemeProvider from "../../app/ColorSchemeProvider";
 import StayLocationDrawer from "./StayLocationDrawer";
@@ -13,7 +7,9 @@ import {
   saveStayLocation,
   researchStayAddress,
   type Destination,
+  type StayAddressSuggestion,
 } from "../activities/activitiesApi";
+
 vi.mock("../../api/api", () => ({ searchPlaces: vi.fn() }));
 vi.mock("../activities/activitiesApi", () => ({
   saveStayLocation: vi.fn(),
@@ -24,7 +20,6 @@ vi.mock("../../maps/ActivityMap", () => ({
     center,
     stayLocation,
     zoom,
-    onPick,
   }: {
     center: { coordinates: number[] };
     stayLocation?: {
@@ -32,7 +27,6 @@ vi.mock("../../maps/ActivityMap", () => ({
       geometry: { coordinates: number[] };
     } | null;
     zoom?: number;
-    onPick?: (point: { type: "Point"; coordinates: [number, number] }) => void;
   }) => (
     <div
       role="img"
@@ -43,18 +37,10 @@ vi.mock("../../maps/ActivityMap", () => ({
       {stayLocation && (
         <span>{`Stay pin: ${stayLocation.properties.name}`}</span>
       )}
-      {onPick && (
-        <button
-          onClick={() =>
-            onPick({ type: "Point", coordinates: [139.703, 35.655] })
-          }
-        >
-          Pick map location
-        </button>
-      )}
     </div>
   ),
 }));
+
 beforeEach(() => vi.resetAllMocks());
 const destination: Destination = {
   type: "Feature",
@@ -71,282 +57,206 @@ const destination: Destination = {
     isActive: true,
   },
 };
-test("Stay lookup is near the destination and saves only the chosen location", async () => {
-  vi.mocked(searchPlaces).mockResolvedValue([
-    {
-      id: "hotel",
-      name: "Tokyo Hotel",
-      label: "Tokyo Hotel, Shinjuku",
-      address: "Shinjuku",
-      longitude: 139.7,
-      latitude: 35.7,
+const matches: StayAddressSuggestion[] = [
+  {
+    name: "Hotel Mets Shibuya",
+    address: "3-29-17 Shibuya, Tokyo",
+    source: {
+      url: "https://www.hotelmets.jp/en/shibuya/access.html",
+      label: "Hotel website",
     },
-  ]);
-  vi.mocked(saveStayLocation).mockResolvedValue();
+    geometry: { type: "Point", coordinates: [139.703, 35.655] },
+    warning: null,
+  },
+  {
+    name: "Hotel Mets Shinjuku",
+    address: "1 Main Street, Shinjuku, Tokyo",
+    source: { url: "https://hotel.example/shinjuku", label: "Hotel website" },
+    geometry: { type: "Point", coordinates: [139.7, 35.69] },
+    warning: null,
+  },
+];
+const savedDestination: Destination = {
+  ...destination,
+  properties: {
+    ...destination.properties,
+    stayLocation: {
+      type: "Feature",
+      id: "stay",
+      geometry: { type: "Point", coordinates: [139.71, 35.71] },
+      properties: { name: "Existing Hotel" },
+    },
+  },
+};
+function showDrawer(stayDestination = destination) {
   const onSaved = vi.fn().mockResolvedValue(undefined),
     onClose = vi.fn();
-  render(
-    <ColorSchemeProvider>
-      <StayLocationDrawer
-        tripId="trip"
-        destination={destination}
-        onSaved={onSaved}
-        onClose={onClose}
-      />
-    </ColorSchemeProvider>,
+  return {
+    ...render(
+      <ColorSchemeProvider>
+        <StayLocationDrawer
+          tripId="trip"
+          destination={stayDestination}
+          onSaved={onSaved}
+          onClose={onClose}
+        />
+      </ColorSchemeProvider>,
+    ),
+    onSaved,
+    onClose,
+  };
+}
+function typeQuery(query = "Hotel Mets") {
+  fireEvent.change(screen.getByRole("textbox", { name: "Stay location" }), {
+    target: { value: query },
+  });
+}
+
+test("typing makes no search requests; explicit search returns choices and saves only the selected stay", async () => {
+  vi.mocked(researchStayAddress).mockResolvedValue(matches);
+  vi.mocked(saveStayLocation).mockResolvedValue();
+  const { onSaved, onClose } = showDrawer();
+  expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+  typeQuery();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(searchPlaces).not.toHaveBeenCalled();
+  expect(researchStayAddress).not.toHaveBeenCalled();
+  expect(screen.queryByRole("combobox")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  const choices = await screen.findAllByRole("radio");
+  expect(choices).toHaveLength(2);
+  expect(choices.every((choice) => !(choice as HTMLInputElement).checked)).toBe(
+    true,
   );
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
-  fireEvent.change(screen.getByRole("combobox", { name: "Stay location" }), {
-    target: { value: "Tokyo Hotel" },
-  });
-  const result = await screen.findByRole("option", {
-    name: "Tokyo Hotel, Shinjuku",
-  });
-  expect(within(result).getByText("Tokyo Hotel")).toBeVisible();
-  expect(within(result).getByText("Shinjuku")).toHaveClass(
+  expect(screen.getByText(matches[0].address)).toHaveClass(
     "place-search-result-address",
   );
-  fireEvent.click(result);
-  expect(searchPlaces).toHaveBeenCalledWith(
-    "Tokyo Hotel",
+  expect(
+    screen.getByRole("link", { name: "Source for Hotel Mets Shibuya" }),
+  ).toHaveAttribute("href", matches[0].source.url);
+  expect(researchStayAddress).toHaveBeenCalledWith(
+    "trip",
+    "tokyo-jp",
+    "Hotel Mets",
     expect.any(AbortSignal),
-    [139.69, 35.68],
-    "JP",
-    { typeahead: true },
   );
+  expect(searchPlaces).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  fireEvent.click(choices[1]);
+  expect(screen.getByText("Stay pin: Hotel Mets Shinjuku")).toBeVisible();
   expect(screen.getByRole("img", { name: "Stay map preview" })).toHaveAttribute(
     "data-center",
-    "[139.7,35.7]",
+    "[139.7,35.69]",
   );
   expect(screen.getByRole("img", { name: "Stay map preview" })).toHaveAttribute(
     "data-zoom",
     "15",
   );
-  expect(screen.getByText("Stay pin: Tokyo Hotel")).toBeVisible();
   expect(saveStayLocation).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
   expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", {
     type: "Feature",
     id: "stay",
-    geometry: { type: "Point", coordinates: [139.7, 35.7] },
-    properties: { name: "Tokyo Hotel" },
+    geometry: matches[1].geometry,
+    properties: { name: matches[1].name },
   });
   expect(onSaved).toHaveBeenCalled();
 });
 
-test("editing a hotel search clears its pin and prevents saving stale coordinates", async () => {
-  const saved: Destination = {
-    ...destination,
-    properties: {
-      ...destination.properties,
-      stayLocation: {
-        type: "Feature",
-        id: "stay",
-        geometry: { type: "Point", coordinates: [139.7, 35.7] },
-        properties: { name: "Tokyo Hotel" },
-      },
-    },
-  };
-  vi.mocked(searchPlaces).mockResolvedValue([
-    {
-      id: "other",
-      name: "Other Hotel",
-      label: "Other Hotel, Tokyo",
-      longitude: 139.75,
-      latitude: 35.65,
-    },
-  ]);
-  render(
-    <ColorSchemeProvider>
-      <StayLocationDrawer
-        tripId="trip"
-        destination={saved}
-        onSaved={vi.fn()}
-        onClose={vi.fn()}
-      />
-    </ColorSchemeProvider>,
+test("Enter submits the search form and even a single result requires explicit selection", async () => {
+  vi.mocked(researchStayAddress).mockResolvedValue([matches[0]]);
+  showDrawer();
+  typeQuery("JR-East Hotel Mets Shibuya");
+  fireEvent.submit(
+    screen.getByRole("textbox", { name: "Stay location" }).closest("form")!,
   );
-  const map = screen.getByRole("img", { name: "Stay map preview" });
-  expect(screen.getByText("Stay pin: Tokyo Hotel")).toBeVisible();
-  expect(searchPlaces).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByRole("combobox", { name: "Stay location" }), {
-    target: { value: "Othr Hot" },
-  });
-  expect(screen.queryByText("Stay pin: Tokyo Hotel")).toBeNull();
+  const choice = await screen.findByRole("radio");
+  expect(choice).not.toBeChecked();
   expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
-  expect(screen.getByRole("img", { name: "Stay map preview" })).toBe(map);
-  expect(map).toHaveAttribute("data-center", "[139.69,35.68]");
-  fireEvent.click(
-    await screen.findByRole("option", { name: "Other Hotel, Tokyo" }),
-  );
-  expect(map).toHaveAttribute("data-center", "[139.75,35.65]");
+  fireEvent.click(choice);
   expect(screen.getByRole("button", { name: "Save Stay" })).toBeEnabled();
   expect(saveStayLocation).not.toHaveBeenCalled();
 });
 
-test("Search Address researches a sourced address and requires Save Stay to accept the map pin", async () => {
-  vi.mocked(researchStayAddress).mockResolvedValue({
-    name: "JR-East Hotel Mets Shibuya",
-    address: "3-29-17 Shibuya, Tokyo",
-    source: {
-      url: "https://www.hotelmets.jp/en/shibuya/access.html",
-      label: "Venue source",
-    },
-    geometry: { type: "Point", coordinates: [139.703, 35.655] },
-    warning: null,
-  });
-  vi.mocked(searchPlaces).mockImplementation(() => new Promise(() => {}));
-  vi.mocked(saveStayLocation).mockResolvedValue();
-  const onSaved = vi.fn().mockResolvedValue(undefined);
-  render(
-    <ColorSchemeProvider>
-      <StayLocationDrawer
-        tripId="trip"
-        destination={destination}
-        onSaved={onSaved}
-        onClose={vi.fn()}
-      />
-    </ColorSchemeProvider>,
-  );
-  fireEvent.change(screen.getByRole("combobox", { name: "Stay location" }), {
-    target: { value: "JR-East Hotel Mets Shibuya" },
-  });
-  expect(
-    await screen.findByRole("status", { name: "Searching Stay location" }),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Search Address" }));
-  expect(
-    await screen.findByText("Stay pin: JR-East Hotel Mets Shibuya"),
-  ).toBeVisible();
-  expect(screen.getByText("3-29-17 Shibuya, Tokyo")).toBeVisible();
-  expect(screen.getByRole("link", { name: "Venue source" })).toHaveAttribute(
-    "href",
-    "https://www.hotelmets.jp/en/shibuya/access.html",
-  );
-  expect(researchStayAddress).toHaveBeenCalledWith(
-    "trip",
-    "tokyo-jp",
-    "JR-East Hotel Mets Shibuya",
-    expect.any(AbortSignal),
-  );
-  expect(screen.queryByRole("button", { name: "Choose on map" })).toBeNull();
-  expect(screen.getByRole("img", { name: "Stay map preview" })).toHaveAttribute(
-    "data-center",
-    "[139.703,35.655]",
-  );
-  expect(
-    screen.queryByRole("status", { name: "Searching Stay location" }),
-  ).toBeNull();
+test("editing the query clears the draft pin and old results while preserving the map", async () => {
+  vi.mocked(researchStayAddress).mockResolvedValue(matches);
+  showDrawer(savedDestination);
+  const map = screen.getByRole("img", { name: "Stay map preview" });
+  expect(screen.getByText("Stay pin: Existing Hotel")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Save Stay" })).toBeEnabled();
+  typeQuery();
+  expect(screen.queryByText("Stay pin: Existing Hotel")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  fireEvent.click((await screen.findAllByRole("radio"))[0]);
+  typeQuery("Another Hotel");
+  expect(screen.queryAllByRole("radio")).toHaveLength(0);
+  expect(screen.queryByText("Stay pin: Hotel Mets Shibuya")).toBeNull();
+  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  expect(screen.getByRole("img", { name: "Stay map preview" })).toBe(map);
+  expect(map).toHaveAttribute("data-center", "[139.69,35.68]");
+  expect(researchStayAddress).toHaveBeenCalledTimes(1);
   expect(saveStayLocation).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
-  await waitFor(() =>
-    expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", {
-      type: "Feature",
-      id: "stay",
-      geometry: { type: "Point", coordinates: [139.703, 35.655] },
-      properties: { name: "JR-East Hotel Mets Shibuya" },
-    }),
-  );
 });
 
 test.each(["unresolved", "missing", "failed"])(
-  "address search %s clears stale coordinates and does not save",
+  "search %s cannot reuse a stale pin or save an unlocated result",
   async (scenario) => {
-    vi.mocked(searchPlaces).mockResolvedValue([]);
     const warning =
       "Address found, but its map location could not be confirmed.";
     if (scenario === "failed")
       vi.mocked(researchStayAddress).mockRejectedValue(
-        new Error("Address search unavailable"),
+        new Error("Search unavailable"),
       );
     else
       vi.mocked(researchStayAddress).mockResolvedValue(
         scenario === "missing"
-          ? null
-          : {
-              name: "Hotel",
-              address: "A sourced street address",
-              source: {
-                url: "https://hotel.example/address",
-                label: "Venue source",
-              },
-              geometry: null,
-              warning,
-            },
+          ? []
+          : [{ ...matches[0], geometry: null, warning }],
       );
-    render(
-      <ColorSchemeProvider>
-        <StayLocationDrawer
-          tripId="trip"
-          destination={{
-            ...destination,
-            properties: {
-              ...destination.properties,
-              stayLocation: {
-                type: "Feature",
-                id: "stay",
-                geometry: { type: "Point", coordinates: [139.7, 35.7] },
-                properties: { name: "Hotel" },
-              },
-            },
-          }}
-          onSaved={vi.fn()}
-          onClose={vi.fn()}
-        />
-      </ColorSchemeProvider>,
-    );
-    expect(screen.getByRole("button", { name: "Save Stay" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Search Address" }));
+    showDrawer(savedDestination);
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Search Address" }),
-      ).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "Search" })).toBeEnabled(),
     );
     expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
-    expect(screen.queryByText("Stay pin: Hotel")).toBeNull();
+    expect(screen.queryByText("Stay pin: Existing Hotel")).toBeNull();
     expect(saveStayLocation).not.toHaveBeenCalled();
     if (scenario === "unresolved") {
+      expect(screen.getByRole("radio")).toBeDisabled();
       expect(screen.getByText(warning)).toBeVisible();
-      expect(screen.getByText("A sourced street address")).toBeVisible();
+      expect(screen.getByText(matches[0].address)).toBeVisible();
     } else
       expect(
         await screen.findByText(
           scenario === "failed"
-            ? "Address search unavailable"
-            : "No confirmed address found. Try a more specific hotel name or address.",
+            ? "Search unavailable"
+            : "No matching stays found. Try a more specific hotel name or address.",
         ),
       ).toBeVisible();
   },
 );
 
-test("address research shows a skeleton, locks selection, and aborts when the drawer closes", async () => {
-  vi.mocked(searchPlaces).mockResolvedValue([]);
+test("search shows skeletons, locks the field, and aborts when the drawer closes", () => {
   vi.mocked(researchStayAddress).mockImplementation(
     () => new Promise(() => {}),
   );
-  const { unmount } = render(
-    <ColorSchemeProvider>
-      <StayLocationDrawer
-        tripId="trip"
-        destination={destination}
-        onSaved={vi.fn()}
-        onClose={vi.fn()}
-      />
-    </ColorSchemeProvider>,
-  );
-  fireEvent.change(screen.getByRole("combobox", { name: "Stay location" }), {
-    target: { value: "Hotel Mets" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Search Address" }));
-  expect(
-    screen.getByRole("status", { name: "Searching stay address" }),
-  ).toBeVisible();
-  expect(
-    screen.getByRole("combobox", { name: "Stay location" }),
-  ).toBeDisabled();
+  const { unmount } = showDrawer();
+  typeQuery();
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(screen.getByRole("status", { name: "Searching stays" })).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Stay location" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
   const signal = vi.mocked(researchStayAddress).mock.calls[0][3]!;
   unmount();
   expect(signal.aborted).toBe(true);
+});
+
+test("an existing stay can still be removed without a search", async () => {
+  vi.mocked(saveStayLocation).mockResolvedValue();
+  const { onSaved } = showDrawer(savedDestination);
+  fireEvent.click(screen.getByRole("button", { name: "Remove Stay" }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", null);
+  expect(researchStayAddress).not.toHaveBeenCalled();
 });

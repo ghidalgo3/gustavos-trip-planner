@@ -46,21 +46,31 @@ public sealed class StayAddressResearch(
             deadline.Token
         );
         using var concurrency = new SemaphoreSlim(2);
-        return await Task.WhenAll(matches
-            .DistinctBy(venue => $"{venue.PlaceName}|{venue.Address}", StringComparer.OrdinalIgnoreCase)
-            .Take(5)
-            .Select(async venue =>
-            {
-                await concurrency.WaitAsync(cancellationToken);
-                try
+        return await Task.WhenAll(
+            matches
+                .DistinctBy(
+                    venue => $"{venue.PlaceName}|{venue.Address}",
+                    StringComparer.OrdinalIgnoreCase
+                )
+                .Take(5)
+                .Select(async venue =>
                 {
-                    return await LocateAsync(venue, destination, deadline.Token, cancellationToken);
-                }
-                finally
-                {
-                    concurrency.Release();
-                }
-            }));
+                    await concurrency.WaitAsync(cancellationToken);
+                    try
+                    {
+                        return await LocateAsync(
+                            venue,
+                            destination,
+                            deadline.Token,
+                            cancellationToken
+                        );
+                    }
+                    finally
+                    {
+                        concurrency.Release();
+                    }
+                })
+        );
     }
 
     private async Task<StayAddressSuggestion> LocateAsync(
@@ -88,10 +98,19 @@ public sealed class StayAddressResearch(
             }
         }
         catch (Exception exception)
-            when (exception is HttpRequestException or JsonException or OperationCanceledException or InvalidOperationException or IOException)
+            when (exception
+                    is HttpRequestException
+                        or JsonException
+                        or OperationCanceledException
+                        or InvalidOperationException
+                        or IOException
+            )
         {
             cancellationToken.ThrowIfCancellationRequested();
-            logger.LogWarning("Stay address geocoding unavailable ({FailureType})", exception.GetType().Name);
+            logger.LogWarning(
+                "Stay address geocoding unavailable ({FailureType})",
+                exception.GetType().Name
+            );
         }
         cancellationToken.ThrowIfCancellationRequested();
         return new(

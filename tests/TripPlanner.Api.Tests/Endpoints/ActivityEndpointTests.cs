@@ -737,7 +737,7 @@ public class ActivityEndpointTests
         var places = new ResearchPlaceResolver(true, geocodes);
         await using var factory = new TestApplicationFactory
         {
-            ActivityVenueResearch = research,
+            StayVenueSearch = research,
             ActivityPlaceResolver = places,
         };
         using var client = factory.CreateClient();
@@ -772,15 +772,17 @@ public class ActivityEndpointTests
         );
         if (expectedStatus == 200)
         {
-            var result = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty(
-                "suggestion"
+            var matches = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty(
+                "suggestions"
             );
+            Assert.AreEqual(2, matches.GetArrayLength());
+            var result = matches[0];
             Assert.AreEqual("1 Main Street", result.GetProperty("address").GetString());
             Assert.AreEqual(
                 "https://museum.test/event",
                 result.GetProperty("source").GetProperty("url").GetString()
             );
-            Assert.AreEqual("1 Main Street", places.LastAddress);
+            Assert.IsNotNull(places.LastAddress);
             Assert.AreEqual(
                 !geocodes,
                 result.GetProperty("geometry").ValueKind == JsonValueKind.Null
@@ -817,7 +819,7 @@ public class ActivityEndpointTests
     public async Task StayAddressResearch_ValidatesSearchBeforeCallingProviders(string? query)
     {
         var research = new StubVenueResearch(false);
-        await using var factory = new TestApplicationFactory { ActivityVenueResearch = research };
+        await using var factory = new TestApplicationFactory { StayVenueSearch = research };
         using var client = factory.CreateClient();
         var (trip, owner, _) = await CreateTrip(client, factory);
         await factory.Database.SetUserFeatureFlagsAsync(owner, "LLM");
@@ -844,7 +846,7 @@ public class ActivityEndpointTests
     )
     {
         var research = new StubVenueResearch(false);
-        await using var factory = new TestApplicationFactory { ActivityVenueResearch = research };
+        await using var factory = new TestApplicationFactory { StayVenueSearch = research };
         using var client = factory.CreateClient();
         var (trip, owner, party) = await CreateTrip(client, factory);
         await AddDestinations(client, trip, false);
@@ -1491,10 +1493,38 @@ public class ActivityEndpointTests
         }
     }
 
-    private sealed class StubVenueResearch(bool fails) : IActivityVenueResearch
+    private sealed class StubVenueResearch(bool fails) : IActivityVenueResearch, IStayVenueSearch
     {
         public int Calls { get; private set; }
         public string? Prompt { get; private set; }
+
+        public async Task<IReadOnlyList<ActivityVenue>> SearchAsync(
+            string query,
+            string city,
+            string countryCode,
+            IReadOnlyList<DestinationStay> stays,
+            CancellationToken cancellationToken
+        )
+        {
+            var venue = await FindAsync(
+                new(query, query, null, null, null, null, null, null, null),
+                city,
+                countryCode,
+                stays,
+                cancellationToken
+            );
+            return venue is null
+                ? []
+                :
+                [
+                    venue,
+                    venue with
+                    {
+                        PlaceName = "Another matching stay",
+                        Address = "2 Main Street",
+                    },
+                ];
+        }
 
         public Task<ActivityVenue?> FindAsync(
             ActivityCandidate activity,

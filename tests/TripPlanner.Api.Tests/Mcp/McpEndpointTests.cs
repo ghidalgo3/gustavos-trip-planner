@@ -552,12 +552,12 @@ public class McpEndpointTests
         );
         Assert.IsFalse(stayPreview.GetProperty("isError").GetBoolean(), stayPreview.ToString());
         Assert.AreEqual(
-            JsonValueKind.Null,
+            0,
             stayPreview
                 .GetProperty("structuredContent")
                 .GetProperty("data")
-                .GetProperty("suggestion")
-                .ValueKind
+                .GetProperty("suggestions")
+                .GetArrayLength()
         );
         var locationTool = tools
             .EnumerateArray()

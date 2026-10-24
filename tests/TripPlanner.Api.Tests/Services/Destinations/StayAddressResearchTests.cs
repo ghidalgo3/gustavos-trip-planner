@@ -35,21 +35,21 @@ public sealed class StayAddressResearchTests
     {
         var venue = new VenueResearch();
         var places = new Places(outcome);
-        var result = await new StayAddressResearch(
+        var matches = await new StayAddressResearch(
             venue,
             places,
             NullLogger<StayAddressResearch>.Instance
         ).FindAsync("JR-East Hotel Mets Shibuya", Destination, default);
-        Assert.AreEqual("JR-East Hotel Mets Shibuya", venue.Candidate!.Name);
-        Assert.AreEqual(venue.Candidate.Name, venue.Candidate.PlaceName);
+        Assert.AreEqual("JR-East Hotel Mets Shibuya", venue.Query);
         Assert.AreEqual("Tokyo", venue.City);
         Assert.AreEqual("JP", venue.Country);
         CollectionAssert.AreEqual(Destination.Properties.Stays.ToArray(), venue.Stays!.ToArray());
         Assert.AreEqual("3-29-17 Shibuya, Tokyo", places.Address);
         Assert.AreEqual(Destination.Geometry, places.Center);
-        Assert.IsNotNull(result);
-        Assert.AreEqual(venue.Result!.Address, result.Address);
-        Assert.AreEqual(venue.Result.Source, result.Source);
+        Assert.HasCount(1, matches);
+        var result = matches[0];
+        Assert.AreEqual(venue.Result![0].Address, result.Address);
+        Assert.AreEqual(venue.Result[0].Source, result.Source);
         if (outcome == "located")
         {
             Assert.AreEqual(Places.Point, result.Geometry);
@@ -67,11 +67,11 @@ public sealed class StayAddressResearchTests
     {
         var places = new Places("located");
         var result = await new StayAddressResearch(
-            new VenueResearch { Result = null },
+            new VenueResearch { Result = [] },
             places,
             NullLogger<StayAddressResearch>.Instance
         ).FindAsync("Ambiguous hotel", Destination, default);
-        Assert.IsNull(result);
+        Assert.IsEmpty(result);
         Assert.IsNull(places.Address);
     }
 
@@ -90,29 +90,104 @@ public sealed class StayAddressResearchTests
         );
     }
 
-    private sealed class VenueResearch : IActivityVenueResearch
+    [TestMethod]
+    public async Task MultipleMatchesPreserveOrderAndPartialResultsWithBoundedGeocoding()
     {
-        public ActivityVenue? Result { get; init; } =
+        var matches = Enumerable
+            .Range(0, 8)
+            .Select(i => new ActivityVenue(
+                $"Hotel {i}",
+                $"{i} Main Street",
+                new("https://hotel.test/locations", "Hotel website")
+            ))
+            .ToList();
+        matches.Insert(1, matches[0]);
+        var places = new BatchPlaces();
+        var results = await new StayAddressResearch(
+            new VenueResearch { Result = matches },
+            places,
+            NullLogger<StayAddressResearch>.Instance
+        ).FindAsync("Hotel", Destination, default);
+        Assert.HasCount(5, results);
+        CollectionAssert.AreEqual(
+            new[] { "Hotel 0", "Hotel 1", "Hotel 2", "Hotel 3", "Hotel 4" },
+            results.Select(result => result.Name).ToArray()
+        );
+        Assert.AreEqual(5, places.Calls);
+        Assert.AreEqual(2, places.MaxConcurrent);
+        Assert.IsNull(results[1].Geometry);
+        Assert.IsNotNull(results[1].Warning);
+        Assert.IsNotNull(results[0].Geometry);
+        Assert.IsNotNull(results[2].Geometry);
+        Assert.AreEqual(matches[0].Source, results[0].Source);
+    }
+
+    private sealed class BatchPlaces : IActivityPlaceResolver
+    {
+        private int active;
+        private int calls;
+        public int Calls => calls;
+        public int MaxConcurrent { get; private set; }
+
+        public async Task<GeoJsonPoint?> ResolveAddressAsync(
+            string address,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken,
+            GeoJsonPoint? center = null
+        )
+        {
+            Interlocked.Increment(ref calls);
+            int concurrent = Interlocked.Increment(ref active);
+            MaxConcurrent = Math.Max(MaxConcurrent, concurrent);
+            try
+            {
+                await Task.Delay(10, cancellationToken);
+                if (address.StartsWith("1 ", StringComparison.Ordinal))
+                {
+                    throw new HttpRequestException("One result is unavailable");
+                }
+                return Places.Point;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+            }
+        }
+
+        public Task<GeoJsonPoint?> ResolveAsync(
+            string placeName,
+            string city,
+            string countryCode,
+            CancellationToken cancellationToken,
+            GeoJsonPoint? center = null
+        ) => throw new AssertFailedException("Never use fuzzy POI search for stays.");
+    }
+
+    private sealed class VenueResearch : IStayVenueSearch
+    {
+        public IReadOnlyList<ActivityVenue> Result { get; init; } =
+        [
             new(
                 "Hotel Mets Shibuya",
                 "3-29-17 Shibuya, Tokyo",
                 new("https://www.hotelmets.jp/en/shibuya/access.html", "Venue source")
-            );
-        public ActivityCandidate? Candidate { get; private set; }
+            ),
+        ];
+        public string? Query { get; private set; }
         public string? City { get; private set; }
         public string? Country { get; private set; }
         public IReadOnlyList<DestinationStay>? Stays { get; private set; }
 
-        public Task<ActivityVenue?> FindAsync(
-            ActivityCandidate activity,
+        public Task<IReadOnlyList<ActivityVenue>> SearchAsync(
+            string query,
             string city,
             string countryCode,
             IReadOnlyList<DestinationStay> stays,
-            CancellationToken cancellationToken,
-            string userPrompt = ""
+            CancellationToken cancellationToken
         )
         {
-            Candidate = activity;
+            Query = query;
             City = city;
             Country = countryCode;
             Stays = stays;
