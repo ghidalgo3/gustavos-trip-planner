@@ -425,6 +425,34 @@ export async function waitForActivityJob(
   throw new DOMException("Aborted", "AbortError");
 }
 
+export type StayAddressSuggestion = {
+  name: string;
+  address: string;
+  source: { url: string; label: string };
+  geometry: Point | null;
+  warning: string | null;
+};
+
+export async function researchStayAddress(
+  tripId: string,
+  cityId: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<StayAddressSuggestion[]> {
+  const response = await fetch(
+    `${destinationUrl(tripId, cityId)}/stay/address-proposals`,
+    {
+      method: "POST",
+      credentials: "include",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    },
+  );
+  if (!response.ok) await readTripError(response, "searching the stay address");
+  return (await response.json()).suggestions;
+}
+
 export async function saveStayLocation(
   tripId: string,
   cityId: string,

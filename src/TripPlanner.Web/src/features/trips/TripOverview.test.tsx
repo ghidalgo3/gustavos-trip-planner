@@ -31,6 +31,9 @@ import {
   type Destination,
 } from "../activities/activitiesApi";
 
+vi.mock("../../maps/ActivityMap", () => ({
+  default: () => <div aria-label="Stay map preview" />,
+}));
 vi.mock("../flights/airportCities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../flights/airportCities")>()),
   useAirportCities: () => ({ JFK: "New York", CDG: "Paris" }),

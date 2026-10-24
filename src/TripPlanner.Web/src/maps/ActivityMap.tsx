@@ -89,6 +89,7 @@ export default function ActivityMap({
   stayLocation: savedStayLocation,
   placeSearch,
   portalHost,
+  zoom = 11,
 }: {
   stayLocation?: StayLocation | null;
   center: Point;
@@ -99,6 +100,7 @@ export default function ActivityMap({
   onPick?: (point: Point) => void;
   placeSearch?: PlaceSearch;
   portalHost?: HTMLElement | null;
+  zoom?: number;
 }) {
   const activities = useMemo(
     () =>
@@ -132,6 +134,7 @@ export default function ActivityMap({
   const map = useRef<MapHandle | null>(null);
   const markerTransitions = useRef<AnimatedMapMarkers<Marker> | null>(null);
   const centerRef = useRef(center.coordinates);
+  const zoomRef = useRef(zoom);
   const callbacks = useRef({ onSelect, onPick, placeSearch });
   const [atlas, setAtlas] = useState<Atlas>();
   const [ready, setReady] = useState(false);
@@ -155,7 +158,7 @@ export default function ActivityMap({
     ],
     [longitude, latitude, stayLocation, activities, placeSearch],
   );
-  const positions = JSON.stringify(points);
+  const positions = JSON.stringify({ points, zoom });
   const fitActivities = useCallback(() => {
     const instance = map.current;
     if (!instance || !ready) return;
@@ -167,15 +170,16 @@ export default function ActivityMap({
         Math.max(...points.map((point) => point[1])),
       ],
       padding: 48,
-      maxZoom: 11,
+      maxZoom: zoom,
       type: reducedMotion ? "jump" : "ease",
       duration: reducedMotion ? 0 : 650,
     });
-  }, [points, ready, reducedMotion]);
+  }, [points, ready, reducedMotion, zoom]);
 
   useEffect(() => {
     centerRef.current = [longitude, latitude];
-  }, [longitude, latitude]);
+    zoomRef.current = zoom;
+  }, [longitude, latitude, zoom]);
 
   useEffect(() => {
     styleRef.current = style;
@@ -223,8 +227,7 @@ export default function ActivityMap({
         if (active) setAtlas(loaded);
       })
       .catch(() => {
-        if (active)
-          setError("Map unavailable. Activities remain available in the list.");
+        if (active) setError("Map unavailable. Please retry.");
       });
     return () => {
       active = false;
@@ -246,7 +249,7 @@ export default function ActivityMap({
         if (!active || !element.current) return;
         const instance = new atlas.Map(element.current, {
           center: centerRef.current,
-          zoom: 11,
+          zoom: zoomRef.current,
           style: styleRef.current,
           view: "Auto",
           authOptions: {

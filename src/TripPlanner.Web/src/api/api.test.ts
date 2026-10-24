@@ -138,6 +138,7 @@ test.each([
         id: "museum",
         label: [name, address].filter(Boolean).join(", "),
         name,
+        address,
         longitude: 2.33,
         latitude: 48.86,
       },
@@ -212,4 +213,29 @@ test("Tokyo activity lookup rejects distant, foreign, and unverified-country res
   const url = new URL(fetchMock.mock.calls[1][0]);
   expect(url.searchParams.get("radius")).toBe("50000");
   expect(url.searchParams.get("countrySet")).toBe("JP");
+});
+
+test("hotel autocomplete requests predictive fuzzy results with spelling correction", async () => {
+  vi.resetModules();
+  const { searchPlaces } = await import("./api");
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        token: "sas",
+        endpoint: "https://atlas.example.test",
+        expiresAt: "2099-01-01T00:00:00Z",
+      }),
+    )
+    .mockResolvedValueOnce(Response.json({ results: [] }));
+  vi.stubGlobal("fetch", fetch);
+  await searchPlaces("Toky hot", undefined, [139.69, 35.68], "JP", {
+    typeahead: true,
+  });
+  const request = new URL(fetch.mock.calls[1][0]);
+  expect(request.pathname).toBe("/search/fuzzy/json");
+  expect(request.searchParams.get("query")).toBe("Toky hot");
+  expect(request.searchParams.get("typeahead")).toBe("true");
+  expect(request.searchParams.get("maxFuzzyLevel")).toBe("2");
+  expect(request.searchParams.get("countrySet")).toBe("JP");
 });

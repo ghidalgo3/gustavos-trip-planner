@@ -513,3 +513,48 @@ test("fits all located activities without a hotel, refits new locations, and exp
     duration: 650,
   });
 });
+
+test("stay preview animates to street level without recreating its map", async () => {
+  vi.mocked(getMapToken).mockResolvedValue({
+    token: "sas",
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2030-01-01T02:00:00Z",
+  });
+  const center = {
+    type: "Point" as const,
+    coordinates: [139.69, 35.68] as [number, number],
+  };
+  const props = { center, activities: [], onSelect: vi.fn() };
+  const { rerender } = render(<ActivityMap {...props} />);
+  await waitFor(() => expect(createMap).toHaveBeenCalledTimes(1));
+  act(() => events.get("ready")?.({}));
+  const stay = {
+    type: "Feature" as const,
+    id: "stay",
+    geometry: {
+      type: "Point" as const,
+      coordinates: [139.7, 35.7] as [number, number],
+    },
+    properties: { name: "Tokyo Hotel" },
+  };
+  rerender(
+    <ActivityMap
+      {...props}
+      center={stay.geometry}
+      stayLocation={stay}
+      zoom={15}
+    />,
+  );
+  await waitFor(() =>
+    expect(setCamera).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        maxZoom: 15,
+        type: "ease",
+        duration: 650,
+        bounds: [139.7, 35.7, 139.7, 35.7],
+      }),
+    ),
+  );
+  expect(createMap).toHaveBeenCalledTimes(1);
+  expect(getMapToken).toHaveBeenCalledTimes(1);
+});

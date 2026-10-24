@@ -1100,6 +1100,12 @@ main {
   flex-wrap: wrap;
   gap: 0.4rem;
 }
+.activity-place-results > .fui-Button {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+}
 .activity-file-input {
   display: none;
 }
@@ -2722,4 +2728,34 @@ main:has(.trip-workspace-activities) > .topbar {
   .content-skeleton *::after {
     animation: none !important;
   }
+}
+
+
+.stay-location-preview {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  margin-top: 20px;
+  overflow-wrap: anywhere;
+}
+.stay-location-preview .activity-map-shell {
+  height: clamp(240px, 35svh, 360px);
+}
+
+
+.place-search-result {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.place-search-result-name {
+  font-weight: 600;
+}
+.place-search-result-address {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--colorNeutralForeground2);
 }

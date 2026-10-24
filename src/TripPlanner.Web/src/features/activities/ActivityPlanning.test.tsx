@@ -416,6 +416,7 @@ test("place lookup populates the activity's name and location, and saving update
       id: "louvre",
       label: "Louvre, Paris",
       name: "Louvre",
+      address: "Paris",
       longitude: 2.33,
       latitude: 48.86,
     },
@@ -427,9 +428,14 @@ test("place lookup populates the activity's name and location, and saving update
     target: { value: "Louvre" },
   });
   click(within(drawer).getByRole("button", { name: "Search Azure Maps" }));
-  click(
-    await within(drawer).findByRole("button", { name: "1. Louvre, Paris" }),
+  const result = await within(drawer).findByRole("button", {
+    name: "1. Louvre, Paris",
+  });
+  expect(within(result).getByText("Louvre")).toBeVisible();
+  expect(within(result).getByText("Paris")).toHaveClass(
+    "place-search-result-address",
   );
+  click(result);
   expect(searchPlaces).toHaveBeenCalledWith(
     "Louvre",
     expect.any(AbortSignal),

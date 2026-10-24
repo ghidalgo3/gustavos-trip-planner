@@ -54,7 +54,8 @@ import {
 } from "@fluentui/react-icons";
 import { destinationDates } from "../trips/tripDates";
 import { Link, useSearchParams } from "react-router";
-import { searchPlaces, type Trip } from "../../api/api";
+import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import { searchPlaces, type PlaceSuggestion, type Trip } from "../../api/api";
 import { activityMapLink } from "../../maps/activityMapLink";
 import ActivityDetailsResearch, {
   ActivityDetailsEvidence,
@@ -171,9 +172,7 @@ export default function ActivityPlanning({
   const [placeSearchActive, setPlaceSearchActive] = useState(false);
   const placeAbort = useRef<AbortController | undefined>(undefined);
   const [placeQuery, setPlaceQuery] = useState("");
-  const [places, setPlaces] = useState<
-    { label: string; name?: string; longitude?: number; latitude?: number }[]
-  >([]);
+  const [places, setPlaces] = useState<PlaceSuggestion[]>([]);
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [imageWarnings, setImageWarnings] = useState<string[]>([]);
@@ -1228,9 +1227,11 @@ export default function ActivityPlanning({
                     {places.map((place, index) => (
                       <Button
                         key={`${index}-${place.label}`}
+                        aria-label={`${index + 1}. ${place.label}`}
                         onClick={() => choosePlace(place)}
                       >
-                        {index + 1}. {place.label}
+                        <span aria-hidden="true">{index + 1}.</span>
+                        <PlaceSearchResult place={place} />
                       </Button>
                     ))}
                   </div>

@@ -74,6 +74,11 @@ export type CitySuggestion = {
   latitude?: number;
 };
 
+export type PlaceSuggestion = CitySuggestion & {
+  name?: string;
+  address?: string;
+};
+
 const usStates: Record<string, string> = {
   alabama: "AL",
   alaska: "AK",
@@ -318,14 +323,17 @@ export async function searchPlaces(
   signal?: AbortSignal,
   center?: [number, number],
   countryCode?: string,
-): Promise<(CitySuggestion & { name?: string })[]> {
+  options: { typeahead?: boolean } = {},
+): Promise<PlaceSuggestion[]> {
   const parameters = new URLSearchParams({
     "api-version": "1.0",
     query,
     limit: "6",
     // Search venues and addresses without returning city/region centroids.
     idxSet: "POI,PAD,Addr",
+    maxFuzzyLevel: "2",
   });
+  if (options.typeahead) parameters.set("typeahead", "true");
   if (center) {
     parameters.set("lon", String(center[0]));
     parameters.set("lat", String(center[1]));
@@ -369,6 +377,7 @@ export async function searchPlaces(
             id: place.id ?? `${label}-${index}`,
             label,
             name,
+            address: place.address?.freeformAddress,
             longitude,
             latitude,
           },

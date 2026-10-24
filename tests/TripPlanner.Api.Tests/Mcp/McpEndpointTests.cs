@@ -519,6 +519,46 @@ public class McpEndpointTests
         string etag = output.GetProperty("etag").GetString()!;
         await factory.Database.SetUserFeatureFlagsAsync(user.Id, "LLM");
         var tools = (await Result(await Rpc(agent, "tools/list"))).GetProperty("tools");
+        var stayTool = tools
+            .EnumerateArray()
+            .Single(tool => tool.GetProperty("name").GetString() == "create_stay_address_proposal");
+        Assert.IsTrue(
+            stayTool.GetProperty("annotations").GetProperty("openWorldHint").GetBoolean()
+        );
+        Assert.IsFalse(
+            stayTool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()
+        );
+        Assert.IsFalse(
+            stayTool.GetProperty("annotations").GetProperty("destructiveHint").GetBoolean()
+        );
+        Assert.IsFalse(
+            stayTool.GetProperty("annotations").GetProperty("idempotentHint").GetBoolean()
+        );
+        var stayPreview = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new
+                {
+                    name = "create_stay_address_proposal",
+                    arguments = new
+                    {
+                        tripId = trip.Id,
+                        destinationId,
+                        request = new StayAddressSearchRequest("Hotel"),
+                    },
+                }
+            )
+        );
+        Assert.IsFalse(stayPreview.GetProperty("isError").GetBoolean(), stayPreview.ToString());
+        Assert.AreEqual(
+            JsonValueKind.Null,
+            stayPreview
+                .GetProperty("structuredContent")
+                .GetProperty("data")
+                .GetProperty("suggestion")
+                .ValueKind
+        );
         var locationTool = tools
             .EnumerateArray()
             .Single(tool =>
@@ -772,6 +812,27 @@ public class McpEndpointTests
                 "insufficient_scope"
             );
         }
+        var stayDenied = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new
+                {
+                    name = "create_stay_address_proposal",
+                    arguments = new
+                    {
+                        tripId = Guid.NewGuid(),
+                        destinationId = "paris-fr",
+                        request = new StayAddressSearchRequest("Hotel"),
+                    },
+                }
+            )
+        );
+        Assert.IsTrue(stayDenied.GetProperty("isError").GetBoolean());
+        StringAssert.Contains(
+            stayDenied.GetProperty("_meta").GetProperty("mcp/www_authenticate")[0].GetString()!,
+            "insufficient_scope"
+        );
         Assert.IsEmpty(factory.Database.Trips);
         using var tokenClient = CreateClient(factory);
         var refreshed = await tokenClient.PostAsync(

@@ -24,12 +24,44 @@ public sealed class TripPlannerTools(
     ICurrentUser currentUser,
     DestinationService destinations,
     IActivityCoordinateResearch coordinateResearch,
-    IActivityDetailsResearch detailsResearch
+    IActivityDetailsResearch detailsResearch,
+    IStayAddressResearch stayAddressResearch
 )
 {
     private const string ReadSecurity = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]";
     private const string WriteSecurity =
         "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.write\"]}]";
+
+    [McpServerTool(
+        Name = "create_stay_address_proposal",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = false,
+        OpenWorld = true
+    )]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description(
+        "Search for up to five matching accommodations using OpenAI web search, then geocode their sourced street addresses. Requires planning permission and LLM. Preview only: let the user choose a result and show its source, address, warning and map. Unknown coordinates stay null. Does not save or change the stay."
+    )]
+    public Task<CallToolResult> CreateStayAddressProposal(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        StayAddressSearchRequest request
+    ) =>
+        Execute(
+            true,
+            context =>
+                DestinationsEndpoints.CreateStayAddressProposal(
+                    tripId,
+                    destinationId,
+                    request,
+                    context,
+                    database,
+                    currentUser,
+                    destinations,
+                    stayAddressResearch
+                )
+        );
 
     [McpServerTool(Name = "get_profile", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]

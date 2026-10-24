@@ -17,6 +17,7 @@ type Props<OptionType> = {
   hint?: string;
   emptyMessage?: string;
   error?: string;
+  disabled?: boolean;
   debounceMs?: number;
 };
 
@@ -35,6 +36,7 @@ export default function AsyncAutocomplete<OptionType>({
   hint,
   emptyMessage,
   error,
+  disabled = false,
   debounceMs = 250,
 }: Props<OptionType>) {
   const [suggestions, setSuggestions] = useState<OptionType[]>([]);
@@ -43,14 +45,14 @@ export default function AsyncAutocomplete<OptionType>({
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState<string>();
   const message = error ?? searchError;
+  const shouldSearch =
+    !disabled &&
+    inputValue.trim().length >= 2 &&
+    !(selectedOptionValue && selectedOptionLabel === inputValue);
 
   useEffect(() => {
     const query = inputValue.trim();
-    if (
-      query.length < 2 ||
-      (selectedOptionValue && selectedOptionLabel === inputValue)
-    )
-      return;
+    if (!shouldSearch) return;
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
@@ -80,14 +82,7 @@ export default function AsyncAutocomplete<OptionType>({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [
-    debounceMs,
-    inputValue,
-    label,
-    search,
-    selectedOptionLabel,
-    selectedOptionValue,
-  ]);
+  }, [debounceMs, inputValue, label, search, shouldSearch]);
 
   return (
     <>
@@ -98,11 +93,12 @@ export default function AsyncAutocomplete<OptionType>({
         validationMessage={message}
       >
         <Combobox
+          disabled={disabled}
           aria-label={label}
           placeholder={placeholder}
           value={inputValue}
           selectedOptions={selectedOptionValue ? [selectedOptionValue] : []}
-          open={open}
+          open={open && Boolean(shouldSearch)}
           inlinePopup
           onOpenChange={(_, data) =>
             setOpen(data.open && suggestions.length > 0)
@@ -130,16 +126,21 @@ export default function AsyncAutocomplete<OptionType>({
               key={getOptionValue(option)}
               value={getOptionValue(option)}
               text={getOptionText(option)}
+              aria-label={getOptionText(option)}
             >
               {renderOption?.(option) ?? getOptionText(option)}
             </Option>
           ))}
         </Combobox>
       </Field>
-      {searching && <ContentSkeleton label={`Searching ${label}`} count={2} />}
-      {searched && suggestions.length === 0 && !message && emptyMessage && (
-        <Text role="status">{emptyMessage}</Text>
+      {searching && shouldSearch && (
+        <ContentSkeleton label={`Searching ${label}`} count={2} />
       )}
+      {searched &&
+        shouldSearch &&
+        suggestions.length === 0 &&
+        !message &&
+        emptyMessage && <Text role="status">{emptyMessage}</Text>}
     </>
   );
 }
