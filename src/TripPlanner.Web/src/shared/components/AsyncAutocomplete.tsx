@@ -1,11 +1,6 @@
+import ContentSkeleton from "./ContentSkeleton";
 import { useEffect, useState, type ReactNode } from "react";
-import {
-  Combobox,
-  Field,
-  Option,
-  Spinner,
-  Text,
-} from "@fluentui/react-components";
+import { Combobox, Field, Option, Text } from "@fluentui/react-components";
 
 type Props<OptionType> = {
   label: string;
@@ -141,7 +136,7 @@ export default function AsyncAutocomplete<OptionType>({
           ))}
         </Combobox>
       </Field>
-      {searching && <Spinner size="tiny" label={`Searching ${label}`} />}
+      {searching && <ContentSkeleton label={`Searching ${label}`} count={2} />}
       {searched && suggestions.length === 0 && !message && emptyMessage && (
         <Text role="status">{emptyMessage}</Text>
       )}

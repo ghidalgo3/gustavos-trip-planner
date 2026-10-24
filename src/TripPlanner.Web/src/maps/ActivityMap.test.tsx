@@ -117,7 +117,10 @@ test("centers the map on the destination and shows loading until the SDK is read
       onSelect={vi.fn()}
     />,
   );
-  expect(screen.getByRole("status")).toHaveTextContent("Loading map");
+  expect(screen.getByRole("status", { name: "Loading map" })).toHaveClass(
+    "fui-Skeleton",
+  );
+  expect(document.querySelector(".fui-Spinner")).toBeNull();
   await waitFor(() => expect(createMap).toHaveBeenCalledTimes(1));
   expect(createMap.mock.calls[0][1]).toMatchObject({
     center: [2.35, 48.86],

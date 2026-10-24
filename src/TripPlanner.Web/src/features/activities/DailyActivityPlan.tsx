@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import ActivityOrderHandle from "./ActivityOrderHandle";
 import ActivityAgenda from "./ActivityAgenda";
 import { useActivityPlanPreview } from "./useActivityPlanPreview";
@@ -521,7 +522,7 @@ export default function DailyActivityPlan({
         {error ? (
           <p role="alert">{error}</p>
         ) : (
-          <p role="status">Loading daily plan…</p>
+          <ContentSkeleton label="Loading daily plan" layout="cards" />
         )}
       </section>
     );

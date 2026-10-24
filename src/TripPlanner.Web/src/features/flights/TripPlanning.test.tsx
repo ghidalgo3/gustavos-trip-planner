@@ -84,6 +84,12 @@ beforeEach(() => {
 });
 test("keeps only flight search and selection, using the server's destination-derived planning data", async () => {
   const onBack = show();
+  const loading = screen.getByRole("status", {
+    name: "Loading flight planning",
+  });
+  expect(loading).toHaveAttribute("aria-busy", "true");
+  expect(loading).toHaveClass("fui-Skeleton");
+  expect(document.querySelector(".fui-Spinner")).toBeNull();
   expect(await screen.findByText("Flight search and selection")).toBeVisible();
   expect(
     screen.queryByRole("button", { name: "Back to Overview" }),
@@ -93,6 +99,9 @@ test("keeps only flight search and selection, using the server's destination-der
   expect(props.hasUnsavedChanges).toBe(false);
   expect(props.constraints).toEqual([]);
   expect(props.onReviewRequirements).toBe(onBack);
+  expect(
+    screen.queryByRole("status", { name: "Loading flight planning" }),
+  ).toBeNull();
   expect(
     screen.queryByRole("heading", { name: "Where and when?" }),
   ).not.toBeInTheDocument();

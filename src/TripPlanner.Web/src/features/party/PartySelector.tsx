@@ -1,12 +1,5 @@
 import { useCallback, useState } from "react";
-import {
-  Button,
-  Select,
-  Card,
-  Spinner,
-  Text,
-  Title3,
-} from "@fluentui/react-components";
+import { Button, Select, Card, Text, Title3 } from "@fluentui/react-components";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
 import {
   changePartyMember,
@@ -167,7 +160,7 @@ export default function PartySelector({
         </Button>
       </div>
       {party.members.length >= 9 && <Text size={200}>This party is full.</Text>}
-      {busy && <Spinner size="tiny" label="Updating party" />}
+      {busy && <Text role="status">Updating party…</Text>}
       {error && <Text role="alert">{error}</Text>}
     </Card>
   );

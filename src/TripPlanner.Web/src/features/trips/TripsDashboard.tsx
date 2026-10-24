@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -6,7 +7,6 @@ import {
   CardHeader,
   Field,
   Input,
-  Spinner,
   Text,
   Textarea,
   Title1,
@@ -169,7 +169,7 @@ export default function TripsDashboard({ user }: Props) {
       )}
 
       {!trips ? (
-        <Spinner label="Loading your trips" />
+        <ContentSkeleton label="Loading your trips" layout="cards" />
       ) : trips.length === 0 && !showCreate ? (
         <Card className="empty-trips" appearance="filled-alternative">
           <Title3 as="h2">No trips yet</Title3>

@@ -1,3 +1,4 @@
+import ContentSkeleton from "../shared/components/ContentSkeleton";
 import { useEffect, useRef, useState } from "react";
 import {
   Link,
@@ -12,7 +13,6 @@ import {
   Card,
   CardHeader,
   LargeTitle,
-  Spinner,
   Subtitle1,
   Text,
   Title3,
@@ -147,7 +147,7 @@ export default function App() {
                 refresh.
               </Text>
             ) : !user ? (
-              <Spinner label="Checking your session" />
+              <ContentSkeleton label="Checking your session" layout="field" />
             ) : user.isAuthenticated ? (
               <div className="welcome" aria-label="Complete your profile">
                 <Title3 as="h2">Where do you call home?</Title3>

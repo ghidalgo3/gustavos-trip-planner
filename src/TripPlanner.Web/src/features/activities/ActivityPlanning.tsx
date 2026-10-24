@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { findActivityLocations } from "./findActivityLocations";
 import { useActionToast } from "../../shared/hooks/useActionToast";
@@ -1007,7 +1008,8 @@ export default function ActivityPlanning({
     ) : null;
   }
 
-  if (loading) return <Spinner label="Loading destinations" />;
+  if (loading)
+    return <ContentSkeleton label="Loading destinations" layout="cards" />;
   if (!destinations || !destination)
     return (
       <section className="activity-planning">
@@ -1152,6 +1154,9 @@ export default function ActivityPlanning({
                   )}
                   {editor.value.geometry && <Text>Location selected</Text>}
                 </div>
+                {searching && (
+                  <ContentSkeleton label="Loading place results" count={2} />
+                )}
                 {editor.value.properties.locationSuggestion &&
                   !editor.value.geometry && (
                     <section
@@ -1492,16 +1497,18 @@ export default function ActivityPlanning({
             role="status"
             aria-live="polite"
           >
-            <Spinner
-              size="small"
-              label={
-                entryMode === "lookup"
-                  ? "Saving activity…"
-                  : entryMode === "image"
+            {entryMode === "lookup" ? (
+              <Text>Saving activity…</Text>
+            ) : (
+              <Spinner
+                size="small"
+                label={
+                  entryMode === "image"
                     ? "Extracting activities from your photos…"
                     : "Generating activities…"
-              }
-            />
+                }
+              />
+            )}
             {entryMode !== "lookup" && (
               <Text size={200}>
                 Please wait while we find activities and resolve their

@@ -80,6 +80,8 @@ Normal `dotnet test` runs do not call live providers. See the
 [plain-language optimizer walkthrough](docs/milestone_3.md#how-the-activity-optimizer-works)
 for how the planner chooses and checks suggestions.
 
+Page, map, picker, and list loading states use Fluent UI skeletons that reserve space for incoming content. Existing content remains visible during short saves, with disabled controls and status text. Spinners are reserved for long-running operations such as AI activity generation and image extraction.
+
 ## Local development
 
 Set up the macOS development toolchain, then install the project dependencies:

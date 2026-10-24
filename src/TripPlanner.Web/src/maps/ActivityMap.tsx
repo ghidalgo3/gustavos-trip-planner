@@ -1,5 +1,6 @@
+import ContentSkeleton from "../shared/components/ContentSkeleton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Spinner } from "@fluentui/react-components";
+import { Button } from "@fluentui/react-components";
 import { useSystemDarkMode } from "../shared/hooks/useSystemDarkMode";
 import { useReducedMotion } from "../shared/hooks/useReducedMotion";
 import {
@@ -441,8 +442,8 @@ export default function ActivityMap({
         </div>
       )}
       {!ready && !error && (
-        <div className="activity-map-loading" role="status">
-          <Spinner label="Loading map" />
+        <div className="activity-map-loading">
+          <ContentSkeleton label="Loading map" layout="map" />
         </div>
       )}
       {error && (

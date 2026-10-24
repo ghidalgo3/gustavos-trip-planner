@@ -1,5 +1,6 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useEffect, useState } from "react";
-import { Field, Select, Spinner, Text } from "@fluentui/react-components";
+import { Field, Select, Text } from "@fluentui/react-components";
 import { apiBaseUrl, resolveCity, type CitySuggestion } from "../../api/api";
 import type { AirportSuggestion } from "../flights/planningApi";
 
@@ -73,7 +74,8 @@ export default function HomeAirportPicker({
     );
   }, [current, value, onChange, onReadyChange]);
   if (!city) return null;
-  if (!current) return <Spinner size="tiny" label="Finding home airports" />;
+  if (!current)
+    return <ContentSkeleton label="Finding home airports" layout="field" />;
   if (current.error) return <Text role="alert">{current.error}</Text>;
   if (current.airports.length === 0)
     return (

@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import FlightPriceStatus from "./FlightPriceStatus";
 import { useEffect, useMemo, useState } from "react";
 import FlightInformation from "./FlightInformation";
@@ -407,6 +408,9 @@ function BookingLink({
       >
         {loading ? "Finding booking link…" : "Book this fare"}
       </Button>
+      {loading && (
+        <ContentSkeleton label="Loading booking link" layout="field" />
+      )}
       {error && <Text role="alert">{error}</Text>}
     </>
   );

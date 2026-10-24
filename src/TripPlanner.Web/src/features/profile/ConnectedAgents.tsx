@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useEffect, useState } from "react";
 import { Button, Card, Text, Title2 } from "@fluentui/react-components";
@@ -46,6 +47,8 @@ export default function ConnectedAgents() {
       setBusy(false);
     }
   }
+  if (!access && !error)
+    return <ContentSkeleton label="Loading connected agents" count={1} />;
   if (!access?.enabled && !error) return null;
   return (
     <Card aria-label="Connected agents">

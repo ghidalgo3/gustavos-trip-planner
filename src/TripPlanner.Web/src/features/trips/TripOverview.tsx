@@ -1,12 +1,7 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { Fragment, useEffect, useState } from "react";
-import {
-  Button,
-  Badge,
-  Spinner,
-  Text,
-  Title3,
-} from "@fluentui/react-components";
+import { Button, Badge, Text, Title3 } from "@fluentui/react-components";
 import {
   Add24Regular,
   ArrowRight20Regular,
@@ -297,7 +292,7 @@ export default function TripOverview({
             Retry flights
           </Button>
         ) : !flightData?.flights ? (
-          <Spinner size="tiny" label="Loading flights" />
+          <ContentSkeleton label="Loading flights" layout="text" />
         ) : (
           <Link to={`/trips/${encodeURIComponent(trip.id)}/flights`}>
             {matches.length
@@ -338,7 +333,7 @@ export default function TripOverview({
           </Button>
         </div>
       ) : !destinations ? (
-        <Spinner label="Loading destinations" />
+        <ContentSkeleton label="Loading destinations" layout="cards" />
       ) : destinations.features.length === 0 ? (
         <div className="overview-empty">
           <div className="overview-empty-icon" aria-hidden="true">
@@ -486,7 +481,10 @@ export default function TripOverview({
                       Retry activity summary
                     </Button>
                   ) : (
-                    <Spinner size="tiny" label="Loading activity summary" />
+                    <ContentSkeleton
+                      label="Loading activity summary"
+                      layout="text"
+                    />
                   )}
                 </div>
               </li>

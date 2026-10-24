@@ -1,5 +1,6 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useEffect, useState } from "react";
-import { Button, Spinner, Text, Title1 } from "@fluentui/react-components";
+import { Button, Text, Title1 } from "@fluentui/react-components";
 import { NavLink, useNavigate, useParams } from "react-router";
 import {
   Airplane24Regular,
@@ -65,7 +66,8 @@ export default function TripPlanningPage({
         <Button onClick={() => navigate("/")}>Back to trips</Button>
       </section>
     );
-  if (!current?.trip) return <Spinner label="Loading trip" />;
+  if (!current?.trip)
+    return <ContentSkeleton label="Loading trip" layout="cards" />;
   const trip = current.trip;
   const readOnly = trip.ownerUserId !== userId && !trip.canPlan;
 

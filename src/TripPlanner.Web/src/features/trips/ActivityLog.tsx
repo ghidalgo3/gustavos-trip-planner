@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Text, Title2 } from "@fluentui/react-components";
 import { getActivityLog, type ActivityLogEntry } from "../../api/api";
@@ -73,7 +74,7 @@ export default function ActivityLog() {
         Changes to your trips, including actions taken by connected agents.
       </Text>
       {error && <Text role="alert">{error}</Text>}
-      {loading && <Text role="status">Loading activity…</Text>}
+
       {!loading && !error && entries.length === 0 && (
         <Text>No trip changes yet. New changes will appear here.</Text>
       )}
@@ -102,6 +103,7 @@ export default function ActivityLog() {
           </li>
         ))}
       </ol>
+      {loading && <ContentSkeleton label="Loading activity" />}
       {hasMore && (
         <Button
           appearance="secondary"

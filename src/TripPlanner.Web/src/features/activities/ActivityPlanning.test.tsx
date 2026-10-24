@@ -512,10 +512,14 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   act(() => saveButton.focus());
   click(within(drawer).getByRole("button", { name: "Save activity" }));
   expect(
-    (await screen.findByText("Please retry.")).closest(".fui-Toast"),
+    (
+      await screen.findByText("Please retry.", { selector: ".fui-ToastTitle" })
+    ).closest(".fui-Toast"),
   ).not.toBeNull();
   expect(
-    screen.getByText("Please retry.").closest(".activity-drawer-body"),
+    screen
+      .getByText("Please retry.", { selector: ".fui-ToastTitle" })
+      .closest(".activity-drawer-body"),
   ).toBeNull();
   expect(within(drawer).getByLabelText("Description")).toHaveValue(
     "Visit in the morning",
@@ -1270,11 +1274,17 @@ test.each(["ideas", "map", "fullscreen"])(
       await within(dialog).findByRole("button", { name: "Delete activity" }),
     );
     expect(
-      (await screen.findByText("Please retry.")).closest(".fui-Toast"),
+      (
+        await screen.findByText("Please retry.", {
+          selector: ".fui-ToastTitle",
+        })
+      ).closest(".fui-Toast"),
     ).not.toBeNull();
     click(await screen.findByRole("button", { name: "Dismiss notification" }));
     await waitFor(() =>
-      expect(screen.queryByText("Please retry.")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByText("Please retry.", { selector: ".fui-ToastTitle" }),
+      ).not.toBeInTheDocument(),
     );
     click(
       await within(dialog).findByRole("button", { name: "Delete activity" }),

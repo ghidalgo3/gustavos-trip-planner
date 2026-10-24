@@ -1,3 +1,4 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useState } from "react";
 import {
@@ -64,6 +65,9 @@ export default function ActivityPreferencesEditor({
         {label}
       </button>
       {toaster}
+      {busy && !open && (
+        <ContentSkeleton label={`Loading ${label}`} layout="field" />
+      )}
       {open && resource && (
         <div>
           <label>

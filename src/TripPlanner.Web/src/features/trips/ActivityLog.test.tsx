@@ -42,6 +42,10 @@ test("shows agent actions with the person, trip and timestamp, then loads older 
     );
   vi.stubGlobal("fetch", fetch);
   show(<ActivityLog />);
+  expect(screen.getByRole("status", { name: "Loading activity" })).toHaveClass(
+    "fui-Skeleton",
+  );
+  expect(document.querySelector(".fui-Spinner")).toBeNull();
   expect(await screen.findByText("Visit the Louvre")).toBeVisible();
   expect(screen.getByText("ChatGPT")).toBeVisible();
   expect(screen.getByText("By Ada Traveler")).toBeVisible();
@@ -51,6 +55,10 @@ test("shows agent actions with the person, trip and timestamp, then loads older 
     entry.occurredAt,
   );
   fireEvent.click(screen.getByRole("button", { name: "Load more activity" }));
+  expect(screen.getByText("Visit the Louvre")).toBeVisible();
+  expect(screen.getByRole("status", { name: "Loading activity" })).toHaveClass(
+    "fui-Skeleton",
+  );
   expect(await screen.findByText("Created trip")).toBeVisible();
   expect(fetch).toHaveBeenLastCalledWith(
     expect.stringContaining("skip=1"),

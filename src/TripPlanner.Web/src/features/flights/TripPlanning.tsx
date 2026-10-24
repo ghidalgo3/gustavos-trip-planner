@@ -1,5 +1,6 @@
+import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { useEffect, useState } from "react";
-import { Button, Spinner, Text } from "@fluentui/react-components";
+import { Button, Text } from "@fluentui/react-components";
 import type { Trip } from "../../api/api";
 import { getDestinations } from "../activities/activitiesApi";
 import {
@@ -58,7 +59,7 @@ export default function TripPlanning({
           </Button>
         </>
       ) : !data ? (
-        <Spinner label="Loading flight planning" />
+        <ContentSkeleton label="Loading flight planning" layout="cards" />
       ) : !hasDestinations ? (
         <Text>Add destinations on Overview before finding flights.</Text>
       ) : (
