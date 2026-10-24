@@ -83,12 +83,16 @@ beforeEach(() => {
   });
 });
 test("keeps only flight search and selection, using the server's destination-derived planning data", async () => {
-  show();
+  const onBack = show();
   expect(await screen.findByText("Flight search and selection")).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Back to Overview" }),
+  ).not.toBeInTheDocument();
   const props = vi.mocked(PlanningRun).mock.calls.at(-1)![0];
   expect(props.visitCount).toBe(1);
   expect(props.hasUnsavedChanges).toBe(false);
   expect(props.constraints).toEqual([]);
+  expect(props.onReviewRequirements).toBe(onBack);
   expect(
     screen.queryByRole("heading", { name: "Where and when?" }),
   ).not.toBeInTheDocument();
@@ -105,11 +109,12 @@ test("trips without destinations return to Overview to plan them", async () => {
     features: [],
     route: [],
   });
-  const onBack = show();
+  show();
   expect(await screen.findByText(/Add destinations on Overview/)).toBeVisible();
   expect(PlanningRun).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Back to Overview" }));
-  expect(onBack).toHaveBeenCalledOnce();
+  expect(
+    screen.queryByRole("button", { name: "Back to Overview" }),
+  ).not.toBeInTheDocument();
 });
 test("loading errors offer retry", async () => {
   vi.mocked(getTripFlightPlanningData).mockRejectedValueOnce(

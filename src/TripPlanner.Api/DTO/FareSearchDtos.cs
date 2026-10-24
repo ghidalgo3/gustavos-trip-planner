@@ -33,12 +33,18 @@ public sealed record FlightGridConnectionDto(int OutboundFlightIndex, int Return
 public sealed record FlightGridEdgeDto(int FromFlightIndex, int ToFlightIndex);
 
 // The cost charged at this flight, with a bundled return charged at its outbound.
-public sealed record FlightGridRouteCostDto(int FlightIndex, decimal Amount);
+public sealed record FlightGridRouteCostDto(
+    int FlightIndex,
+    decimal Amount,
+    string? IgnavId = null
+);
 
 // Indexes into response.flightConnections. Each graph keeps one outbound fare's constraints, including its bundled return.
 // Every edge belongs to a complete route; edges from separate graphs cannot be mixed.
+// BundledReturn means the first flight's cost covers both ends of the trip.
 public sealed record FlightGridRouteGraphDto(
     int[] ConnectionIndexes,
     string Currency,
-    FlightGridRouteCostDto[] Costs
+    FlightGridRouteCostDto[] Costs,
+    bool BundledReturn
 );

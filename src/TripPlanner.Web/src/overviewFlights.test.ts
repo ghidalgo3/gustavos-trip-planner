@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import { matchingFlightLegs } from "./overviewFlights";
+import { matchingFlightLegs, selectedLegs } from "./overviewFlights";
 import type { FareLeg } from "./operationsApi";
-import { flightNumbers } from "./flightFormatting";
+import { flightNumbers, legKey } from "./flightFormatting";
 
 const outbound: FareLeg = {
   segments: [
@@ -94,4 +94,34 @@ test("overview links include every connecting flight's carrier and number", () =
     })),
   };
   expect(flightNumbers(leg)).toBe("AA 100 · BA200");
+});
+
+test("partial choices merge across parties without duplicating shared flights or showing unselected bundle legs", () => {
+  const choice = {
+    partyId: "party",
+    legKeys: [null, legKey(inbound)],
+    nextOrigins: [],
+    flights: [
+      { legIndex: 0, leg: outbound },
+      { legIndex: 1, leg: inbound },
+    ],
+  };
+  expect(
+    selectedLegs([], [choice, { ...choice, partyId: "another-party" }]),
+  ).toEqual([inbound]);
+  expect(
+    selectedLegs(
+      [],
+      [
+        choice,
+        {
+          partyId: "third-party",
+          legKeys: [legKey(outbound)],
+          nextOrigins: [],
+          flights: [{ legIndex: 0, leg: outbound }],
+        },
+      ],
+    ),
+  ).toEqual([inbound, outbound]);
+  expect(selectedLegs([], [{ ...choice, legKeys: [] }])).toEqual([]);
 });

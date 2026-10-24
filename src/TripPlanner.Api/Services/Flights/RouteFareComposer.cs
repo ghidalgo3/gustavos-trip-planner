@@ -28,6 +28,53 @@ public sealed class RouteFareComposer(AirportCatalog airports)
 
     private sealed record Path(Leg[] Legs, decimal Price, string Currency, List<object> Bookings);
 
+    // Only whole provider offers whose flights were all chosen are bookable.
+    public FlightChoiceBookingDto[] ChoiceBookings(
+        PlanningDocument document,
+        Party party,
+        FlightChoiceProgress choice
+    )
+    {
+        var settings = document.Parties.FirstOrDefault(p => p.PartyId == party.Id);
+        if (settings is null || document.Visits.Length == 0)
+        {
+            return [];
+        }
+        return choice
+            .SavedFares.Where(f => f.PartyId == party.Id)
+            .SelectMany(f => ReadOffers(f, document, party, settings))
+            .SelectMany(offer =>
+            {
+                var keys = offer.Legs.Select(leg => leg.Key).ToArray();
+                var indexes =
+                    keys.Length == 2
+                        ? new[] { new[] { 0, document.Visits.Length } }
+                        : choice
+                            .LegKeys.Select((key, index) => (key, index))
+                            .Where(item => item.key == keys[0])
+                            .Select(item => new[] { item.index });
+                return indexes
+                    .Where(group =>
+                        group
+                            .Select(
+                                (index, i) =>
+                                    index < choice.LegKeys.Length
+                                    && choice.LegKeys[index] == keys[i]
+                            )
+                            .All(match => match)
+                    )
+                    .Select(group => new FlightChoiceBookingDto(
+                        offer.Id,
+                        group,
+                        keys,
+                        new(offer.Price, offer.Currency)
+                    ));
+            })
+            .DistinctBy(booking => (booking.IgnavId, string.Join(",", booking.LegIndexes)))
+            .OrderBy(booking => booking.Price.Amount)
+            .ToArray();
+    }
+
     public IReadOnlyList<FareSearchResult> Compose(
         PlanningDocument document,
         IReadOnlyList<Party> parties,
@@ -74,6 +121,20 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                         .Distinct();
                 })
                 .ToArray();
+            var purchasedIds =
+                savedChoices
+                    ?.FirstOrDefault(choice => choice.PartyId == party.Id)
+                    ?.PurchasedOfferIds
+                ?? [];
+            var purchased = offers.Where(offer => purchasedIds.Contains(offer.Id)).ToArray();
+            offers = offers
+                .Where(offer =>
+                    purchased.All(booked =>
+                        offer.Id == booked.Id
+                        || !offer.Legs.Any(leg => booked.Legs.Any(bought => bought.Key == leg.Key))
+                    )
+                )
+                .ToArray();
             var gridFlights = GridFlights(document, settings, offers);
             var flightIndexes = gridFlights
                 .Select(
@@ -113,7 +174,8 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                         .Order()
                         .ToArray(),
                     composition.Currency,
-                    composition.Costs
+                    composition.Costs,
+                    composition.BundledReturn
                 ))
                 .ToArray();
             var complete = compositions.SelectMany(composition => composition.Paths);
@@ -189,6 +251,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         object? Booking,
         Path Prefix,
         int FlightIndex,
+        string OfferId,
         RouteNode[] Parents
     );
 
@@ -207,7 +270,8 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         FlightGridEdgeDto[] Connections,
         Path[] Paths,
         string Currency,
-        FlightGridRouteCostDto[] Costs
+        FlightGridRouteCostDto[] Costs,
+        bool BundledReturn
     )> BuildRouteGraphs(
         PlanningDocument document,
         Party party,
@@ -287,6 +351,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                 booking,
                 new Path([start.Legs[0]], start.Price, start.Currency, [booking]),
                 flightIndexes[(0, FlightKey(start.Legs[0]))],
+                start.Id,
                 []
             );
             List<RouteNode[]> layers =
@@ -335,6 +400,7 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                                     : [.. prefix.Bookings, nextBooking]
                             ),
                             flightIndexes[(step, FlightKey(leg))],
+                            offer.Id,
                             parents
                         )
                     );
@@ -406,8 +472,13 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                 paths,
                 start.Currency,
                 suffixes
-                    .Keys.Select(node => new FlightGridRouteCostDto(node.FlightIndex, node.Cost))
-                    .ToArray()
+                    .Keys.Select(node => new FlightGridRouteCostDto(
+                        node.FlightIndex,
+                        node.Cost,
+                        node.OfferId
+                    ))
+                    .ToArray(),
+                start.Legs.Length == 2
             );
         }
     }

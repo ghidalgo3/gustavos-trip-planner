@@ -824,12 +824,29 @@ test("desktop selections stay individual until explicit review, survive recompos
   );
   fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 20/ }));
   expect(await screen.findByText("1 of 2 flights selected")).toBeVisible();
+  const selectedFlights = screen.getByRole("region", {
+    name: "Selected flights",
+  });
+  expect(
+    within(selectedFlights).getByRole("group", {
+      name: "Flight 2: Return home",
+    }),
+  ).toBeVisible();
+  expect(within(selectedFlights).getByText(/AA 20/)).toBeVisible();
+  expect(
+    within(selectedFlights).queryByRole("group", { name: /Flight 1/ }),
+  ).toBeNull();
   expect(change).toHaveBeenCalledTimes(1);
   expect(
     screen.queryByRole("heading", { name: "Your route is ready" }),
   ).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 100/ }));
   expect(await screen.findByText("2 of 2 flights selected")).toBeVisible();
+  expect(
+    within(selectedFlights)
+      .getAllByRole("group", { name: /^Flight \d/ })
+      .map((group) => group.getAttribute("aria-label")),
+  ).toEqual(["Flight 1: Phuket", "Flight 2: Return home"]);
   expect(change).toHaveBeenCalledTimes(2);
   fireEvent.click(
     screen.getByRole("button", { name: "Review selected flights" }),
@@ -838,6 +855,7 @@ test("desktop selections stay individual until explicit review, survive recompos
     await screen.findByRole("heading", { name: "Your route is ready" }),
   ).toBeVisible();
   expect(change).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("region", { name: "Selected flights" })).toBeNull();
   fireEvent.click(
     screen.getByRole("button", { name: "Save complete itinerary" }),
   );
@@ -872,4 +890,206 @@ test("desktop selections stay individual until explicit review, survive recompos
   expect(
     screen.queryByRole("heading", { name: "Your route is ready" }),
   ).toBeNull();
+});
+
+test.each([false, true])(
+  "shows selected flights below the grid without a complete route (restored: %s)",
+  async (restored) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        Response.json(
+          String(input).includes("/airports/cities")
+            ? { ATL: "Atlanta", HKT: "Phuket" }
+            : [],
+        ),
+      ),
+    );
+    const partial: FareSearchResult = {
+      ...result,
+      response: {
+        itineraries: [],
+        flights: [
+          { legIndex: 0, leg: outbound, bookingLegCount: 1 },
+          {
+            legIndex: 1,
+            leg: returns[1],
+            bookingLegCount: 2,
+            price: { amount: 400, currency: "USD" },
+          },
+        ],
+      },
+      evaluations: [],
+    };
+    function Partial() {
+      const [keys, setKeys] = useState<(string | null)[]>(
+        restored ? [null, legKey(returns[1])] : [],
+      );
+      return (
+        <RouteFareResults
+          tripId="trip"
+          results={[partial]}
+          parties={[]}
+          showGrid
+          searching
+          visits={[
+            {
+              id: "phuket",
+              location: {
+                code: "HKT",
+                label: "Phuket",
+                timeZone: "Asia/Bangkok",
+              },
+              afterVisitIds: [],
+              nights: null,
+              presentFrom: null,
+              presentThrough: null,
+            },
+          ]}
+          savedChoices={{ party: keys }}
+          onChangeChoices={async (_party, next) => {
+            setKeys(next);
+            return true;
+          }}
+        />
+      );
+    }
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <Partial />
+      </FluentProvider>,
+    );
+    if (!restored) {
+      expect(
+        screen.queryByRole("region", { name: "Selected flights" }),
+      ).toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: /Choose flight AA 20/ }),
+      );
+    }
+    const summary = await screen.findByRole("region", {
+      name: "Selected flights",
+    });
+    expect(
+      within(summary).getByRole("group", { name: "Flight 2: Return home" }),
+    ).toBeVisible();
+    expect(within(summary).getByText(/AA 20/)).toBeVisible();
+    expect(
+      within(summary).getByText("Fare available with a complete path"),
+    ).toBeVisible();
+    expect(within(summary).queryByText("USD $400")).toBeNull();
+    expect(
+      screen
+        .getByRole("region", { name: "Flight destinations and connections" })
+        .compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Your route is ready" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Choose flight AA 20/ }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Keep selections" }),
+    );
+    expect(
+      await screen.findByRole("region", { name: "Selected flights" }),
+    ).toBeVisible();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Choose flight AA 20/ }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Deselect flights" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Selected flights" }),
+      ).toBeNull(),
+    );
+  },
+);
+
+test("booking links show fare names and price differences without collapsing variants sharing a URL", async () => {
+  const mainExtra = {
+    provider_type: "airline",
+    provider_name: "Delta",
+    fare_name: "Main Extra",
+    price: { amount: 850, currency: "USD" },
+    url: "https://delta.example/book",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      Response.json(
+        init?.method === "POST"
+          ? {
+              booking_options: [
+                {
+                  legs: ["outbound"],
+                  links: [
+                    {
+                      ...mainExtra,
+                      fare_name: "Basic",
+                      price: { amount: 700, currency: "USD" },
+                    },
+                    mainExtra,
+                    mainExtra,
+                    {
+                      ...mainExtra,
+                      fare_name: "Main Classic",
+                      price: { amount: 650, currency: "USD" },
+                    },
+                    {
+                      ...mainExtra,
+                      fare_name: "Comfort",
+                      price: { amount: 900, currency: "EUR" },
+                    },
+                    { ...mainExtra, fare_name: undefined, price: undefined },
+                  ],
+                },
+              ],
+            }
+          : [],
+      ),
+    ),
+  );
+  const quoted: FareSearchResult = {
+    ...result,
+    response: {
+      itineraries: [
+        {
+          ...itineraries[0],
+          bookingOffers: [
+            {
+              ignavId: "quote",
+              legIndexes: [0],
+              price: { amount: 700, currency: "USD" },
+            },
+          ],
+        },
+      ],
+    },
+  };
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <RouteFareResults tripId="trip" results={[quoted]} parties={[]} />
+    </FluentProvider>,
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Airline booking options" }),
+  );
+  expect(
+    await screen.findByRole("link", { name: /Main Extra/ }),
+  ).toHaveTextContent("+$150");
+  expect(screen.getByRole("link", { name: /Basic/ })).toHaveTextContent("+$0");
+  expect(screen.getByRole("link", { name: /Main Classic/ })).toHaveTextContent(
+    "−$50",
+  );
+  expect(screen.getByRole("link", { name: /Comfort/ })).toHaveTextContent(
+    "Different currency; difference unavailable",
+  );
+  expect(
+    screen.getByRole("link", { name: /Fare name unavailable/ }),
+  ).toHaveTextContent("Price unavailable · difference unavailable");
+  expect(screen.getAllByRole("link")).toHaveLength(5);
 });

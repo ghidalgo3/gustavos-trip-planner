@@ -81,8 +81,10 @@ export default function PartySelector({
       <div className="party-members">
         {party.members.map((member) => (
           <span className="party-member" key={member.id}>
-            {member.name}
-            {member.id === userId ? " (you)" : ""}
+            <span className="party-member-name">
+              {member.name}
+              {member.id === userId ? " (you)" : ""}
+            </span>
             {member.id !== userId && (
               <Select
                 aria-label={`Role for ${member.name}`}
@@ -120,29 +122,31 @@ export default function PartySelector({
         {owner?.homeCity ? `, ${owner.homeCity}` : ""}.
       </Text>
       <div className="party-add-row">
-        <AsyncAutocomplete
-          label="Add traveler"
-          placeholder="Search people by name"
-          inputValue={query}
-          selectedOptionValue={selected?.id}
-          selectedOptionLabel={
-            selected ? `${selected.name} · ${selected.email}` : undefined
-          }
-          search={search}
-          getOptionValue={(user) => user.id}
-          getOptionText={(user) => `${user.name} · ${user.email}`}
-          onInputChange={(value) => {
-            setQuery(value);
-            setSelected(undefined);
-            setError(undefined);
-          }}
-          onOptionSelect={(user) => {
-            setSelected(user);
-            setQuery(`${user.name} · ${user.email}`);
-            setError(undefined);
-          }}
-          debounceMs={300}
-        />
+        <div className="party-person-search">
+          <AsyncAutocomplete
+            label="Add traveler"
+            placeholder="Search people by name"
+            inputValue={query}
+            selectedOptionValue={selected?.id}
+            selectedOptionLabel={
+              selected ? `${selected.name} · ${selected.email}` : undefined
+            }
+            search={search}
+            getOptionValue={(user) => user.id}
+            getOptionText={(user) => `${user.name} · ${user.email}`}
+            onInputChange={(value) => {
+              setQuery(value);
+              setSelected(undefined);
+              setError(undefined);
+            }}
+            onOptionSelect={(user) => {
+              setSelected(user);
+              setQuery(`${user.name} · ${user.email}`);
+              setError(undefined);
+            }}
+            debounceMs={300}
+          />
+        </div>
         <Select
           aria-label="New member role"
           value={inviteRole}

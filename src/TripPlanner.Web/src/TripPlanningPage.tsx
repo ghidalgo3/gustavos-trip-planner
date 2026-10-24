@@ -126,7 +126,6 @@ export default function TripPlanningPage({
               />
             ) : (
               <TripPlanning
-                backLabel="Back to Overview"
                 trip={trip}
                 onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
               />

@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   Button,
@@ -26,6 +27,8 @@ import {
   flightMatchesFilters,
   type FlightSelections,
   flightNodeId,
+  presentFlightFare,
+  type FlightFare,
 } from "./flightRouteGraph";
 import FlightGridCard from "./FlightGridCard";
 import FlightConnections from "./FlightConnections";
@@ -41,6 +44,7 @@ export default function FlightRouteGrid({
   onReview,
   onFilterChange,
   preferredAirlines,
+  renderSelections,
 }: {
   result?: FareSearchResult;
   visits: PlannedVisit[];
@@ -55,6 +59,7 @@ export default function FlightRouteGrid({
   ) => void;
   onFilterChange?: () => void;
   preferredAirlines: string[];
+  renderSelections?: (fares: ReadonlyMap<string, FlightFare>) => ReactNode;
 }) {
   const graph = useMemo(
     () => buildFlightGraph(result, visits.length + 1, preferredAirlines),
@@ -238,7 +243,7 @@ export default function FlightRouteGrid({
           />
           <Text size={200}>
             {Number.isFinite(range.minTotal) && currency
-              ? `Complete trips from ${priceLabel({ amount: range.minTotal, currency })}. Paired fares counted once.`
+              ? `Complete trips from ${priceLabel({ amount: range.minTotal, currency })}. Shared outbound and return fares counted once.`
               : "Prices appear when complete trips are found."}
           </Text>
         </Field>
@@ -406,6 +411,11 @@ export default function FlightRouteGrid({
                   </div>
                 )}
                 {nodes.map((node) => {
+                  const fare = presentFlightFare(
+                    available.fares.get(node.id),
+                    index,
+                    chosen,
+                  );
                   const connected = highlighted.nodes.has(node.id);
                   const selected = Boolean(
                     chosen[index] &&
@@ -423,6 +433,8 @@ export default function FlightRouteGrid({
                         Boolean(active && active !== node.id && !connected)
                       }
                       total={available.prices.get(node.id)}
+                      farePrice={fare.price}
+                      fareLabel={fare.label}
                       restrict={restrict}
                       searching={searching}
                       busy={busy}
@@ -465,6 +477,7 @@ export default function FlightRouteGrid({
           })}
         </div>
       </div>
+      {renderSelections?.(available.fares)}
     </div>
   );
 }

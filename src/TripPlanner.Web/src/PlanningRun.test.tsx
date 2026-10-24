@@ -219,6 +219,7 @@ test("desktop partial choices save immediately, roll back failures, reload witho
   );
   await screen.findAllByText("Flight choice could not be saved");
   expect(screen.getByText("0 of 2 flights selected")).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Selected flights" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Choose flight DL 2/ }));
   await waitFor(() => expect(stored).toEqual([null, legKey(inbound)]));
   expect(screen.getByText("1 of 2 flights selected")).toBeVisible();
@@ -254,7 +255,12 @@ test("desktop partial choices save immediately, roll back failures, reload witho
   );
   await waitFor(() => expect(stored).toEqual([]));
   expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
-  expect(setFlightChoices).toHaveBeenLastCalledWith("trip", "party", []);
+  expect(setFlightChoices).toHaveBeenLastCalledWith(
+    "trip",
+    "party",
+    [],
+    undefined,
+  );
 });
 
 test("a saved first flight advances to the second flight after search completes", async () => {

@@ -10,11 +10,37 @@ export type FlightNode = FlightGridOption & {
   routes: number[];
 };
 export type FlightEdge = { from: string; to: string };
+export type FlightFare = {
+  ignavId?: string;
+  price: { amount: number; currency: string };
+  legIndexes: number[];
+};
+
+export function presentFlightFare(
+  fare: FlightFare | undefined,
+  index: number,
+  selected: FlightSelections,
+) {
+  if (!fare) return { label: "Fare available with a complete path" };
+  const firstSelected = fare.legIndexes.find((leg) => selected[leg]);
+  if (selected[index] && firstSelected !== undefined && firstSelected !== index)
+    return { label: `Included in flight ${firstSelected + 1} fare` };
+  const fixed = fare.legIndexes.every((leg) => selected[leg]);
+  return {
+    price: fare.price,
+    label:
+      fare.legIndexes.length > 1
+        ? `Outbound + return${fixed ? " fare" : " from"}`
+        : "One-way fare",
+  };
+}
+
 type RouteGraph = {
   incoming: Map<string, FlightEdge[]>;
   outgoing: Map<string, FlightEdge[]>;
   currency?: string;
   costs?: Map<string, number>;
+  fares?: Map<string, FlightFare>;
 };
 export type FlightGraph = {
   columns: FlightNode[][];
@@ -124,11 +150,17 @@ export function buildFlightGraph(
       incoming.set(edge.to, [...(incoming.get(edge.to) ?? []), edge]);
       outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge]);
     }
+    const offerIds = new Map<string, string | undefined>();
     const costs =
       context.costs &&
       new Map(
         context.costs.flatMap((cost) => {
           const flight = result.response.flights?.[cost.flightIndex];
+          if (flight)
+            offerIds.set(
+              flightNodeId(flight.legIndex, legKey(flight.leg)),
+              cost.ignavId,
+            );
           return flight
             ? [
                 [
@@ -139,7 +171,25 @@ export function buildFlightGraph(
             : [];
         }),
       );
-    return { incoming, outgoing, costs, currency: context.currency };
+    const fares = new Map<string, FlightFare>();
+    if (costs && context.currency) {
+      const outbound = [...columns[0].keys()].find((id) => costs.has(id));
+      for (const [id, amount] of costs) {
+        const index = Number(id.slice(0, id.indexOf(":")));
+        const bundled =
+          context.bundledReturn && (index === 0 || index === legCount - 1);
+        if (bundled && !outbound) continue;
+        fares.set(id, {
+          ignavId: offerIds.get(id),
+          price: {
+            amount: bundled ? costs.get(outbound!)! : amount,
+            currency: context.currency,
+          },
+          legIndexes: bundled ? [0, legCount - 1] : [index],
+        });
+      }
+    }
+    return { incoming, outgoing, costs, fares, currency: context.currency };
   });
   const completeFlights = new Set([
     ...routes.flatMap((route) =>
@@ -287,6 +337,25 @@ function pricedContexts(graph: FlightGraph): RouteGraph[] {
     return {
       incoming,
       outgoing,
+      fares: new Map(
+        ids.flatMap((id, index) => {
+          const offer = itinerary.bookingOffers?.find((offer) =>
+            offer.legIndexes.includes(index),
+          );
+          return offer?.price
+            ? [
+                [
+                  id,
+                  {
+                    price: offer.price,
+                    legIndexes: offer.legIndexes,
+                    ignavId: offer.ignavId,
+                  },
+                ] as const,
+              ]
+            : [];
+        }),
+      ),
       currency: itinerary.price?.currency,
       costs: itinerary.price
         ? new Map(
@@ -361,6 +430,7 @@ export function createFlightPathFilter(graph: FlightGraph) {
     });
     return {
       currency: context.currency,
+      fares: flights.map((node) => context.fares?.get(node.id)),
       priced: !!context.costs,
       weights,
       members,
@@ -382,6 +452,7 @@ export function createFlightPathFilter(graph: FlightGraph) {
     const nodes = new Set<string>();
     const edges = new Set<FlightEdge>();
     const prices = new Map<string, { amount: number; currency: string }>();
+    const fares = new Map<string, FlightFare>();
     let minTotal = Infinity;
     let maxTotal = -Infinity;
     const allowed = metadata.map(
@@ -440,8 +511,12 @@ export function createFlightPathFilter(graph: FlightGraph) {
             context.priced &&
             context.currency &&
             total < (prices.get(id)?.amount ?? Infinity) * 100
-          )
+          ) {
             prices.set(id, { amount: total / 100, currency: context.currency });
+            const fare = context.fares[index];
+            if (fare) fares.set(id, fare);
+            else fares.delete(id);
+          }
         }
       }
       for (const index of context.columns[last] ?? []) {
@@ -458,7 +533,7 @@ export function createFlightPathFilter(graph: FlightGraph) {
           edges.add(edge.value);
       }
     }
-    return { nodes, edges: [...edges], prices, minTotal, maxTotal };
+    return { nodes, edges: [...edges], prices, fares, minTotal, maxTotal };
   };
 }
 

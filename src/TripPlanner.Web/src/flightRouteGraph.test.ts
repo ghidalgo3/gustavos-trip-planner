@@ -329,6 +329,7 @@ test("path filters count a bundled fare once and evaluate unsampled combinations
           {
             connectionIndexes: [0, 1, 2, 3, 4, 5, 6, 7],
             currency: "USD",
+            bundledReturn: true,
             costs: [500, 10, 80, 10, 80, 0].map((amount, flightIndex) => ({
               amount,
               flightIndex,
@@ -345,6 +346,17 @@ test("path filters count a bundled fare once and evaluate unsampled combinations
   expect(all.minTotal).toBe(520);
   expect(all.maxTotal).toBe(660);
   expect(all.prices.get(flightNodeId(0, legKey(a)))?.amount).toBe(520);
+  expect(all.fares.get(flightNodeId(0, legKey(a)))).toEqual({
+    price: { amount: 500, currency: "USD" },
+    legIndexes: [0, 3],
+  });
+  expect(all.fares.get(flightNodeId(3, legKey(f)))).toEqual(
+    all.fares.get(flightNodeId(0, legKey(a))),
+  );
+  expect(all.fares.get(flightNodeId(1, legKey(b)))).toEqual({
+    price: { amount: 10, currency: "USD" },
+    legIndexes: [1],
+  });
   const selected = filterFlightPaths(graph, [null, legKey(d)], {
     currency: "USD",
     maxPrice: 600,
@@ -352,6 +364,8 @@ test("path filters count a bundled fare once and evaluate unsampled combinations
   expect(selected.nodes.has(flightNodeId(2, legKey(c)))).toBe(true);
   expect(selected.nodes.has(flightNodeId(2, legKey(e)))).toBe(false); // 500 + 80 + 80 is too much.
   expect(selected.edges).toHaveLength(3);
+  expect(selected.fares.has(flightNodeId(2, legKey(e)))).toBe(false);
+  expect(filterFlightPaths(graph, [], { currency: "EUR" }).fares.size).toBe(0);
   expect(
     filterFlightPaths(graph, [null, legKey(d), legKey(e)], { maxPrice: 600 })
       .nodes.size,

@@ -15,6 +15,7 @@ using Microsoft.Spatial;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.Maps;
 using TripPlanner.Api.Services.TripForms;
 using TripPlanner.Api.Tests.Database;
@@ -25,6 +26,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
 {
     public InMemoryPlannerDb Database { get; } = new();
     public bool McpEnabled { get; set; }
+    public IIgnavClient? FlightClient { get; set; }
     public ITripFormAssistant? FormAssistant { get; set; }
     public IActivityAssistant? ActivityAssistant { get; set; }
     public ICityPlaceResolver? CityResolver { get; set; }
@@ -54,6 +56,10 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             .UseSetting("Authentication:Microsoft:ClientSecret", "microsoft-client-secret");
         builder.ConfigureTestServices(services =>
         {
+            if (FlightClient is not null)
+            {
+                services.AddSingleton(FlightClient);
+            }
             services.RemoveAll<IDatabaseMigrator>();
             services.RemoveAll<IPlannerDb>();
             services.RemoveAll<IActivityLogStore>();

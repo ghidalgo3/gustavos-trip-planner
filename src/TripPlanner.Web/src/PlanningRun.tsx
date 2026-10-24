@@ -104,14 +104,17 @@ export default function PlanningRun({
   async function saveFlightChoices(
     partyId: string,
     legKeys: (string | null)[],
+    purchasedOfferIds?: string[],
   ): Promise<boolean> {
     choiceMutation.current += 1;
     const previous = flightChoices[partyId];
     setFlightChoicesState((current) => ({
       ...current,
       [partyId]: {
+        ...previous,
         partyId,
         legKeys,
+        purchasedOfferIds: purchasedOfferIds ?? previous?.purchasedOfferIds,
         nextOrigins: nextOriginFromKey(
           legKeys
             .slice(
@@ -125,7 +128,12 @@ export default function PlanningRun({
       },
     }));
     try {
-      const saved = await setFlightChoices(tripId, partyId, legKeys);
+      const saved = await setFlightChoices(
+        tripId,
+        partyId,
+        legKeys,
+        purchasedOfferIds,
+      );
       if (!Array.isArray(saved.legKeys) || !Array.isArray(saved.nextOrigins))
         throw new Error("The server returned an invalid flight choice.");
       setFlightChoicesState((previous) => ({
@@ -347,6 +355,7 @@ export default function PlanningRun({
                   ]),
                 )}
                 onChangeChoices={saveFlightChoices}
+                choiceProgress={flightChoices}
               />
             ) : multiCity ? (
               <FirstLegResults

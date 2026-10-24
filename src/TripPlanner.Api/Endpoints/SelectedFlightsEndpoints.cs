@@ -25,12 +25,17 @@ public static class SelectedFlightsEndpoints
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         choices.MapGet("", GetFlightChoices).WithName("GetFlightChoices");
         choices.MapPut("/{partyId:guid}", SetFlightChoices).WithName("SetFlightChoices");
+        choices
+            .MapPost("/{partyId:guid}/bookingLinks", GetChoiceBookingLinks)
+            .WithName("GetFlightChoiceBookingLinks");
     }
 
     private static async Task<IResult> GetFlightChoices(
         Guid tripId,
         HttpContext context,
         IPlannerDb database,
+        DestinationFlightPlanning flightPlanning,
+        RouteFareComposer routes,
         ICurrentUser currentUser
     )
     {
@@ -44,18 +49,23 @@ public static class SelectedFlightsEndpoints
             return error;
         }
 
-        if (await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        var trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
+        if (trip is null)
         {
             return Results.NotFound();
         }
 
+        var document = await flightPlanning.GetAsync(user.Id, trip, context.RequestAborted);
+        var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         return Results.Ok(
             (await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)).Select(
-                choice => new FlightChoiceProgressDto(
-                    choice.PartyId,
-                    choice.LegKeys,
-                    choice.NextOrigins
-                )
+                choice =>
+                    ChoiceDto(
+                        choice,
+                        document,
+                        parties.FirstOrDefault(p => p.Id == choice.PartyId),
+                        routes
+                    )
             )
         );
     }
@@ -68,6 +78,7 @@ public static class SelectedFlightsEndpoints
         IPlannerDb database,
         ISearchPlanBuilder planner,
         AirportCatalog airports,
+        RouteFareComposer routes,
         DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
@@ -110,6 +121,15 @@ public static class SelectedFlightsEndpoints
         }
 
         keys = keys.Reverse().SkipWhile(key => key is null).Reverse().ToArray();
+        var previous = (
+            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+        ).FirstOrDefault(choice => choice.PartyId == partyId);
+        if (request.PurchasedOfferIds is not null && !(previous?.LegKeys ?? []).SequenceEqual(keys))
+        {
+            return Results.Conflict(
+                new { title = "Flight selections changed. Reload before updating purchases." }
+            );
+        }
         IReadOnlyList<FareSearchResult> fares = [];
         if (keys.Length > 0)
         {
@@ -145,17 +165,128 @@ public static class SelectedFlightsEndpoints
             );
         }
 
+        var choice = new FlightChoiceProgress(partyId, keys, nextOrigins)
+        {
+            SavedFares = SavedFlightChoices.Capture(partyId, keys, fares),
+        };
+        var bookings = routes.ChoiceBookings(
+            document,
+            parties.Single(p => p.Id == partyId),
+            choice
+        );
+        var purchased =
+            request.PurchasedOfferIds
+            ?? (previous?.PurchasedOfferIds ?? [])
+                .Where(id => bookings.Any(booking => booking.IgnavId == id))
+                .ToArray();
+        if (
+            purchased.Any(id => !bookings.Any(booking => booking.IgnavId == id))
+            || bookings
+                .Where(booking => purchased.Contains(booking.IgnavId))
+                .SelectMany(booking => booking.LegIndexes)
+                .GroupBy(index => index)
+                .Any(group => group.Count() > 1)
+        )
+        {
+            return Results.BadRequest(
+                new
+                {
+                    title = "Purchases must cover selected flights using non-overlapping whole bookings.",
+                }
+            );
+        }
         var saved = await database.SetFlightChoicesAsync(
             user.Id,
             tripId,
-            new(partyId, keys, nextOrigins)
+            choice with
             {
-                SavedFares = SavedFlightChoices.Capture(partyId, keys, fares),
+                PurchasedOfferIds = purchased.Distinct().ToArray(),
             },
             context.RequestAborted
         );
+        var selected = (
+            await database.GetSelectedFlightsAsync(user.Id, tripId, context.RequestAborted)
+        ).FirstOrDefault(flight => flight.PartyId == partyId);
+        if (
+            selected is not null
+            && selected.Itinerary.TryGetProperty("legs", out var selectedLegs)
+            && selectedLegs.EnumerateArray().Select(FlightChoiceRoute.FlightKey).SequenceEqual(keys)
+        )
+        {
+            await database.SetSelectedFlightAsync(
+                user.Id,
+                selected with
+                {
+                    PurchasedLegs = PurchaseFlags(selected.Itinerary, saved.PurchasedOfferIds),
+                },
+                context.RequestAborted
+            );
+        }
+        return Results.Ok(ChoiceDto(saved, document, parties.Single(p => p.Id == partyId), routes));
+    }
+
+    private static FlightChoiceProgressDto ChoiceDto(
+        FlightChoiceProgress choice,
+        PlanningDocument document,
+        Party? party,
+        RouteFareComposer routes
+    ) =>
+        new(choice.PartyId, choice.LegKeys, choice.NextOrigins)
+        {
+            Flights = SavedFlightChoices.SelectedLegs(choice),
+            PurchasedOfferIds = choice.PurchasedOfferIds,
+            Bookings = party is null ? [] : routes.ChoiceBookings(document, party, choice),
+        };
+
+    private static async Task<IResult> GetChoiceBookingLinks(
+        Guid tripId,
+        Guid partyId,
+        BookingLinksRequest request,
+        HttpContext context,
+        IPlannerDb database,
+        DestinationFlightPlanning flightPlanning,
+        RouteFareComposer routes,
+        IIgnavClient ignav,
+        ICurrentUser currentUser
+    )
+    {
+        var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
+            context,
+            database,
+            currentUser.Profile!
+        );
+        if (error is not null)
+        {
+            return error;
+        }
+        var trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
+        if (trip is null)
+        {
+            return Results.NotFound();
+        }
+        var party = (
+            await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted)
+        ).FirstOrDefault(p => p.Id == partyId);
+        var choice = (
+            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+        ).FirstOrDefault(c => c.PartyId == partyId);
+        if (party is null || choice is null)
+        {
+            return Results.NotFound();
+        }
+        var document = await flightPlanning.GetAsync(user.Id, trip, context.RequestAborted);
+        if (
+            !routes
+                .ChoiceBookings(document, party, choice)
+                .Any(booking => booking.IgnavId == request.IgnavId)
+        )
+        {
+            return Results.Conflict(
+                new { title = "Select every flight in this booking before requesting its link." }
+            );
+        }
         return Results.Ok(
-            new FlightChoiceProgressDto(saved.PartyId, saved.LegKeys, saved.NextOrigins)
+            await ignav.GetBookingLinksAsync(request.IgnavId, context.RequestAborted)
         );
     }
 
@@ -358,11 +489,39 @@ public static class SelectedFlightsEndpoints
             fare.Request,
             itineraries[index].Clone(),
             DateTimeOffset.UtcNow,
-            new bool[CountFlightLegs(itineraries[index])]
+            PurchaseFlags(
+                itineraries[index],
+                choices.FirstOrDefault(choice => choice.PartyId == partyId)?.PurchasedOfferIds ?? []
+            )
         );
         return Results.Ok(
             await database.SetSelectedFlightAsync(user.Id, selected, context.RequestAborted)
         );
+    }
+
+    private static bool[] PurchaseFlags(JsonElement itinerary, string[] purchasedIds)
+    {
+        var flags = new bool[CountFlightLegs(itinerary)];
+        if (itinerary.TryGetProperty("bookingOffers", out var offers))
+        {
+            foreach (
+                var offer in offers
+                    .EnumerateArray()
+                    .Where(offer => purchasedIds.Contains(offer.GetProperty("ignavId").GetString()))
+            )
+            {
+                foreach (
+                    var index in offer
+                        .GetProperty("legIndexes")
+                        .EnumerateArray()
+                        .Select(value => value.GetInt32())
+                )
+                {
+                    flags[index] = true;
+                }
+            }
+        }
+        return flags;
     }
 
     private static bool MatchesDisplayedItinerary(
@@ -445,12 +604,80 @@ public static class SelectedFlightsEndpoints
             );
         }
 
+        var statuses = request.PurchasedLegs.ToArray();
+        if (selected.Itinerary.TryGetProperty("bookingOffers", out var offers))
+        {
+            foreach (var offer in offers.EnumerateArray())
+            {
+                var indexes = offer
+                    .GetProperty("legIndexes")
+                    .EnumerateArray()
+                    .Select(index => index.GetInt32())
+                    .ToArray();
+                var changes = indexes
+                    .Where(index =>
+                        statuses[index]
+                        != (selected.PurchasedLegs?.ElementAtOrDefault(index) ?? false)
+                    )
+                    .Select(index => statuses[index])
+                    .Distinct()
+                    .ToArray();
+                if (changes.Length > 1)
+                {
+                    return Results.BadRequest(
+                        new
+                        {
+                            title = "Flights sharing a booking must share their purchase status.",
+                        }
+                    );
+                }
+                if (changes.Length == 1)
+                {
+                    foreach (var index in indexes)
+                    {
+                        statuses[index] = changes[0];
+                    }
+                }
+            }
+            var choice = (
+                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+            ).FirstOrDefault(choice => choice.PartyId == partyId);
+            if (
+                choice is not null
+                && selected
+                    .Itinerary.GetProperty("legs")
+                    .EnumerateArray()
+                    .Select(FlightChoiceRoute.FlightKey)
+                    .SequenceEqual(choice.LegKeys)
+            )
+            {
+                var purchased = offers
+                    .EnumerateArray()
+                    .Where(offer =>
+                        offer
+                            .GetProperty("legIndexes")
+                            .EnumerateArray()
+                            .All(index => statuses[index.GetInt32()])
+                    )
+                    .Select(offer => offer.GetProperty("ignavId").GetString()!)
+                    .ToArray();
+                await database.SetFlightChoicesAsync(
+                    user.Id,
+                    tripId,
+                    choice with
+                    {
+                        PurchasedOfferIds = purchased,
+                    },
+                    context.RequestAborted
+                );
+            }
+        }
         return Results.Ok(
             await database.SetSelectedFlightAsync(
                 user.Id,
                 selected with
                 {
-                    PurchasedLegs = request.PurchasedLegs,
+                    PurchasedLegs = statuses,
                 },
                 context.RequestAborted
             )

@@ -289,6 +289,9 @@ public sealed class MultiCityPlannerTests
             )
         )!.Single();
         CollectionAssert.AreEqual(partial, restored.LegKeys);
+        Assert.HasCount(1, restored.Flights);
+        Assert.AreEqual(selectedIndex, restored.Flights[0].LegIndex);
+        Assert.AreEqual(keys[selectedIndex], FlightChoiceRoute.FlightKey(restored.Flights[0].Leg));
         var grid = (
             await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(
                 $"/trips/{trip.Id}/flights/search"
@@ -1120,6 +1123,263 @@ public sealed class MultiCityPlannerTests
             .Distinct()
             .ToArray();
         CollectionAssert.AreEquivalent(new[] { "AA1", "AA2" }, secondFlights);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PartialBookingLinksAndPurchasesUseWholeSavedOffers(bool paired)
+    {
+        var provider = new ChoiceBookingClient();
+        await using var factory = new TestApplicationFactory { FlightClient = provider };
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Subject", "partial-booking-owner");
+        client.DefaultRequestHeaders.Add("X-Test-Email", "partial-booking@example.com");
+        var profile = await client.PutAsJsonAsync(
+            "/user/profile",
+            new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
+        );
+        profile.EnsureSuccessStatusCode();
+        var user = (await profile.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
+        var created = await client.PostAsJsonAsync(
+            $"/user/{user.Id}/trips",
+            new CreateTripRequest("Partial booking", "")
+        );
+        created.EnsureSuccessStatusCode();
+        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        var party = factory.Database.Parties.Single();
+        var document = Wedding() with
+        {
+            Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
+        };
+        (
+            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+        ).EnsureSuccessStatusCode();
+        var fares = Fares()
+            .Select(fare =>
+                fare with
+                {
+                    PartyId = party.Id,
+                    CacheKey = SearchPlanBuilder.CacheKey(fare.Request),
+                    ExpiresAt = DateTimeOffset.UtcNow.AddHours(-2),
+                }
+            )
+            .ToArray();
+        var keys = fares
+            .Take(4)
+            .Select(fare =>
+                FlightChoiceRoute.FlightKey(
+                    fare.Response.GetProperty("itineraries")[0].GetProperty("outbound")
+                )!
+            )
+            .ToArray();
+        string?[] partial = [keys[0]];
+        await factory.Database.SetFlightChoicesAsync(
+            user.Id!.Value,
+            trip.Id,
+            new(party.Id, partial, [])
+            {
+                SavedFares = SavedFlightChoices.Capture(party.Id, partial, fares),
+            }
+        );
+        var path = $"/trips/{trip.Id}/flights/choices/{party.Id}";
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (
+                await client.PostAsJsonAsync(
+                    path + "/bookingLinks",
+                    new BookingLinksRequest("open-jaw")
+                )
+            ).StatusCode
+        );
+        Assert.IsEmpty(provider.Calls);
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (
+                await client.PutAsJsonAsync(
+                    path,
+                    new SetFlightChoicesRequest(partial, ["open-jaw"])
+                )
+            ).StatusCode
+        );
+        if (paired)
+        {
+            partial = [keys[0], null, null, keys[3]];
+            (
+                await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial))
+            ).EnsureSuccessStatusCode();
+        }
+        var id = paired ? "open-jaw" : "fare-0";
+        var choice = (
+            await client.GetFromJsonAsync<FlightChoiceProgressDto[]>(
+                $"/trips/{trip.Id}/flights/choices"
+            )
+        )!.Single();
+        CollectionAssert.AreEqual(
+            paired ? new[] { 0, 3 } : [0],
+            choice.Bookings.Single(booking => booking.IgnavId == id).LegIndexes
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (
+                await client.PostAsJsonAsync(
+                    path + "/bookingLinks",
+                    new BookingLinksRequest("someone-elses-fare")
+                )
+            ).StatusCode
+        );
+        (
+            await client.PostAsJsonAsync(path + "/bookingLinks", new BookingLinksRequest(id))
+        ).EnsureSuccessStatusCode();
+        CollectionAssert.AreEqual(new[] { id }, provider.Calls.ToArray());
+        var purchase = await client.PutAsJsonAsync(
+            path,
+            new SetFlightChoicesRequest(partial, [id])
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            purchase.StatusCode,
+            await purchase.Content.ReadAsStringAsync()
+        );
+        var restored = (
+            await client.GetFromJsonAsync<FlightChoiceProgressDto[]>(
+                $"/trips/{trip.Id}/flights/choices"
+            )
+        )!.Single();
+        CollectionAssert.AreEqual(new[] { id }, restored.PurchasedOfferIds);
+        CollectionAssert.AreEqual(
+            new[] { id },
+            (await factory.Database.GetFlightChoicesAsync(user.Id.Value, trip.Id))
+                .Single()
+                .PurchasedOfferIds
+        );
+        if (paired)
+        {
+            Assert.AreEqual(
+                HttpStatusCode.BadRequest,
+                (
+                    await client.PutAsJsonAsync(
+                        path,
+                        new SetFlightChoicesRequest(partial, [id, "fare-0"])
+                    )
+                ).StatusCode
+            );
+            // Completing the itinerary carries the shared purchase into Plans.
+            await factory.Database.SetFlightChoicesAsync(
+                user.Id.Value,
+                trip.Id,
+                new(party.Id, keys, []) { SavedFares = fares, PurchasedOfferIds = [id] }
+            );
+            var complete = (
+                await client.GetFromJsonAsync<EvaluatedFareSearchResultDto[]>(
+                    $"/trips/{trip.Id}/flights/search"
+                )
+            )!.Single();
+            var selectedResponse = await client.PutAsJsonAsync(
+                $"/trips/{trip.Id}/flights/{party.Id}",
+                new SelectFlightRequest(complete.CacheKey, 0)
+            );
+            selectedResponse.EnsureSuccessStatusCode();
+            var selected = (await selectedResponse.Content.ReadFromJsonAsync<SelectedFlight>())!;
+            CollectionAssert.AreEqual(new[] { true, false, false, true }, selected.PurchasedLegs);
+            // Changing either half in Plans changes the whole booking and the partial-choice resource.
+            var changed = await client.PutAsJsonAsync(
+                $"/trips/{trip.Id}/flights/{party.Id}/purchases",
+                new SetFlightPurchasesRequest(
+                    selected.CacheKey,
+                    selected.ItineraryIndex,
+                    [false, false, false, true]
+                )
+            );
+            changed.EnsureSuccessStatusCode();
+            CollectionAssert.AreEqual(
+                new[] { false, false, false, false },
+                (await changed.Content.ReadFromJsonAsync<SelectedFlight>())!.PurchasedLegs
+            );
+            Assert.IsEmpty(
+                (await factory.Database.GetFlightChoicesAsync(user.Id.Value, trip.Id))
+                    .Single()
+                    .PurchasedOfferIds
+            );
+            (
+                await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(keys, [id]))
+            ).EnsureSuccessStatusCode();
+            CollectionAssert.AreEqual(
+                new[] { true, false, false, true },
+                (await factory.Database.GetSelectedFlightsAsync(user.Id.Value, trip.Id))
+                    .Single()
+                    .PurchasedLegs
+            );
+            (
+                await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial))
+            ).EnsureSuccessStatusCode();
+        }
+        // A purchase update cannot accidentally reselect flights from a stale tab.
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (await client.PutAsJsonAsync(path, new SetFlightChoicesRequest([], [id]))).StatusCode
+        );
+        (
+            await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial, []))
+        ).EnsureSuccessStatusCode();
+        Assert.IsEmpty(
+            (await factory.Database.GetFlightChoicesAsync(user.Id.Value, trip.Id))
+                .Single()
+                .PurchasedOfferIds
+        );
+        (
+            await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial, [id]))
+        ).EnsureSuccessStatusCode();
+        (
+            await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(paired ? [keys[0]] : []))
+        ).EnsureSuccessStatusCode();
+        Assert.IsEmpty(
+            (await factory.Database.GetFlightChoicesAsync(user.Id.Value, trip.Id))
+                .Single()
+                .PurchasedOfferIds
+        );
+    }
+
+    private sealed class ChoiceBookingClient : IIgnavClient
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task<JsonElement> SearchAsync(
+            IgnavFareRequest request,
+            CancellationToken cancellationToken
+        ) =>
+            throw new InvalidOperationException("Booking controls must not start a flight search.");
+
+        public Task<JsonElement> GetBookingLinksAsync(
+            string ignavId,
+            CancellationToken cancellationToken
+        )
+        {
+            Calls.Add(ignavId);
+            return Task.FromResult(
+                JsonSerializer.SerializeToElement(
+                    new
+                    {
+                        booking_options = new[]
+                        {
+                            new
+                            {
+                                leg_indexes = new[] { 0, 1 },
+                                links = new[]
+                                {
+                                    new
+                                    {
+                                        provider_type = "airline",
+                                        provider_name = "Airline",
+                                        url = "https://airline.example/book",
+                                    },
+                                },
+                            },
+                        },
+                    }
+                )
+            );
+        }
     }
 
     private FareSearchResult[] Fares()

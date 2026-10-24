@@ -15,6 +15,8 @@ type ContentProps = {
   node: FlightNode;
   selected: boolean;
   total?: FareItinerary["price"];
+  farePrice?: FareItinerary["price"];
+  fareLabel: string;
   restrict: boolean;
   searching: boolean;
   busy: boolean;
@@ -86,6 +88,8 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
   node,
   selected,
   total,
+  farePrice,
+  fareLabel,
   restrict,
   searching,
   busy,
@@ -121,18 +125,14 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
             </Badge>
           )}
         </div>
-        {node.price && (
-          <div className="flight-grid-fare">
+        <div className="flight-grid-fare">
+          {farePrice && (
             <Text size={200} weight="semibold">
-              {priceLabel(node.price)}
+              {priceLabel(farePrice)}
             </Text>
-            {node.bookingLegCount > 1 && (
-              <span className="flight-grid-price-context">
-                for {node.bookingLegCount} flights
-              </span>
-            )}
-          </div>
-        )}
+          )}
+          <span className="flight-grid-price-context">{fareLabel}</span>
+        </div>
       </div>
       <div
         className="flight-grid-times"

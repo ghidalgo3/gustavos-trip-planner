@@ -25,7 +25,12 @@ import {
   type DestinationCollection,
   type Stay,
 } from "./activitiesApi";
-import { getSelectedFlights, type SelectedFlight } from "./selectedFlightsApi";
+import {
+  getSelectedFlights,
+  getFlightChoices,
+  type SelectedFlight,
+  type FlightChoiceProgress,
+} from "./selectedFlightsApi";
 import {
   selectedLegs,
   matchingFlightLegs,
@@ -61,9 +66,13 @@ export default function TripOverview({
   const [flightRetry, setFlightRetry] = useState(0);
   const [flightData, setFlightData] = useState<{
     flights?: SelectedFlight[];
+    choices?: FlightChoiceProgress[];
     error?: boolean;
   }>();
-  const legs = selectedLegs(flightData?.flights ?? []);
+  const legs = selectedLegs(
+    flightData?.flights ?? [],
+    flightData?.choices ?? [],
+  );
   const airportCities = useAirportCities(flightAirportCodes(legs));
   const [summaryRetry, setSummaryRetry] = useState(0);
   const [activitySummaries, setActivitySummaries] = useState<
@@ -171,9 +180,12 @@ export default function TripOverview({
     )
       return;
     const controller = new AbortController();
-    getSelectedFlights(trip.id, controller.signal)
-      .then((flights) => {
-        if (!controller.signal.aborted) setFlightData({ flights });
+    Promise.all([
+      getSelectedFlights(trip.id, controller.signal),
+      getFlightChoices(trip.id, controller.signal),
+    ])
+      .then(([flights, choices]) => {
+        if (!controller.signal.aborted) setFlightData({ flights, choices });
       })
       .catch(() => {
         if (!controller.signal.aborted) setFlightData({ error: true });

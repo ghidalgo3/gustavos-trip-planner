@@ -282,6 +282,12 @@ public class InputValidationTests
     )]
     [DataRow("/trips/{trip}/flights/choices/{party}", "PUT", "{\"legKeys\":null}")]
     [DataRow(
+        "/trips/{trip}/flights/choices/{party}",
+        "PUT",
+        "{\"legKeys\":[],\"purchasedOfferIds\":[\"\"]}"
+    )]
+    [DataRow("/trips/{trip}/flights/choices/{party}/bookingLinks", "POST", "{\"ignavId\":\"\"}")]
+    [DataRow(
         "/user/{user}/trips/{trip}/parties/{party}/members/{user}",
         "PUT",
         "{\"role\":\"Admin\"}"

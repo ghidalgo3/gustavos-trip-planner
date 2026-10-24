@@ -9,7 +9,8 @@ import {
 import ColorSchemeProvider from "./ColorSchemeProvider";
 import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
-import { getSelectedFlights } from "./selectedFlightsApi";
+import { getSelectedFlights, getFlightChoices } from "./selectedFlightsApi";
+import { legKey } from "./flightFormatting";
 import TripOverview from "./TripOverview";
 import { planningRequest } from "./activityPlanApi";
 vi.mock("./activityPlanApi", async (importOriginal) => ({
@@ -31,7 +32,10 @@ vi.mock("./airportCities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./airportCities")>()),
   useAirportCities: () => ({ JFK: "New York", CDG: "Paris" }),
 }));
-vi.mock("./selectedFlightsApi", () => ({ getSelectedFlights: vi.fn() }));
+vi.mock("./selectedFlightsApi", () => ({
+  getSelectedFlights: vi.fn(),
+  getFlightChoices: vi.fn(),
+}));
 vi.mock("./api", () => ({ searchCities: vi.fn(), resolveCity: vi.fn() }));
 vi.mock("./activitiesApi", () => ({
   getDestinations: vi.fn(),
@@ -90,6 +94,7 @@ beforeEach(() => {
     etag: '"0"',
   });
   vi.mocked(getSelectedFlights).mockResolvedValue([]);
+  vi.mocked(getFlightChoices).mockResolvedValue([]);
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
     features: [],
@@ -694,81 +699,117 @@ test("destination date flexibility and fixed ordering are saved on the city reso
   );
 });
 
-test("overview shows persisted flight numbers instead of Plan Flights links", async () => {
-  vi.mocked(getDestinations).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [
+test.each([
+  [-1, false],
+  [0, false],
+  [1, false],
+  [1, true],
+])(
+  "overview shows persisted flight numbers including partial choices (selected index: %s, read only: %s)",
+  async (selectedIndex, readOnly) => {
+    vi.mocked(getDestinations).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        {
+          ...paris,
+          properties: {
+            ...paris.properties,
+            stays: [
+              {
+                ...paris.properties.stays[0],
+                arrivalDate: "2027-06-10",
+                departureDate: "2027-06-14",
+              },
+            ],
+          },
+        },
+      ],
+      route: [],
+    });
+    const legs = [
       {
-        ...paris,
-        properties: {
-          ...paris.properties,
-          stays: [
-            {
-              ...paris.properties.stays[0],
-              arrivalDate: "2027-06-10",
-              departureDate: "2027-06-14",
-            },
-          ],
-        },
+        segments: [
+          {
+            departure_airport: "JFK",
+            arrival_airport: "CDG",
+            departure_time_local: "2027-06-09T21:00",
+            arrival_time_local: "2027-06-10T09:00",
+            marketing_carrier_code: "AA",
+            flight_number: "100",
+          },
+        ],
       },
-    ],
-    route: [],
-  });
-  const legs = [
-    {
-      segments: [
-        {
-          departure_airport: "JFK",
-          arrival_airport: "CDG",
-          departure_time_local: "2027-06-09T21:00",
-          arrival_time_local: "2027-06-10T09:00",
-          marketing_carrier_code: "AA",
-          flight_number: "100",
-        },
-      ],
-    },
-    {
-      segments: [
-        {
-          departure_airport: "CDG",
-          arrival_airport: "JFK",
-          departure_time_local: "2027-06-14T11:00",
-          arrival_time_local: "2027-06-14T13:00",
-          marketing_carrier_code: "AA",
-          flight_number: "101",
-        },
-      ],
-    },
-  ];
-  vi.mocked(getSelectedFlights).mockResolvedValue([
-    {
-      tripId: "trip",
-      partyId: "party",
-      cacheKey: "old-search",
-      itineraryIndex: 9,
-      selectedAt: "2027-01-01",
-      request: {
-        origin: "JFK",
-        destination: "CDG",
-        departure_date: "2027-06-09",
-        return_date: "2027-06-14",
-        adults: 1,
-        cabin_class: "economy",
-        market: "US",
+      {
+        segments: [
+          {
+            departure_airport: "CDG",
+            arrival_airport: "JFK",
+            departure_time_local: "2027-06-14T11:00",
+            arrival_time_local: "2027-06-14T13:00",
+            marketing_carrier_code: "AA",
+            flight_number: "101",
+          },
+        ],
       },
-      itinerary: { legs },
-    },
-  ]);
-  show();
-  expect(await screen.findByRole("link", { name: "AA 100" })).toHaveAttribute(
-    "href",
-    "/trips/trip/flights",
-  );
-  expect(screen.getByRole("link", { name: "AA 101" })).toBeVisible();
-  expect(
-    screen.queryByRole("link", { name: "Plan Flights" }),
-  ).not.toBeInTheDocument();
-});
+    ];
+    vi.mocked(getSelectedFlights).mockResolvedValue([
+      {
+        tripId: "trip",
+        partyId: "party",
+        cacheKey: "old-search",
+        itineraryIndex: 9,
+        selectedAt: "2027-01-01",
+        request: {
+          origin: "JFK",
+          destination: "CDG",
+          departure_date: "2027-06-09",
+          return_date: "2027-06-14",
+          adults: 1,
+          cabin_class: "economy",
+          market: "US",
+        },
+        itinerary: { legs },
+      },
+    ]);
+    if (selectedIndex >= 0) {
+      if (selectedIndex === 0)
+        vi.mocked(getSelectedFlights).mockResolvedValue([]);
+      // A newer partial selection takes precedence over this party's old complete itinerary.
+      vi.mocked(getFlightChoices).mockResolvedValue([
+        {
+          partyId: "party",
+          legKeys:
+            selectedIndex === 0 ? [legKey(legs[0])] : [null, legKey(legs[1])],
+          nextOrigins: [],
+          flights: [{ legIndex: selectedIndex, leg: legs[selectedIndex] }],
+        },
+      ]);
+    }
+    show(readOnly);
+    expect(
+      await screen.findByRole("link", {
+        name: selectedIndex === 1 ? "AA 101" : "AA 100",
+      }),
+    ).toHaveAttribute("href", "/trips/trip/flights");
+    if (selectedIndex < 0) {
+      expect(screen.getByRole("link", { name: "AA 101" })).toBeVisible();
+      expect(
+        screen.queryByRole("link", { name: "Plan Flights" }),
+      ).not.toBeInTheDocument();
+    } else {
+      expect(
+        screen.queryByRole("link", {
+          name: selectedIndex === 0 ? "AA 101" : "AA 100",
+        }),
+      ).toBeNull();
+      expect(
+        screen.getByRole("link", {
+          name: readOnly ? "View Flights" : "Plan Flights",
+        }),
+      ).toBeVisible();
+    }
+  },
+);
 
 test.each([null, "Hotel Paris"])(
   "overview labels the stay button for %s and opens its drawer",

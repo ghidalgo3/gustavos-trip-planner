@@ -1,10 +1,27 @@
 using System.Text.Json;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Services.Flights;
 
 public static class SavedFlightChoices
 {
+    public static FlightChoiceLegDto[] SelectedLegs(FlightChoiceProgress choice)
+    {
+        var legs = choice
+            .SavedFares.Where(fare => fare.PartyId == choice.PartyId)
+            .SelectMany(Itineraries)
+            .SelectMany(FlightLegs)
+            .Where(leg => FlightChoiceRoute.FlightKey(leg) is not null)
+            .DistinctBy(FlightChoiceRoute.FlightKey)
+            .ToDictionary(leg => FlightChoiceRoute.FlightKey(leg)!, leg => leg);
+        return choice
+            .LegKeys.Select((key, index) => (key, index))
+            .Where(item => item.key is not null && legs.ContainsKey(item.key))
+            .Select(item => new FlightChoiceLegDto(item.index, legs[item.key!]))
+            .ToArray();
+    }
+
     public static IReadOnlyList<FareSearchResult> Restore(
         IReadOnlyList<FareSearchResult>? current,
         IReadOnlyList<FlightChoiceProgress> choices,
@@ -129,7 +146,10 @@ public static class SavedFlightChoices
             ? itineraries.EnumerateArray()
             : [];
 
-    private static IEnumerable<string> FlightKeys(JsonElement offer)
+    private static IEnumerable<string> FlightKeys(JsonElement offer) =>
+        FlightLegs(offer).Select(FlightChoiceRoute.FlightKey).OfType<string>();
+
+    private static IEnumerable<JsonElement> FlightLegs(JsonElement offer)
     {
         if (offer.ValueKind != JsonValueKind.Object)
         {
@@ -137,19 +157,16 @@ public static class SavedFlightChoices
         }
         if (
             offer.TryGetProperty("outbound", out var outbound)
-            && FlightChoiceRoute.FlightKey(outbound) is { } outboundKey
+            && outbound.ValueKind == JsonValueKind.Object
         )
         {
-            yield return outboundKey;
+            yield return outbound;
         }
         if (offer.TryGetProperty("legs", out var legs) && legs.ValueKind == JsonValueKind.Array)
         {
             foreach (var leg in legs.EnumerateArray())
             {
-                if (FlightChoiceRoute.FlightKey(leg) is { } key)
-                {
-                    yield return key;
-                }
+                yield return leg;
             }
         }
     }

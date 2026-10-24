@@ -54,6 +54,10 @@ public sealed class MultiStopGridTests
             )
             .ToArray();
         var response = Compose(Document("JFK", "BOS", "IAD", "JFK"), fares);
+        foreach (var graph in response.GetProperty("routeGraphs").EnumerateArray())
+        {
+            Assert.IsFalse(graph.GetProperty("bundledReturn").GetBoolean());
+        }
         var flights = response.GetProperty("flights").EnumerateArray().ToArray();
         var routes = response.GetProperty("itineraries").EnumerateArray().ToArray();
         var connections = response.GetProperty("flightConnections").EnumerateArray().ToArray();
@@ -161,6 +165,7 @@ public sealed class MultiStopGridTests
         var cards = response.GetProperty("flights");
         foreach (var graph in response.GetProperty("routeGraphs").EnumerateArray())
         {
+            Assert.IsTrue(graph.GetProperty("bundledReturn").GetBoolean());
             var costs = graph.GetProperty("costs").EnumerateArray().ToArray();
             var outgoing = costs.Single(cost =>
                 cards[cost.GetProperty("flightIndex").GetInt32()].GetProperty("legIndex").GetInt32()

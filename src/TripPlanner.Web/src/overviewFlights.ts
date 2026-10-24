@@ -1,15 +1,36 @@
-import type { SelectedFlight } from "./selectedFlightsApi";
+import type {
+  SelectedFlight,
+  FlightChoiceProgress,
+} from "./selectedFlightsApi";
 import type { FareLeg } from "./operationsApi";
 import type { AirportCities } from "./flightFormatting";
+import { legKey } from "./flightFormatting";
 
-export function selectedLegs(flights: SelectedFlight[]): FareLeg[] {
-  return flights.flatMap(
-    ({ itinerary }) =>
-      itinerary.legs ??
-      [itinerary.outbound, itinerary.inbound].filter((leg): leg is FareLeg =>
-        Boolean(leg),
+export function selectedLegs(
+  flights: SelectedFlight[],
+  choices: FlightChoiceProgress[] = [],
+): FareLeg[] {
+  const partial = choices.filter((choice) => choice.legKeys.some(Boolean));
+  const parties = new Set(partial.map((choice) => choice.partyId));
+  const legs = [
+    ...partial.flatMap((choice) =>
+      (choice.flights ?? [])
+        .filter(
+          (flight) => choice.legKeys[flight.legIndex] === legKey(flight.leg),
+        )
+        .map((flight) => flight.leg),
+    ),
+    ...flights
+      .filter((flight) => !parties.has(flight.partyId))
+      .flatMap(
+        ({ itinerary }) =>
+          itinerary.legs ??
+          [itinerary.outbound, itinerary.inbound].filter(
+            (leg): leg is FareLeg => Boolean(leg),
+          ),
       ),
-  );
+  ];
+  return [...new Map(legs.map((leg) => [legKey(leg), leg])).values()];
 }
 function cityKey(city: string) {
   return city

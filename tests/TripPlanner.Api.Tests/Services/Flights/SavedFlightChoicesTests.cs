@@ -8,6 +8,53 @@ namespace TripPlanner.Api.Tests.Services.Flights;
 public sealed class SavedFlightChoicesTests
 {
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    public void OverviewExposesOnlyChosenLegsFromRetainedBundles(int selectedIndex)
+    {
+        var party = Guid.NewGuid();
+        var legs = new[] { "outbound", "return" }
+            .Select(number =>
+                JsonSerializer.SerializeToElement(
+                    new
+                    {
+                        segments = new[]
+                        {
+                            new
+                            {
+                                departure_airport = "JFK",
+                                arrival_airport = "BOS",
+                                flight_number = number,
+                            },
+                        },
+                    }
+                )
+            )
+            .ToArray();
+        string?[] keys = [null, null];
+        keys[selectedIndex] = FlightChoiceRoute.FlightKey(legs[selectedIndex]);
+        var saved = new FlightChoiceProgress(party, keys, [])
+        {
+            SavedFares =
+            [
+                new(
+                    party,
+                    "expired",
+                    new("JFK", "BOS", new(2030, 1, 1), new(2030, 1, 2), 1, "economy", "US", null),
+                    JsonSerializer.SerializeToElement(new { itineraries = new[] { new { legs } } }),
+                    DateTimeOffset.UtcNow.AddHours(-2),
+                    DateTimeOffset.UtcNow.AddHours(-1)
+                ),
+            ],
+        };
+        var displayed = SavedFlightChoices.SelectedLegs(saved);
+        Assert.HasCount(1, displayed);
+        Assert.AreEqual(selectedIndex, displayed[0].LegIndex);
+        Assert.AreEqual(keys[selectedIndex], FlightChoiceRoute.FlightKey(displayed[0].Leg));
+        Assert.IsEmpty(SavedFlightChoices.SelectedLegs(saved with { LegKeys = [] }));
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SharedSearchesRemainUntilEveryVisitTheyServeHasASelectedFlight(bool bothSelected)

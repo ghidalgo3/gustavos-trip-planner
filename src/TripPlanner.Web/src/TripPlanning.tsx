@@ -11,11 +11,9 @@ import PlanningRun from "./PlanningRun";
 export default function TripPlanning({
   trip,
   onBack,
-  backLabel = "Back to Overview",
 }: {
   trip: Trip;
   onBack: () => void;
-  backLabel?: string;
 }) {
   const [data, setData] = useState<TripFlightPlanningData>();
   const [hasDestinations, setHasDestinations] = useState(false);
@@ -52,9 +50,6 @@ export default function TripPlanning({
   }, [trip.id, retry]);
   return (
     <section className="flight-planning" aria-label="Flight planning">
-      <Button appearance="subtle" onClick={onBack}>
-        {backLabel}
-      </Button>
       {error ? (
         <>
           <Text role="alert">{error}</Text>

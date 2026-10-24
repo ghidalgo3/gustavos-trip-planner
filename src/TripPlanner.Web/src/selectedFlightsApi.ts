@@ -1,5 +1,5 @@
 import { apiBaseUrl, readTripError } from "./api";
-import type { FareItinerary, FareSearchResult } from "./operationsApi";
+import type { FareItinerary, FareSearchResult, FareLeg } from "./operationsApi";
 import { legKey } from "./flightFormatting";
 
 export type SelectedFlight = {
@@ -17,7 +17,36 @@ export type FlightChoiceProgress = {
   partyId: string;
   legKeys: (string | null)[];
   nextOrigins: string[];
+  flights?: { legIndex: number; leg: FareLeg }[];
+  purchasedOfferIds?: string[];
+  bookings?: FlightChoiceBooking[];
 };
+
+export type FlightChoiceBooking = {
+  ignavId: string;
+  legIndexes: number[];
+  legKeys: string[];
+  price: { amount: number; currency: string };
+};
+
+export async function getChoiceBookingLinks(
+  tripId: string,
+  partyId: string,
+  ignavId: string,
+): Promise<unknown> {
+  const response = await fetch(
+    `${flightChoicesUrl(tripId)}/${encodeURIComponent(partyId)}/bookingLinks`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ignavId }),
+    },
+  );
+  if (!response.ok)
+    await readTripError(response, "loading selected flight booking links");
+  return response.json();
+}
 
 function flightChoicesUrl(tripId: string) {
   return `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/choices`;
@@ -40,6 +69,7 @@ export async function setFlightChoices(
   tripId: string,
   partyId: string,
   legKeys: (string | null)[],
+  purchasedOfferIds?: string[],
 ): Promise<FlightChoiceProgress> {
   const response = await fetch(
     `${flightChoicesUrl(tripId)}/${encodeURIComponent(partyId)}`,
@@ -47,7 +77,7 @@ export async function setFlightChoices(
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ legKeys }),
+      body: JSON.stringify({ legKeys, purchasedOfferIds }),
     },
   );
   if (!response.ok) await readTripError(response, "saving flight choices");

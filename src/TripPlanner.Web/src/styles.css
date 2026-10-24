@@ -517,6 +517,8 @@ main {
 .party-compact {
   padding: 14px 20px;
   gap: 10px;
+  min-width: 0;
+  container-type: inline-size;
 }
 .party-members {
   display: flex;
@@ -525,21 +527,45 @@ main {
 }
 .party-member {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
   padding: 2px 6px 2px 12px;
   border-radius: 20px;
   background: var(--colorNeutralBackground3);
 }
+.party-member-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.party-member > .fui-Select {
+  min-width: 0;
+  max-width: 100%;
+}
 .party-add-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
   max-width: 560px;
 }
-.party-add-row > :first-child {
-  flex: 1;
+.party-person-search {
+  grid-column: 1 / -1;
   min-width: 0;
+}
+.party-person-search .fui-Combobox,
+.party-add-row > .fui-Select {
+  min-width: 0;
+  width: 100%;
+}
+@container (min-width: 520px) {
+  .party-add-row {
+    grid-template-columns: minmax(0, 1fr) 140px auto;
+  }
+  .party-person-search {
+    grid-column: auto;
+  }
 }
 .planning-origin {
   display: grid;
@@ -807,6 +833,23 @@ main {
 }
 .route-booking-links a {
   width: fit-content;
+}
+.route-booking-option {
+  display: flex;
+  text-decoration: none;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+  overflow-wrap: anywhere;
+}
+.route-booking-option-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 .journey-legs,
 .flight-information,
@@ -2443,6 +2486,7 @@ main:has(.trip-workspace-activities) > .topbar {
 .flight-grid-fare {
   display: grid;
   flex-shrink: 0;
+  max-width: 55%;
   text-align: right;
 }
 .flight-grid-times > div {

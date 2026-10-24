@@ -90,7 +90,8 @@ export type FareSearchResult = {
     routeGraphs?: {
       connectionIndexes: number[];
       currency?: string;
-      costs?: { flightIndex: number; amount: number }[];
+      costs?: { flightIndex: number; amount: number; ignavId?: string }[];
+      bundledReturn?: boolean;
     }[];
     choiceKeys?: (string | null)[];
     roundTripConnections?:
