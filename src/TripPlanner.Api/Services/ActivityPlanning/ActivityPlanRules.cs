@@ -8,6 +8,7 @@ namespace TripPlanner.Api.Services.ActivityPlanning;
 public static class ActivityPlanRules
 {
     public static readonly string[] TransportModes = ["walking", "taxi", "driving"];
+    public static readonly TimeOnly DinnerTarget = new(19, 0);
 
     public static string Hash<T>(T value) =>
         Convert

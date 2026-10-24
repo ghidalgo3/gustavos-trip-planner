@@ -177,6 +177,11 @@ public sealed partial class InMemoryPlannerDb
                 return Task.FromResult<DestinationVisit?>(null);
             }
 
+            DestinationVisitDates.Validate(
+                _destinationVisits.Values.Where(v => v.TripId == visit.TripId),
+                visit.ArrivalDate,
+                visit.DepartureDate
+            );
             var saved = visit with
             {
                 Order =
@@ -217,6 +222,12 @@ public sealed partial class InMemoryPlannerDb
                 return Task.FromResult<DestinationVisit?>(null);
             }
 
+            DestinationVisitDates.Validate(
+                _destinationVisits.Values.Where(v => v.TripId == tripId),
+                input.ArrivalDate,
+                input.DepartureDate,
+                stayId
+            );
             var saved = visit with
             {
                 ArrivalDate = input.ArrivalDate,

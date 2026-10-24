@@ -195,13 +195,91 @@ public sealed partial class PostgresPlannerDb
         return visits;
     }
 
+    private static async Task<bool> ValidateVisitDatesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid userId,
+        Guid tripId,
+        string cityId,
+        Guid? stayId,
+        DateOnly? arrival,
+        DateOnly? departure,
+        CancellationToken cancellationToken
+    )
+    {
+        // Separate statements ensure a concurrent writer's committed dates are visible
+        // after acquiring the trip lock, including writes to a different destination.
+        await using var guard = new NpgsqlCommand(
+            """
+            SELECT id FROM trips WHERE id=$1 AND can_plan_trip(id,$2)
+              AND ($3::uuid IS NULL OR EXISTS (
+                SELECT 1 FROM destination_stays WHERE trip_id=$1 AND stay_id=$3 AND city_id=$4))
+            FOR UPDATE;
+            """,
+            connection,
+            transaction
+        );
+        guard.Parameters.AddWithValue(tripId);
+        guard.Parameters.AddWithValue(userId);
+        guard.Parameters.AddWithValue(NpgsqlDbType.Uuid, (object?)stayId ?? DBNull.Value);
+        guard.Parameters.AddWithValue(cityId);
+        if (await guard.ExecuteScalarAsync(cancellationToken) is null)
+        {
+            return false;
+        }
+        await using var check = new NpgsqlCommand(
+            "SELECT arrival_date,departure_date FROM destination_stays WHERE trip_id=$1 AND ($2::uuid IS NULL OR stay_id<>$2);",
+            connection,
+            transaction
+        );
+        check.Parameters.AddWithValue(tripId);
+        check.Parameters.AddWithValue(NpgsqlDbType.Uuid, (object?)stayId ?? DBNull.Value);
+        await using var reader = await check.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (
+                DestinationVisitDates.Overlap(
+                    arrival,
+                    departure,
+                    reader.IsDBNull(0) ? null : reader.GetFieldValue<DateOnly>(0),
+                    reader.IsDBNull(1) ? null : reader.GetFieldValue<DateOnly>(1)
+                )
+            )
+            {
+                throw new DestinationDatesOverlapException();
+            }
+        }
+        return true;
+    }
+
     public async Task<DestinationVisit?> AddDestinationVisitAsync(
         Guid ownerUserId,
         DestinationVisit visit,
         CancellationToken cancellationToken = default
     )
     {
-        await using var command = dataSource.CreateCommand(
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
+            cancellationToken
+        );
+        if (
+            !await ValidateVisitDatesAsync(
+                connection,
+                transaction,
+                ownerUserId,
+                visit.TripId,
+                visit.CityId,
+                null,
+                visit.ArrivalDate,
+                visit.DepartureDate,
+                cancellationToken
+            )
+        )
+        {
+            return null;
+        }
+        await using var command = new NpgsqlCommand(
             """
             WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
             added AS (INSERT INTO destination_stays(stay_id,trip_id,city_id,visit_order,arrival_date,departure_date)
@@ -211,7 +289,9 @@ public sealed partial class PostgresPlannerDb
             UPDATE destination_places d SET context_version=$7 FROM added a
             WHERE d.trip_id=a.trip_id AND d.city_id=a.city_id
             RETURNING a.trip_id,a.city_id,a.stay_id,a.visit_order,a.arrival_date,a.departure_date;
-            """
+            """,
+            connection,
+            transaction
         );
         command.Parameters.AddWithValue(visit.TripId);
         command.Parameters.AddWithValue(ownerUserId);
@@ -227,7 +307,7 @@ public sealed partial class PostgresPlannerDb
         );
         command.Parameters.AddWithValue(Guid.NewGuid().ToString("N"));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
+        DestinationVisit? saved = await reader.ReadAsync(cancellationToken)
             ? new(
                 reader.GetGuid(0),
                 reader.GetString(1),
@@ -237,6 +317,12 @@ public sealed partial class PostgresPlannerDb
                 reader.IsDBNull(5) ? null : reader.GetFieldValue<DateOnly>(5)
             )
             : null;
+        await reader.CloseAsync();
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return saved;
     }
 
     public async Task<DestinationVisit?> ReplaceDestinationVisitAsync(
@@ -248,7 +334,28 @@ public sealed partial class PostgresPlannerDb
         CancellationToken cancellationToken = default
     )
     {
-        await using var command = dataSource.CreateCommand(
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await BeginWriteTransactionAsync(
+            connection,
+            cancellationToken
+        );
+        if (
+            !await ValidateVisitDatesAsync(
+                connection,
+                transaction,
+                ownerUserId,
+                tripId,
+                cityId,
+                stayId,
+                input.ArrivalDate,
+                input.DepartureDate,
+                cancellationToken
+            )
+        )
+        {
+            return null;
+        }
+        await using var command = new NpgsqlCommand(
             """
             WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
             saved AS (UPDATE destination_stays v SET arrival_date=$5,departure_date=$6 FROM owner o
@@ -257,7 +364,9 @@ public sealed partial class PostgresPlannerDb
             UPDATE destination_places d SET context_version=$7 FROM saved s
             WHERE d.trip_id=s.trip_id AND d.city_id=s.city_id
             RETURNING s.trip_id,s.city_id,s.stay_id,s.visit_order,s.arrival_date,s.departure_date;
-            """
+            """,
+            connection,
+            transaction
         );
         command.Parameters.AddWithValue(tripId);
         command.Parameters.AddWithValue(ownerUserId);
@@ -273,7 +382,7 @@ public sealed partial class PostgresPlannerDb
         );
         command.Parameters.AddWithValue(Guid.NewGuid().ToString("N"));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
+        DestinationVisit? saved = await reader.ReadAsync(cancellationToken)
             ? new(
                 reader.GetGuid(0),
                 reader.GetString(1),
@@ -283,6 +392,12 @@ public sealed partial class PostgresPlannerDb
                 reader.IsDBNull(5) ? null : reader.GetFieldValue<DateOnly>(5)
             )
             : null;
+        await reader.CloseAsync();
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return saved;
     }
 
     public async Task<bool> DeleteDestinationVisitAsync(

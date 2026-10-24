@@ -48,7 +48,7 @@ function show(
   arrival = "2027-06-12",
   departure = "",
   cities = destinations,
-  excludeCityId?: string,
+  excludeStayId?: string,
 ) {
   const onChange = vi.fn();
   function Calendar() {
@@ -58,7 +58,7 @@ function show(
         arrivalDate={dates[0]}
         departureDate={dates[1]}
         destinations={cities}
-        excludeCityId={excludeCityId}
+        excludeStayId={excludeStayId}
         onChange={(start, end) => {
           onChange(start, end);
           setDates([start, end]);
@@ -101,7 +101,7 @@ test.each([
   [10, 10],
   [14, 10, 12],
 ])("selects an ordered date range using %j", (...days) => {
-  const { calendar, onChange } = show("", "", destinations, "paris");
+  const { calendar, onChange } = show("", "", destinations, "paris-0");
   for (const day of days)
     fireEvent.click(
       within(calendar).getByRole("button", {
@@ -114,7 +114,7 @@ test.each([
     `2027-06-${start}`,
     `2027-06-${end}`,
   );
-  expect(within(calendar).queryByText("Paris")).not.toBeInTheDocument();
+  expect(within(calendar).getAllByText("Paris")).toHaveLength(1);
   expect(
     within(calendar).getAllByRole("button", { pressed: true }),
   ).toHaveLength(end - start + 1);
@@ -177,6 +177,46 @@ test.each([false, true])(
     expect(calendar.querySelector('[aria-current="date"]')).toBeNull();
   },
 );
+test.each([
+  [9, 10, true],
+  [15, 18, true],
+  [10, 10, true],
+  [15, 15, true],
+  [9, 16, false],
+  [10, 15, false],
+  [10, 11, false],
+])(
+  "allows only shared boundary dates: %s–%s, allowed=%s",
+  (start, end, allowed) => {
+    const { calendar, onChange } = show("", "", [
+      destination("paris", "Paris", [["2027-06-10", "2027-06-15"]]),
+    ]);
+    const day = (value: number) =>
+      within(calendar).getByRole("button", {
+        name: new RegExp(`^Jun ${value}, 2027`),
+      });
+    fireEvent.click(day(start));
+    expect(day(end).getAttribute("aria-disabled")).toBe(
+      allowed ? null : "true",
+    );
+    fireEvent.click(day(end));
+    expect(onChange).toHaveBeenLastCalledWith(
+      `2027-06-${String(start).padStart(2, "0")}`,
+      allowed ? `2027-06-${String(end).padStart(2, "0")}` : "",
+    );
+  },
+);
+
+test("interior days cannot be selected, including during a repeat visit edit", () => {
+  const { calendar, onChange } = show("", "", destinations, "paris-1");
+  const interior = within(calendar).getByRole("button", {
+    name: "Jun 12, 2027 · Paris",
+  });
+  expect(interior).toHaveAttribute("aria-disabled", "true");
+  fireEvent.click(interior);
+  expect(onChange).not.toHaveBeenCalled();
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();

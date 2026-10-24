@@ -72,19 +72,9 @@ public sealed class ActivityPlanOptimizer(
             warnings.Add("Add dated visits before generating a schedule.");
             return Result("insufficient_evidence");
         }
-        if (
-            scheduleSelected
-            && (
-                planningContext.StayLocation?.Geometry is null
-                || job.Plan.SelectedActivityIds.Length == 0
-            )
-        )
+        if (scheduleSelected && job.Plan.SelectedActivityIds.Length == 0)
         {
-            warnings.Add(
-                planningContext.StayLocation?.Geometry is null
-                    ? "Set your accommodation using Stay on Overview so each day's route can start and end there."
-                    : "Mark activities Planned before asking to schedule them."
-            );
+            warnings.Add("Mark activities Planned before asking to schedule them.");
             return Result("insufficient_evidence");
         }
         var zone = ActivityPlanRules.Zone(job.Plan.TimeZone ?? planningContext.Place.TimeZone);
@@ -388,6 +378,8 @@ public sealed class ActivityPlanOptimizer(
             .Select(i => model.NewBoolVar($"selected_{i}"))
             .ToArray();
         var assigned = new BoolVar[n, dCount];
+        var firstInDay = new BoolVar[n, dCount];
+        var lastInDay = new BoolVar[n, dCount];
         var starts = Enumerable
             .Range(0, n)
             .Select(i => model.NewIntVar(0, dCount * 2880, $"start_{i}"))
@@ -569,8 +561,8 @@ public sealed class ActivityPlanOptimizer(
                         .Travel(plan, day, activities[i].Id, null, origins[d], clock.GetUtcNow())
                         .Duration
                 );
-                var first = model.NewBoolVar($"first_{i}_{d}");
-                var last = model.NewBoolVar($"last_{i}_{d}");
+                var first = firstInDay[i, d] = model.NewBoolVar($"first_{i}_{d}");
+                var last = lastInDay[i, d] = model.NewBoolVar($"last_{i}_{d}");
                 circuit.AddArc(n + d, i, first);
                 circuit.AddArc(i, n + (d + 1) % dCount, last);
                 model.AddImplication(first, x);
@@ -722,6 +714,35 @@ public sealed class ActivityPlanOptimizer(
                     new LinearExpr[] { LinearExpr.Constant(0), allowance - LinearExpr.Sum(credits) }
                 );
                 meals.Add(remaining);
+                if (planningContext.StayLocation is null && name == "breakfast")
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        model
+                            .Add(starts[i] >= d * 2880 + remaining)
+                            .OnlyEnforceIf(firstInDay[i, d]);
+                    }
+                }
+                if (planningContext.StayLocation is null && name == "dinner")
+                {
+                    var needsDinner = model.NewBoolVar($"needs_dinner_{d}");
+                    model.Add(remaining > 0).OnlyEnforceIf(needsDinner);
+                    model.Add(remaining == 0).OnlyEnforceIf(needsDinner.Not());
+                    var dinner = ActivityPlanRules.Instant(
+                        days[d].Date,
+                        ActivityPlanRules.DinnerTarget.ToTimeSpan(),
+                        zone
+                    );
+                    int dinnerOffset = dinner is null
+                        ? 0
+                        : (int)(dinner.Value - origins[d]).TotalMinutes;
+                    for (int i = 0; i < n; i++)
+                    {
+                        model
+                            .Add(starts[i] >= d * 2880 + Math.Max(0, dinnerOffset) + remaining)
+                            .OnlyEnforceIf([lastInDay[i, d], needsDinner]);
+                    }
+                }
             }
             model.Add(
                 LinearExpr.Sum(Enumerable.Range(0, n).Select(i => assigned[i, d] * durations[i]))

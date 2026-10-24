@@ -1415,7 +1415,8 @@ main {
   border: 2px solid var(--colorBrandStroke1);
   font-weight: 700;
 }
-.trip-calendar-day:disabled {
+.trip-calendar-day:disabled,
+.trip-calendar-day[aria-disabled="true"] {
   color: var(--colorNeutralForegroundDisabled);
   cursor: default;
 }

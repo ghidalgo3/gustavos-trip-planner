@@ -201,6 +201,12 @@ public static class DestinationsEndpoints
                 contentType: "application/geo+json"
             );
         }
+        catch (DestinationDatesOverlapException exception)
+        {
+            return Results.Conflict(
+                new { code = "destination_dates_overlap", title = exception.Message }
+            );
+        }
         catch (InvalidOperationException exception)
         {
             return Results.Conflict(
@@ -395,14 +401,24 @@ public static class DestinationsEndpoints
             );
         }
 
-        var saved = await database.ReplaceDestinationVisitAsync(
-            user!.Id,
-            tripId,
-            destinationCity,
-            stayId,
-            input,
-            context.RequestAborted
-        );
+        DestinationVisit? saved;
+        try
+        {
+            saved = await database.ReplaceDestinationVisitAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                stayId,
+                input,
+                context.RequestAborted
+            );
+        }
+        catch (DestinationDatesOverlapException exception)
+        {
+            return Results.Conflict(
+                new { code = "destination_dates_overlap", title = exception.Message }
+            );
+        }
         if (saved is null)
         {
             return Results.NotFound();

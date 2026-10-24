@@ -49,7 +49,12 @@ public class ActivityEndpointTests
             path,
             request with
             {
-                Properties = request.Properties with { TimeZone = "Asia/Tokyo" },
+                Properties = request.Properties with
+                {
+                    TimeZone = "Asia/Tokyo",
+                    ArrivalDate = new(2027, 6, 11),
+                    DepartureDate = new(2027, 6, 12),
+                },
             }
         );
         Assert.AreEqual(HttpStatusCode.Created, repeated.StatusCode);
@@ -301,7 +306,7 @@ public class ActivityEndpointTests
         var stay = collection.Features[0].Properties.Stays[0];
         var updated = await client.PutAsJsonAsync(
             $"{url}/paris-fr/stays/{stay.Id}",
-            new DestinationStayInput(new DateOnly(2027, 6, 11), new DateOnly(2027, 6, 15))
+            new DestinationStayInput(new DateOnly(2027, 6, 11), new DateOnly(2027, 6, 14))
         );
         Assert.AreEqual(HttpStatusCode.OK, updated.StatusCode);
         var changed = (

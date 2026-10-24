@@ -139,7 +139,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Add a destination visit using a complete GeoJSON city Feature, verified longitude/latitude, country and optional dates. Requires planning permission."
+        "Add a destination visit using a complete GeoJSON city Feature, verified longitude/latitude, country and optional dates. Visits may share an arrival/departure day but cannot overlap inside another visit. Requires planning permission."
     )]
     public Task<CallToolResult> AddDestination(Guid tripId, CreateDestinationRequest request) =>
         Execute(
@@ -228,7 +228,7 @@ public sealed class TripPlannerTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "Replace a destination visit's complete arrival/departure date range. Get destination and stay IDs from list_destinations."
+        "Replace a destination visit's complete arrival/departure date range. Visits may share an arrival/departure day but cannot overlap inside another visit, including repeat visits. Get destination and stay IDs from list_destinations."
     )]
     public Task<CallToolResult> UpdateVisit(
         Guid tripId,

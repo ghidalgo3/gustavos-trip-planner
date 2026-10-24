@@ -82,6 +82,19 @@ public sealed partial record ActivityPlanningContext
             settings.TransportMode == "driving"
                 ? "driving"
                 : change?.Mode ?? settings.TransportMode;
+        // Without accommodation, optimize an open path through the activities.
+        // Old accommodation overrides must not introduce a journey to a deleted stay.
+        if (StayLocation is null && (fromId is null || toId is null))
+        {
+            return new(
+                fromId,
+                toId,
+                mode,
+                TimeSpan.Zero,
+                false,
+                "No stay: no accommodation travel"
+            );
+        }
         if (change?.Duration is { } duration)
         {
             return new(fromId, toId, mode, duration, false, "Your estimate");
@@ -336,13 +349,24 @@ public sealed partial record ActivityPlanningContext
                 {
                     ("breakfast", allowances["breakfast"], new TimeOnly(9, 0)),
                     ("lunch", allowances["lunch"], new TimeOnly(13, 0)),
-                    ("dinner", allowances["dinner"], new TimeOnly(19, 0)),
+                    ("dinner", allowances["dinner"], ActivityPlanRules.DinnerTarget),
                 }.Where(m => m.Item2 > TimeSpan.Zero)
             );
             TimeSpan waiting = TimeSpan.Zero;
-            void AddMeal()
+            void AddMeal(bool respectTarget = false)
             {
                 var meal = pending.Dequeue();
+                if (
+                    respectTarget
+                    && meal.Name != "breakfast"
+                    && ActivityPlanRules.Instant(day.Date, meal.Target.ToTimeSpan(), zone)
+                        is { } target
+                    && cursor < target
+                )
+                {
+                    waiting += target - cursor;
+                    cursor = target;
+                }
                 var mealStart = cursor;
                 cursor = cursor.Add(meal.Duration);
                 breaks.Add(
@@ -383,17 +407,22 @@ public sealed partial record ActivityPlanningContext
                         zone
                     )
                     : null;
-                // Put flexible meals between stops. A fixed booking can precede a meal;
-                // we never move a booking to make a default meal time appear feasible.
+                bool lastWithoutStay = StayLocation is null && id == day.ActivityIds[^1];
+                // With no stay, breakfast precedes the first stop and dinner precedes
+                // the last. Keep conflicting bookings at their requested times and report them.
                 while (
                     pending.TryPeek(out var meal)
+                    && (StayLocation is not null || meal.Name != "dinner" || lastWithoutStay)
                     && (
-                        entries.Count == 0 && meal.Name == "breakfast"
+                        lastWithoutStay
+                        || entries.Count == 0 && meal.Name == "breakfast"
                         || TimeZoneInfo.ConvertTime(cursor.Add(duration), zone).TimeOfDay
                             >= meal.Target.ToTimeSpan()
                     )
                     && (
-                        fixedTime is null
+                        lastWithoutStay
+                        || StayLocation is null && entries.Count == 0 && meal.Name == "breakfast"
+                        || fixedTime is null
                         || cursor.Add(
                             meal.Duration
                                 + Travel(
@@ -408,11 +437,14 @@ public sealed partial record ActivityPlanningContext
                     )
                 )
                 {
-                    AddMeal();
+                    AddMeal(respectTarget: lastWithoutStay);
                 }
 
                 var leg = Travel(plan, day, previous, id, cursor, now) with { Departure = cursor };
-                travel.Add(leg);
+                if (previous is not null || StayLocation is not null)
+                {
+                    travel.Add(leg);
+                }
                 cursor = cursor.Add(leg.Duration);
                 if (leg.Provisional)
                 {
@@ -462,7 +494,7 @@ public sealed partial record ActivityPlanningContext
                             new(
                                 "late_for_anchor",
                                 "conflict",
-                                $"Travel and earlier activities make {activity.Properties.Name} {(int)Math.Ceiling((cursor - anchor).TotalMinutes)} minutes late.",
+                                $"Meals, travel, and earlier activities make {activity.Properties.Name} {(int)Math.Ceiling((cursor - anchor).TotalMinutes)} minutes late.",
                                 day.Date,
                                 id,
                                 cursor - anchor
@@ -605,7 +637,7 @@ public sealed partial record ActivityPlanningContext
                 );
                 previous = id;
             }
-            if (previous is not null)
+            if (previous is not null && StayLocation is not null)
             {
                 var leg = Travel(plan, day, previous, null, cursor, now) with
                 {

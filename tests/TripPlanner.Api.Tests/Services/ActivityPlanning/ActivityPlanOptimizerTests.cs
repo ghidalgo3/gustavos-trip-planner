@@ -10,7 +10,11 @@ namespace TripPlanner.Api.Tests.Services.ActivityPlanning;
 public sealed class ActivityPlanOptimizerTests
 {
     [TestMethod]
-    public async Task ScheduleSelected_MinimizesTheCompleteStayRoundTrip_ComparedWithAllOrders()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ScheduleSelected_MinimizesTravel_WithOrWithoutStay_ComparedWithAllOrders(
+        bool missingStay
+    )
     {
         var context = Context(
             TimeSpan.FromMinutes(5),
@@ -18,6 +22,10 @@ public sealed class ActivityPlanOptimizerTests
             TimeSpan.FromMinutes(5),
             TimeSpan.FromMinutes(5)
         );
+        if (missingStay)
+        {
+            context = context with { StayLocation = null };
+        }
         var ids = context.Activities.Take(3).Select(a => a.Id).ToArray();
         Guid?[] stops = [null, .. ids];
         int[,] costs =
@@ -60,7 +68,9 @@ public sealed class ActivityPlanOptimizerTests
                 int third = 6 - first - second;
                 reference = Math.Min(
                     reference,
-                    costs[0, first] + costs[first, second] + costs[second, third] + costs[third, 0]
+                    costs[first, second]
+                        + costs[second, third]
+                        + (missingStay ? 0 : costs[0, first] + costs[third, 0])
                 );
             }
         }
@@ -72,16 +82,39 @@ public sealed class ActivityPlanOptimizerTests
         CollectionAssert.AreEqual(plan.Rules, choice.Plan.Rules);
         Assert.AreEqual(TimeSpan.FromMinutes(reference), choice.Assessment.TravelDuration);
         var legs = choice.Assessment.Days.Single().Travel;
-        Assert.HasCount(4, legs);
-        Assert.IsNull(legs[0].FromActivityId);
-        Assert.IsNull(legs[^1].ToActivityId);
+        Assert.HasCount(missingStay ? 2 : 4, legs);
+        if (missingStay)
+        {
+            Assert.IsTrue(
+                legs.All(l => l.FromActivityId is not null && l.ToActivityId is not null)
+            );
+            var day = choice.Assessment.Days.Single();
+            Assert.AreEqual(
+                day.Breaks.Single(b => b.Name == "breakfast").End,
+                day.Entries[0].Start
+            );
+            Assert.IsTrue(day.Entries[^1].Start >= day.Breaks.Single(b => b.Name == "dinner").End);
+            Assert.AreEqual(
+                new TimeOnly(19, 0),
+                TimeOnly.FromDateTime(
+                    day.Breaks.Single(b => b.Name == "dinner").Start!.Value.DateTime
+                )
+            );
+        }
+        else
+        {
+            Assert.IsNull(legs[0].FromActivityId);
+            Assert.IsNull(legs[^1].ToActivityId);
+        }
         Assert.IsEmpty(result.Suggestions);
     }
 
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task ScheduleSelected_NeedsAStay_AndNeverDropsActivitiesToFit(bool missingStay)
+    public async Task ScheduleSelected_NeverDropsActivitiesToFit_WithOrWithoutAStay(
+        bool missingStay
+    )
     {
         var context = Context(TimeSpan.FromHours(24), TimeSpan.FromHours(24));
         if (missingStay)
@@ -92,11 +125,36 @@ public sealed class ActivityPlanOptimizerTests
         var result = await Schedule(context, plan);
         Assert.IsEmpty(result.Alternatives);
         Assert.IsEmpty(result.Suggestions);
-        Assert.IsTrue(
-            result.Warnings.Any(w =>
-                w.Contains(missingStay ? "accommodation" : "All selected activities")
-            )
+        Assert.IsTrue(result.Warnings.Any(w => w.Contains("All selected activities")));
+    }
+
+    [TestMethod]
+    public async Task WithoutStay_DinnerBoundaryRespectsFixedTimes_AndEditableMealAllowance()
+    {
+        var context = Context(TimeSpan.FromHours(1)) with { StayLocation = null };
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days = [plan.Days[0] with { ActivityIds = [] }],
+            Rules = [plan.Rules[0] with { FixedStart = new TimeOnly(17, 0) }],
+        };
+        var conflict = await Schedule(context, plan);
+        Assert.IsEmpty(conflict.Alternatives);
+
+        var allowed = await Schedule(
+            context,
+            plan with
+            {
+                Settings = plan.Settings with { DinnerDuration = TimeSpan.Zero },
+            }
         );
+        var day = allowed.Alternatives.Single().Assessment.Days.Single();
+        Assert.AreEqual(
+            new TimeOnly(17, 0),
+            TimeOnly.FromDateTime(day.Entries.Single().Start!.Value.DateTime)
+        );
+        Assert.IsFalse(day.Breaks.Any(b => b.Name == "dinner"));
+        Assert.IsEmpty(day.Travel);
     }
 
     private static Task<ActivityPlanningResult> Schedule(

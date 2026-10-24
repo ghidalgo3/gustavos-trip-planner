@@ -368,8 +368,10 @@ export default function ActivityAgenda({
               </button>
               <p>
                 Pick and save days, times, and an order for your planned
-                activities based on your constraints, starting and ending each
-                day at your stay.
+                activities based on your constraints. With a stay, each day's
+                route starts and ends there. Without one, travel is counted only
+                between activities, breakfast comes before the first activity,
+                and the last activity starts after dinner.
               </p>
             </>
           )}

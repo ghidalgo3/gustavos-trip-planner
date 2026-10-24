@@ -1,5 +1,25 @@
 import type { Destination } from "../activities/activitiesApi";
 
+export function conflictingVisit(
+  destinations: Destination[],
+  arrival: string,
+  departure: string,
+  excludedStayId?: string,
+) {
+  const start = arrival || departure;
+  const end = departure || arrival;
+  if (!start) return;
+  for (const destination of destinations) {
+    for (const stay of destination.properties.stays) {
+      if (stay.id === excludedStayId) continue;
+      const otherStart = stay.arrivalDate ?? stay.departureDate;
+      const otherEnd = stay.departureDate ?? stay.arrivalDate;
+      if (otherStart && otherEnd && start < otherEnd && otherStart < end)
+        return { destination, stay };
+    }
+  }
+}
+
 export function parseTripDate(value: string): Date | undefined {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
   const date = new Date(`${value}T12:00:00`);

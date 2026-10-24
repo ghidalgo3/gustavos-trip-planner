@@ -5,7 +5,12 @@ import {
   ChevronRight20Regular,
 } from "@fluentui/react-icons";
 import type { Destination } from "../activities/activitiesApi";
-import { dateKey, formatStayDates, parseTripDate } from "./tripDates";
+import {
+  conflictingVisit,
+  dateKey,
+  formatStayDates,
+  parseTripDate,
+} from "./tripDates";
 
 const colors = [
   "#0078d4",
@@ -21,14 +26,14 @@ export default function TripCalendar({
   departureDate,
   onChange,
   destinations,
-  excludeCityId,
+  excludeStayId,
   disabled,
 }: {
   arrivalDate: string;
   departureDate: string;
   onChange: (arrivalDate: string, departureDate: string) => void;
   destinations: Destination[];
-  excludeCityId?: string;
+  excludeStayId?: string;
   disabled?: boolean;
 }) {
   const surface = useRef<HTMLDivElement>(null);
@@ -46,29 +51,29 @@ export default function TripCalendar({
       new Date();
     return new Date(initial.getFullYear(), initial.getMonth(), 1);
   });
-  function selectDate(key: string) {
-    if (!arrivalDate || departureDate || key < arrivalDate) onChange(key, "");
-    else onChange(arrivalDate, key);
+  function selection(key: string): [string, string] {
+    return !arrivalDate || departureDate || key < arrivalDate
+      ? [key, ""]
+      : [arrivalDate, key];
   }
   const ranges = destinations.flatMap((destination, index) =>
-    destination.id === excludeCityId
-      ? []
-      : destination.properties.stays.flatMap((stay) => {
-          const start = stay.arrivalDate ?? stay.departureDate;
-          const end = stay.departureDate ?? stay.arrivalDate;
-          return start && end && parseTripDate(start) && parseTripDate(end)
-            ? [
-                {
-                  id: `${destination.id}-${stay.id}`,
-                  name: destination.properties.name,
-                  label: formatStayDates(stay.arrivalDate, stay.departureDate),
-                  start,
-                  end,
-                  color: colors[index % colors.length],
-                },
-              ]
-            : [];
-        }),
+    destination.properties.stays.flatMap((stay) => {
+      if (stay.id === excludeStayId) return [];
+      const start = stay.arrivalDate ?? stay.departureDate;
+      const end = stay.departureDate ?? stay.arrivalDate;
+      return start && end && parseTripDate(start) && parseTripDate(end)
+        ? [
+            {
+              id: `${destination.id}-${stay.id}`,
+              name: destination.properties.name,
+              label: formatStayDates(stay.arrivalDate, stay.departureDate),
+              start,
+              end,
+              color: colors[index % colors.length],
+            },
+          ]
+        : [];
+    }),
   );
   function moveFocus(event: KeyboardEvent<HTMLButtonElement>, date: Date) {
     const offsets: Record<string, number> = {
@@ -131,6 +136,10 @@ export default function TripCalendar({
           ? "Choose a departure date. Choose an earlier day to change arrival."
           : "Choose an arrival date, then a departure date."}
       </p>
+      <p className="trip-calendar-instruction">
+        Visits can share an arrival/departure day, but cannot overlap inside
+        another visit.
+      </p>
       <div className="trip-calendar-heading">
         <Button
           appearance="subtle"
@@ -168,6 +177,13 @@ export default function TripCalendar({
             index + 1,
           );
           const key = dateKey(date);
+          const [nextArrival, nextDeparture] = selection(key);
+          const conflict = conflictingVisit(
+            destinations,
+            nextArrival,
+            nextDeparture,
+            excludeStayId,
+          );
           const matching = ranges.filter(
             (range) => key >= range.start && key <= range.end,
           );
@@ -192,13 +208,19 @@ export default function TripCalendar({
                   : undefined
               }
               disabled={disabled}
+              aria-disabled={conflict ? true : undefined}
+              title={
+                conflict
+                  ? `Conflicts with ${conflict.destination.properties.name}: ${formatStayDates(conflict.stay.arrivalDate, conflict.stay.departureDate)}`
+                  : undefined
+              }
               aria-label={`${formatStayDates(key, key)}${matching.length ? ` · ${matching.map((range) => range.name).join(", ")}` : ""}`}
               aria-pressed={inSelectedRange}
               data-range-edge={
                 key === arrivalDate || key === departureDate || undefined
               }
               onClick={() => {
-                selectDate(key);
+                if (!conflict) onChange(nextArrival, nextDeparture);
               }}
             >
               <span>{index + 1}</span>

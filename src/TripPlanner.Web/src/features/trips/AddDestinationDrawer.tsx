@@ -23,7 +23,7 @@ import {
 } from "../activities/activitiesApi";
 
 import TripCalendar from "./TripCalendar";
-import { parseTripDate } from "./tripDates";
+import { conflictingVisit, formatStayDates, parseTripDate } from "./tripDates";
 
 const searchDestinationCities = async (query: string, signal: AbortSignal) =>
   (await searchCities(query, signal)).filter((city) => city.countryCode);
@@ -80,7 +80,14 @@ export default function AddDestinationDrawer({
     arrivalFlex > 5 ||
     departureFlex > 5;
   const { notify, toaster } = useActionToast();
+  const dateConflict = conflictingVisit(
+    destinations,
+    arrivalDate,
+    departureDate,
+    editing?.stay.id,
+  );
   const invalidDates = Boolean(
+    dateConflict ||
     (arrivalDate && !parseTripDate(arrivalDate)) ||
     (departureDate && !parseTripDate(departureDate)) ||
     (arrivalDate && departureDate && departureDate < arrivalDate),
@@ -248,16 +255,20 @@ export default function AddDestinationDrawer({
                   setDepartureDate(departure);
                 }}
                 destinations={destinations}
-                excludeCityId={
-                  editing?.destination.id ??
-                  destinations.find(
-                    (item) =>
-                      item.properties.name === city?.cityName &&
-                      item.properties.countryCode === city?.countryCode,
-                  )?.id
-                }
+                excludeStayId={editing?.stay.id}
                 disabled={saving}
               />
+              {dateConflict && (
+                <Text role="alert">
+                  These dates overlap {dateConflict.destination.properties.name}{" "}
+                  (
+                  {formatStayDates(
+                    dateConflict.stay.arrivalDate,
+                    dateConflict.stay.departureDate,
+                  )}
+                  ). Visits may share only an arrival/departure day.
+                </Text>
+              )}
               <div className="destination-flight-constraints">
                 <strong>Flight date flexibility</strong>
                 <Text size={200}>

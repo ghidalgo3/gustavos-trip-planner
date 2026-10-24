@@ -174,6 +174,11 @@ public sealed class DestinationService(
         CancellationToken cancellationToken
     )
     {
+        DestinationVisitDates.Validate(
+            await database.GetDestinationVisitsAsync(ownerUserId, trip.Id, cancellationToken),
+            input.ArrivalDate,
+            input.DepartureDate
+        );
         string city = input.Name.Trim(),
             country = input.CountryCode.Trim().ToUpperInvariant();
         string cityId = CityId(city, country);

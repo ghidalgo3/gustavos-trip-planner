@@ -6,6 +6,77 @@ namespace TripPlanner.Api.Tests.Models;
 [TestClass]
 public sealed class ActivityPlanningContextTests
 {
+    [TestMethod]
+    public void WithoutStay_OnlyCountsTravelBetweenActivities_AndKeepsUnknownLocationsEstimated()
+    {
+        var original = Context(TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+        var context = original with
+        {
+            StayLocation = null,
+            Activities = [original.Activities[0], original.Activities[1] with { Geometry = null }],
+        };
+        var plan = Plan(context) with { TransportOverrides = [] };
+        var result = context.Evaluate(plan, Now);
+        var day = result.Days.Single();
+        Assert.HasCount(1, day.Travel);
+        Assert.AreEqual(context.Activities[0].Id, day.Travel[0].FromActivityId);
+        Assert.AreEqual(context.Activities[1].Id, day.Travel[0].ToActivityId);
+        Assert.AreEqual(TimeSpan.FromMinutes(20), day.TravelDuration);
+        Assert.IsTrue(day.Travel[0].Provisional);
+        Assert.AreEqual(day.Breaks.Single(b => b.Name == "breakfast").End, day.Entries[0].Start);
+        Assert.IsTrue(day.Entries[^1].Start >= day.Breaks.Single(b => b.Name == "dinner").End);
+        Assert.AreEqual(TimeSpan.FromHours(2), day.MealDuration);
+        Assert.AreEqual(TimeSpan.FromHours(8), day.RestDuration);
+        Assert.AreEqual(TimeSpan.FromHours(1), day.RequiredSlackDuration);
+        Assert.IsFalse(result.Issues.Any(i => i.Code == "return_travel_estimated"));
+
+        var withStay = (context with { StayLocation = original.StayLocation }).Evaluate(plan, Now);
+        Assert.HasCount(3, withStay.Days.Single().Travel);
+        Assert.IsGreaterThan(day.TravelDuration, withStay.TravelDuration);
+    }
+
+    [TestMethod]
+    public void WithoutStay_FixedBookingBeforeDinnerRemainsVisibleAsAConflict()
+    {
+        var context = Context(TimeSpan.FromHours(1)) with { StayLocation = null };
+        var plan = Plan(context);
+        plan = plan with { Rules = [plan.Rules[0] with { FixedStart = new TimeOnly(17, 0) }] };
+        var result = context.Evaluate(plan, Now);
+        Assert.IsTrue(result.Issues.Any(i => i.Code == "late_for_anchor"));
+        Assert.AreEqual(
+            new TimeOnly(17, 0),
+            TimeOnly.FromDateTime(result.Days.Single().Entries.Single().Start!.Value.DateTime)
+        );
+    }
+
+    [TestMethod]
+    public void WithoutStay_DiningActivityDoesNotDoubleCountDinner()
+    {
+        var context = Context(TimeSpan.FromHours(1), TimeSpan.FromHours(1)) with
+        {
+            StayLocation = null,
+        };
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Rules =
+            [
+                plan.Rules[0] with
+                {
+                    CoversMeal = "dinner",
+                    FixedStart = new TimeOnly(19, 0),
+                },
+                plan.Rules[1],
+            ],
+        };
+        var result = context.Evaluate(plan, Now);
+        var day = result.Days.Single();
+        Assert.AreEqual(0, result.ConflictCount);
+        Assert.AreEqual(TimeSpan.FromMinutes(75), day.MealDuration);
+        Assert.IsFalse(day.Breaks.Any(b => b.Name == "dinner"));
+        Assert.IsTrue(day.Entries[^1].Start >= day.Entries[0].End);
+    }
+
     public static IEnumerable<object[]> CapacityCases =>
         [
             [TimeSpan.FromHours(13), TimeSpan.Zero],

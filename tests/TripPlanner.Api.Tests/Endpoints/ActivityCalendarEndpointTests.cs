@@ -41,7 +41,8 @@ public sealed class ActivityCalendarEndpointTests
         string feedPath = new Uri(sub.Url!).PathAndQuery;
         string feed = await client.GetStringAsync(feedPath);
         StringAssert.Contains(feed, "BEGIN:VEVENT");
-        StringAssert.Contains(feed, "DTSTART:20270610T053000Z");
+        // Without a stay, the only activity follows dinner at 19:45 Paris time (UTC+02).
+        StringAssert.Contains(feed, "DTSTART:20270610T174500Z");
         Assert.DoesNotContain(sub.Url!, await client.GetStringAsync(path));
         Assert.DoesNotContain("tokenHash", await client.GetStringAsync(path));
         planningContext = (
