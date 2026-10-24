@@ -1,3 +1,4 @@
+import { useActionToast } from "./useActionToast";
 import { useState, type FormEvent } from "react";
 import {
   Button,
@@ -82,7 +83,7 @@ export default function AddDestinationDrawer({
     departureFlex < 0 ||
     arrivalFlex > 5 ||
     departureFlex > 5;
-  const [error, setError] = useState<string>();
+  const { notify, toaster } = useActionToast();
   const invalidDates = Boolean(
     (arrivalDate && !parseTripDate(arrivalDate)) ||
     (departureDate && !parseTripDate(departureDate)) ||
@@ -94,7 +95,6 @@ export default function AddDestinationDrawer({
     setCity(undefined);
     setArrivalDate(editing?.stay.arrivalDate ?? "");
     setDepartureDate(editing?.stay.departureDate ?? "");
-    setError(undefined);
     setSaving(false);
     setArrivalFlex(initialArrivalFlex);
     setDepartureFlex(initialDepartureFlex);
@@ -117,7 +117,6 @@ export default function AddDestinationDrawer({
     )
       return;
     setSaving(true);
-    setError(undefined);
     try {
       const constraints = {
         ...originalConstraints,
@@ -162,163 +161,168 @@ export default function AddDestinationDrawer({
       onAdded(destination);
       reset();
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : editing
             ? "Could not save visit dates. Try again."
             : "Could not add the destination. Try again.",
+        "error",
       );
       setSaving(false);
     }
   }
 
   return (
-    <OverlayDrawer
-      open={open}
-      position="end"
-      className="destination-drawer"
-      onOpenChange={(_, data) => {
-        if (!data.open) close();
-      }}
-    >
-      <DrawerHeader>
-        <DrawerHeaderTitle
-          action={
-            <Button
-              appearance="subtle"
-              aria-label="Close destination drawer"
-              icon={<Dismiss24Regular />}
-              disabled={saving}
-              onClick={close}
-            />
-          }
-        >
-          {editing
-            ? `Edit dates: ${editing.destination.properties.name}`
-            : "Add destination"}
-        </DrawerHeaderTitle>
-      </DrawerHeader>
-      <DrawerBody>
-        <form
-          id="add-destination-form"
-          className="destination-drawer-form"
-          onSubmit={submit}
-        >
-          <Text className="destination-drawer-description">
+    <>
+      {toaster}
+      <OverlayDrawer
+        open={open}
+        position="end"
+        className="destination-drawer"
+        onOpenChange={(_, data) => {
+          if (!data.open) close();
+        }}
+      >
+        <DrawerHeader>
+          <DrawerHeaderTitle
+            action={
+              <Button
+                appearance="subtle"
+                aria-label="Close destination drawer"
+                icon={<Dismiss24Regular />}
+                disabled={saving}
+                onClick={close}
+              />
+            }
+          >
             {editing
-              ? "Choose visit dates. The calendar shows stays in other cities."
-              : "Where would you like to go? Add a city to start shaping your trip."}
-          </Text>
-          <fieldset disabled={saving} className="destination-drawer-fields">
-            {!editing && (
-              <AsyncAutocomplete
-                label="Destination city"
-                placeholder="Search for a city"
-                inputValue={query}
-                selectedOptionValue={city?.id}
-                selectedOptionLabel={city?.label}
-                search={searchDestinationCities}
-                getOptionValue={(option) => option.id}
-                getOptionText={(option) => option.label}
-                onInputChange={(value) => {
-                  setQuery(value);
-                  setCity(undefined);
-                  setError(undefined);
-                }}
-                onOptionSelect={(option) => {
-                  const existing = destinations.find(
-                    (item) =>
-                      item.properties.name === option.cityName &&
-                      item.properties.countryCode === option.countryCode,
-                  )?.properties.constraints;
-                  setArrivalFlex(Number(existing?.arrivalFlexibilityDays ?? 0));
-                  setDepartureFlex(
-                    Number(existing?.departureFlexibilityDays ?? 0),
-                  );
-                  setKeepOrder(existing?.keepAfterPrevious !== false);
-                  setCity(option);
-                  setQuery(option.label);
-                  setError(undefined);
-                }}
-                emptyMessage="No cities found. Try another name."
-              />
-            )}
-            <TripCalendar
-              arrivalDate={arrivalDate}
-              departureDate={departureDate}
-              onChange={(arrival, departure) => {
-                setArrivalDate(arrival);
-                setDepartureDate(departure);
-              }}
-              destinations={destinations}
-              excludeCityId={
-                editing?.destination.id ??
-                destinations.find(
-                  (item) =>
-                    item.properties.name === city?.cityName &&
-                    item.properties.countryCode === city?.countryCode,
-                )?.id
-              }
-              disabled={saving}
-            />
-            <div className="destination-flight-constraints">
-              <strong>Flight flexibility and ordering</strong>
-              <Text size={200}>
-                These constraints apply to every visit to this city.
-              </Text>
-              <Field
-                label="Arrival flexibility (± days)"
-                hint="0–5 days around the selected arrival date"
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  max={5}
-                  value={String(arrivalFlex)}
-                  onChange={(_, data) => setArrivalFlex(Number(data.value))}
+              ? `Edit dates: ${editing.destination.properties.name}`
+              : "Add destination"}
+          </DrawerHeaderTitle>
+        </DrawerHeader>
+        <DrawerBody>
+          <form
+            id="add-destination-form"
+            className="destination-drawer-form"
+            onSubmit={submit}
+          >
+            <Text className="destination-drawer-description">
+              {editing
+                ? "Choose visit dates. The calendar shows stays in other cities."
+                : "Where would you like to go? Add a city to start shaping your trip."}
+            </Text>
+            <fieldset disabled={saving} className="destination-drawer-fields">
+              {!editing && (
+                <AsyncAutocomplete
+                  label="Destination city"
+                  placeholder="Search for a city"
+                  inputValue={query}
+                  selectedOptionValue={city?.id}
+                  selectedOptionLabel={city?.label}
+                  search={searchDestinationCities}
+                  getOptionValue={(option) => option.id}
+                  getOptionText={(option) => option.label}
+                  onInputChange={(value) => {
+                    setQuery(value);
+                    setCity(undefined);
+                  }}
+                  onOptionSelect={(option) => {
+                    const existing = destinations.find(
+                      (item) =>
+                        item.properties.name === option.cityName &&
+                        item.properties.countryCode === option.countryCode,
+                    )?.properties.constraints;
+                    setArrivalFlex(
+                      Number(existing?.arrivalFlexibilityDays ?? 0),
+                    );
+                    setDepartureFlex(
+                      Number(existing?.departureFlexibilityDays ?? 0),
+                    );
+                    setKeepOrder(existing?.keepAfterPrevious !== false);
+                    setCity(option);
+                    setQuery(option.label);
+                  }}
+                  emptyMessage="No cities found. Try another name."
                 />
-              </Field>
-              <Field
-                label="Departure flexibility (± days)"
-                hint="0–5 days around the selected departure date"
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  max={5}
-                  value={String(departureFlex)}
-                  onChange={(_, data) => setDepartureFlex(Number(data.value))}
-                />
-              </Field>
-              <Checkbox
-                label="Keep this destination after the previous one"
-                checked={keepOrder}
-                onChange={(_, data) => setKeepOrder(Boolean(data.checked))}
-              />
-              {invalidFlex && (
-                <Text role="alert">Choose whole numbers from 0 to 5 days.</Text>
               )}
-            </div>
-          </fieldset>
-          {error && <Text role="alert">{error}</Text>}
-        </form>
-      </DrawerBody>
-      <DrawerFooter className="destination-drawer-footer">
-        <Button appearance="secondary" disabled={saving} onClick={close}>
-          Cancel
-        </Button>
-        <Button
-          appearance="primary"
-          type="submit"
-          form="add-destination-form"
-          disabled={
-            (!editing && !city) || saving || invalidDates || invalidFlex
-          }
-        >
-          {saving ? "Saving…" : editing ? "Save dates" : "Add destination"}
-        </Button>
-      </DrawerFooter>
-    </OverlayDrawer>
+              <TripCalendar
+                arrivalDate={arrivalDate}
+                departureDate={departureDate}
+                onChange={(arrival, departure) => {
+                  setArrivalDate(arrival);
+                  setDepartureDate(departure);
+                }}
+                destinations={destinations}
+                excludeCityId={
+                  editing?.destination.id ??
+                  destinations.find(
+                    (item) =>
+                      item.properties.name === city?.cityName &&
+                      item.properties.countryCode === city?.countryCode,
+                  )?.id
+                }
+                disabled={saving}
+              />
+              <div className="destination-flight-constraints">
+                <strong>Flight flexibility and ordering</strong>
+                <Text size={200}>
+                  These constraints apply to every visit to this city.
+                </Text>
+                <Field
+                  label="Arrival flexibility (± days)"
+                  hint="0–5 days around the selected arrival date"
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={String(arrivalFlex)}
+                    onChange={(_, data) => setArrivalFlex(Number(data.value))}
+                  />
+                </Field>
+                <Field
+                  label="Departure flexibility (± days)"
+                  hint="0–5 days around the selected departure date"
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={String(departureFlex)}
+                    onChange={(_, data) => setDepartureFlex(Number(data.value))}
+                  />
+                </Field>
+                <Checkbox
+                  label="Keep this destination after the previous one"
+                  checked={keepOrder}
+                  onChange={(_, data) => setKeepOrder(Boolean(data.checked))}
+                />
+                {invalidFlex && (
+                  <Text role="alert">
+                    Choose whole numbers from 0 to 5 days.
+                  </Text>
+                )}
+              </div>
+            </fieldset>
+          </form>
+        </DrawerBody>
+        <DrawerFooter className="destination-drawer-footer">
+          <Button appearance="secondary" disabled={saving} onClick={close}>
+            Cancel
+          </Button>
+          <Button
+            appearance="primary"
+            type="submit"
+            form="add-destination-form"
+            disabled={
+              (!editing && !city) || saving || invalidDates || invalidFlex
+            }
+          >
+            {saving ? "Saving…" : editing ? "Save dates" : "Add destination"}
+          </Button>
+        </DrawerFooter>
+      </OverlayDrawer>
+    </>
   );
 }

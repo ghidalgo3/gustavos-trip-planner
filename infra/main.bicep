@@ -303,6 +303,61 @@ resource azureMapsSasIdentitySearchReader 'Microsoft.Authorization/roleAssignmen
   }
 }
 
+// Search Reader does not authorize the route matrix API. Keep the added data
+// permission limited to reading route calculations, without storage writes.
+resource azureMapsRouteReaderRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(subscription().id, resourceGroup().id, 'trip-planner-maps-route-reader')
+  properties: {
+    roleName: 'Trip Planner Azure Maps Route Reader'
+    description: 'Allows walking and road travel estimates for activity planning.'
+    type: 'CustomRole'
+    permissions: [{
+      actions: []
+      notActions: []
+      dataActions: ['Microsoft.Maps/accounts/services/route/read']
+      notDataActions: []
+    }]
+    assignableScopes: [resourceGroup().id]
+  }
+}
+
+resource azureMapsSasIdentityRouteReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(azureMapsAccount.id, azureMapsSasIdentity.id, azureMapsRouteReaderRole.id)
+  scope: azureMapsAccount
+  properties: {
+    principalId: azureMapsSasIdentity.properties.principalId
+    roleDefinitionId: azureMapsRouteReaderRole.id
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Search Reader does not include coordinate-based timezone lookup.
+resource azureMapsTimeZoneReaderRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(subscription().id, resourceGroup().id, 'trip-planner-maps-timezone-reader')
+  properties: {
+    roleName: 'Trip Planner Azure Maps Timezone Reader'
+    description: 'Allows resolving destination timezones from coordinates.'
+    type: 'CustomRole'
+    permissions: [{
+      actions: []
+      notActions: []
+      dataActions: ['Microsoft.Maps/accounts/services/timezone/read']
+      notDataActions: []
+    }]
+    assignableScopes: [resourceGroup().id]
+  }
+}
+
+resource azureMapsSasIdentityTimeZoneReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(azureMapsAccount.id, azureMapsSasIdentity.id, azureMapsTimeZoneReaderRole.id)
+  scope: azureMapsAccount
+  properties: {
+    principalId: azureMapsSasIdentity.properties.principalId
+    roleDefinitionId: azureMapsTimeZoneReaderRole.id
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource azureMapsSasIssuerRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
   name: azureMapsSasIssuerRoleDefinitionId
   properties: {
@@ -347,11 +402,13 @@ resource webAppLogs 'Microsoft.Web/sites/config@2023-12-01' = {
       enabled: true
     }
     failedRequestsTracing: {
-      enabled: true
+      enabled: false
     }
     httpLogs: {
       fileSystem: {
-        enabled: true
+        // Calendar subscription paths carry bearer tokens. App Service cannot
+        // redact individual path segments, so request-path logs stay disabled.
+        enabled: false
         retentionInDays: 1
         retentionInMb: 35
       }

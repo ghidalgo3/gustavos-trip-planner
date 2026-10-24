@@ -1,3 +1,4 @@
+import { useActionToast } from "./useActionToast";
 import { FormEvent, useState } from "react";
 import { Button, Card, Field, Text, Title1 } from "@fluentui/react-components";
 import { useNavigate } from "react-router";
@@ -6,6 +7,8 @@ import AsyncAutocomplete from "./AsyncAutocomplete";
 import AirlineCombobox from "./AirlineCombobox";
 import ActivityLog from "./ActivityLog";
 import ConnectedAgents from "./ConnectedAgents";
+import ActivityPreferencesEditor from "./ActivityPreferencesEditor";
+import "./activityPlan.css";
 import {
   resolveCity,
   saveUserProfile,
@@ -44,7 +47,7 @@ export default function ProfilePage({
   const [airportsReady, setAirportsReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
+  const { notify, toaster } = useActionToast();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -76,7 +79,6 @@ export default function ProfilePage({
     }
     setSaving(true);
     setError(undefined);
-    setNotice(undefined);
     try {
       const homeCity = selectedCity
         ? { name: selectedCity.label, ...(await resolveCity(selectedCity)) }
@@ -100,12 +102,13 @@ export default function ProfilePage({
       );
       setCityQuery(saved.profile.homeCity?.name ?? "");
       setAirlines(saved.profile.preferredAirlines);
-      setNotice("Profile saved.");
+      notify("Profile saved.");
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Unable to save your profile.",
+        "error",
       );
     } finally {
       setSaving(false);
@@ -138,7 +141,6 @@ export default function ProfilePage({
               setPreferredAirport(null);
               setCityChanged(true);
               setError(undefined);
-              setNotice(undefined);
             }}
             onOptionSelect={(city) => {
               setSelectedCity(city);
@@ -146,7 +148,6 @@ export default function ProfilePage({
               setCityQuery(city.label);
               setCityChanged(true);
               setError(undefined);
-              setNotice(undefined);
             }}
             debounceMs={300}
           />
@@ -164,12 +165,11 @@ export default function ProfilePage({
               value={airlines}
               onChange={(codes) => {
                 setAirlines(codes);
-                setNotice(undefined);
               }}
             />
           </Field>
           {error && <Text role="alert">{error}</Text>}
-          {notice && <Text role="status">{notice}</Text>}
+          {toaster}
           <Button
             type="submit"
             appearance="primary"
@@ -180,6 +180,10 @@ export default function ProfilePage({
         </form>
       </Card>
       <ActivityLog />
+      <ActivityPreferencesEditor
+        path="/user/activity-preferences"
+        label="My activity interests (private)"
+      />
       <ConnectedAgents />
     </section>
   );

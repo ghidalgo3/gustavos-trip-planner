@@ -1,7 +1,8 @@
+using Microsoft.Spatial;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Destinations;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -21,15 +22,24 @@ internal static class PlanningEndpointHelpers
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return (null, null, error);
+        }
+
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return (null, user, Results.NotFound());
+        }
+
         if (
             ownerOnly
             && await database.GetTripAsync(user.Id, tripId, context.RequestAborted) is null
         )
+        {
             return (trip, user, Results.Forbid());
+        }
+
         return (trip, user, null);
     }
 
@@ -45,7 +55,10 @@ internal static class PlanningEndpointHelpers
         {
             var snapshot = await service.GetAsync(userId, trip, context.RequestAborted);
             if (cityId is not null && snapshot.Find(cityId) is null)
+            {
                 return (null, Results.NotFound());
+            }
+
             return (snapshot, null);
         }
         catch (InvalidOperationException exception)
@@ -79,7 +92,10 @@ internal static class PlanningEndpointHelpers
         new(
             "Feature",
             place.CityId,
-            new("Point", [place.Longitude, place.Latitude]),
+            new(
+                "Point",
+                GeographyPoint.Create(latitude: place.Latitude, longitude: place.Longitude)
+            ),
             new(place.Name, place.CountryCode, place.TimeZone, "", null, null, [], false)
             {
                 Constraints = place.Constraints,

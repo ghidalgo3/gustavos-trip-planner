@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Flights;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -27,9 +27,12 @@ public static class UserEndpoints
     {
         AuthenticatedUserProfile? profile = currentUser.Profile;
         if (profile is null)
+        {
             return Results.Ok(
                 new CurrentUserResponse(false, null, null, null, null, false, new(null, []))
             );
+        }
+
         User user = await database.GetOrCreateUserAsync(profile, context.RequestAborted);
         return Results.Ok(ToResponse(user));
     }
@@ -45,7 +48,10 @@ public static class UserEndpoints
             ? null
             : await context.GetTokenAsync("access_token");
         if (string.IsNullOrWhiteSpace(accessToken))
+        {
             return Results.NotFound();
+        }
+
         using HttpResponseMessage? imageResponse = await GetProfileImageAsync(
             httpClientFactory.CreateClient(),
             profile.Provider,
@@ -53,7 +59,10 @@ public static class UserEndpoints
             context.RequestAborted
         );
         if (imageResponse is null || !imageResponse.IsSuccessStatusCode)
+        {
             return Results.NotFound();
+        }
+
         byte[] image = await imageResponse.Content.ReadAsByteArrayAsync(context.RequestAborted);
         context.Response.Headers.CacheControl = "private, max-age=300";
         return Results.File(
@@ -73,17 +82,27 @@ public static class UserEndpoints
         var errors = new Dictionary<string, string[]>();
         ProfileHomeCity? city = request.HomeCity;
         if (city is null || string.IsNullOrWhiteSpace(city.Name))
+        {
             errors[nameof(request.HomeCity)] = ["Home city is required."];
+        }
         else
         {
             if (!double.IsFinite(city.Longitude) || city.Longitude is < -180 or > 180)
+            {
                 errors[nameof(city.Longitude)] = ["Longitude must be between -180 and 180."];
+            }
+
             if (!double.IsFinite(city.Latitude) || city.Latitude is < -90 or > 90)
+            {
                 errors[nameof(city.Latitude)] = ["Latitude must be between -90 and 90."];
+            }
         }
         string[]? submitted = request.PreferredAirlines;
         if (submitted is null || submitted.Length > 20 || submitted.Any(code => code is null))
+        {
             errors[nameof(request.PreferredAirlines)] = ["Provide up to 20 airline codes."];
+        }
+
         string[] codes = submitted is null
             ? []
             : submitted
@@ -92,23 +111,36 @@ public static class UserEndpoints
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
         if (codes.Any(code => code.Length != 2 || !code.All(char.IsAsciiLetterOrDigit)))
+        {
             errors[nameof(request.PreferredAirlines)] = ["Use two-character airline codes."];
+        }
+
         string? preferredAirport = request.PreferredAirport?.Trim().ToUpperInvariant();
         if (city is not null && errors.Count == 0)
         {
             var choices = airports.HomeAirports(city);
             if (choices.Count == 1 && preferredAirport is null)
+            {
                 preferredAirport = choices[0].Code;
+            }
+
             if (choices.Count > 1 && preferredAirport is null)
+            {
                 errors[nameof(request.PreferredAirport)] = ["Choose your preferred home airport."];
+            }
+
             if (preferredAirport is not null && !choices.Any(a => a.Code == preferredAirport))
+            {
                 errors[nameof(request.PreferredAirport)] =
                 [
                     "Choose an airport serving your home city.",
                 ];
+            }
         }
         if (errors.Count > 0)
+        {
             return Results.ValidationProblem(errors);
+        }
 
         AuthenticatedUserProfile profile = currentUser.Profile!;
         User existing = await database.GetOrCreateUserAsync(profile, context.RequestAborted);
@@ -144,7 +176,10 @@ public static class UserEndpoints
             );
         }
         if (provider != "google")
+        {
             return null;
+        }
+
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
             "https://www.googleapis.com/oauth2/v3/userinfo"
@@ -152,7 +187,10 @@ public static class UserEndpoints
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         using HttpResponseMessage response = await client.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
+        {
             return null;
+        }
+
         await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using JsonDocument document = await JsonDocument.ParseAsync(
             stream,
@@ -164,7 +202,10 @@ public static class UserEndpoints
             || uri.Scheme != Uri.UriSchemeHttps
             || !uri.Host.EndsWith(".googleusercontent.com", StringComparison.OrdinalIgnoreCase)
         )
+        {
             return null;
+        }
+
         return await client.GetAsync(
             uri,
             HttpCompletionOption.ResponseHeadersRead,

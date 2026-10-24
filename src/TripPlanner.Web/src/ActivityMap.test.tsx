@@ -175,7 +175,7 @@ test("map bubbles match list positions even when an activity has no location", a
         index === 1 ? null : { type: "Point", coordinates: [2.35, 48.86] },
       properties: {
         name,
-        durationMinutes: null,
+        duration: null,
         description: "",
         cost: null,
         state: "Proposed",
@@ -265,3 +265,84 @@ test.each([false, true])(
     expect(setCamera).not.toHaveBeenCalled();
   },
 );
+
+test("fits all located activities without a hotel, refits new locations, and explains missing pins", async () => {
+  vi.mocked(getMapToken).mockResolvedValue({
+    token: "sas",
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2030-01-01T02:00:00Z",
+  });
+  const activities: Activity[] = [
+    {
+      type: "Feature",
+      id: "museum",
+      geometry: { type: "Point", coordinates: [2.3, 48.8] },
+      properties: {
+        name: "Museum",
+        duration: null,
+        description: "",
+        cost: null,
+        state: "Proposed",
+        placeName: null,
+      },
+    },
+    {
+      type: "Feature",
+      id: "park",
+      geometry: null,
+      properties: {
+        name: "Park",
+        duration: null,
+        description: "",
+        cost: null,
+        state: "Planned",
+        placeName: null,
+      },
+    },
+  ];
+  const props = {
+    center: {
+      type: "Point" as const,
+      coordinates: [2.35, 48.86] as [number, number],
+    },
+    activities,
+    onSelect: vi.fn(),
+  };
+  const { rerender } = render(<ActivityMap {...props} />);
+  await waitFor(() => expect(createMap).toHaveBeenCalledTimes(1));
+  act(() => events.get("ready")?.({}));
+  expect(setCamera).toHaveBeenLastCalledWith({
+    bounds: [2.3, 48.8, 2.35, 48.86],
+    padding: 48,
+    maxZoom: 11,
+  });
+  expect(screen.getByText("1 of 2 activities located")).toBeVisible();
+  expect(
+    screen.getByText("1 needs a location to appear on the map."),
+  ).toBeVisible();
+  rerender(
+    <ActivityMap {...props} selectedId="museum" activities={[...activities]} />,
+  );
+  expect(setCamera).toHaveBeenCalledTimes(1);
+  const located: Activity[] = [
+    activities[0],
+    { ...activities[1], geometry: { type: "Point", coordinates: [2.5, 48.9] } },
+  ];
+  rerender(<ActivityMap {...props} activities={located} />);
+  expect(setCamera).toHaveBeenLastCalledWith({
+    bounds: [2.3, 48.8, 2.5, 48.9],
+    padding: 48,
+    maxZoom: 11,
+  });
+  expect(screen.getByText("2 of 2 activities located")).toBeVisible();
+  expect(
+    screen.queryByText(/needs a location to appear/),
+  ).not.toBeInTheDocument();
+  setCamera.mockClear();
+  fireEvent.click(screen.getByRole("button", { name: "Show all locations" }));
+  expect(setCamera).toHaveBeenCalledWith({
+    bounds: [2.3, 48.8, 2.5, 48.9],
+    padding: 48,
+    maxZoom: 11,
+  });
+});

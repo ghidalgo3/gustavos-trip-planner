@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/format
 
-Format the frontend with Prettier and all repository C# code with CSharpier.
+Format the frontend with Prettier, add required C# braces, then run CSharpier.
 USAGE
 }
 
@@ -30,6 +30,9 @@ log "Formatting frontend code with Prettier"
 
 log "Restoring the repository's CSharpier tool"
 dotnet tool restore
+
+log "Adding required braces to C# blocks"
+dotnet format style GustavoTripPlanner.sln --diagnostics IDE0011 --severity error
 
 log "Formatting C# code with CSharpier"
 dotnet csharpier format --no-cache .

@@ -78,6 +78,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     Authentication__Google__ClientId: googleClientId
     Ignav__ApiKey: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=ignav-api-key)'
     OpenAI__ApiKey: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=openai-api-key)'
+    ActivityPlanning__PublicBaseUrl: 'https://${webApp.properties.defaultHostName}/'
     Authentication__Google__ClientSecret: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=google-client-secret)'
     Authentication__Microsoft__ClientId: microsoftClientId
     Authentication__Microsoft__ClientSecret: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=microsoft-client-secret)'

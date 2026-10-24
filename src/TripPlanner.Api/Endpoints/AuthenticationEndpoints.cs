@@ -21,7 +21,10 @@ public static class AuthenticationEndpoints
             ) =>
             {
                 if (!authenticationEnabled)
+                {
                     return NotConfigured();
+                }
+
                 string? scheme = provider switch
                 {
                     "google" => "google",
@@ -52,7 +55,10 @@ public static class AuthenticationEndpoints
             ) =>
             {
                 if (!authenticationEnabled)
+                {
                     return NotConfigured();
+                }
+
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 return Results.Redirect(
                     SafeRedirect(post_logout_redirect_uri, webOptions.Value.ClientOrigins)
@@ -72,6 +78,13 @@ public static class AuthenticationEndpoints
         IReadOnlyCollection<string> allowedOrigins
     )
     {
+        // Browsers can normalize backslashes into authority separators. Reject
+        // these and control characters before considering a relative redirect.
+        if (candidate is not null && (candidate.Contains('\\') || candidate.Any(char.IsControl)))
+        {
+            candidate = null;
+        }
+
         if (
             !string.IsNullOrWhiteSpace(candidate)
             && Uri.TryCreate(candidate, UriKind.Absolute, out Uri? uri)
@@ -83,14 +96,18 @@ public static class AuthenticationEndpoints
                 )
             )
         )
+        {
             return uri.ToString();
+        }
 
         if (
             !string.IsNullOrWhiteSpace(candidate)
             && candidate.StartsWith('/')
             && !candidate.StartsWith("//")
         )
+        {
             return candidate;
+        }
 
         return allowedOrigins.FirstOrDefault()?.TrimEnd('/') + "/";
     }

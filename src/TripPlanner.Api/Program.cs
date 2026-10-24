@@ -2,19 +2,36 @@ using System.Reflection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
+using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Endpoints;
+using TripPlanner.Api.Hosting;
+using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Serialization;
+using TripPlanner.Api.Services.Activities;
+using TripPlanner.Api.Services.ActivityPlanning;
+using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Services.Flights;
+using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Services.TripForms;
+using TripPlanner.Api.Validation;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new IsoTimeOnlyConverter());
+    options.SerializerOptions.Converters.Add(new IsoDurationConverter());
+});
 WebOptions webOptions = new()
 {
     ClientOrigins =
         builder.Configuration.GetSection(WebOptions.ClientOriginsSectionName).Get<string[]>()
         ?? ["http://localhost:5173"],
 };
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+    options.AddSchemaTransformer<InputOpenApiSchemaTransformer>()
+);
 builder.Services.AddHealthChecks();
 builder.Services.AddHttpClient();
 builder.Services.Configure<AzureMapsOptions>(
@@ -35,7 +52,14 @@ builder.Services.AddSingleton<AirportCatalog>();
 builder.Services.AddSingleton<DestinationService>();
 builder.Services.AddSingleton<DestinationFlightPlanning>();
 builder.Services.AddHttpClient<ICityPlaceResolver, AzureCityPlaceResolver>();
+builder.Services.AddHttpClient<IDestinationTimeZoneResolver, AzureDestinationTimeZoneResolver>();
 builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolver>();
+builder.Services.AddHttpClient<IActivityDetailsResearch, OpenAiActivityDetailsResearch>(client =>
+    client.Timeout = TimeSpan.FromSeconds(30)
+);
+builder.Services.AddHttpClient<IActivityCoordinateResearch, OpenAiActivityCoordinateResearch>(
+    client => client.Timeout = TimeSpan.FromSeconds(20)
+);
 builder.Services.AddHttpClient<IActivityAssistant, OpenAiActivityAssistant>(client =>
     client.Timeout = TimeSpan.FromSeconds(120)
 );
@@ -49,6 +73,7 @@ builder.Services.AddHttpClient<ITripFormAssistant, OpenAiTripFormAssistant>(clie
     client.Timeout = TimeSpan.FromSeconds(90)
 );
 builder.AddIgnav();
+builder.AddActivityPlanning();
 builder.Services.AddSingleton<IMapTokenProvider>(serviceProvider =>
 {
     AzureMapsOptions maps = serviceProvider.GetRequiredService<IOptions<AzureMapsOptions>>().Value;
@@ -71,7 +96,10 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 await app.Services.GetRequiredService<IDatabaseMigrator>().MigrateAsync();
 if (mcpEnabled)
+{
     await app.InitializeMcpAsync();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -94,22 +122,27 @@ app.UseDefaultFiles();
 app.UseStaticFiles(SpaHosting.StaticFiles());
 app.UseCors();
 if (mcpEnabled)
+{
     app.UseMcpSecurity();
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 if (mcpEnabled)
+{
     app.MapOAuthEndpoints();
+}
+
 app.MapMcpEndpoints(mcpEnabled);
 
 app.MapAuthenticationEndpoints(authenticationEnabled);
 app.MapHealthChecks("/health");
 
 var api = app.MapGroup("");
+api.AddEndpointFilterFactory(ApiInputValidation.CreateFilter);
 
 // These routes remain here until a broader endpoint organization pattern emerges.
 api.MapAirportsEndpoints();
-api.MapGet("/airports", (string q, AirportCatalog airports) => Results.Ok(airports.Search(q)))
-    .WithName("SearchAirports");
 api.MapGet(
         "/service",
         () =>
@@ -131,10 +164,13 @@ api.MapGet(
             MapToken token = await tokenProvider.GetTokenAsync(context.RequestAborted);
             context.Response.Headers.CacheControl = "no-store";
             if (token.ExpiresAt <= clock.GetUtcNow().AddMinutes(1))
+            {
                 return Results.Problem(
                     title: "Azure Maps token expired. Restart the local development server to renew it.",
                     statusCode: StatusCodes.Status503ServiceUnavailable
                 );
+            }
+
             return Results.Ok(
                 new
                 {
@@ -159,6 +195,8 @@ api.MapActivityEndpoints();
 api.MapPartyEndpoints();
 api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();
+api.MapActivityPlanEndpoints();
+app.MapActivityCalendarEndpoints(api);
 
 app.MapFallbackToFile("index.html", SpaHosting.StaticFiles());
 app.Run();

@@ -39,6 +39,14 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: true,
       },
+      "/calendars": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "^/trips/[^/]+/(activity-preferences|calendar-subscriptions)(/|\\?|$)": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: true,
+      },
       "^/trips/[^/]+/(flights(?::[^/?]+)?|flights/.*|parties)(/|\\?|$)": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: true,

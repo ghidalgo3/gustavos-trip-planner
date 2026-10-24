@@ -20,10 +20,11 @@ public sealed record Trip(
 
 public sealed record Party(Guid Id, Guid TripId, IReadOnlyList<Guid> UserIds)
 {
-    public IReadOnlyDictionary<Guid, string> MemberRoles { get; init; } =
-        new Dictionary<Guid, string>();
+    public IReadOnlyDictionary<Guid, PartyRole> MemberRoles { get; init; } =
+        new Dictionary<Guid, PartyRole>();
 
-    public string RoleFor(Guid userId) => MemberRoles.GetValueOrDefault(userId, "Traveller");
+    public PartyRole RoleFor(Guid userId) =>
+        MemberRoles.GetValueOrDefault(userId, PartyRole.Traveller);
 }
 
 public sealed record SelectedFlight(

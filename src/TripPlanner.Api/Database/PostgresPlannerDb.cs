@@ -38,14 +38,17 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         var parties = new List<Party>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             parties.Add(
                 new(reader.GetGuid(0), reader.GetGuid(1), reader.GetFieldValue<Guid[]>(2))
                 {
                     MemberRoles =
-                        JsonSerializer.Deserialize<Dictionary<Guid, string>>(reader.GetString(3))
+                        JsonSerializer.Deserialize<Dictionary<Guid, PartyRole>>(reader.GetString(3))
                         ?? [],
                 }
             );
+        }
+
         return parties;
     }
 
@@ -175,7 +178,9 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             (object?)profile.PreferredAirport ?? DBNull.Value
         );
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
             throw new InvalidOperationException("The user could not be found.");
+        }
 
         return await GetUserAsync(userId, cancellationToken)
             ?? throw new InvalidOperationException("The user's profile could not be saved.");
@@ -193,7 +198,10 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         command.Parameters.AddWithValue(featureFlags);
         command.Parameters.AddWithValue(userId);
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
             throw new InvalidOperationException("The user could not be found.");
+        }
+
         return await GetUserAsync(userId, cancellationToken)
             ?? throw new InvalidOperationException("The user could not be found.");
     }
@@ -338,7 +346,10 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
         }
 
         if (transaction is not null)
+        {
             await transaction.CommitAsync(cancellationToken);
+        }
+
         return trip;
     }
 

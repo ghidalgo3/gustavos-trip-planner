@@ -1,17 +1,18 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 
 namespace TripPlanner.Api.DTO;
 
 public sealed record CreateTripRequest(
-    string Name,
-    string? Description,
-    JsonElement? Constraints = null
+    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property: StringLength(4000)] string? Description,
+    [property: JsonObjectValue] JsonElement? Constraints = null
 );
 
 public sealed record UpdateTripRequest(
-    string Name,
-    string? Description,
-    JsonElement? Constraints = null
+    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property: StringLength(4000)] string? Description,
+    [property: JsonObjectValue] JsonElement? Constraints = null
 );
 
 public sealed record TripResponse(

@@ -3,7 +3,9 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Activities;
+using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Validation;
 using static TripPlanner.Api.Endpoints.PlanningEndpointHelpers;
 
 namespace TripPlanner.Api.Endpoints;
@@ -30,6 +32,18 @@ public static class ActivityEndpoints
         destinations
             .MapDelete("/{destinationCity}/activities/{activityId:guid}", DeleteActivity)
             .WithName("DeleteDestinationActivity");
+        destinations
+            .MapPost(
+                "/{destinationCity}/activities/{activityId:guid}/location-proposals",
+                CreateLocationProposal
+            )
+            .WithName("CreateActivityLocationProposal");
+        destinations
+            .MapPost(
+                "/{destinationCity}/activities/{activityId:guid}/details-proposals",
+                CreateDetailsProposal
+            )
+            .WithName("CreateActivityDetailsProposal");
         destinations
             .MapPost("/{destinationCity}:suggest", Suggest)
             .WithName("SuggestDestinationActivities");
@@ -61,7 +75,10 @@ public static class ActivityEndpoints
             currentUser
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var (_, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
@@ -79,7 +96,10 @@ public static class ActivityEndpoints
             )
                 is null
         )
+        {
             return resolveError;
+        }
+
         var items = await database.GetActivitiesAsync(
             user.Id,
             tripId,
@@ -112,7 +132,10 @@ public static class ActivityEndpoints
             currentUser
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var (_, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
@@ -130,7 +153,10 @@ public static class ActivityEndpoints
             )
                 is null
         )
+        {
             return resolveError;
+        }
+
         Activity? item = await database.GetActivityAsync(
             user.Id,
             tripId,
@@ -139,7 +165,10 @@ public static class ActivityEndpoints
             context.RequestAborted
         );
         if (item is null)
+        {
             return Results.NotFound();
+        }
+
         context.Response.Headers.ETag = ETag(item.UpdatedAt);
         return GeoJson(item.ToFeature());
     }
@@ -162,7 +191,10 @@ public static class ActivityEndpoints
             currentUser
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var (snapshot, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
@@ -171,12 +203,21 @@ public static class ActivityEndpoints
             context
         );
         if (resolveError is not null)
+        {
             return resolveError;
+        }
+
         if (!ContextMatches(context, snapshot!, destinationCity))
+        {
             return DestinationChanged();
+        }
+
         var validation = Validate(input, null);
         if (validation is not null)
+        {
             return validation;
+        }
+
         var now = DateTimeOffset.UtcNow;
         var item = new Activity(
             Guid.NewGuid(),
@@ -186,7 +227,6 @@ public static class ActivityEndpoints
             input.Properties with
             {
                 Name = input.Properties.Name.Trim(),
-                State = input.Properties.State.Trim(),
             },
             now,
             now
@@ -199,7 +239,10 @@ public static class ActivityEndpoints
             context.RequestAborted
         );
         if (saved is null)
+        {
             return DestinationChanged();
+        }
+
         context.Response.Headers.ETag = ETag(saved.UpdatedAt);
         context.Response.Headers.Location =
             $"/trips/{tripId:D}/destinations/{destinationCity}/activities/{saved.Id:D}";
@@ -208,6 +251,157 @@ public static class ActivityEndpoints
             statusCode: StatusCodes.Status201Created,
             contentType: "application/geo+json"
         );
+    }
+
+    internal static Task<IResult> CreateLocationProposal(
+        Guid tripId,
+        string destinationCity,
+        Guid activityId,
+        HttpContext context,
+        IPlannerDb database,
+        DestinationService service,
+        ICurrentUser currentUser,
+        IActivityCoordinateResearch research
+    ) =>
+        ResearchActivity(
+            tripId,
+            destinationCity,
+            activityId,
+            context,
+            database,
+            service,
+            currentUser,
+            (existing, destination) =>
+                research.FindAsync(
+                    new(
+                        existing.Properties.Name,
+                        existing.Properties.PlaceName,
+                        existing.Properties.Duration,
+                        existing.Properties.Description,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                    ),
+                    destination.Properties.Name,
+                    destination.Geometry!,
+                    context.RequestAborted
+                )
+        );
+
+    internal static Task<IResult> CreateDetailsProposal(
+        Guid tripId,
+        string destinationCity,
+        Guid activityId,
+        HttpContext context,
+        IPlannerDb database,
+        DestinationService service,
+        ICurrentUser currentUser,
+        IActivityDetailsResearch research
+    ) =>
+        ResearchActivity(
+            tripId,
+            destinationCity,
+            activityId,
+            context,
+            database,
+            service,
+            currentUser,
+            (existing, destination) =>
+                research.FindAsync(existing, destination, context.RequestAborted)
+        );
+
+    private static async Task<IResult> ResearchActivity<T>(
+        Guid tripId,
+        string destinationCity,
+        Guid activityId,
+        HttpContext context,
+        IPlannerDb database,
+        DestinationService service,
+        ICurrentUser currentUser,
+        Func<Activity, GeoJsonFeature<DestinationProperties>, Task<T>> research
+    )
+    {
+        var (trip, user, error) = await AuthorizeAsync(
+            tripId,
+            true,
+            context,
+            database,
+            currentUser
+        );
+        if (error is not null)
+        {
+            return error;
+        }
+        if (!user!.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        {
+            return Results.Forbid();
+        }
+        var (snapshot, resolveError) = await ResolveAsync(
+            user.Id,
+            trip!,
+            destinationCity,
+            service,
+            context
+        );
+        if (resolveError is not null)
+        {
+            return resolveError;
+        }
+        if (!ContextMatches(context, snapshot!, destinationCity))
+        {
+            return DestinationChanged();
+        }
+        var existing = await database.GetActivityAsync(
+            user.Id,
+            tripId,
+            destinationCity,
+            activityId,
+            context.RequestAborted
+        );
+        if (existing is null)
+        {
+            return Results.NotFound();
+        }
+        if (!MatchETag(context, existing.UpdatedAt))
+        {
+            return Results.StatusCode(412);
+        }
+        var destination = snapshot!.Find(destinationCity)!;
+        try
+        {
+            var suggestion = await research(existing, destination);
+            context.Response.Headers.ETag = ETag(existing.UpdatedAt);
+            context.Response.Headers.CacheControl = "no-store";
+            // Preview only. Acceptance uses the ordinary, concurrency-checked activity replacement.
+            return Results.Ok(
+                new { suggestion, contextVersion = destination.Properties.ContextVersion }
+            );
+        }
+        catch (Exception exception)
+            when (exception
+                    is HttpRequestException
+                        or InvalidOperationException
+                        or System.Text.Json.JsonException
+                        or OperationCanceledException
+                        or IOException
+            )
+        {
+            context.RequestAborted.ThrowIfCancellationRequested();
+            context
+                .RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("ActivityResearch")
+                .LogWarning(
+                    exception,
+                    "Activity research failed for activity {ActivityId}",
+                    activityId
+                );
+            return Results.Problem(
+                "Activity research is unavailable. Try again or edit the activity manually.",
+                statusCode: 502
+            );
+        }
     }
 
     internal static async Task<IResult> ReplaceActivity(
@@ -229,7 +423,10 @@ public static class ActivityEndpoints
             currentUser
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var (snapshot, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
@@ -238,12 +435,21 @@ public static class ActivityEndpoints
             context
         );
         if (resolveError is not null)
+        {
             return resolveError;
+        }
+
         if (!ContextMatches(context, snapshot!, destinationCity))
+        {
             return DestinationChanged();
+        }
+
         var validation = Validate(input, activityId);
         if (validation is not null)
+        {
             return validation;
+        }
+
         Activity? existing = await database.GetActivityAsync(
             user.Id,
             tripId,
@@ -252,19 +458,21 @@ public static class ActivityEndpoints
             context.RequestAborted
         );
         if (existing is null)
+        {
             return Results.NotFound();
+        }
+
         if (!MatchETag(context, existing.UpdatedAt))
+        {
             return Results.StatusCode(412);
+        }
+
         var saved = await database.SaveActivityAsync(
             user.Id,
             existing with
             {
                 Geometry = input.Geometry,
-                Properties = input.Properties with
-                {
-                    Name = input.Properties.Name.Trim(),
-                    State = input.Properties.State.Trim(),
-                },
+                Properties = input.Properties with { Name = input.Properties.Name.Trim() },
                 UpdatedAt = DateTimeOffset.UtcNow,
             },
             snapshot!.Find(destinationCity)!.Properties.ContextVersion,
@@ -272,7 +480,10 @@ public static class ActivityEndpoints
             context.RequestAborted
         );
         if (saved is null)
+        {
             return Results.StatusCode(412);
+        }
+
         context.Response.Headers.ETag = ETag(saved.UpdatedAt);
         return GeoJson(saved.ToFeature());
     }
@@ -295,7 +506,10 @@ public static class ActivityEndpoints
             currentUser
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var (snapshot, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
@@ -304,9 +518,15 @@ public static class ActivityEndpoints
             context
         );
         if (resolveError is not null)
+        {
             return resolveError;
+        }
+
         if (!ContextMatches(context, snapshot!, destinationCity))
+        {
             return DestinationChanged();
+        }
+
         Activity? existing = await database.GetActivityAsync(
             user.Id,
             tripId,
@@ -315,9 +535,15 @@ public static class ActivityEndpoints
             context.RequestAborted
         );
         if (existing is null)
+        {
             return Results.NotFound();
+        }
+
         if (!MatchETag(context, existing.UpdatedAt))
+        {
             return Results.StatusCode(412);
+        }
+
         return await database.DeleteActivityAsync(
             user.Id,
             tripId,
@@ -339,22 +565,30 @@ public static class ActivityEndpoints
             || (expectedId is null && !string.IsNullOrEmpty(input.Id))
             || (expectedId is not null && input.Id != expectedId.Value.ToString("D"))
         )
+        {
             return Results.BadRequest(
                 new { title = "Supply a GeoJSON Feature with a matching ID." }
             );
+        }
+
         var p = input.Properties;
         if (
             string.IsNullOrWhiteSpace(p.Name)
             || p.Name.Length > 200
             || p.Description is null
             || p.Description.Length > 10000
-            || string.IsNullOrWhiteSpace(p.State)
-            || p.State.Length > 100
-            || p.DurationMinutes is <= 0 or > 10080
+            || !Enum.IsDefined(p.State)
+            || !new DurationRangeAttribute(1, 10080).IsValid(p.Duration)
         )
+        {
             return Results.BadRequest(
-                new { title = "Check the activity name, description, duration, and state." }
+                new
+                {
+                    title = "Check the activity name, description, and duration. State must be Proposed, Planned, or Rejected.",
+                }
             );
+        }
+
         if (
             p.Links is null
             || p.Links.Count > 20
@@ -369,12 +603,15 @@ public static class ActivityEndpoints
                 || link.Label?.Length > 200
             )
         )
+        {
             return Results.BadRequest(
                 new
                 {
                     title = "Supply at most 20 HTTP(S) links with optional labels of up to 200 characters.",
                 }
             );
+        }
+
         if (
             p.Cost is { } cost
             && (
@@ -385,21 +622,27 @@ public static class ActivityEndpoints
                 || cost.Basis is not ("perPerson" or "total")
             )
         )
+        {
             return Results.BadRequest(
                 new { title = "Cost needs a nonnegative amount, three-letter currency, and basis." }
             );
+        }
+
         if (
             input.Geometry is { } point
             && (
                 point.Type != "Point"
-                || point.Coordinates is not { Length: 2 }
-                || !double.IsFinite(point.Coordinates[0])
-                || !double.IsFinite(point.Coordinates[1])
-                || Math.Abs(point.Coordinates[0]) > 180
-                || Math.Abs(point.Coordinates[1]) > 90
+                || point.Position is null
+                || !double.IsFinite(point.Position.Longitude)
+                || !double.IsFinite(point.Position.Latitude)
+                || Math.Abs(point.Position.Longitude) > 180
+                || Math.Abs(point.Position.Latitude) > 90
             )
         )
+        {
             return Results.BadRequest(new { title = "Location must be a valid GeoJSON Point." });
+        }
+
         return null;
     }
 
@@ -463,27 +706,45 @@ public static class ActivityEndpoints
             currentUser
         );
         if (authorizationError is not null)
+        {
             return authorizationError;
+        }
+
         if (context.Request.ContentLength > ActivityImagePayload.MaxTotalBytes + 1_000_000)
+        {
             return Results.StatusCode(413);
+        }
+
         if (!context.Request.HasFormContentType)
+        {
             return Results.BadRequest(new { title = "Send a multipart image upload." });
+        }
+
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
         if (!Guid.TryParse(form["requestId"], out var requestId))
+        {
             return Results.BadRequest(new { title = "A request ID is required." });
+        }
+
         var files = form.Files.Where(file => file.Name is "image" or "images").ToArray();
         if (files.Length is < 1 or > ActivityImagePayload.MaxImages)
+        {
             return Results.BadRequest(
                 new { title = $"Choose between 1 and {ActivityImagePayload.MaxImages} images." }
             );
+        }
+
         if (
             files.Any(file => file.Length <= 0 || file.Length > ActivityImagePayload.MaxImageBytes)
             || files.Sum(file => file.Length) > ActivityImagePayload.MaxTotalBytes
         )
+        {
             return Results.Json(
                 new { title = "Images must be at most 10 MB each and 50 MB in total." },
                 statusCode: 413
             );
+        }
+
         var images = new List<ActivityImage>();
         foreach (var file in files)
         {
@@ -493,14 +754,20 @@ public static class ActivityEndpoints
             byte[] bytes = buffer.ToArray();
             string? mime = DetectImage(bytes);
             if (mime is null)
+            {
                 return Results.StatusCode(415);
+            }
+
             if (!AcceptableImageDimensions(bytes, mime))
+            {
                 return Results.BadRequest(
                     new
                     {
                         title = "Each image must have valid dimensions and be at most 20 megapixels.",
                     }
                 );
+            }
+
             images.Add(new(mime, bytes));
         }
         var payload = ActivityImagePayload.Encode(images);
@@ -523,15 +790,24 @@ public static class ActivityEndpoints
             data.Length >= 8
             && data.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })
         )
+        {
             return "image/png";
+        }
+
         if (data.Length >= 3 && data[0] == 255 && data[1] == 216 && data[2] == 255)
+        {
             return "image/jpeg";
+        }
+
         if (
             data.Length >= 12
             && System.Text.Encoding.ASCII.GetString(data, 0, 4) == "RIFF"
             && System.Text.Encoding.ASCII.GetString(data, 8, 4) == "WEBP"
         )
+        {
             return "image/webp";
+        }
+
         return null;
     }
 
@@ -575,7 +851,10 @@ public static class ActivityEndpoints
             while (offset + 9 < data.Length)
             {
                 if (data[offset] != 0xff)
+                {
                     break;
+                }
+
                 byte marker = data[offset + 1];
                 if (marker is 0xc0 or 0xc1 or 0xc2 or 0xc3)
                 {
@@ -585,7 +864,10 @@ public static class ActivityEndpoints
                 }
                 int segmentLength = (data[offset + 2] << 8) | data[offset + 3];
                 if (segmentLength < 2)
+                {
                     break;
+                }
+
                 offset += segmentLength + 2;
             }
         }
@@ -612,23 +894,44 @@ public static class ActivityEndpoints
             currentUser
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (!user!.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        {
             return Results.Forbid();
+        }
+
+        var inputErrors = ApiInputValidation.Validate(request, "request");
+        if (inputErrors.Count > 0)
+        {
+            return Results.ValidationProblem(inputErrors);
+        }
+
         if (
             request.RequestId == Guid.Empty
             || request.Input is null
             || request.Input.Length > 4000
             || (image is null && string.IsNullOrWhiteSpace(request.Input))
         )
+        {
             return Results.BadRequest(
                 new { title = "Supply a request ID and a prompt of at most 4000 characters." }
             );
+        }
+
         var (snapshot, resolveError) = await ResolveAsync(user.Id, trip!, cityId, service, context);
         if (resolveError is not null)
+        {
             return resolveError;
+        }
+
         if (request.DestinationContext != snapshot!.Find(cityId)!.Properties.ContextVersion)
+        {
             return DestinationChanged();
+        }
+
         try
         {
             TrackedOperation operation = await database.CreateActivityJobAsync(
@@ -662,7 +965,10 @@ public static class ActivityEndpoints
     {
         var (_, user, error) = await AuthorizeAsync(tripId, false, context, database, currentUser);
         if (error is not null)
+        {
             return error;
+        }
+
         var result = await database.GetActivityJobResultAsync(
             user!.Id,
             tripId,
@@ -671,7 +977,10 @@ public static class ActivityEndpoints
             context.RequestAborted
         );
         if (result is not null)
+        {
             return Results.Ok(result);
+        }
+
         return Results.NotFound();
     }
 }

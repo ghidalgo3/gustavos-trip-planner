@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Spinner } from "@fluentui/react-components";
 import { useSystemDarkMode } from "./useSystemDarkMode";
 import { getMapToken } from "./api";
@@ -83,7 +83,9 @@ export default function ActivityMap({
   const darkMode = useSystemDarkMode();
   const style = darkMode ? "grayscale_dark" : "grayscale_light";
   const styleRef = useRef(style);
-  const framedMap = useRef<MapHandle | null>(null);
+  const framedMap = useRef<{ instance: MapHandle; positions: string } | null>(
+    null,
+  );
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<MapHandle | null>(null);
   const callbacks = useRef({ onSelect, onPick });
@@ -93,23 +95,24 @@ export default function ActivityMap({
   const [retry, setRetry] = useState(0);
   const longitude = center.coordinates[0];
   const latitude = center.coordinates[1];
-
-  useEffect(() => {
-    styleRef.current = style;
-    if (ready) map.current?.setStyle({ style });
-  }, [style, ready]);
-
-  useEffect(() => {
-    const instance = map.current;
-    if (!ready || !instance || !stayLocation || framedMap.current === instance)
-      return;
-    const points = [
-      center.coordinates,
-      stayLocation.geometry.coordinates,
+  const locatedCount = activities.filter(
+    (activity) => activity.geometry,
+  ).length;
+  const missingCount = activities.length - locatedCount;
+  const points = useMemo(
+    () => [
+      [longitude, latitude],
+      ...(stayLocation ? [stayLocation.geometry.coordinates] : []),
       ...activities.flatMap((activity) =>
         activity.geometry ? [activity.geometry.coordinates] : [],
       ),
-    ];
+    ],
+    [longitude, latitude, stayLocation, activities],
+  );
+  const positions = JSON.stringify(points);
+  const fitActivities = useCallback(() => {
+    const instance = map.current;
+    if (!instance || !ready) return;
     instance.setCamera({
       bounds: [
         Math.min(...points.map((point) => point[0])),
@@ -120,8 +123,26 @@ export default function ActivityMap({
       padding: 48,
       maxZoom: 11,
     });
-    framedMap.current = instance;
-  }, [ready, stayLocation, activities, center]);
+  }, [points, ready]);
+
+  useEffect(() => {
+    styleRef.current = style;
+    if (ready) map.current?.setStyle({ style });
+  }, [style, ready]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (
+      !ready ||
+      !instance ||
+      (!stayLocation && locatedCount === 0) ||
+      (framedMap.current?.instance === instance &&
+        framedMap.current.positions === positions)
+    )
+      return;
+    fitActivities();
+    framedMap.current = { instance, positions };
+  }, [ready, stayLocation, locatedCount, positions, fitActivities]);
 
   useEffect(() => {
     callbacks.current = { onSelect, onPick };
@@ -291,6 +312,24 @@ export default function ActivityMap({
         }
         aria-busy={!ready && !error}
       />
+      {ready && !error && activities.length > 0 && (
+        <div className="activity-map-summary">
+          <span>
+            {locatedCount} of {activities.length} activities located
+          </span>
+          {missingCount > 0 && (
+            <span>
+              {missingCount} {missingCount === 1 ? "needs" : "need"} a location
+              to appear on the map.
+            </span>
+          )}
+          {locatedCount > 0 && (
+            <Button appearance="secondary" size="small" onClick={fitActivities}>
+              Show all locations
+            </Button>
+          )}
+        </div>
+      )}
       {!ready && !error && (
         <div className="activity-map-loading" role="status">
           <Spinner label="Loading map" />

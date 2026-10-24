@@ -3,7 +3,7 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Flights;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -40,9 +40,15 @@ public static class SelectedFlightsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        {
             return Results.NotFound();
+        }
+
         return Results.Ok(
             await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
         );
@@ -66,13 +72,22 @@ public static class SelectedFlightsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         if (!parties.Any(p => p.Id == partyId))
+        {
             return Results.NotFound();
+        }
+
         var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
         var keys = request.LegKeys;
         if (
@@ -80,17 +95,23 @@ public static class SelectedFlightsEndpoints
             || keys.Length > document.Visits.Length + 1
             || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 4096)
         )
+        {
             return Results.BadRequest(
                 new { title = "Provide a valid flight choice for each selected leg." }
             );
+        }
+
         IReadOnlyList<FareSearchResult> fares = [];
         if (keys.Length > 0)
         {
             var preview = planner.Build(document, parties, context.RequestAborted);
             if (!preview.Ready)
+            {
                 return Results.Conflict(
                     new { title = "The trip's current planning details need attention." }
                 );
+            }
+
             fares =
                 await database.GetFareSearchResultsAsync(
                     user.Id,
@@ -101,12 +122,15 @@ public static class SelectedFlightsEndpoints
         }
         var nextOrigins = FlightChoiceRoute.NextOrigins(document, partyId, keys, fares, airports);
         if (nextOrigins is null)
+        {
             return Results.BadRequest(
                 new
                 {
                     title = "This flight is no longer available in the current search or does not follow the trip's destination order. Refresh the flight results and choose again.",
                 }
             );
+        }
+
         return Results.Ok(
             await database.SetFlightChoicesAsync(
                 user.Id,
@@ -130,9 +154,15 @@ public static class SelectedFlightsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        {
             return Results.NotFound();
+        }
+
         IReadOnlyList<SelectedFlight> selected = await database.GetSelectedFlightsAsync(
             user.Id,
             tripId,
@@ -160,11 +190,17 @@ public static class SelectedFlightsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (string.IsNullOrWhiteSpace(request.CacheKey) || request.ItineraryIndex is null or < 0)
+        {
             return Results.BadRequest(
                 new { title = "A fare cache key and nonnegative itinerary index are required." }
             );
+        }
+
         int index = request.ItineraryIndex.Value;
         if (
             request.LegKeys is { } keys
@@ -175,23 +211,34 @@ public static class SelectedFlightsEndpoints
                 || request.PriceCurrency is not { Length: 3 }
             )
         )
+        {
             return Results.BadRequest(
                 new { title = "Supply valid flight identifiers and the displayed itinerary price." }
             );
+        }
+
         Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         Party? party = parties.SingleOrDefault(p => p.Id == partyId);
         if (party is null)
+        {
             return Results.NotFound();
+        }
 
         var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
         var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
+        {
             return Results.Conflict(
                 new { title = "The trip's current planning details need attention." }
             );
+        }
+
         var fares = await database.GetFareSearchResultsAsync(
             user.Id,
             tripId,
@@ -199,12 +246,15 @@ public static class SelectedFlightsEndpoints
             context.RequestAborted
         );
         if (fares is null)
+        {
             return Results.Conflict(
                 new
                 {
                     title = "Flight results have expired. Find flights again before selecting one.",
                 }
             );
+        }
+
         fares = routes.Compose(
             document,
             parties,
@@ -225,37 +275,54 @@ public static class SelectedFlightsEndpoints
                     !candidate.Response.TryGetProperty("itineraries", out var options)
                     || options.ValueKind != JsonValueKind.Array
                 )
+                {
                     continue;
+                }
+
                 for (int currentIndex = 0; currentIndex < options.GetArrayLength(); currentIndex++)
                 {
                     if (!MatchesDisplayedItinerary(options[currentIndex], request))
+                    {
                         continue;
+                    }
+
                     fare = candidate;
                     index = currentIndex;
                     break;
                 }
                 if (fare is not null)
+                {
                     break;
+                }
             }
             if (fare is null)
+            {
                 return Results.Conflict(
                     new
                     {
                         title = "These flights or their price changed. Review the current results and save again.",
                     }
                 );
+            }
         }
         if (fare is null)
+        {
             return Results.NotFound();
+        }
+
         if (
             fare.Response.ValueKind != JsonValueKind.Object
             || !fare.Response.TryGetProperty("itineraries", out var itineraries)
             || itineraries.ValueKind != JsonValueKind.Array
             || index >= itineraries.GetArrayLength()
         )
+        {
             return Results.NotFound();
+        }
+
         var evaluation = validator.Evaluate(fare, document, party)[index];
         if (evaluation.Status != "Eligible")
+        {
             return Results.Conflict(
                 new
                 {
@@ -263,6 +330,7 @@ public static class SelectedFlightsEndpoints
                     issues = evaluation.Issues,
                 }
             );
+        }
 
         var selected = new SelectedFlight(
             tripId,
@@ -316,34 +384,49 @@ public static class SelectedFlightsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (await database.GetTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        {
             return Results.NotFound();
+        }
+
         var selected = (
             await database.GetSelectedFlightsAsync(user.Id, tripId, context.RequestAborted)
         ).SingleOrDefault(flight => flight.PartyId == partyId);
         if (selected is null)
+        {
             return Results.NotFound();
+        }
+
         if (
             selected.CacheKey != request.CacheKey
             || selected.ItineraryIndex != request.ItineraryIndex
         )
+        {
             return Results.Conflict(
                 new
                 {
                     title = "The selected itinerary changed. Reload it before updating purchases.",
                 }
             );
+        }
+
         if (
             request.PurchasedLegs is null
             || request.PurchasedLegs.Length != CountFlightLegs(selected.Itinerary)
         )
+        {
             return Results.BadRequest(
                 new
                 {
                     title = "Supply one purchase status for every flight in the selected itinerary.",
                 }
             );
+        }
+
         return Results.Ok(
             await database.SetSelectedFlightAsync(
                 user.Id,
@@ -359,9 +442,15 @@ public static class SelectedFlightsEndpoints
     private static int CountFlightLegs(JsonElement itinerary)
     {
         if (itinerary.ValueKind != JsonValueKind.Object)
+        {
             return 0;
+        }
+
         if (itinerary.TryGetProperty("legs", out var legs) && legs.ValueKind == JsonValueKind.Array)
+        {
             return legs.GetArrayLength();
+        }
+
         var count =
             itinerary.TryGetProperty("outbound", out var outbound)
             && outbound.ValueKind == JsonValueKind.Object
@@ -390,15 +479,24 @@ public static class SelectedFlightsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (await database.GetTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        {
             return Results.NotFound();
+        }
+
         if (
             !(await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted)).Any(p =>
                 p.Id == partyId
             )
         )
+        {
             return Results.NotFound();
+        }
+
         await database.DeleteSelectedFlightAsync(user.Id, tripId, partyId, context.RequestAborted);
         return Results.NoContent();
     }

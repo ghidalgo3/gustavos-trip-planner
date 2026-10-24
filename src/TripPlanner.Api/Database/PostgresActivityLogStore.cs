@@ -28,7 +28,10 @@ public sealed class PostgresActivityLogStore(NpgsqlDataSource dataSource) : IAct
                 entry.TripName,
             }
         )
+        {
             command.Parameters.AddWithValue(value);
+        }
+
         command.Parameters.AddWithValue(
             NpgsqlTypes.NpgsqlDbType.Text,
             (object?)entry.ResourceId ?? DBNull.Value
@@ -60,6 +63,7 @@ public sealed class PostgresActivityLogStore(NpgsqlDataSource dataSource) : IAct
         var entries = new List<TripMutation>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             entries.Add(
                 new(
                     reader.GetGuid(0),
@@ -75,6 +79,8 @@ public sealed class PostgresActivityLogStore(NpgsqlDataSource dataSource) : IAct
                     reader.GetString(10)
                 )
             );
+        }
+
         return entries;
     }
 }

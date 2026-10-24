@@ -44,10 +44,32 @@ export type ActivityCost = {
   basis: "perPerson" | "total";
 };
 export type ActivityLink = { url: string; label?: string | null };
+export type ActivityLocationSuggestion = {
+  venueName: string;
+  geometry: Point;
+  source: ActivityLink;
+  retrievedAt: string;
+};
+export type ActivityResearchEvidence = {
+  notes: string;
+  source: ActivityLink;
+  researchedAt: string;
+};
+export type ActivityDetailSuggestion<T> = {
+  value: T;
+  evidence: ActivityResearchEvidence;
+};
+export type ActivityDetailsSuggestion = {
+  duration: ActivityDetailSuggestion<string> | null;
+  cost: ActivityDetailSuggestion<ActivityCost> | null;
+};
 export type ActivityProperties = {
+  durationEvidence?: ActivityResearchEvidence | null;
+  costEvidence?: ActivityResearchEvidence | null;
+  locationSuggestion?: ActivityLocationSuggestion | null;
   links?: ActivityLink[];
   name: string;
-  durationMinutes: number | null;
+  duration: string | null;
   description: string;
   cost: ActivityCost | null;
   state: string;
@@ -219,10 +241,11 @@ export async function getActivity(
   tripId: string,
   cityId: string,
   id: string,
+  signal?: AbortSignal,
 ): Promise<{ activity: Activity; etag: string }> {
   const response = await fetch(
     `${destinationUrl(tripId, cityId)}/activities/${encodeURIComponent(id)}`,
-    { credentials: "include", cache: "no-store" },
+    { credentials: "include", cache: "no-store", signal },
   );
   if (!response.ok) await readTripError(response, "loading the activity");
   return {
@@ -231,15 +254,63 @@ export async function getActivity(
   };
 }
 
+export async function researchActivityLocation(
+  tripId: string,
+  destination: Destination,
+  id: string,
+  etag: string,
+  signal?: AbortSignal,
+): Promise<ActivityLocationSuggestion | null> {
+  const response = await fetch(
+    `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}/location-proposals`,
+    {
+      method: "POST",
+      signal,
+      credentials: "include",
+      headers: {
+        "Destination-Context": destination.properties.contextVersion,
+        "If-Match": etag,
+      },
+    },
+  );
+  if (!response.ok)
+    await readTripError(response, "researching the activity location");
+  return (await response.json()).suggestion;
+}
+
+export async function researchActivityDetails(
+  tripId: string,
+  destination: Destination,
+  id: string,
+  etag: string,
+): Promise<ActivityDetailsSuggestion | null> {
+  const response = await fetch(
+    `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}/details-proposals`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Destination-Context": destination.properties.contextVersion,
+        "If-Match": etag,
+      },
+    },
+  );
+  if (!response.ok)
+    await readTripError(response, "researching duration and cost");
+  return (await response.json()).suggestion;
+}
+
 export async function saveActivity(
   tripId: string,
   destination: Destination,
   activity: ActivityInput,
   etag?: string,
+  signal?: AbortSignal,
 ): Promise<Activity> {
   const url = `${destinationUrl(tripId, destination.id)}/activities${activity.id ? `/${encodeURIComponent(activity.id)}` : ""}`;
   const response = await fetch(url, {
     method: activity.id ? "PUT" : "POST",
+    signal,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",

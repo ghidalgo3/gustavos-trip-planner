@@ -27,7 +27,10 @@ public sealed partial class PostgresPlannerDb
         var users = new List<UserSearchResult>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             users.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+        }
+
         return users;
     }
 
@@ -38,7 +41,7 @@ public sealed partial class PostgresPlannerDb
         Guid memberUserId,
         bool add,
         CancellationToken cancellationToken = default,
-        string role = "Traveller"
+        PartyRole role = PartyRole.Traveller
     )
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(
@@ -60,11 +63,13 @@ public sealed partial class PostgresPlannerDb
             trip.Parameters.AddWithValue(tripId);
             trip.Parameters.AddWithValue(ownerUserId);
             if (await trip.ExecuteScalarAsync(cancellationToken) is null)
+            {
                 return PartyMemberChangeStatus.PartyNotFound;
+            }
         }
 
         Guid[] members;
-        Dictionary<Guid, string> roles;
+        Dictionary<Guid, PartyRole> roles;
         await using (
             var party = new NpgsqlCommand(
                 "SELECT user_ids, member_roles::text FROM parties WHERE id = $1 AND trip_id = $2 FOR UPDATE;",
@@ -77,11 +82,17 @@ public sealed partial class PostgresPlannerDb
             party.Parameters.AddWithValue(tripId);
             await using var reader = await party.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
+            {
                 return PartyMemberChangeStatus.PartyNotFound;
+            }
+
             members = reader.GetFieldValue<Guid[]>(0);
-            roles = JsonSerializer.Deserialize<Dictionary<Guid, string>>(reader.GetString(1)) ?? [];
+            roles =
+                JsonSerializer.Deserialize<Dictionary<Guid, PartyRole>>(reader.GetString(1)) ?? [];
             if (members.Length == 0)
+            {
                 return PartyMemberChangeStatus.PartyNotFound;
+            }
         }
 
         if (add && !members.Contains(memberUserId))
@@ -96,10 +107,15 @@ public sealed partial class PostgresPlannerDb
             {
                 user.Parameters.AddWithValue(memberUserId);
                 if (await user.ExecuteScalarAsync(cancellationToken) is not true)
+                {
                     return PartyMemberChangeStatus.UserNotFound;
+                }
             }
             if (members.Length >= 9)
+            {
                 return PartyMemberChangeStatus.PartyFull;
+            }
+
             await using (
                 var assigned = new NpgsqlCommand(
                     "SELECT EXISTS(SELECT 1 FROM parties WHERE trip_id = $1 AND id <> $2 AND $3 = ANY(user_ids));",
@@ -112,24 +128,36 @@ public sealed partial class PostgresPlannerDb
                 assigned.Parameters.AddWithValue(partyId);
                 assigned.Parameters.AddWithValue(memberUserId);
                 if (await assigned.ExecuteScalarAsync(cancellationToken) is true)
+                {
                     return PartyMemberChangeStatus.AlreadyInAnotherParty;
+                }
             }
         }
         else if (!add)
         {
             if (!members.Contains(memberUserId))
+            {
                 return PartyMemberChangeStatus.Success;
+            }
+
             if (memberUserId == ownerUserId)
+            {
                 return PartyMemberChangeStatus.OwnerCannotLeave;
+            }
         }
 
         Guid[] updated = add
             ? members.Append(memberUserId).Distinct().ToArray()
             : members.Where(id => id != memberUserId).ToArray();
         if (add)
+        {
             roles[memberUserId] = role;
+        }
         else
+        {
             roles.Remove(memberUserId);
+        }
+
         await using (
             var update = new NpgsqlCommand(
                 "UPDATE parties SET user_ids = $1, member_roles = $3 WHERE id = $2;",
@@ -144,7 +172,10 @@ public sealed partial class PostgresPlannerDb
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
         if (transaction is not null)
+        {
             await transaction.CommitAsync(cancellationToken);
+        }
+
         return PartyMemberChangeStatus.Success;
     }
 }

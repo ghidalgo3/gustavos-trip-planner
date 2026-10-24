@@ -2,7 +2,7 @@ using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.TripForms;
 
 namespace TripPlanner.Api.Database;
 
@@ -43,9 +43,11 @@ public sealed partial class PostgresPlannerDb
             existing.Parameters.AddWithValue(userId);
             existing.Parameters.AddWithValue(tripId);
             if (await existing.ExecuteScalarAsync(cancellationToken) is null)
+            {
                 throw new InvalidOperationException(
                     "This request ID was already used, or the trip no longer exists."
                 );
+            }
         }
         else
         {
@@ -101,6 +103,7 @@ public sealed partial class PostgresPlannerDb
         await using (var reader = await claim.ExecuteReaderAsync(cancellationToken))
         {
             if (await reader.ReadAsync(cancellationToken))
+            {
                 work = new(
                     reader.GetGuid(0),
                     reader.GetGuid(1),
@@ -113,6 +116,7 @@ public sealed partial class PostgresPlannerDb
                         JsonSerializerOptions.Web
                     )!
                 );
+            }
         }
         if (work is not null)
         {
@@ -155,7 +159,10 @@ public sealed partial class PostgresPlannerDb
         );
         finish.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)error ?? DBNull.Value);
         if (await finish.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
             return false;
+        }
+
         await using var operation = new NpgsqlCommand(
             """
             UPDATE operations SET status=$2, completed_items=$3, failed_items=$4, updated_at=now()

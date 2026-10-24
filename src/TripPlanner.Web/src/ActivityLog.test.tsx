@@ -97,9 +97,11 @@ test("disconnects ChatGPT without removing historical activity", async () => {
   fireEvent.click(
     await screen.findByRole("button", { name: "Disconnect ChatGPT" }),
   );
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "Previous actions remain in your Activity Log.",
-  );
+  expect(
+    (
+      await screen.findByText(/Previous actions remain in your Activity Log/)
+    ).closest(".fui-Toast"),
+  ).not.toBeNull();
   expect(fetch).toHaveBeenLastCalledWith(
     expect.stringContaining("/user/mcp-access"),
     expect.objectContaining({ method: "DELETE", credentials: "include" }),

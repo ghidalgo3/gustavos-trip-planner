@@ -1,3 +1,4 @@
+import { useActionToast } from "./useActionToast";
 import { useCallback, useState } from "react";
 import {
   Button,
@@ -6,7 +7,6 @@ import {
   DrawerHeader,
   DrawerHeaderTitle,
   OverlayDrawer,
-  Text,
 } from "@fluentui/react-components";
 import { Dismiss24Regular } from "@fluentui/react-icons";
 import AsyncAutocomplete from "./AsyncAutocomplete";
@@ -46,7 +46,7 @@ export default function StayLocationDrawer({
       : undefined,
   );
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const { notify, toaster } = useActionToast();
   const search = useCallback(
     (text: string, signal: AbortSignal) =>
       searchPlaces(
@@ -66,7 +66,6 @@ export default function StayLocationDrawer({
   async function save(remove = false) {
     if (!remove && !place) return;
     setBusy(true);
-    setError(undefined);
     try {
       const feature: StayLocation | null = remove
         ? null
@@ -83,81 +82,84 @@ export default function StayLocationDrawer({
       await onSaved();
       onClose();
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not save Stay location.",
+        "error",
       );
     } finally {
       setBusy(false);
     }
   }
   return (
-    <OverlayDrawer
-      open
-      position="start"
-      modalType="non-modal"
-      className="activity-drawer"
-      onOpenChange={(_, data) => {
-        if (!data.open && !busy) onClose();
-      }}
-    >
-      <DrawerHeader>
-        <DrawerHeaderTitle
-          action={
-            <Button
-              appearance="subtle"
-              icon={<Dismiss24Regular />}
-              aria-label="Close Stay drawer"
-              disabled={busy}
-              onClick={onClose}
-            />
-          }
-        >
-          Stay in {destination.properties.name}
-        </DrawerHeaderTitle>
-      </DrawerHeader>
-      <DrawerBody>
-        <AsyncAutocomplete
-          label="Stay location"
-          placeholder="Search hotels or accommodation"
-          inputValue={query}
-          selectedOptionValue={
-            place ? `${place.longitude},${place.latitude}` : undefined
-          }
-          selectedOptionLabel={place?.label}
-          search={search}
-          getOptionValue={(item) => `${item.longitude},${item.latitude}`}
-          getOptionText={(item) => item.label}
-          onInputChange={(value) => {
-            setQuery(value);
-            setPlace(undefined);
-          }}
-          onOptionSelect={(item) => {
-            setPlace(item);
-            setQuery(item.label);
-          }}
-          debounceMs={300}
-        />
-        {error && <Text role="alert">{error}</Text>}
-      </DrawerBody>
-      <DrawerFooter className="activity-drawer-footer">
-        {existing && (
-          <Button disabled={busy} onClick={() => void save(true)}>
-            Remove Stay
+    <>
+      {toaster}
+      <OverlayDrawer
+        open
+        position="start"
+        modalType="non-modal"
+        className="activity-drawer"
+        onOpenChange={(_, data) => {
+          if (!data.open && !busy) onClose();
+        }}
+      >
+        <DrawerHeader>
+          <DrawerHeaderTitle
+            action={
+              <Button
+                appearance="subtle"
+                icon={<Dismiss24Regular />}
+                aria-label="Close Stay drawer"
+                disabled={busy}
+                onClick={onClose}
+              />
+            }
+          >
+            Stay in {destination.properties.name}
+          </DrawerHeaderTitle>
+        </DrawerHeader>
+        <DrawerBody>
+          <AsyncAutocomplete
+            label="Stay location"
+            placeholder="Search hotels or accommodation"
+            inputValue={query}
+            selectedOptionValue={
+              place ? `${place.longitude},${place.latitude}` : undefined
+            }
+            selectedOptionLabel={place?.label}
+            search={search}
+            getOptionValue={(item) => `${item.longitude},${item.latitude}`}
+            getOptionText={(item) => item.label}
+            onInputChange={(value) => {
+              setQuery(value);
+              setPlace(undefined);
+            }}
+            onOptionSelect={(item) => {
+              setPlace(item);
+              setQuery(item.label);
+            }}
+            debounceMs={300}
+          />
+        </DrawerBody>
+        <DrawerFooter className="activity-drawer-footer">
+          {existing && (
+            <Button disabled={busy} onClick={() => void save(true)}>
+              Remove Stay
+            </Button>
+          )}
+          <Button disabled={busy} onClick={onClose}>
+            Cancel
           </Button>
-        )}
-        <Button disabled={busy} onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          appearance="primary"
-          disabled={!place || busy}
-          onClick={() => void save()}
-        >
-          Save Stay
-        </Button>
-      </DrawerFooter>
-    </OverlayDrawer>
+          <Button
+            appearance="primary"
+            disabled={!place || busy}
+            onClick={() => void save()}
+          >
+            Save Stay
+          </Button>
+        </DrawerFooter>
+      </OverlayDrawer>
+    </>
   );
 }

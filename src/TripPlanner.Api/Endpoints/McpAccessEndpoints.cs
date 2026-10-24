@@ -3,7 +3,6 @@ using OpenIddict.Abstractions;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Options;
-using TripPlanner.Api.Services;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -41,6 +40,7 @@ public static class McpAccessEndpoints
                         context.RequestAborted
                     )
                 )
+                {
                     if (
                         await tokens.HasStatusAsync(
                             token,
@@ -54,6 +54,7 @@ public static class McpAccessEndpoints
                         connected = true;
                         break;
                     }
+                }
             }
         }
         return Results.Ok(new { enabled = options.Value.Enabled, connected });
@@ -67,13 +68,19 @@ public static class McpAccessEndpoints
     )
     {
         if (!options.Value.Enabled)
+        {
             return Results.NotFound();
+        }
+
         var user = await database.GetUserByEmailAsync(
             currentUser.Profile!.Email,
             context.RequestAborted
         );
         if (user is null)
+        {
             return Results.NotFound();
+        }
+
         string subject = user.Id.ToString("D");
         await context
             .RequestServices.GetRequiredService<IOpenIddictTokenManager>()

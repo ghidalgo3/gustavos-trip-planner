@@ -1,3 +1,4 @@
+import { useActionToast } from "./useActionToast";
 import { Fragment, useEffect, useState } from "react";
 import {
   Button,
@@ -12,6 +13,7 @@ import {
   Location24Regular,
   Delete20Regular,
   Airplane20Regular,
+  BuildingPeople24Regular,
 } from "@fluentui/react-icons";
 import { Link } from "react-router";
 import type { Trip } from "./api";
@@ -34,6 +36,12 @@ import { flightNumbers } from "./flightFormatting";
 import AddDestinationDrawer from "./AddDestinationDrawer";
 import StayLocationDrawer from "./StayLocationDrawer";
 import DeleteDestinationDialog from "./DeleteDestinationDialog";
+import DestinationPlanningProgress from "./DestinationPlanningProgress";
+import {
+  activityPlanPath,
+  planningRequest,
+  type PlanResponse,
+} from "./activityPlanApi";
 
 const emptyDestinations: DestinationCollection = {
   type: "FeatureCollection",
@@ -61,6 +69,9 @@ export default function TripOverview({
   const [activitySummaries, setActivitySummaries] = useState<
     Record<string, { counts?: Record<string, number>; error?: boolean }>
   >({});
+  const [planningSummaries, setPlanningSummaries] = useState<
+    Record<string, PlanResponse | null>
+  >({});
   const [destinations, setDestinations] = useState<DestinationCollection>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -71,10 +82,9 @@ export default function TripOverview({
   const [stayDestination, setStayDestination] = useState<Destination>();
   const [showDateDrawer, setShowDateDrawer] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
-  const [message, setMessage] = useState<string>();
+  const { notify, toaster } = useActionToast();
   const [destinationToDelete, setDestinationToDelete] = useState<Destination>();
   const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,6 +137,32 @@ export default function TripOverview({
   }, [trip.id, destinations?.features, summaryRetry]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const features = destinations?.features ?? [];
+    void Promise.allSettled(
+      features.map(async (destination) => {
+        const result = await planningRequest<PlanResponse>(
+          activityPlanPath(trip.id, destination.id),
+          { signal: controller.signal },
+        );
+        return result.data;
+      }),
+    ).then((results) => {
+      if (!controller.signal.aborted) {
+        setPlanningSummaries(
+          Object.fromEntries(
+            results.map((result, index) => [
+              features[index].id,
+              result.status === "fulfilled" ? result.value : null,
+            ]),
+          ),
+        );
+      }
+    });
+    return () => controller.abort();
+  }, [trip.id, destinations?.features, summaryRetry]);
+
+  useEffect(() => {
     if (
       (destinations?.features.reduce(
         (count, item) => count + item.properties.stays.length,
@@ -168,14 +204,13 @@ export default function TripOverview({
       };
     });
     setShowDrawer(false);
-    setMessage(`${destination.properties.name} added to your trip.`);
+    notify(`${destination.properties.name} added to your trip.`);
   }
 
   async function removeDestination() {
     if (!destinationToDelete || deleting || readOnly) return;
     const destination = destinationToDelete;
     setDeleting(true);
-    setDeleteError(undefined);
     try {
       await deleteDestination(trip.id, destination.id);
       setDestinations((current) =>
@@ -192,12 +227,13 @@ export default function TripOverview({
           : current,
       );
       setDestinationToDelete(undefined);
-      setMessage(`${destination.properties.name} deleted from your trip.`);
+      notify(`${destination.properties.name} deleted from your trip.`);
     } catch (reason) {
-      setDeleteError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not delete the destination. Try again.",
+        "error",
       );
     } finally {
       setDeleting(false);
@@ -276,7 +312,7 @@ export default function TripOverview({
           </Button>
         </div>
       )}
-      {message && <Text role="status">{message}</Text>}
+      {toaster}
       {error ? (
         <div className="overview-load-error">
           <Text role="alert">{error}</Text>
@@ -324,57 +360,66 @@ export default function TripOverview({
                 visitStop({ destination, stay }),
               )}
               <li className="overview-destination">
-                <span
-                  className="overview-destination-number"
-                  aria-hidden="true"
-                >
-                  {index + 1}
-                </span>
                 <div className="overview-destination-details">
                   <Title3 as="h3">{destination.properties.name}</Title3>
-                  <Text>
-                    {stay.arrivalDate || stay.departureDate
-                      ? `${formatDate(stay.arrivalDate)} – ${formatDate(stay.departureDate)}`
-                      : "Dates to decide"}
-                  </Text>
+                  {!readOnly && (
+                    <Button
+                      appearance="subtle"
+                      className="overview-destination-delete"
+                      icon={<Delete20Regular />}
+                      aria-label={`Delete destination: ${destination.properties.name}`}
+                      disabled={deleting}
+                      onClick={() => {
+                        setDestinationToDelete(destination);
+                      }}
+                    />
+                  )}
+                  {readOnly ? (
+                    <Text>{visitDates(stay)}</Text>
+                  ) : (
+                    <Button
+                      className="overview-destination-dates"
+                      appearance="outline"
+                      aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
+                      onClick={() => {
+                        setEditingVisit({ destination, stay });
+                        setShowDateDrawer(true);
+                      }}
+                    >
+                      {visitDates(stay)}
+                    </Button>
+                  )}
                 </div>
-                {destination.properties.stayLocation && (
-                  <Text>
+                {readOnly && destination.properties.stayLocation && (
+                  <Text className="overview-stay-name">
                     {destination.properties.stayLocation.properties.name}
                   </Text>
                 )}
                 {!readOnly && (
                   <Button
                     appearance="subtle"
-                    aria-label={`Stay in ${destination.properties.name}`}
+                    icon={<BuildingPeople24Regular />}
+                    aria-label={`${destination.properties.stayLocation?.properties.name ?? "Choose stay"} in ${destination.properties.name}`}
                     onClick={() => setStayDestination(destination)}
                   >
-                    Stay
+                    {destination.properties.stayLocation?.properties.name ??
+                      "Choose stay"}
                   </Button>
                 )}
-                {!readOnly && (
-                  <Button
-                    appearance="subtle"
-                    aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
-                    onClick={() => {
-                      setEditingVisit({ destination, stay });
-                      setShowDateDrawer(true);
-                    }}
-                  >
-                    Edit dates
-                  </Button>
-                )}
-                {!readOnly && (
-                  <Button
-                    appearance="subtle"
-                    icon={<Delete20Regular />}
-                    aria-label={`Delete destination: ${destination.properties.name}`}
-                    disabled={deleting}
-                    onClick={() => {
-                      setDeleteError(undefined);
-                      setDestinationToDelete(destination);
-                    }}
+                {planningSummaries[destination.id] && (
+                  <DestinationPlanningProgress
+                    response={planningSummaries[destination.id]!}
+                    stayId={stay.id}
+                    name={destination.properties.name}
                   />
+                )}
+                {planningSummaries[destination.id] === null && (
+                  <Button
+                    appearance="outline"
+                    onClick={() => setSummaryRetry((value) => value + 1)}
+                  >
+                    Retry planning summary
+                  </Button>
                 )}
                 <div className="overview-activity-summary">
                   {activitySummaries[destination.id]?.counts ? (
@@ -445,11 +490,9 @@ export default function TripOverview({
         <DeleteDestinationDialog
           destination={destinationToDelete}
           busy={deleting}
-          error={deleteError}
           onCancel={() => {
             if (!deleting) {
               setDestinationToDelete(undefined);
-              setDeleteError(undefined);
             }
           }}
           onDelete={() => void removeDestination()}
@@ -464,7 +507,7 @@ export default function TripOverview({
             setDestinations(
               (await getDestinations(trip.id)) ?? emptyDestinations,
             );
-            setMessage("Stay location saved.");
+            notify("Stay location saved.");
           }}
         />
       )}
@@ -492,7 +535,7 @@ export default function TripOverview({
                 : current,
             );
             setShowDateDrawer(false);
-            setMessage("Visit dates saved.");
+            notify("Visit dates saved.");
           }}
         />
       )}
@@ -537,4 +580,10 @@ function visitStop({
       destination.properties.constraints?.departureFlexibilityDays ?? 0,
     ),
   };
+}
+
+function visitDates(stay: Stay): string {
+  return stay.arrivalDate || stay.departureDate
+    ? `${formatDate(stay.arrivalDate)} – ${formatDate(stay.departureDate)}`
+    : "Dates to decide";
 }

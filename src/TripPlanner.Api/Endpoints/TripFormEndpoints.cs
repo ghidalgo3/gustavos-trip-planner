@@ -1,7 +1,9 @@
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Flights;
+using TripPlanner.Api.Services.TripForms;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -19,15 +21,9 @@ public static class TripFormEndpoints
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
     }
 
-    private sealed record ProposalRequest(
-        Guid RequestId,
-        string Input,
-        PlanningDocument Constraints
-    );
-
     private static async Task<IResult> Propose(
         Guid tripId,
-        ProposalRequest request,
+        TripFormRequest request,
         HttpContext context,
         IPlannerDb database,
         AirportCatalog airports,
@@ -40,30 +36,48 @@ public static class TripFormEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (user is null || !user.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        {
             return Results.Forbid();
+        }
+
         if (string.IsNullOrWhiteSpace(request.Input) || request.Input.Length > 4000)
+        {
             return Results.ValidationProblem(
                 new Dictionary<string, string[]>
                 {
                     ["input"] = ["Describe the trip in 1 to 4000 characters."],
                 }
             );
+        }
+
         if (request.Constraints is null)
+        {
             return Results.ValidationProblem(
                 new Dictionary<string, string[]>
                 {
                     ["constraints"] = ["Flight constraints are required."],
                 }
             );
+        }
+
         if (request.RequestId == Guid.Empty)
+        {
             return Results.ValidationProblem(
                 new Dictionary<string, string[]> { ["requestId"] = ["A request ID is required."] }
             );
+        }
+
         Trip? trip = await database.GetTripAsync(user.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var editorParties = new List<PlanningParty>();
         foreach (Party party in parties)
@@ -73,7 +87,9 @@ public static class TripFormEndpoints
             {
                 User? member = await database.GetUserAsync(id, context.RequestAborted);
                 if (member is not null)
+                {
                     members.Add(new(member.Id, member.DisplayName, member.HomeCityName));
+                }
             }
             editorParties.Add(new(party.Id, members, airports.SuggestOrigin([user])));
         }
@@ -125,9 +141,15 @@ public static class TripFormEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (user is null || !user.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        {
             return Results.Forbid();
+        }
+
         context.Response.Headers.CacheControl = "no-store";
         TripFormProposal? proposal = await database.GetTripFormProposalAsync(
             user.Id,

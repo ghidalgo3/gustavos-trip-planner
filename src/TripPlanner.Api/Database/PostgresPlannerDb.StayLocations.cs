@@ -21,6 +21,7 @@ public sealed partial class PostgresPlannerDb
         var result = new Dictionary<string, GeoJsonFeature<StayLocationProperties>>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             result.Add(
                 reader.GetString(0),
                 JsonSerializer.Deserialize<GeoJsonFeature<StayLocationProperties>>(
@@ -28,6 +29,8 @@ public sealed partial class PostgresPlannerDb
                     JsonSerializerOptions.Web
                 )!
             );
+        }
+
         return result;
     }
 
@@ -57,10 +60,13 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(cityId);
         command.Parameters.AddWithValue(userId);
         if (feature is not null)
+        {
             command.Parameters.AddWithValue(
                 NpgsqlDbType.Jsonb,
                 JsonSerializer.Serialize(feature, JsonSerializerOptions.Web)
             );
+        }
+
         return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 }

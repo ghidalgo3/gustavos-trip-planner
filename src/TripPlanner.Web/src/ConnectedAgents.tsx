@@ -1,3 +1,4 @@
+import { useActionToast } from "./useActionToast";
 import { useEffect, useState } from "react";
 import { Button, Card, Text, Title2 } from "@fluentui/react-components";
 import { getMcpAccess, revokeMcpAccess } from "./api";
@@ -9,7 +10,7 @@ export default function ConnectedAgents() {
   }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
+  const { notify, toaster } = useActionToast();
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -31,14 +32,15 @@ export default function ConnectedAgents() {
     try {
       await revokeMcpAccess();
       setAccess({ enabled: true, connected: false });
-      setNotice(
+      notify(
         "ChatGPT disconnected. Previous actions remain in your Activity Log.",
       );
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Unable to disconnect ChatGPT.",
+        "error",
       );
     } finally {
       setBusy(false);
@@ -55,7 +57,7 @@ export default function ConnectedAgents() {
             : "ChatGPT is not connected to your TripPlanner account."}
         </Text>
       )}
-      {notice && <Text role="status">{notice}</Text>}
+      {toaster}
       {error && (
         <>
           <Text role="alert">{error}</Text>

@@ -28,6 +28,8 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 ## Conventions
 
+- C# code must always use curly braces for blocks, even single statement blocks.
+- Wire dates, clock times, timestamps, and elapsed durations must use ISO 8601 (`YYYY-MM-DD`, `HH:mm:ss`, offset timestamps, and durations such as `PT1H30M`). Keep C# values typed as `DateOnly`, `TimeOnly`, `DateTimeOffset`, and `TimeSpan`.
 - The API is RESTful, meaning that routes should modify entire _resources_ at a time, instead of having hundreds of APIs to modify each invidual property of a persisted object.
 - Groups of related REST APIs should go into *Endpoints.cs files, not Program.cs.
 - Avoid over-posting by defining DTO objects separately from the database object we read/write to the database.
@@ -41,6 +43,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - Preserve unrelated working-tree changes and update `README.md` when workflows or architecture change.
 - Prefer to write "functional" code, minimizing side effects and I/O until they are necessary, this is easier to test. 
 - I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
+- All C# REST APIs must declare property validation attributes to consume in MCP tool definitions and OpenAPI document generation.
 
 ## UI Practices
 
@@ -56,7 +59,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 ## Database practices
 
 - Until this message is deleted, you are allowed to connect to the database, either locally or in the cloud, and drop all schemas and have them be recreated when making schema changes.
-- Prefer to write C# methods that write or modify an entire database row at a time instead of having many methods to modify column subsets of a row. 
+- Prefer to write C# methods that write or modify an entire database row at a time instead of having many methods to modify column subsets of a row.
 
 ## MCP Server Maintenance
 

@@ -12,9 +12,9 @@ using OpenIddict.Server;
 using OpenIddict.Server.AspNetCore;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Options;
-using TripPlanner.Api.Services;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace TripPlanner.Api.Endpoints;
@@ -56,12 +56,18 @@ public static class OAuthEndpoints
         var request = context.GetOpenIddictServerRequest()!;
         string resource = new Uri(new Uri(options.Value.Issuer!), "/mcp").AbsoluteUri;
         if (!request.GetResources().SequenceEqual([resource]))
+        {
             return Deny(
                 Errors.InvalidTarget,
                 "The requested resource must be this server's /mcp URL."
             );
+        }
+
         if (request.GetPromptValues().Contains(PromptValues.None))
+        {
             return Deny(Errors.ConsentRequired, "Explicit consent is required to connect ChatGPT.");
+        }
+
         var authentication = await context.AuthenticateAsync(
             CookieAuthenticationDefaults.AuthenticationScheme
         );
@@ -82,9 +88,12 @@ public static class OAuthEndpoints
         }
         User? user = await database.GetUserByEmailAsync(profile.Email, context.RequestAborted);
         if (user?.HomeCityLocation is null)
+        {
             return Html(
                 "<h1>Complete your profile first</h1><p>Open TripPlanner, finish onboarding, then connect ChatGPT again.</p><a href=\"/\">Open TripPlanner</a>"
             );
+        }
+
         if (HttpMethods.IsGet(context.Request.Method))
         {
             var token = antiforgery.GetAndStoreTokens(context);
@@ -116,7 +125,10 @@ public static class OAuthEndpoints
         var form = await context.Request.ReadFormAsync();
         context.Items[ConsentDecision] = form["decision"] == "allow";
         if (form["decision"] != "allow")
+        {
             return Deny(Errors.AccessDenied, "The user denied access.");
+        }
+
         var identity = new ClaimsIdentity("OAuth", Claims.Name, Claims.Role);
         identity.SetClaim(Claims.Subject, user.Id.ToString("D"));
         identity.SetClaim(Claims.Name, user.DisplayName);
@@ -147,7 +159,9 @@ public static class OAuthEndpoints
             )
             || (!allowed && context.Error != Errors.AccessDenied)
         )
+        {
             return;
+        }
 
         string Encode(string value) => HtmlEncoder.Default.Encode(value);
         var parameters = context
@@ -184,7 +198,9 @@ public static class OAuthEndpoints
                 $"<a class=\"return-to-chatgpt\" href=\"{Encode(callback)}\">Return to ChatGPT</a>";
         }
         else
+        {
             return;
+        }
 
         http.Response.Headers["Referrer-Policy"] = "no-referrer";
         string outcome = allowed
@@ -212,14 +228,23 @@ public static class OAuthEndpoints
             || await database.GetUserAsync(id, context.RequestAborted)
                 is not { HomeCityLocation: not null }
         )
+        {
             return Deny(Errors.InvalidGrant, "This account is no longer available.");
+        }
+
         if (
             !request.GetResources().SequenceEqual([resource])
             || !principal.GetResources().Contains(resource)
         )
+        {
             return Deny(Errors.InvalidTarget, "The token must be requested for this MCP resource.");
+        }
+
         if (request.IsRefreshTokenGrantType() && request.Scope is not null)
+        {
             principal.SetScopes(request.GetScopes());
+        }
+
         return Results.SignIn(
             principal,
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme

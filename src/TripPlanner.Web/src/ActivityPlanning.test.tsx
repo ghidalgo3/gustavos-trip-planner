@@ -16,6 +16,8 @@ import {
   getActivities,
   getActivity,
   saveActivity,
+  researchActivityLocation,
+  researchActivityDetails,
   deleteActivity,
   suggestActivities,
   importActivityImages,
@@ -58,6 +60,8 @@ vi.mock("./activitiesApi", () => ({
   getActivities: vi.fn(),
   getActivity: vi.fn(),
   saveActivity: vi.fn(),
+  researchActivityLocation: vi.fn(),
+  researchActivityDetails: vi.fn(),
   deleteActivity: vi.fn(),
   suggestActivities: vi.fn(),
   importActivityImages: vi.fn(),
@@ -147,7 +151,7 @@ const activity: Activity = {
   properties: {
     name: "Louvre",
     description: "See the paintings",
-    durationMinutes: 120,
+    duration: "PT120M",
     cost: null,
     state: "Proposed",
     placeName: "Louvre, Paris",
@@ -280,6 +284,11 @@ test("place lookup populates the activity's name and location, and saving update
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
+  const savedToast = await screen.findByText("Activity saved.");
+  expect(savedToast.closest(".fui-Toast")).not.toBeNull();
+  expect(savedToast.closest(".activity-planning")).toBeNull();
+  click(screen.getByRole("button", { name: "Dismiss notification" }));
+  await waitFor(() => expect(savedToast).not.toBeInTheDocument());
   expect(saveActivity).toHaveBeenCalledWith(
     "trip",
     destinations.features[0],
@@ -338,9 +347,12 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   });
   act(() => saveButton.focus());
   click(within(drawer).getByRole("button", { name: "Save activity" }));
-  expect(await within(drawer).findByRole("alert")).toHaveTextContent(
-    "Please retry.",
-  );
+  expect(
+    (await screen.findByText("Please retry.")).closest(".fui-Toast"),
+  ).not.toBeNull();
+  expect(
+    screen.getByText("Please retry.").closest(".activity-drawer-body"),
+  ).toBeNull();
   expect(within(drawer).getByLabelText("Description")).toHaveValue(
     "Visit in the morning",
   );
@@ -570,7 +582,20 @@ test.each([false, true])(
       within(list).queryByText("See the paintings"),
     ).not.toBeInTheDocument();
     expect(within(list).queryByText("2h")).not.toBeInTheDocument();
-    expect(within(list).queryByText("Proposed")).not.toBeInTheDocument();
+    expect(
+      await within(
+        await within(list).findByRole("list", { name: "Proposed activities" }),
+      ).findAllByText("Proposed"),
+    ).toHaveLength(2);
+    expect(
+      within(list).queryAllByRole("button", { name: /^State for/ }),
+    ).toHaveLength(readOnly ? 0 : 2);
+    expect(within(list).getByText("Needs location · Not on map")).toBeVisible();
+    expect(
+      within(list).queryByRole("button", {
+        name: "Set location for Unlocated",
+      }) !== null,
+    ).toBe(!readOnly);
     click(await within(list).findByRole("button", { name: "Louvre" }));
     const link = await screen.findByRole("link", {
       name: "Direction to Louvre",
@@ -766,7 +791,7 @@ test.each(["Cancel", "Save activity"])(
     expect(mapDialog).toHaveAttribute("aria-modal", "true");
     expect(within(mapDialog).getByLabelText("Map")).toBe(map);
     expect(
-      within(mapDialog).getByRole("region", {
+      await within(mapDialog).findByRole("region", {
         name: "Selected activity details",
       }),
     ).toBeVisible();
@@ -945,37 +970,78 @@ test("the map can collapse for list browsing and reopen when selecting an activi
   ).toBeInTheDocument();
 });
 
-test("map detail state menu saves the complete activity with its current ETag", async () => {
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [activity],
-  });
-  vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"current"' });
-  vi.mocked(saveActivity).mockResolvedValue({
-    ...activity,
-    properties: { ...activity.properties, state: "Planned" },
-  });
-  show();
-  click(await screen.findByRole("button", { name: "Louvre" }));
-  click(
-    await screen.findByRole("button", { name: "State for Louvre: Proposed" }),
-  );
-  click(await screen.findByRole("menuitemradio", { name: "Planned" }));
-  await screen.findByRole("button", { name: "State for Louvre: Planned" });
-  expect(saveActivity).toHaveBeenCalledWith(
-    "trip",
-    destinations.features[0],
-    {
+test.each([
+  ["ideas", "Proposed", "Planned"],
+  ["ideas", "Planned", "Rejected"],
+  ["ideas", "Legacy custom state", "Proposed"],
+  ["map", "Proposed", "Planned"],
+])(
+  "%s card menu changes %s to %s with the current ETag and preserves other fields",
+  async (view, state, nextState) => {
+    const current = {
       ...activity,
-      properties: { ...activity.properties, state: "Planned" },
-    },
-    '"current"',
-  );
-});
+      properties: { ...activity.properties, state },
+    };
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [current],
+    });
+    vi.mocked(getActivity).mockResolvedValue({
+      activity: current,
+      etag: '"current"',
+    });
+    vi.mocked(saveActivity).mockResolvedValue({
+      ...activity,
+      properties: { ...activity.properties, state: nextState },
+    });
+    show();
+    const list = await screen.findByRole("list", { name: "Paris activities" });
+    if (view === "map")
+      click(await within(list).findByRole("button", { name: "Louvre" }));
+    const container =
+      view === "map"
+        ? await screen.findByRole("region", {
+            name: "Selected activity details",
+          })
+        : list;
+    click(
+      await within(container).findByRole("button", {
+        name: `State for Louvre: ${state}`,
+      }),
+    );
+    expect(await screen.findAllByRole("menuitemradio")).toHaveLength(3);
+    expect(
+      screen.queryByRole("menuitemradio", { name: "Legacy custom state" }),
+    ).not.toBeInTheDocument();
+    click(await screen.findByRole("menuitemradio", { name: nextState }));
+    await within(container).findByRole("button", {
+      name: `State for Louvre: ${nextState}`,
+    });
+    expect(
+      within(
+        screen.getByRole("list", { name: `${nextState} activities` }),
+      ).getByRole("button", { name: "Louvre" }),
+    ).toBeVisible();
+    if (view === "ideas")
+      expect(
+        screen.queryByRole("region", { name: "Selected activity details" }),
+      ).not.toBeInTheDocument();
+    expect(saveActivity).toHaveBeenCalledWith(
+      "trip",
+      destinations.features[0],
+      {
+        ...activity,
+        properties: { ...activity.properties, state: nextState },
+      },
+      '"current"',
+    );
+  },
+);
 
-test.each([false, true])(
-  "map detail deletion requires confirmation and supports retry, full-screen=%s",
-  async (fullscreen) => {
+test.each(["ideas", "map", "fullscreen"])(
+  "%s card menu deletion requires confirmation and supports retry",
+  async (view) => {
+    const fullscreen = view === "fullscreen";
     vi.mocked(getActivities).mockResolvedValue({
       type: "FeatureCollection",
       features: [activity],
@@ -990,10 +1056,16 @@ test.each([false, true])(
         await screen.findByRole("button", { name: "Explore map full screen" }),
       );
       click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
-    } else {
+    } else if (view === "map") {
       click(await screen.findByRole("button", { name: "Louvre" }));
     }
-    const stateButton = await screen.findByRole("button", {
+    const container =
+      view === "ideas"
+        ? await screen.findByRole("list", { name: "Paris activities" })
+        : await screen.findByRole("region", {
+            name: "Selected activity details",
+          });
+    const stateButton = await within(container).findByRole("button", {
       name: "State for Louvre: Proposed",
     });
     const openDelete = async () => {
@@ -1033,8 +1105,12 @@ test.each([false, true])(
     click(
       await within(dialog).findByRole("button", { name: "Delete activity" }),
     );
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "Please retry.",
+    expect(
+      (await screen.findByText("Please retry.")).closest(".fui-Toast"),
+    ).not.toBeNull();
+    click(await screen.findByRole("button", { name: "Dismiss notification" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Please retry.")).not.toBeInTheDocument(),
     );
     click(
       await within(dialog).findByRole("button", { name: "Delete activity" }),
@@ -1055,3 +1131,508 @@ test.each([false, true])(
     ).not.toBeInTheDocument();
   },
 );
+
+const locationSuggestion = {
+  venueName: "Louvre",
+  geometry: {
+    type: "Point" as const,
+    coordinates: [2.33, 48.86] as [number, number],
+  },
+  source: {
+    url: "https://www.wikidata.org/wiki/Q19675",
+    label: "Published coordinates",
+  },
+  retrievedAt: "2026-10-20T12:00:00Z",
+};
+
+test("researched coordinates remain a preview until selected and saved", async () => {
+  const unlocated = { ...activity, geometry: null };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [unlocated],
+  });
+  vi.mocked(getActivity).mockResolvedValue({
+    activity: unlocated,
+    etag: '"7"',
+  });
+  vi.mocked(researchActivityLocation).mockResolvedValue(locationSuggestion);
+  show(false, ["LLM"]);
+  click(await screen.findByRole("button", { name: "Set location for Louvre" }));
+  const drawer = await screen.findByRole("dialog");
+  click(
+    within(drawer).getByRole("button", {
+      name: "Research saved activity location",
+    }),
+  );
+  expect(
+    await within(drawer).findByRole("link", { name: "View coordinate source" }),
+  ).toHaveAttribute("href", locationSuggestion.source.url);
+  expect(within(drawer).getByText(/entrance not verified/)).toBeVisible();
+  expect(researchActivityLocation).toHaveBeenCalledWith(
+    "trip",
+    destinations.features[0],
+    activity.id,
+    '"7"',
+  );
+  expect(saveActivity).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Map marker: Louvre" }),
+  ).not.toBeInTheDocument();
+  click(within(drawer).getByRole("button", { name: "Use this location" }));
+  expect(saveActivity).not.toHaveBeenCalled();
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
+  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+  expect(vi.mocked(saveActivity).mock.calls[0][2]).toMatchObject({
+    ...activity,
+    geometry: locationSuggestion.geometry,
+    properties: {
+      ...activity.properties,
+      locationSuggestion: null,
+      links: [locationSuggestion.source],
+    },
+  });
+});
+
+test("a generated candidate can be dismissed without applying its geometry", async () => {
+  const unlocated = {
+    ...activity,
+    geometry: null,
+    properties: { ...activity.properties, locationSuggestion },
+  };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [unlocated],
+  });
+  vi.mocked(getActivity).mockResolvedValue({
+    activity: unlocated,
+    etag: '"7"',
+  });
+  show();
+  click(
+    await screen.findByRole("button", { name: "Review location for Louvre" }),
+  );
+  const drawer = await screen.findByRole("dialog");
+  click(within(drawer).getByRole("button", { name: "Dismiss location" }));
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
+  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+  expect(vi.mocked(saveActivity).mock.calls[0][2].geometry).toBeNull();
+  expect(
+    vi.mocked(saveActivity).mock.calls[0][2].properties.locationSuggestion,
+  ).toBeNull();
+});
+
+const detailsSuggestion = {
+  duration: {
+    value: "PT1H30M",
+    evidence: {
+      notes: "Recommended 60–90 minute visit.",
+      source: { url: "https://museum.test/visit", label: "Duration source" },
+      researchedAt: "2026-10-20T12:00:00Z",
+    },
+  },
+  cost: {
+    value: { amount: 20, currency: "EUR", basis: "perPerson" as const },
+    evidence: {
+      notes: "Adult admission; future prices unconfirmed.",
+      source: { url: "https://museum.test/tickets", label: "Cost source" },
+      researchedAt: "2026-10-20T12:00:00Z",
+    },
+  },
+};
+
+test.each(["duration", "cost", "dismiss"])(
+  "duration/cost research only applies the reviewed %s choice",
+  async (choice) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"7"' });
+    vi.mocked(researchActivityDetails).mockResolvedValue(detailsSuggestion);
+    show(false, ["LLM"]);
+    click(await screen.findByRole("button", { name: "Louvre" }));
+    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    click(
+      within(drawer).getByRole("button", {
+        name: "Research duration and cost",
+      }),
+    );
+    expect(
+      await within(drawer).findByRole("link", { name: "Duration source" }),
+    ).toHaveAttribute("href", detailsSuggestion.duration.evidence.source.url);
+    expect(
+      within(drawer).getByText("Adult admission; future prices unconfirmed."),
+    ).toBeVisible();
+    expect(researchActivityDetails).toHaveBeenCalledWith(
+      "trip",
+      destinations.features[0],
+      activity.id,
+      '"7"',
+    );
+    expect(saveActivity).not.toHaveBeenCalled();
+    click(
+      within(drawer).getByRole("button", {
+        name:
+          choice === "dismiss" ? "Dismiss suggestions" : `Use this ${choice}`,
+      }),
+    );
+    expect(saveActivity).not.toHaveBeenCalled();
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    const saved = vi.mocked(saveActivity).mock.calls[0][2];
+    expect(saved.properties.duration).toBe(
+      choice === "duration" ? "PT1H30M" : activity.properties.duration,
+    );
+    expect(saved.properties.cost).toEqual(
+      choice === "cost" ? detailsSuggestion.cost.value : null,
+    );
+    expect(saved.properties.description).toBe(activity.properties.description);
+    expect(saved.geometry).toEqual(activity.geometry);
+    if (choice === "duration")
+      expect(saved.properties.durationEvidence).toEqual(
+        detailsSuggestion.duration.evidence,
+      );
+    if (choice === "cost")
+      expect(saved.properties.costEvidence).toEqual(
+        detailsSuggestion.cost.evidence,
+      );
+  },
+);
+
+test("manually changing a researched duration clears its previous evidence", async () => {
+  const researched = {
+    ...activity,
+    properties: {
+      ...activity.properties,
+      durationEvidence: detailsSuggestion.duration.evidence,
+    },
+  };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [researched],
+  });
+  vi.mocked(getActivity).mockResolvedValue({
+    activity: researched,
+    etag: '"7"',
+  });
+  show();
+  click(await screen.findByRole("button", { name: "Louvre" }));
+  click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
+  const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+  expect(
+    within(drawer).queryByRole("button", {
+      name: "Research duration and cost",
+    }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(drawer).getByRole("link", { name: "Duration source" }),
+  ).toBeVisible();
+  change(within(drawer).getByLabelText("Duration, minutes"), {
+    target: { value: "180" },
+  });
+  click(within(drawer).getByRole("button", { name: "Save activity" }));
+  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+  expect(
+    vi.mocked(saveActivity).mock.calls[0][2].properties.durationEvidence,
+  ).toBeNull();
+});
+
+test.each(["empty", "failure"])(
+  "research %s keeps the editor values and shows a toast",
+  async (outcome) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"7"' });
+    if (outcome === "empty")
+      vi.mocked(researchActivityDetails).mockResolvedValue(null);
+    else
+      vi.mocked(researchActivityDetails).mockRejectedValue(
+        new Error("Research unavailable."),
+      );
+    show(false, ["LLM"]);
+    click(await screen.findByRole("button", { name: "Louvre" }));
+    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    click(
+      within(drawer).getByRole("button", {
+        name: "Research duration and cost",
+      }),
+    );
+    const message =
+      outcome === "empty"
+        ? "No supported duration or cost was found. You can still enter them manually."
+        : "Research unavailable.";
+    expect(
+      (await screen.findByText(message)).closest(".fui-Toast"),
+    ).not.toBeNull();
+    expect(within(drawer).getByLabelText("Duration, minutes")).toHaveValue(120);
+    expect(saveActivity).not.toHaveBeenCalled();
+  },
+);
+
+test("read-only members can see accepted research sources and conditions", async () => {
+  const researched = {
+    ...activity,
+    properties: {
+      ...activity.properties,
+      cost: detailsSuggestion.cost.value,
+      costEvidence: detailsSuggestion.cost.evidence,
+    },
+  };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [researched],
+  });
+  show(true);
+  click(await screen.findByRole("button", { name: "Louvre" }));
+  const card = await screen.findByRole("region", {
+    name: "Selected activity details",
+  });
+  expect(
+    within(card).getByRole("link", { name: "Cost source" }),
+  ).toHaveAttribute("href", detailsSuggestion.cost.evidence.source.url);
+  expect(
+    within(card).getByText("Adult admission; future prices unconfirmed."),
+  ).toBeVisible();
+  expect(
+    within(card).queryByRole("button", { name: /Edit activity/ }),
+  ).not.toBeInTheDocument();
+});
+
+test.each([false, true])(
+  "groups Ideas by state and collapses groups independently, read-only=%s",
+  async (readOnly) => {
+    const states = ["Planned", "Proposed", "Rejected", "Maybe", "Proposed"];
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: states.map((state, index) => ({
+        ...activity,
+        id: `idea-${index}`,
+        properties: {
+          ...activity.properties,
+          name: `Idea ${index + 1}`,
+          state,
+        },
+      })),
+    });
+    show(readOnly);
+    const list = await screen.findByRole("list", { name: "Paris activities" });
+    await within(list).findByRole("button", { name: "Idea 5" });
+    expect(
+      within(list)
+        .getAllByRole("heading")
+        .map((heading) => heading.textContent),
+    ).toEqual(["Proposed2", "Planned1", "Rejected1", "Maybe1"]);
+    const proposed = within(list).getByRole("button", {
+      name: "Proposed activities",
+    });
+    const planned = within(list).getByRole("button", {
+      name: "Planned activities",
+    });
+    const contents = document.getElementById(
+      proposed.getAttribute("aria-controls")!,
+    )!;
+    // Keep the map's original numbering even when grouping changes the list order.
+    expect(
+      within(contents).getByRole("button", { name: "Idea 2" }),
+    ).toHaveTextContent("2");
+    click(proposed);
+    expect(proposed).toHaveAttribute("aria-expanded", "false");
+    expect(contents).not.toBeVisible();
+    expect(
+      within(list).queryByRole("button", { name: "Idea 2" }),
+    ).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: "Idea 1" })).toBeVisible();
+    click(planned);
+    click(proposed);
+    expect(proposed).toHaveAttribute("aria-expanded", "true");
+    expect(contents).toBeVisible();
+    expect(planned).toHaveAttribute("aria-expanded", "false");
+    expect(saveActivity).not.toHaveBeenCalled();
+  },
+);
+
+test.each([
+  [false, true, true],
+  [false, false, false],
+  [true, true, false],
+])(
+  "Find location visibility for readOnly=%s and AI=%s",
+  async (readOnly, ai, visible) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [{ ...activity, geometry: null }],
+    });
+    show(readOnly, ai ? ["LLM"] : []);
+    await screen.findByText("Needs location · Not on map");
+    expect(
+      screen.queryByRole("button", { name: "Find location" }) !== null,
+    ).toBe(visible);
+  },
+);
+
+test("Find location is hidden when all activities already have locations", async () => {
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [activity],
+  });
+  show(false, ["LLM"]);
+  await screen.findByRole("button", { name: "Louvre" });
+  expect(
+    screen.queryByRole("button", { name: "Find location" }),
+  ).not.toBeInTheDocument();
+});
+
+test("Find location fills missing pins, preserves latest fields and sources, and skips existing locations", async () => {
+  const missing = { ...activity, geometry: null };
+  const second = {
+    ...missing,
+    id: "garden",
+    properties: { ...activity.properties, name: "Garden" },
+  };
+  const located = {
+    ...activity,
+    id: "located",
+    properties: { ...activity.properties, name: "Already located" },
+  };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [missing, second, located],
+  });
+  const latest = {
+    ...missing,
+    properties: {
+      ...missing.properties,
+      state: "Planned",
+      description: "Latest edit",
+      links: [{ url: "https://www.louvre.fr", label: "Official" }],
+    },
+  };
+  vi.mocked(getActivity).mockImplementation(async (_trip, _city, id) => ({
+    activity: id === missing.id ? latest : second,
+    etag: `"${id}-latest"`,
+  }));
+  vi.mocked(researchActivityLocation).mockResolvedValue(locationSuggestion);
+  show(false, ["LLM"]);
+  click(await screen.findByRole("button", { name: "Find location" }));
+  await screen.findByText("2 locations found and saved.");
+  expect(getActivity).toHaveBeenCalledTimes(2);
+  expect(researchActivityLocation).toHaveBeenCalledTimes(2);
+  expect(saveActivity).toHaveBeenCalledWith(
+    "trip",
+    destinations.features[0],
+    {
+      ...latest,
+      geometry: locationSuggestion.geometry,
+      properties: {
+        ...latest.properties,
+        locationSuggestion: null,
+        links: [...latest.properties.links, locationSuggestion.source],
+      },
+    },
+    '"museum-latest"',
+    expect.any(AbortSignal),
+  );
+  expect(
+    screen.getByRole("button", { name: "Map marker: Louvre" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Map marker: Garden" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Find location" }),
+  ).not.toBeInTheDocument();
+});
+
+test("bulk locations retain partial successes and leave unknown or stale activities unchanged", async () => {
+  const items = [
+    "found",
+    "unknown",
+    "provider-error",
+    "stale",
+    "already-filled",
+  ].map((id) => ({
+    ...activity,
+    id,
+    geometry: null,
+    properties: { ...activity.properties, name: id },
+  }));
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: items,
+  });
+  vi.mocked(getActivity).mockImplementation(async (_trip, _city, id) => ({
+    activity: {
+      ...items.find((item) => item.id === id)!,
+      geometry: id === "already-filled" ? activity.geometry : null,
+    },
+    etag: '"current"',
+  }));
+  vi.mocked(researchActivityLocation).mockImplementation(
+    async (_trip, _destination, id) => {
+      if (id === "unknown") return null;
+      if (id === "provider-error") throw new Error("Provider unavailable");
+      return locationSuggestion;
+    },
+  );
+  vi.mocked(saveActivity).mockImplementation(
+    async (_trip, _destination, input) => {
+      if (input.id === "stale") throw new Error("The activity changed");
+      return { ...input, id: input.id! };
+    },
+  );
+  show(false, ["LLM"]);
+  click(await screen.findByRole("button", { name: "Find location" }));
+  await screen.findByText(
+    "1 location found and saved. 1 already located. 1 could not be verified. 2 failed; try again.",
+  );
+  expect(researchActivityLocation).toHaveBeenCalledTimes(4);
+  expect(saveActivity).toHaveBeenCalledTimes(2);
+  expect(
+    screen.getByRole("button", { name: "Map marker: found" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Map marker: stale" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Find location" })).toBeEnabled();
+});
+
+test("bulk locations limit concurrent research and cancel queued work when leaving", async () => {
+  const items = ["one", "two", "three"].map((id) => ({
+    ...activity,
+    id,
+    geometry: null,
+  }));
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: items,
+  });
+  vi.mocked(getActivity).mockImplementation(async (_trip, _city, id) => ({
+    activity: items.find((item) => item.id === id)!,
+    etag: '"current"',
+  }));
+  const resolvers: (() => void)[] = [];
+  vi.mocked(researchActivityLocation).mockImplementation(
+    () =>
+      new Promise((resolve) =>
+        resolvers.push(() => resolve(locationSuggestion)),
+      ),
+  );
+  const view = show(false, ["LLM"]);
+  click(await screen.findByRole("button", { name: "Find location" }));
+  await waitFor(() =>
+    expect(researchActivityLocation).toHaveBeenCalledTimes(2),
+  );
+  expect(screen.getByRole("button", { name: "Find location" })).toBeDisabled();
+  const signal = vi.mocked(researchActivityLocation).mock.calls[0][4]!;
+  view.unmount();
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    resolvers.forEach((resolve) => resolve());
+  });
+  expect(researchActivityLocation).toHaveBeenCalledTimes(2);
+  expect(saveActivity).not.toHaveBeenCalled();
+});

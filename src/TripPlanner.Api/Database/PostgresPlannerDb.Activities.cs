@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.Spatial;
 using Npgsql;
 using NpgsqlTypes;
 using TripPlanner.Api.DTO;
@@ -84,7 +85,10 @@ public sealed partial class PostgresPlannerDb
         var items = new List<DestinationPlace>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             items.Add(ReadPlace(reader));
+        }
+
         return items;
     }
 
@@ -175,6 +179,7 @@ public sealed partial class PostgresPlannerDb
         var visits = new List<DestinationVisit>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             visits.Add(
                 new(
                     reader.GetGuid(0),
@@ -185,6 +190,8 @@ public sealed partial class PostgresPlannerDb
                     reader.IsDBNull(5) ? null : reader.GetFieldValue<DateOnly>(5)
                 )
             );
+        }
+
         return visits;
     }
 
@@ -323,7 +330,10 @@ public sealed partial class PostgresPlannerDb
         var items = new List<Activity>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             items.Add(ReadActivity(reader));
+        }
+
         return items;
     }
 
@@ -354,7 +364,10 @@ public sealed partial class PostgresPlannerDb
     {
         var point = reader.IsDBNull(3)
             ? null
-            : new GeoJsonPoint("Point", [reader.GetDouble(3), reader.GetDouble(4)]);
+            : new GeoJsonPoint(
+                "Point",
+                GeographyPoint.Create(latitude: reader.GetDouble(4), longitude: reader.GetDouble(3))
+            );
         return new(
             reader.GetGuid(0),
             reader.GetGuid(1),
@@ -418,11 +431,11 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(NpgsqlDbType.Text, activity.CityId);
         command.Parameters.AddWithValue(
             NpgsqlDbType.Double,
-            (object?)activity.Geometry?.Coordinates[0] ?? DBNull.Value
+            (object?)activity.Geometry?.Position.Longitude ?? DBNull.Value
         );
         command.Parameters.AddWithValue(
             NpgsqlDbType.Double,
-            (object?)activity.Geometry?.Coordinates[1] ?? DBNull.Value
+            (object?)activity.Geometry?.Position.Latitude ?? DBNull.Value
         );
         command.Parameters.AddWithValue(
             NpgsqlDbType.Jsonb,
@@ -546,12 +559,17 @@ public sealed partial class PostgresPlannerDb
                 image is null ? DBNull.Value : Convert.ToHexString(SHA256.HashData(image))
             );
             if (await check.ExecuteScalarAsync(cancellationToken) is null)
+            {
                 throw new InvalidOperationException(
                     "This request ID was already used, or the destination changed."
                 );
+            }
         }
         if (transaction is not null)
+        {
             await transaction.CommitAsync(cancellationToken);
+        }
+
         return (await GetOperationAsync(ownerUserId, requestId, cancellationToken))!;
     }
 
@@ -584,7 +602,9 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(leaseDuration);
         ActivityJob? job = null;
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
             if (await reader.ReadAsync(cancellationToken))
+            {
                 job = new(
                     reader.GetGuid(0),
                     reader.GetGuid(1),
@@ -597,6 +617,9 @@ public sealed partial class PostgresPlannerDb
                     leaseId,
                     reader.GetInt32(8)
                 );
+            }
+        }
+
         if (job is not null)
         {
             await using var status = new NpgsqlCommand(
@@ -608,7 +631,10 @@ public sealed partial class PostgresPlannerDb
             await status.ExecuteNonQueryAsync(cancellationToken);
         }
         if (transaction is not null)
+        {
             await transaction.CommitAsync(cancellationToken);
+        }
+
         return job;
     }
 
@@ -633,7 +659,10 @@ public sealed partial class PostgresPlannerDb
         lockJob.Parameters.AddWithValue(job.OperationId);
         lockJob.Parameters.AddWithValue(job.LeaseId);
         if (await lockJob.ExecuteScalarAsync(cancellationToken) is null)
+        {
             return false;
+        }
+
         if (error is null)
         {
             await using var guard = new NpgsqlCommand(
@@ -646,7 +675,9 @@ public sealed partial class PostgresPlannerDb
             guard.Parameters.AddWithValue(job.DestinationContext);
             guard.Parameters.AddWithValue(job.CityId);
             if (await guard.ExecuteScalarAsync(cancellationToken) is null)
+            {
                 error = "Destination changed. Try again.";
+            }
         }
         if (error is null)
         {
@@ -666,11 +697,11 @@ public sealed partial class PostgresPlannerDb
                 insert.Parameters.AddWithValue(activity.CityId);
                 insert.Parameters.AddWithValue(
                     NpgsqlDbType.Double,
-                    (object?)activity.Geometry?.Coordinates[0] ?? DBNull.Value
+                    (object?)activity.Geometry?.Position.Longitude ?? DBNull.Value
                 );
                 insert.Parameters.AddWithValue(
                     NpgsqlDbType.Double,
-                    (object?)activity.Geometry?.Coordinates[1] ?? DBNull.Value
+                    (object?)activity.Geometry?.Position.Latitude ?? DBNull.Value
                 );
                 insert.Parameters.AddWithValue(
                     NpgsqlDbType.Jsonb,
@@ -713,7 +744,10 @@ public sealed partial class PostgresPlannerDb
         complete.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)error ?? DBNull.Value);
         await complete.ExecuteNonQueryAsync(cancellationToken);
         if (transaction is not null)
+        {
             await transaction.CommitAsync(cancellationToken);
+        }
+
         return true;
     }
 
@@ -736,7 +770,8 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(tripId);
         command.Parameters.AddWithValue(cityId);
         command.Parameters.AddWithValue(viewerUserId);
-        string? json = (string?)await command.ExecuteScalarAsync(cancellationToken);
+        // Pending and failed jobs have a SQL NULL result (DBNull, not C# null).
+        string? json = await command.ExecuteScalarAsync(cancellationToken) as string;
         return json is null
             ? null
             : JsonSerializer.Deserialize<ActivitySuggestionResult>(json, JsonSerializerOptions.Web);

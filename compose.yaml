@@ -40,6 +40,7 @@ services:
       ConnectionStrings__TripPlanner: Host=database;Port=5432;Database=tripplanner;Username=tripplanner;Password=tripplanner
       Ignav__ApiKey: ${LOCAL_IGNAV_API_KEY:-}
       OpenAI__ApiKey: ${LOCAL_OPENAI_API_KEY:-}
+      ActivityPlanning__PublicBaseUrl: ${LOCAL_MCP_ISSUER:-http://localhost:5173/}
       Authentication__Google__ClientId: ${LOCAL_GOOGLE_CLIENT_ID:-}
       Authentication__Google__ClientSecret: ${LOCAL_GOOGLE_CLIENT_SECRET:-}
       Authentication__Microsoft__ClientId: ${LOCAL_MICROSOFT_CLIENT_ID:-}

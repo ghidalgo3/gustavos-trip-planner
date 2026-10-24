@@ -8,19 +8,65 @@ Starter architecture for a React single-page application and a C# API deployed t
 | --- | --- |
 | `src/TripPlanner.Web` | React 19 + React Router + Vite + TypeScript + Fluent UI web app |
 | `src/TripPlanner.Api` | .NET 10 minimal API |
-| `tests/TripPlanner.Api.Tests` | API integration tests |
+| `tests/TripPlanner.Api.Tests` | Unit and integration tests grouped by production namespace; [reading guide](tests/TripPlanner.Api.Tests/README.md) |
 | `infra/main.bicep` | Azure resource definitions used by `scripts/buildout` |
 | `infra/release.bicep` | Runtime and authentication configuration used by `scripts/release` |
 | `compose.yaml` | Local Vite HMR and `dotnet watch` environment |
 | `scripts/setup` | Install and validate the macOS development toolchain |
 | `scripts/install` | Restore .NET and frontend project dependencies |
-| `scripts/format` | Format frontend code with Prettier and C# code with CSharpier |
+| `scripts/format` | Format frontend code with Prettier, add required C# braces, and run CSharpier |
 | `scripts/buildout` | Provision or update Azure resources |
 | `scripts/secrets` | Store and rotate authentication, Ignav, and OpenAI credentials in Azure Key Vault |
 | `scripts/server` | Load local auth configuration and start the development containers |
 | `scripts/release` | Test, build, configure, deploy, and verify a release |
 
-Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application and `InMemoryPlannerDb` used by tests. PostgreSQL access uses Npgsql; Entity Framework is not used.
+Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
+
+The API's `Services` folders group code by feature: `ActivityPlanning` (assessment,
+optimization, enrichment and calendars), `Activities` (idea generation and venue
+research), `Flights`, `Destinations`, `Maps`, `TripForms`, and `Jobs` (the shared
+background worker). Each folder has a matching namespace. Authentication, MCP
+registration, database registration/auditing, hosting, and input validation live
+in the corresponding top-level folders.
+
+`ActivityPlanningContext` in `Models` holds the planning inputs and owns the pure
+`Evaluate(plan, now)` calculation. Its data is declared in
+`ActivityPlanningContext.cs`, with evaluation in `ActivityPlanningContext.Evaluation.cs`.
+Manual plans and optimizer proposals use the same method to obtain an assessment.
+
+`PartyRole` and `ActivityState` are C# enums in `Models`. JSON still uses the exact
+names `Traveller` / `Planner` and `Proposed` / `Planned` / `Rejected`, including
+stored PostgreSQL JSON and MCP tool inputs. Numeric values and unknown names are
+rejected. Existing supported values require no database migration.
+
+Activity planning uses `TimeOnly` for local clock times, `TimeSpan` for durations,
+and `Microsoft.Spatial.GeographyPoint` for positions. C# uses named `Latitude` and
+`Longitude` properties. JSON uses ISO 8601 clock times (`09:30:00`), durations
+(`PT1H30M`), dates, and offset timestamps. Fields reflect their values:
+`durationMinutes` is now `duration`, `slackMinutes` is `slackDuration`, and the
+other duration fields follow the same convention. GeoJSON positions remain
+`[longitude, latitude]` arrays. Clock times use strict ISO parsing and the built-in
+`System.Text.Json` writer; durations use a converter backed by `XmlConvert`.
+Elapsed durations support days, hours, minutes, and seconds, with no calendar
+years/months. Optional values remain nullable; planning inputs still require
+whole-minute precision. Migrations `0012_IsoClockTimes.sql` and
+`0013_IsoDurations.sql` upgrade saved activities, preferences, plans, evidence,
+and job results. The website converts ISO durations to minutes for editing and display.
+The CP-SAT
+adapter converts durations to integer minutes for the solver. Local clock offsets are
+kept separate from elapsed time so daylight-saving transitions remain explicit.
+
+The test project also owns the explicit smoke-test commands:
+
+```zsh
+dotnet run --project tests/TripPlanner.Api.Tests -c Release -- --verify-solver
+# Requires the normal provider configuration in the environment; makes live calls.
+dotnet run --project tests/TripPlanner.Api.Tests -c Release -- --verify-planning-providers
+```
+
+Normal `dotnet test` runs do not call live providers. See the
+[plain-language optimizer walkthrough](docs/milestone_3.md#how-the-activity-optimizer-works)
+for how the planner chooses and checks suggestions.
 
 ## Local development
 
@@ -172,11 +218,24 @@ and [later milestones](docs/later_milestones.md) for the deferred trip revision 
 
 ## Activity planning
 
-**Overview** is the default trip page at `/trips/{tripId}`. New trips start with an empty itinerary and an **Add destination** button. It opens a modal drawer from the right on laptops and fills the width on phones. Search for a city, select an autocomplete result, and optionally enter visit dates; the drawer does not ask for a country code. Saving closes the drawer and adds a visit to the overview, with a link to its activities. Canceling discards the draft. Overview lists visits chronologically, with undated visits last in itinerary order. Owners can delete a destination from its card after confirming that all visits and activities for that city will be removed. Breadcrumbs link back through Trips, the trip, and the current section; activity planning also shows the selected city. Activity planning opens with destination tabs showing every visit’s dates and an Azure map centered on the selected city. The map fills the content width on phones and laptops. Activity cards below the map provide **Add activity** and card-level **Edit** actions. Both open a drawer; new activities can use Azure Maps place lookup, an AI prompt, or an image import. AI suggestions and image imports are available when the profile’s AI feature is enabled, and save activities immediately as Proposed. The background worker calls OpenAI with the prompt and destination visit dates, then resolves suggested places through Azure Maps. Migration `0006` upgrades early activity job tables without discarding data. Destination tabs share a scroll position and activity state is selected with a menu button. Activities support user-managed URL/label links for details, bookings, or tickets, editable in the activity drawer. Overview cards show activity counts by state, or **Plan Activities** when empty. Narrow flight cards connect the profile’s home city to the first destination, each chronological visit to the next, and the final destination back home. They show matching selected flight numbers (including connections) or **Plan Flights**, linking to the existing flight planner at `/trips/{tripId}/flights`. Located activity cards offer **Open in Maps**, using Apple Maps links on Apple devices and Google Maps links elsewhere, with browser fallback. AI location lookup uses nearby Azure Maps POIs and a verified landmark fallback; missing AI place names fall back to the activity name. Destination creation and visit-date editing are on Overview. A single inline calendar selects arrival and departure as a range and highlights other cities’ stays, including repeat visits and overlapping dates, with a color legend below the month. Map loading and failures are visible, with a retry that fetches a fresh SAS token. **Activities** remains available at `/trips/{tripId}/activities`; flights, stays, and plans are no longer navigation tabs in this first design pass. Trip-wide dates and flexibility controls will follow. The selected result supplies the city's country and coordinates. Plan activities there before choosing flights. Adding the same city again creates another visit under one city tab, with the complete route order preserved. The city Point is cached in PostgreSQL; activities belong to the city and are shared with all trip members. Members can read them, while the trip owner can create, edit, or delete them. Removing all visits through the API preserves city activities; adding the city again restores editing. Deleting the city resource removes its activities as well. Flight selections do not create, remove, or change destination visits.
+**Overview** is the default trip page at `/trips/{tripId}`. New trips start with an empty itinerary and an **Add destination** button. It opens a modal drawer from the right on laptops and fills the width on phones. Search for a city, select an autocomplete result, and optionally enter visit dates; the drawer does not ask for a country code. Saving closes the drawer and adds a visit to the overview, with a link to its activities. Canceling discards the draft. Overview lists visits chronologically, with undated visits last in itinerary order. Owners can delete a destination from its card after confirming that all visits and activities for that city will be removed. Breadcrumbs link back through Trips, the trip, and the current section; activity planning also shows the selected city. Activity planning opens with destination tabs showing every visit’s dates and an Azure map centered on the selected city. The map fills the content width on phones and laptops. Activity cards below the map provide **Add activity** and card-level **Edit** actions. Both open a drawer; new activities can use Azure Maps place lookup, an AI prompt, or an image import. AI suggestions and image imports are available when the profile’s AI feature is enabled, and save activities immediately as Proposed. The background worker calls OpenAI with the prompt and destination visit dates, then resolves suggested places through Azure Maps. Migration `0006` upgrades early activity job tables without discarding data. Destination tabs share a scroll position. Each activity in the Ideas list has a dropdown showing its current state, with Proposed, Planned, Rejected, and Delete activity options; the same menu is available in map details. Deletion requires confirmation. Read-only members see the state without editing controls. Activities support user-managed URL/label links for details, bookings, or tickets, editable in the activity drawer. Overview cards show activity counts by state, or **Plan Activities** when empty. Narrow flight cards connect the profile’s home city to the first destination, each chronological visit to the next, and the final destination back home. They show matching selected flight numbers (including connections) or **Plan Flights**, linking to the existing flight planner at `/trips/{tripId}/flights`. Located activity cards offer **Open in Maps**, using Apple Maps links on Apple devices and Google Maps links elsewhere, with browser fallback. AI location lookup uses nearby Azure Maps POIs and a verified landmark fallback; missing AI place names fall back to the activity name. Destination creation and visit-date editing are on Overview. A single inline calendar selects arrival and departure as a range and highlights other cities’ stays, including repeat visits and overlapping dates, with a color legend below the month. Map loading and failures are visible, with a retry that fetches a fresh SAS token. **Activities** remains available at `/trips/{tripId}/activities`; flights, stays, and plans are no longer navigation tabs in this first design pass. Trip-wide dates and flexibility controls will follow. The selected result supplies the city's country and coordinates. Plan activities there before choosing flights. Adding the same city again creates another visit under one city tab, with the complete route order preserved. The city Point is cached in PostgreSQL; activities belong to the city and are shared with all trip members. Members can read them, while the trip owner can create, edit, or delete them. Removing all visits through the API preserves city activities; adding the city again restores editing. Deleting the city resource removes its activities as well. Flight selections do not create, remove, or change destination visits.
 
 `GET /trips/{tripId}/destinations` returns an `application/geo+json` FeatureCollection, empty for a new trip. `POST` to the same route accepts a destination GeoJSON Feature with required Point coordinates from the selected autocomplete result and properties `name`, `countryCode`, optional object `constraints`, and optional `arrivalDate` and `departureDate`. The country code remains API metadata rather than a form field. `PUT /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` replaces its optional dates; `DELETE` removes the visit. `?includeInactive=true` includes cached past cities. `GET /trips/{tripId}/destinations/{destinationCity}` returns a city Feature. Under that city, `GET` and `POST /activities` list and create complete activity Features, and `GET`, `PUT`, and `DELETE /activities/{activityId}` read, replace, and remove one. Activity writes require the city's `contextVersion` in `Destination-Context`; replacements and deletes also require the current activity ETag in `If-Match`.
 
-The owner can request suggestions with `POST /trips/{tripId}/destinations/{destinationCity}:suggest` or upload up to ten JPEG, PNG, or WebP images with `POST .../{destinationCity}:import`. The import accepts repeated multipart `images` files, `requestId`, `destinationContext`, and optional `input`; legacy `image` files remain supported. Limits are ten images, 10 MB and 20 megapixels per image, and 50 MB total. Every image is validated before one durable extraction job is queued. The worker sends all images together, with instructions to extract only explicitly mentioned activities and image-supported details, deduplicate across images, and return no activities when none are mentioned. Image instructions may narrow extraction but cannot add activities. The drawer previews each accepted image and allows individual removal. When more than ten photos are selected, it keeps the first ten and explains the limit. Unsupported, empty, or oversized files are skipped individually with a reason beside the previews; files that would exceed the total size limit are also skipped. Both routes return a durable operation to poll at `/operations/{id}`. On completion, `GET .../{destinationCity}/suggestions/{operationId}` returns the created Features and warnings. Suggestions are immediately saved with state `Proposed` and remain editable. Generation requires the `LLM` feature flag; manual activity editing does not. The map uses the existing short-lived Maps SAS, and the worker resolves candidate locations separately so an unverified place is saved without a misleading pin. For image imports and AI text prompts, unresolved locations trigger an OpenAI Responses `web_search` fallback to identify the existing activity’s venue. Research uses the original prompt’s place names and descriptive clues, but cannot add activities or change candidate descriptions, durations, or costs. A venue must have a supporting URL present in the search sources; that page is attached as a “Venue source” link, and Azure Maps must verify the venue within the destination area before a pin is saved. Ambiguous results or research failures leave the activity unlocated with a warning. This uses the configured OpenAI model and key, with additional search usage and up to 20 seconds per lookup.
+The owner can request suggestions with `POST /trips/{tripId}/destinations/{destinationCity}:suggest` or upload up to ten JPEG, PNG, or WebP images with `POST .../{destinationCity}:import`. The import accepts repeated multipart `images` files, `requestId`, `destinationContext`, and optional `input`; legacy `image` files remain supported. Limits are ten images, 10 MB and 20 megapixels per image, and 50 MB total. Every image is validated before one durable extraction job is queued. The worker sends all images together, with instructions to extract only explicitly mentioned activities and image-supported details, deduplicate across images, and return no activities when none are mentioned. Image instructions may narrow extraction but cannot add activities. The drawer previews each accepted image and allows individual removal. When more than ten photos are selected, it keeps the first ten and explains the limit. Unsupported, empty, or oversized files are skipped individually with a reason beside the previews; files that would exceed the total size limit are also skipped. Both routes return a durable operation to poll at `/operations/{id}`. On completion, `GET .../{destinationCity}/suggestions/{operationId}` returns the created Features and warnings. Suggestions are immediately saved with state `Proposed` and remain editable. Generation requires the `LLM` feature flag; manual activity editing does not. The map uses the existing short-lived Maps SAS, and the worker resolves candidate locations separately so an unverified place is saved without a misleading pin. For image imports and AI text prompts, unresolved locations trigger an OpenAI Responses `web_search` fallback to identify the existing activity’s venue. Research uses the original prompt’s place names and descriptive clues, but cannot add activities or change candidate descriptions, durations, or costs. Research returns the venue name and its sourced street address separately, preferring the locally published address. A venue must have a supporting URL present in the search sources; that page is attached as a “Venue source” link. The worker sends the address directly to Azure Maps geocoding, bypassing venue-name search. A pin requires a high-confidence Address result in the expected country within 50 km of the destination; ambiguous, broader-area, and conflicting address matches are rejected. The researched address and citation remain available even when geocoding cannot place a pin. If Azure still cannot resolve the address, OpenAI searches for the exact venue’s Wikidata item. The server independently reads its published coordinates, checks the venue label or alias and a 50 km destination radius, and rejects conflicting or non-Earth coordinates. These coordinates are saved separately as a `locationSuggestion`, never automatically as the activity’s map location. In the editor, review the source and map, choose **Use this location**, then **Save activity**. The pin is a published candidate, not a verified visitor entrance. Existing unlocated activities offer **Research saved activity location** when AI is enabled. This preview uses saved activity details through `POST .../activities/{activityId}/location-proposals`, requiring the current `If-Match` and `Destination-Context` headers. MCP exposes the same preview as `create_activity_location_proposal`; use `update_activity` only after acceptance, preserving other fields and the source link. Research does not mutate existing activities. Manual Azure Maps lookup remains available. Ambiguous results or research failures leave the activity unlocated with a warning. This uses the configured OpenAI model and key, with additional search usage and up to 20 seconds per lookup.
+
+In Ideas, **Find location** appears beside **Add activity** when AI is enabled and
+activities are missing locations. It researches those activities two at a time and
+saves verified published coordinates with their source links, updating map pins as
+results arrive. Existing locations and unrelated fields are preserved; conditional
+saves reject concurrent edits. Unverified or failed lookups stay unlocated and the
+completion toast reports partial results. Leaving the destination cancels remaining
+work. This bulk action explicitly fills locations; the editor's individual research
+flow still offers a preview before saving. Published coordinates are not necessarily
+a visitor entrance.
+
+In the activity editor, **Research duration and cost** uses OpenAI web search on the saved activity and destination visit dates. Review the duration estimate and ticket conditions with their source links, accept either field independently, then save the activity. Existing values are never overwritten by research itself; unsupported fields remain unknown, and a zero price requires an explicit free-admission source. Accepted source links, notes, and research timestamps are retained with each field; manually editing that field clears its old evidence. The lookup requires planning permission and the `LLM` feature flag. `POST .../activities/{activityId}/details-proposals` returns a preview, with the same `If-Match` and `Destination-Context` requirements as location research. MCP exposes `create_activity_details_proposal`; apply accepted values and `durationEvidence`/`costEvidence` through the ordinary whole-resource `update_activity` tool. Research uses the configured model, up to four web-search calls, and a 30-second deadline. It prefers official sources, but estimates and published prices still require review for the intended visit. Manual editing works without AI.
+
 
 When date requirements leave no flight-date pairs, the API identifies the
 conflicting windows and stay dates. The flight-search card displays the affected
@@ -308,7 +367,7 @@ The Microsoft provider is restricted to personal Microsoft accounts through the 
 ## ChatGPT MCP access and Activity Log
 
 The API hosts a stateless Streamable HTTP MCP server at `/mcp`, using the official
-C# MCP SDK. Its tools read and manage trips, destination visits, and activities.
+C# MCP SDK. Its tools read and manage trips, destination visits, activities, activity preferences and plans, assessments, proposals, operations, and personal calendar subscriptions.
 They call the same handlers as the REST API, enforcing existing membership,
 Planner/owner permissions, validation, destination context versions, and activity
 ETags. MCP requests require OAuth bearer tokens; website cookies cannot authorize
@@ -397,6 +456,130 @@ or AI prompts. New trip write methods must be added to its explicit action map.
 Migrations `0009` and `0010` add the log and OpenIddict's schema through the existing
 SQL migrator; no schemas need to be dropped.
 
+## Activity selection and daily planning (milestone 3)
+
+Activities now has **Ideas** and **Daily plan** views. Ideas are grouped by state
+(Proposed, Planned, Rejected, and any custom states), with counts and independently
+collapsible group headers. Map marker numbers stay consistent across groups.
+A plan selects activities,
+assigns each activity at most once across repeat visits, and orders each day.
+Daily plan opens as an agenda. It starts empty until activities are marked
+**Planned** in Ideas. Every dated visit day appears, including days with no activities.
+Tap a day header to collapse or expand its activities and daily routines.
+Compact travel cards between activities show the assessed transport method and
+duration, with provisional routes labeled estimated. Assessed stay connections
+appear at the start and end of the route; missing travel times remain unknown.
+The header shows free hours after activities, travel, meals, waiting, and reserved
+slack; provisional figures are labeled estimated. Edits automatically preview the
+current draft after a short typing pause, without saving it. The preview uses the
+same server evaluator with cached evidence, makes no external provider calls, and
+creates no saved assessment or background job. Outdated responses are discarded.
+Overview destination cards let you edit dates by tapping the date range, with delete
+in the top-right corner. Once a visit has saved scheduled activities, its utilization
+bar totals available and free time across that visit's days (including empty days).
+Free time uses the agenda calculation, after travel, meals, and reserved slack;
+estimates are labeled. The bar is green through 60%, warning through 80%, and red
+above 80% utilization.
+
+Those activities appear under **To schedule** until assigned to a day. Choose
+**Schedule activities** to ask the solver to assign days, order, and times for
+exactly the selected activities. It minimizes total travel on daily routes from
+the stay, through the activities, and back to the stay. Configure accommodation
+with **Stay** on Overview first. It refreshes routing evidence and respects fixed
+days/times and other restrictions; unavailable routes remain labeled estimates.
+If everything cannot fit, it explains that without silently dropping activities.
+The **Schedule activities** button saves the solver's best validated schedule directly
+to the agenda and calendar. If no schedule fits or inputs change while it runs,
+the current plan is preserved and the reason is shown. REST and MCP proposal
+creation use `kind: "schedule"` for this mode; they still return proposals to apply
+explicitly. `draft` still permits subset selection.
+Manual edits show **Save changes** and **Discard changes** only when needed.
+Saving applies the manual draft to the shared plan and calendar; discarding
+restores the saved plan. Draft alternatives and incremental suggestions still require
+explicit review and application.
+The detailed assessments, optimizer, and settings are available under
+**Planning tools**, which expands below the agenda without hiding it. On phones,
+entering the agenda collapses the map.
+On tablets and laptops (768px and wider), drag the divider between the activity
+column and the map to resize them. Focus the divider and use the arrow keys for
+keyboard resizing; Home and End move to the minimum and maximum column sizes.
+New destinations automatically resolve their IANA timezone from their coordinates
+using [Azure Maps](https://learn.microsoft.com/en-us/rest/api/maps/timezone/get-timezone-by-coordinates).
+This applies to website and MCP creation without requiring AI. The daily
+plan inherits it for timed calendar events; an explicitly supplied timezone takes
+precedence, and repeat visits reuse the saved destination timezone. Lookup failures
+are logged and leave the timezone unset rather than guessing; destination creation
+still succeeds. Run `./scripts/buildout` to apply the timezone-read permission in
+`infra/main.bicep`; existing Search Reader access alone returns HTTP 403 for this
+lookup. Under **Default timing and transport**, the destination timezone autocomplete
+accepts city searches such as Tokyo or Hong Kong and offers IANA timezone IDs.
+Unrecognized timezone text must be corrected before saving or assessing a plan.
+Mobile controls move stops earlier/later or to another day. Must-do, fixed day/time,
+relative-order, meal, duration, opening-hours, transport, and daily availability
+restrictions remain editable. Conflicting plans can be saved with explanations.
+Profile interests are private; trip and destination interests are shared. Preference
+scoring combines all travellers with equal weight and narrower instructions take
+precedence. AI-interpreted timing rules and flight-derived availability require
+explicit acceptance.
+
+On phones, Ideas and Daily plan scroll with the page, and activity editors scroll
+through their action buttons. Overview keeps destination names and dates above
+the card actions. Action results use dismissible Fluent UI toasts anchored at the viewport’s top-right, above drawers and dialogs without moving when focus changes: successes close
+automatically, while failures stay visible for review. Field validation and
+loading failures remain beside the relevant content.
+
+Manual planning and deterministic assessments need no AI or provider credentials.
+Unknown durations, travel and hours stay provisional with explicit assumptions.
+Durable proposal jobs use OR-Tools CP-SAT, publish partial results, and return
+reviewable alternatives and incremental changes. Neither research nor optimization
+changes the saved plan. Plan replacements require both `If-Match` and the returned
+input `contextVersion`; stale proposals must be regenerated. Existing Planned
+activities start selected and unscheduled. All new shared mutations use the Activity
+Log. Migration `0011_ActivityPlanning.sql` adds the documents, jobs, evidence,
+concurrency counters, reference maintenance, and hashed calendar tokens.
+
+Calendar subscriptions contain only accepted, dated activities. Each member can
+create and revoke their own bearer URL. The URL is returned once at creation and
+is omitted from listings and logs. Removing a member permanently revokes their
+subscriptions. Evidence refreshes mark saved timing stale; calendar events retain
+the accepted timing until the plan is saved again.
+
+Set up routing and calendar publication before releasing this milestone:
+
+```zsh
+./scripts/buildout                 # adds Azure Maps route-read and timezone-read permissions
+./scripts/server                  # reads the optional key for local development
+```
+
+Azure Maps provides walking and road travel; road defaults to taxi/rideshare.
+Migration `0014` converts old transit settings to walking, clears transit duration
+overrides and cached transit routes, and invalidates old proposals. Saved calendar
+times remain unchanged until revised timing is accepted.
+Self-driving is a whole-day choice. Walking is the default; public transit is not
+supported. With the existing `LLM` feature flag, OpenAI Decisions scores
+preferences and Responses researches dated opening hours using web search. Missing
+providers preserve manual planning and estimated assessments.
+
+Configuration binds to `ActivityPlanningOptions`. Defaults are
+100 candidates, 30 destination days, 30 solver seconds, a 180-second job deadline,
+120 provider requests (including retries), four concurrent provider calls, and a
+15-second request timeout. `ActivityPlanning:PublicBaseUrl` must be the public
+HTTPS origin (localhost HTTP is allowed for development). Compose and release
+configure it.
+`ActivityPlanning:DecisionsModel` defaults to `gpt-6-luna`; AI uses the existing
+`OpenAI` configuration. Use double underscores for environment configuration keys.
+
+The MCP tools reuse REST validation, authorization and services. Read tools need
+`tripplanner.read`; persisted assessments/proposals, replacements and subscription
+management need `tripplanner.write` and the applicable trip permission. Profile
+scope always means the authenticated user. Use a fresh request UUID for new work,
+reuse it only to retry identical work, poll with `get_operation`, read the proposal,
+and apply the complete chosen plan with its current ETag and context version.
+Calendar URLs are returned only by `create_calendar_subscription`.
+
+See [milestone 3](docs/milestone_3.md) for contracts, solver semantics, provider
+limits, verification commands, and live smoke-test steps.
+
 ## Azure infrastructure and deployment
 
 The intended target is **Gustavo Hidalgo personal subscription**, region **East US 2**. Bicep provisions:
@@ -404,9 +587,9 @@ The intended target is **Gustavo Hidalgo personal subscription**, region **East 
 - Azure Container Registry (Basic, admin credentials disabled) with a daily purge task
 - Azure Key Vault (RBAC authorization, soft delete, and purge protection enabled)
 - Azure Database for PostgreSQL Flexible Server (PostgreSQL 18, PostGIS, Burstable B1ms)
-- Azure Maps Gen2 in East US with browser CORS, a search-only user-assigned identity for SAS authorization, and a least-privilege SAS issuer role for the API
+- Azure Maps Gen2 in East US with browser CORS, a user-assigned identity with Search Reader plus route-read and timezone-read roles for SAS authorization, and a least-privilege SAS issuer role for the API
 - Linux App Service plan and containerized Web App
-- App Service filesystem diagnostics with one-day HTTP log retention
+- App Service application diagnostics; HTTP-path logs and failed-request tracing are disabled to keep bearer calendar URLs out of logs
 - managed-identity access to pull images and read Key Vault secrets
 - API-managed Google and personal Microsoft account authentication configuration
 
@@ -442,6 +625,37 @@ Authentication credentials live only in the provisioned Key Vault. A release req
 There is no GitHub Actions CI/CD configuration. Releases are intentional local operations performed using your current Azure CLI login. Azure CLI manages the subscription, resources, configuration, registry, and deployment.
 
 ## API routes
+
+### Input contracts
+
+REST endpoints validate request bodies recursively before running handlers. MCP
+tools use the same rules at invocation time, and publish them in `inputSchema`
+(including nested properties). The development OpenAPI document also derives
+string enums and custom formats from these validation attributes. Invalid inputs return HTTP `400` or an MCP error
+with `structuredContent.status: 400` and field-specific errors, without saving a
+mutation or queuing provider work. Scope, membership, concurrency, and
+cross-field/domain checks still run in the existing handlers.
+
+| Input | Contract |
+| --- | --- |
+| Activity state | Exactly `Proposed`, `Planned`, or `Rejected` (case-sensitive) |
+| Activity duration / cost | Duration is null or 1–10080 minutes; cost is nonnegative, with a three-letter currency and `perPerson` or `total` basis |
+| Activity text / links | Name 1–200, description 0–10000, place name up to 200 characters; up to 20 absolute HTTP(S) links, URL up to 2048 and label up to 200 characters; URL credentials are forbidden |
+| GeoJSON | `Feature` and `Point` literals; exactly `[longitude, latitude]`, finite and within ±180/±90 |
+| Destinations / dates | City name 1–150 characters, two-letter country code, recognized optional time zone, ISO `YYYY-MM-DD` dates within 2000–2100; departure cannot precede arrival |
+| Destination constraints | Object; arrival/departure flexibility 0–5 and `keepAfterPrevious` boolean when present |
+| Trips / profile | Trip name 1–200, description up to 4000; home-city name up to 200; bounded airline/airport codes and valid home coordinates |
+| Party role | Exactly `Traveller` or `Planner` |
+| Flight planning | Cabin `economy`, `premium_economy`, `business`, or `first`; stops 0–2, journey hours 1–168, flexibility 0–5, trip length 1–60 days; supported constraint/location types and bounded arrays |
+| Flight selection | Nonnegative itinerary indexes and prices, three-letter currencies, bounded non-null leg identifiers; choices must still match current server fares |
+| Activity planning | Proposal kind `draft` or `improvements`; transport `walking`, `taxi`, or `driving`; meals `breakfast`, `lunch`, or `dinner`; clocks ISO 8601 `HH:mm:ss` with zero seconds, allowances 0–1440 minutes, bounded plan arrays |
+| IDs / pagination | Nonempty UUIDs; reuse returned opaque destination/context IDs and quoted ETags; operation page size 1–100 and offsets 0–100000; operation filters accept known operation types |
+| Authentication / uploads | OAuth parameters remain validated by OpenIddict; login/logout redirects must target local paths or configured origins and cannot contain backslashes/control characters; image uploads retain count, byte-size, MIME-signature, and pixel limits |
+
+Activity states remain strings in storage. Existing custom states are not silently
+rewritten; select a supported state before saving an old activity. The website's
+state menus offer only supported values. After deployment, refresh the ChatGPT
+plugin's tool definitions so it receives the updated schemas.
 
 | Method | Route | Notes |
 | --- | --- | --- |
@@ -480,6 +694,19 @@ There is no GitHub Actions CI/CD configuration. Releases are intentional local o
 | PUT | `/trips/{tripId}/flights/{partyId}/purchases` | Save purchase status for the selected flight's legs |
 | GET | `/trips/{tripId}/flights/choices` | Read in-progress route choices |
 | PUT | `/trips/{tripId}/flights/choices/{partyId}` | Save in-progress route choices by cache key |
+| GET, PUT | `/user/activity-preferences` | Private interests and optional defaults; replacement requires If-Match |
+| GET, PUT | `/trips/{tripId}/activity-preferences` | Shared trip preferences |
+| GET, PUT | `/trips/{tripId}/destinations/{destinationCity}/activity-preferences` | Shared destination preferences |
+| GET, PUT | `/trips/{tripId}/destinations/{destinationCity}/activity-plan` | Complete plan, assessment and input context; conditional replacement |
+| POST | `/trips/{tripId}/destinations/{destinationCity}/activity-plan/assessments` | Idempotent persisted assessment, optionally of an unsaved draft |
+| POST | `/trips/{tripId}/destinations/{destinationCity}/activity-plan/previews` | Read-only draft evaluation from cached inputs; requires a complete plan and current contextVersion; MCP: `preview_activity_plan` with read scope |
+| GET | `/trips/{tripId}/destinations/{destinationCity}/activity-plan/assessments/{id}` | Assessment result and status |
+| POST | `/trips/{tripId}/destinations/{destinationCity}/activity-plan/proposals` | Idempotent draft or improvement job; never applies a plan |
+| GET | `/trips/{tripId}/destinations/{destinationCity}/activity-plan/proposals/{id}` | Progressive alternatives, suggestions and review |
+| PUT | `/trips/{tripId}/destinations/{destinationCity}/activity-plan/proposals/{id}/review` | Replace dismissed suggestions using review ETag and Planning-Context |
+| GET, POST | `/trips/{tripId}/calendar-subscriptions` | List or create the current member's subscription |
+| DELETE | `/trips/{tripId}/calendar-subscriptions/{id}` | Revoke the current member's subscription |
+| GET | `/calendars/{token}.ics` | Bearer-authorized saved schedule; no cookie required |
 | GET | `/operations?top={top}&skip={skip}&type={type}` | List the authenticated user's operations with paging and optional type filtering |
 | GET | `/operations/{operationId}` | Read one authorized operation's status and progress |
 

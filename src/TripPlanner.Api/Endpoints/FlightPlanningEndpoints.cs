@@ -3,7 +3,7 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Flights;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -45,10 +45,16 @@ public static class FlightPlanningEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         return Results.Ok(await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted));
     }
 
@@ -67,13 +73,22 @@ public static class FlightPlanningEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (await database.GetTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var issues = planner.Validate(document, parties, false);
         if (issues.Count > 0)
+        {
             return Results.BadRequest(new { title = "Check the constraint definitions.", issues });
+        }
+
         Trip? updated = await database.SetFlightConstraintsAsync(
             user.Id,
             tripId,
@@ -101,12 +116,21 @@ public static class FlightPlanningEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         if (request.RequestId == Guid.Empty)
+        {
             return Results.BadRequest(new { title = "A request ID is required." });
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var preview = planner.Build(
             await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted),
@@ -114,6 +138,7 @@ public static class FlightPlanningEndpoints
             context.RequestAborted
         );
         if (!preview.Ready)
+        {
             return Results.BadRequest(
                 new
                 {
@@ -121,6 +146,8 @@ public static class FlightPlanningEndpoints
                     issues = preview.Issues,
                 }
             );
+        }
+
         try
         {
             var operation = await database.CreateFlightSearchOperationAsync(
@@ -156,14 +183,21 @@ public static class FlightPlanningEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
         var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
+        {
             return Results.BadRequest(
                 new
                 {
@@ -171,6 +205,8 @@ public static class FlightPlanningEndpoints
                     issues = preview.Issues,
                 }
             );
+        }
+
         var results = await database.GetFareSearchResultsAsync(
             user.Id,
             tripId,
@@ -179,7 +215,10 @@ public static class FlightPlanningEndpoints
         );
         context.Response.Headers.CacheControl = "no-store";
         if (results is null)
+        {
             return Results.NotFound();
+        }
+
         if (document.Visits.Length > 0)
         {
             var assembled = routes.Compose(
@@ -193,7 +232,9 @@ public static class FlightPlanningEndpoints
                     result.Response.GetProperty("itineraries").GetArrayLength() > 0
                 )
             )
+            {
                 results = assembled;
+            }
         }
         return Results.Ok(
             results.Select(result =>
@@ -232,17 +273,29 @@ public static class FlightPlanningEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (string.IsNullOrWhiteSpace(request.IgnavId))
+        {
             return Results.BadRequest(new { title = "An Ignav itinerary ID is required." });
+        }
+
         Trip? trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
         var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
+        {
             return Results.BadRequest(new { title = "The saved trip constraints are invalid." });
+        }
+
         var fares = await database.GetFareSearchResultsAsync(
             user.Id,
             tripId,
@@ -250,12 +303,15 @@ public static class FlightPlanningEndpoints
             context.RequestAborted
         );
         if (fares is not null)
+        {
             fares = routes.Compose(
                 document,
                 parties,
                 fares,
                 await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
             );
+        }
+
         var matching = fares
             ?.Where(result => result.CacheKey == cacheKey)
             .Select(result => new
@@ -266,7 +322,10 @@ public static class FlightPlanningEndpoints
             .Where(candidate => candidate.Index >= 0)
             .ToArray();
         if (matching is null || matching.Length == 0)
+        {
             return Results.NotFound();
+        }
+
         if (
             !matching.Any(candidate =>
                 validator
@@ -278,9 +337,12 @@ public static class FlightPlanningEndpoints
                     .Status == "Eligible"
             )
         )
+        {
             return Results.Conflict(
                 new { title = "This fare does not satisfy the trip's current requirements." }
             );
+        }
+
         return Results.Ok(
             await ignav.GetBookingLinksAsync(request.IgnavId, context.RequestAborted)
         );
@@ -292,7 +354,10 @@ public static class FlightPlanningEndpoints
             !response.TryGetProperty("itineraries", out var itineraries)
             || itineraries.ValueKind != JsonValueKind.Array
         )
+        {
             return -1;
+        }
+
         var index = 0;
         foreach (var itinerary in itineraries.EnumerateArray())
         {
@@ -312,7 +377,10 @@ public static class FlightPlanningEndpoints
                     )
                 )
             )
+            {
                 return index;
+            }
+
             index++;
         }
         return -1;

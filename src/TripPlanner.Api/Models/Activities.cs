@@ -1,9 +1,21 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Spatial;
+using TripPlanner.Api.DTO;
+using TripPlanner.Api.Serialization;
 
 namespace TripPlanner.Api.Models;
 
-public sealed record GeoJsonPoint(string Type, double[] Coordinates);
+public sealed record GeoJsonPoint(
+    [property: AllowedValues("Point")] string Type,
+    [property:
+        Coordinates,
+        JsonPropertyName("coordinates"),
+        JsonConverter(typeof(CoordinatesConverter))
+    ]
+        GeographyPoint Position
+);
 
 public sealed record GeoJsonFeature<T>(
     string Type,
@@ -67,21 +79,50 @@ public sealed record DestinationPlace(
     public JsonElement Constraints { get; init; } = JsonSerializer.SerializeToElement(new { });
 }
 
-public sealed record ActivityCost(decimal Amount, string Currency, string Basis);
+public sealed record ActivityCost(
+    [property: JsonRequired, Range(typeof(decimal), "0", "79228162514264337593543950335")]
+        decimal Amount,
+    [property: Required, RegularExpression("^[A-Za-z]{3}$")] string Currency,
+    [property: AllowedValues("perPerson", "total")] string Basis
+);
 
-public sealed record ActivityLink(string Url, string? Label = null);
+public sealed record ActivityLink(
+    [property: HttpUrl, StringLength(2048, MinimumLength = 1)] string Url,
+    [property: StringLength(200)] string? Label = null
+);
 
 public sealed record ActivityProperties(
-    string Name,
-    int? DurationMinutes,
-    string Description,
+    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property: DurationRange(1, 10080), JsonConverter(typeof(IsoDurationConverter))]
+        TimeSpan? Duration,
+    [property: StringLength(10000)] string Description,
     ActivityCost? Cost,
-    string State,
-    string? PlaceName = null
+    [property: JsonRequired, EnumDataType(typeof(ActivityState))] ActivityState State,
+    [property: StringLength(200)] string? PlaceName = null
 )
 {
+    [MaxLength(20)]
     public IReadOnlyList<ActivityLink> Links { get; init; } = [];
+
+    public ActivityResearchEvidence? DurationEvidence { get; init; }
+    public ActivityResearchEvidence? CostEvidence { get; init; }
+
+    public ActivityLocationSuggestion? LocationSuggestion { get; init; }
 }
+
+public sealed record ActivityResearchEvidence(
+    [property: Required, StringLength(2000)] string Notes,
+    [property: Required] ActivityLink Source,
+    DateTimeOffset ResearchedAt
+);
+
+// A researched point is separate from Geometry until the user accepts it.
+public sealed record ActivityLocationSuggestion(
+    [property: Required, StringLength(200)] string VenueName,
+    [property: Required] GeoJsonPoint Geometry,
+    [property: Required] ActivityLink Source,
+    DateTimeOffset RetrievedAt
+);
 
 public sealed record Activity(
     Guid Id,
@@ -101,7 +142,7 @@ public sealed record Activity(
 public sealed record ActivityCandidate(
     string Name,
     string? PlaceName,
-    int? DurationMinutes,
+    [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan? Duration,
     string? Description,
     decimal? CostAmount,
     string? CostCurrency,

@@ -1,0 +1,401 @@
+.daily-plan,
+.planning-preferences,
+.planning-calendar {
+  min-width: 0;
+  color: inherit;
+}
+.daily-plan {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  gap: 1rem;
+  padding: 0.25rem;
+}
+.agenda-meta,
+.agenda-time,
+.agenda-day-heading > span {
+  color: var(--colorNeutralForeground2);
+}
+.agenda-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 20px;
+  border: 1px dashed var(--colorNeutralStroke1);
+  border-radius: 12px;
+  text-align: center;
+  background: var(--colorNeutralBackground1);
+}
+.agenda-empty > svg {
+  width: 40px;
+  height: 40px;
+  color: var(--colorBrandForeground1);
+}
+.agenda-empty p {
+  max-width: 35ch;
+  line-height: 1.6;
+}
+.activity-agenda,
+.planning-tools {
+  display: grid;
+  min-width: 0;
+  gap: 24px;
+}
+.agenda-day-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+.agenda-day-heading > span {
+  font-size: 0.85rem;
+}
+.daily-plan .agenda-day-title {
+  margin: 0 0 12px;
+}
+.daily-plan .agenda-day-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  text-align: left;
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground2);
+  border-color: var(--colorNeutralStroke1);
+}
+.agenda-day-toggle time {
+  font-weight: 600;
+}
+.agenda-day-summary {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--colorNeutralForeground2);
+}
+.agenda-day-summary .agenda-overrun {
+  color: var(--colorPaletteRedForeground1);
+}
+@media (max-width: 480px) {
+  .daily-plan .agenda-day-toggle {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .agenda-day-summary {
+    grid-column: 2;
+    text-align: left;
+  }
+}
+.agenda-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.agenda-routine .agenda-time {
+  padding-top: 10px;
+  font-size: 0.85rem;
+}
+
+.agenda-routine-card {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground2);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.agenda-routine-card > span {
+  color: var(--colorNeutralForeground2);
+}
+.agenda-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+.agenda-time {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.agenda-time > span {
+  font-weight: 600;
+}
+.agenda-time small {
+  font-size: 0.75rem;
+}
+.agenda-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-left: 3px solid var(--colorBrandStroke1);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground1);
+  overflow-wrap: anywhere;
+}
+.daily-plan .agenda-name {
+  width: 100%;
+  text-align: left;
+  font-weight: 600;
+}
+.agenda-meta {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding-top: 8px;
+}
+.agenda-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.daily-plan .agenda-card button,
+.daily-plan .agenda-card select,
+.daily-plan .agenda-tools-toggle {
+  min-height: 44px;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  border-color: var(--colorNeutralStroke1);
+}
+.agenda-tools-toggle {
+  align-self: flex-start;
+}
+.agenda-draft {
+  color: var(--colorBrandForeground1);
+}
+.daily-plan .timezone-picker .fui-Combobox {
+  width: 100%;
+  min-width: 0;
+}
+.daily-plan .timezone-picker input {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.daily-plan h2,
+.daily-plan h3,
+.daily-plan h4,
+.daily-plan p {
+  margin: 0.25rem 0 0.65rem;
+}
+.daily-plan button,
+.planning-preferences button,
+.planning-calendar button {
+  border: 1px solid #a6b2bc;
+  border-radius: 6px;
+  background: #fff;
+  color: #153c51;
+  padding: 0.55rem 0.75rem;
+  min-height: 42px;
+  cursor: pointer;
+  font: inherit;
+}
+.daily-plan button:disabled,
+.planning-preferences button:disabled,
+.planning-calendar button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.daily-plan button:focus-visible,
+.daily-plan summary:focus-visible {
+  outline: 3px solid #0f6cbd;
+  outline-offset: 2px;
+}
+.daily-plan .planning-primary,
+.planning-preferences .planning-primary {
+  background: #0f6cbd;
+  color: white;
+  border-color: #0f6cbd;
+}
+.planning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+.planning-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 0.75rem;
+}
+.daily-plan label,
+.planning-preferences label,
+.planning-calendar label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.45rem 0;
+}
+.daily-plan label:has(input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+}
+.daily-plan input:not([type="checkbox"]),
+.daily-plan select,
+.planning-preferences textarea,
+.planning-calendar input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid #9daeba;
+  border-radius: 5px;
+  padding: 0.5rem;
+  font: inherit;
+  background: #fff;
+  color: #172f3b;
+  min-height: 42px;
+}
+.daily-plan fieldset {
+  min-width: 0;
+  border: 1px solid #d0d9de;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+.daily-plan details {
+  border-top: 1px solid #d0d9de;
+  padding: 0.65rem 0;
+}
+.daily-plan summary {
+  cursor: pointer;
+  min-height: 30px;
+  font-weight: 600;
+}
+.planning-assessment,
+.planning-choice,
+.planning-preview,
+.planning-idea,
+.planning-attention {
+  padding: 0.85rem;
+  border: 1px solid #c7d4dc;
+  border-radius: 8px;
+}
+.planning-provisional,
+.planning-incomplete,
+.planning-attention {
+  background: #fff7df;
+  border-color: #dca832;
+  color: #4e3900;
+}
+.planning-conflicting,
+.planning-error {
+  background: #fff0f0;
+  border-color: #c55353;
+  color: #8a2020;
+}
+.planning-issue-conflict {
+  font-weight: 600;
+}
+.planning-day {
+  border: 1px solid #c7d4dc;
+  border-radius: 10px;
+  padding: 0.85rem;
+}
+.planning-day-totals {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #47606e;
+}
+.planning-timeline {
+  padding-left: 1.2rem;
+  margin: 0;
+}
+.planning-stop {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border-left: 3px solid #8aaec4;
+  background: #f7fafc;
+  border-radius: 5px;
+}
+.planning-activity-name {
+  display: block;
+  font-weight: 600 !important;
+  margin: 0.5rem 0;
+  text-align: left;
+}
+.planning-travel,
+.planning-breaks {
+  font-size: 0.9rem;
+  color: #435d6c;
+}
+.planning-idea {
+  margin: 0.6rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.planning-preview {
+  border: 2px solid #0f6cbd;
+}
+.planning-calendar ul {
+  padding-left: 1rem;
+}
+.planning-calendar li {
+  padding: 0.5rem 0;
+}
+@media (max-width: 767px) {
+  .daily-plan {
+    flex: none;
+    overflow: visible;
+    overscroll-behavior-y: auto;
+    scrollbar-gutter: auto;
+  }
+}
+@media (max-width: 600px) {
+  .daily-plan {
+    font-size: 0.95rem;
+  }
+  .planning-day {
+    padding: 0.65rem;
+  }
+  .planning-actions > button {
+    flex: 1 1 120px;
+  }
+  .planning-stop {
+    padding: 0.65rem;
+  }
+}
+
+.agenda-travel .agenda-time {
+  align-items: center;
+  padding-top: 8px;
+  color: var(--colorNeutralForeground3);
+}
+.agenda-travel-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--colorNeutralStroke2);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground2);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.agenda-travel-card > span {
+  color: var(--colorNeutralForeground2);
+}

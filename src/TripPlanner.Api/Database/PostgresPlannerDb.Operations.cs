@@ -52,9 +52,12 @@ public sealed partial class PostgresPlannerDb
             existing.Parameters.AddWithValue(userId);
             existing.Parameters.AddWithValue(tripId);
             if (await existing.ExecuteScalarAsync(cancellationToken) is null)
+            {
                 throw new InvalidOperationException(
                     "This request ID was already used, or the trip no longer exists."
                 );
+            }
+
             await transaction.CommitAsync(cancellationToken);
             return (await GetOperationAsync(userId, requestId, cancellationToken))!;
         }
@@ -117,9 +120,11 @@ public sealed partial class PostgresPlannerDb
                 && queuedOperationId != requestId
                 && queuedOperationStatus is "pending" or "InProgress"
             )
+            {
                 throw new InvalidOperationException(
                     "A matching flight search is already in progress."
                 );
+            }
 
             await using var queueFare = new NpgsqlCommand(
                 """
@@ -202,7 +207,10 @@ public sealed partial class PostgresPlannerDb
         var results = new List<TrackedOperation>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
+        {
             results.Add(ReadOperation(reader));
+        }
+
         return results;
     }
 
@@ -219,7 +227,9 @@ public sealed partial class PostgresPlannerDb
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         if (keys.Length == 0)
+        {
             return [];
+        }
 
         await using var command = dataSource.CreateCommand(
             """
@@ -242,6 +252,7 @@ public sealed partial class PostgresPlannerDb
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
             while (await reader.ReadAsync(cancellationToken))
+            {
                 cached.Add(
                     reader.GetString(0),
                     (
@@ -250,9 +261,12 @@ public sealed partial class PostgresPlannerDb
                         reader.GetFieldValue<DateTimeOffset>(3)
                     )
                 );
+            }
         }
         if (cached.Count == 0)
+        {
             return null;
+        }
 
         return preview
             .Parties.SelectMany(p =>
@@ -405,7 +419,9 @@ public sealed partial class PostgresPlannerDb
             success ? fetchedAt!.Value : DBNull.Value
         );
         if (await updateFare.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
             return false;
+        }
 
         await using var updateOperation = new NpgsqlCommand(
             """
@@ -449,7 +465,10 @@ public sealed partial class PostgresPlannerDb
     private static JsonElement? ReadJson(NpgsqlDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
+        {
             return null;
+        }
+
         using var json = JsonDocument.Parse(reader.GetString(ordinal));
         return json.RootElement.Clone();
     }

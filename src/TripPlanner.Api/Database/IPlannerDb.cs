@@ -2,11 +2,11 @@ using System.Text.Json;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.TripForms;
 
 namespace TripPlanner.Api.Database;
 
-public interface IPlannerDb
+public interface IPlannerDb : IActivityPlanningDb
 {
     Task<IReadOnlyDictionary<string, GeoJsonFeature<StayLocationProperties>>> GetStayLocationsAsync(
         Guid userId,
@@ -246,7 +246,7 @@ public interface IPlannerDb
         Guid memberUserId,
         bool add,
         CancellationToken cancellationToken = default,
-        string role = "Traveller"
+        PartyRole role = PartyRole.Traveller
     );
 
     Task<IReadOnlyList<Party>> GetPartiesAsync(

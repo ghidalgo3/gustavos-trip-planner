@@ -1,3 +1,6 @@
+import { findActivityLocations } from "./findActivityLocations";
+import { useActionToast } from "./useActionToast";
+import { durationFromMinutes, durationMinutes } from "./durations";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -9,13 +12,11 @@ import {
   DialogActions,
   Input,
   Spinner,
-  Toaster,
   Toast,
   ToastTitle,
   ToastBody,
   ToastTrigger,
   useId,
-  useToastController,
   Tab,
   TabList,
   Text,
@@ -39,6 +40,7 @@ import {
   ArrowExpand24Regular,
   ChevronDown24Regular,
   ChevronUp24Regular,
+  ChevronRight24Regular,
   Dismiss24Regular,
   Delete24Regular,
   Share24Regular,
@@ -47,9 +49,14 @@ import { destinationDates } from "./tripDates";
 import { Link, useSearchParams } from "react-router";
 import { searchPlaces, type Trip } from "./api";
 import { activityMapLink } from "./activityMapLink";
+import ActivityDetailsResearch, {
+  ActivityDetailsEvidence,
+} from "./ActivityDetailsResearch";
 import ActivityLinksEditor from "./ActivityLinksEditor";
 import { validActivityLink } from "./activityLinks";
 import ActivityMap from "./ActivityMap";
+import DailyActivityPlan from "./DailyActivityPlan";
+import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
 import {
   deleteActivity,
   getActivities,
@@ -58,6 +65,7 @@ import {
   getSuggestionResult,
   importActivityImages,
   saveActivity,
+  researchActivityLocation,
   suggestActivities,
   waitForActivityJob,
   type Activity,
@@ -77,7 +85,7 @@ const emptyActivity = (): ActivityInput => ({
   geometry: null,
   properties: {
     name: "",
-    durationMinutes: null,
+    duration: null,
     description: "",
     cost: null,
     state: "Proposed",
@@ -90,7 +98,8 @@ const emptyCollection: ActivityCollection = {
   features: [],
 };
 
-function formatDuration(minutes: number | null) {
+function formatDuration(duration: string | null) {
+  const minutes = durationMinutes(duration);
   if (minutes === null) return "Duration unknown";
   const hours = Math.floor(minutes / 60);
   return hours
@@ -116,6 +125,11 @@ export default function ActivityPlanning({
   onDestinationChange?: (destination: Destination | undefined) => void;
 }) {
   const [query, setQuery] = useSearchParams();
+  const [activityView, setActivityView] = useState("ideas");
+  const [collapsedStates, setCollapsedStates] = useState<Set<string>>(
+    new Set(),
+  );
+  const stateGroupsId = useId("activity-state-groups");
   const [destinations, setDestinations] =
     useState<DestinationCollection | null>();
   const [activityData, setActivityData] = useState<{
@@ -124,20 +138,22 @@ export default function ActivityPlanning({
   }>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const locationAbort = useRef<AbortController | undefined>(undefined);
+  const [locationProgress, setLocationProgress] = useState<{
+    completed: number;
+    total: number;
+  }>();
   const [deleteTarget, setDeleteTarget] = useState<Activity>();
-  const [deleteError, setDeleteError] = useState<string>();
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
   const editorCloseRef = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string>();
-  const [message, setMessage] = useState<string>();
-  const toasterId = useId("activity-results");
-  const { dispatchToast } = useToastController(toasterId);
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
   const [mapCollapsed, setMapCollapsed] = useState(false);
   const mapPanelId = useId("activity-map-panel");
   const [fullscreenContainer, setFullscreenContainer] =
     useState<HTMLDivElement | null>(null);
+  const { notify, dispatchToast, toaster } = useActionToast();
   const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
   const [searching, setSearching] = useState(false);
@@ -164,9 +180,25 @@ export default function ActivityPlanning({
     activityData && activityData.cityId === cityId
       ? activityData.collection
       : emptyCollection;
+  const groups = new Map<string, { item: Activity; index: number }[]>();
+  activities.features.forEach((item, index) => {
+    const group = groups.get(item.properties.state) ?? [];
+    group.push({ item, index });
+    groups.set(item.properties.state, group);
+  });
+  const stateOrder = ["Proposed", "Planned", "Rejected"];
+  const groupedActivities = [...groups].sort(([a], [b]) => {
+    const rank = (state: string) =>
+      stateOrder.includes(state)
+        ? stateOrder.indexOf(state)
+        : stateOrder.length;
+    return rank(a) - rank(b) || a.localeCompare(b);
+  });
   const selected = activities.features.find((item) => item.id === selectedId);
   const canEdit = !readOnly && destination?.properties.isActive === true;
   const canGenerate = canEdit && featureFlags.includes("LLM");
+  const missingLocations = activities.features.some((item) => !item.geometry);
+  useEffect(() => () => locationAbort.current?.abort(), [trip.id, cityId]);
   const deleteOpen = Boolean(deleteTarget);
   const editorOpen = Boolean(editor && canEdit);
 
@@ -244,7 +276,6 @@ export default function ActivityPlanning({
       { preventScrollReset: true },
     );
     setError(undefined);
-    setMessage(undefined);
   }
 
   function updateEditor(changes: Partial<ActivityInput["properties"]>) {
@@ -254,7 +285,12 @@ export default function ActivityPlanning({
             ...current,
             value: {
               ...current.value,
-              properties: { ...current.value.properties, ...changes },
+              properties: {
+                ...current.value.properties,
+                ...("duration" in changes ? { durationEvidence: null } : {}),
+                ...("cost" in changes ? { costEvidence: null } : {}),
+                ...changes,
+              },
             },
           }
         : current,
@@ -271,12 +307,127 @@ export default function ActivityPlanning({
       setEditor({ value: current.activity, etag: current.etag });
       setPlaceQuery(current.activity.properties.placeName ?? "");
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not load the activity.",
+        "error",
       );
     }
+  }
+
+  async function findMissingLocations() {
+    if (!destination || !canGenerate || busy || !missingLocations) return;
+    const controller = new AbortController();
+    locationAbort.current = controller;
+    setBusy(true);
+    setLocationProgress({
+      completed: 0,
+      total: activities.features.filter((item) => !item.geometry).length,
+    });
+    try {
+      const counts = await findActivityLocations({
+        tripId: trip.id,
+        destination,
+        activities: activities.features,
+        signal: controller.signal,
+        onSaved: (saved) =>
+          setActivityData((current) =>
+            current?.cityId === destination.id
+              ? {
+                  ...current,
+                  collection: {
+                    ...current.collection,
+                    features: current.collection.features.map((item) =>
+                      item.id === saved.id ? saved : item,
+                    ),
+                  },
+                }
+              : current,
+          ),
+        onProgress: (completed, total) =>
+          setLocationProgress({ completed, total }),
+      });
+      if (!controller.signal.aborted) {
+        notify(
+          `${counts.found} location${counts.found === 1 ? "" : "s"} found and saved.${counts.skipped ? ` ${counts.skipped} already located.` : ""}${counts.unresolved ? ` ${counts.unresolved} could not be verified.` : ""}${counts.failed ? ` ${counts.failed} failed; try again.` : ""}`,
+          counts.failed ? "error" : counts.unresolved ? "info" : "success",
+        );
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted)
+        notify(
+          reason instanceof Error
+            ? reason.message
+            : "Could not find activity locations.",
+          "error",
+        );
+    } finally {
+      if (locationAbort.current === controller) {
+        locationAbort.current = undefined;
+        setLocationProgress(undefined);
+        setBusy(false);
+      }
+    }
+  }
+
+  async function researchLocation() {
+    if (!destination || !editor?.value.id || !editor.etag || busy) return;
+    setBusy(true);
+    try {
+      const suggestion = await researchActivityLocation(
+        trip.id,
+        destination,
+        editor.value.id,
+        editor.etag,
+      );
+      updateEditor({ locationSuggestion: suggestion });
+      if (!suggestion)
+        notify(
+          "No published location could be verified. Try Azure Maps or select a location manually.",
+          "error",
+        );
+    } catch (reason) {
+      notify(
+        reason instanceof Error
+          ? reason.message
+          : "Could not research the location.",
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function useSuggestedLocation() {
+    const suggestion = editor?.value.properties.locationSuggestion;
+    if (!editor || !suggestion) return;
+    const links = editor.value.properties.links ?? [];
+    if (
+      links.length >= 20 &&
+      !links.some((link) => link.url === suggestion.source.url)
+    ) {
+      notify(
+        "Remove a link before adding the location source (20 links maximum).",
+        "error",
+      );
+      return;
+    }
+    setEditor({
+      ...editor,
+      value: {
+        ...editor.value,
+        geometry: suggestion.geometry,
+        properties: {
+          ...editor.value.properties,
+          locationSuggestion: null,
+          links: links.some((link) => link.url === suggestion.source.url)
+            ? links
+            : [...links, suggestion.source],
+        },
+      },
+    });
+    notify("Location selected. Save the activity to apply it.");
   }
 
   async function save() {
@@ -303,12 +454,13 @@ export default function ActivityPlanning({
       });
       setSelectedId(saved.id);
       setEditor(undefined);
-      setMessage("Activity saved.");
+      notify("Activity saved.");
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not save the activity.",
+        "error",
       );
     } finally {
       setBusy(false);
@@ -328,12 +480,13 @@ export default function ActivityPlanning({
       });
       setSelectedId(undefined);
       setEditor(undefined);
-      setMessage("Activity deleted.");
+      notify("Activity deleted.");
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not delete the activity.",
+        "error",
       );
     } finally {
       setBusy(false);
@@ -364,11 +517,13 @@ export default function ActivityPlanning({
           ),
         },
       });
+      notify("Activity state updated.");
     } catch (reason) {
-      setError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not update activity state.",
+        "error",
       );
     } finally {
       setBusy(false);
@@ -378,7 +533,6 @@ export default function ActivityPlanning({
   async function confirmActivityDeletion() {
     if (!destination || !deleteTarget || busy) return;
     setBusy(true);
-    setDeleteError(undefined);
     try {
       const current = await getActivity(
         trip.id,
@@ -400,12 +554,13 @@ export default function ActivityPlanning({
         setShowMapCard(false);
       }
       setDeleteTarget(undefined);
-      setMessage("Activity deleted.");
+      notify("Activity deleted.");
     } catch (reason) {
-      setDeleteError(
+      notify(
         reason instanceof Error
           ? reason.message
           : "Could not delete the activity.",
+        "error",
       );
     } finally {
       setBusy(false);
@@ -467,6 +622,7 @@ export default function ActivityPlanning({
     );
     updateEditor({
       placeName: place.label,
+      locationSuggestion: null,
       ...(!editor?.value.properties.name.trim()
         ? { name: place.name ?? place.label.split(",")[0] }
         : {}),
@@ -486,7 +642,6 @@ export default function ActivityPlanning({
     const cityId = destination.id;
     setBusy(true);
     setError(undefined);
-    setMessage(undefined);
     const controller = new AbortController();
     operationAbort.current = controller;
     try {
@@ -542,12 +697,12 @@ export default function ActivityPlanning({
       setEditor(undefined);
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === "AbortError"))
-        setError(
+        notify(
           reason instanceof Error
             ? reason.message
             : "Could not generate activities.",
+          "error",
         );
-      setMessage(undefined);
     } finally {
       setBusy(false);
       operationAbort.current = undefined;
@@ -617,6 +772,54 @@ export default function ActivityPlanning({
     setShowMapCard(true);
   }
 
+  function renderActivityMenu(item: Activity) {
+    return canEdit ? (
+      <Menu
+        checkedValues={{ state: [item.properties.state] }}
+        onCheckedValueChange={(_, data) => {
+          if (data.checkedItems[0])
+            void changeActivityState(item, data.checkedItems[0]);
+        }}
+      >
+        <MenuTrigger disableButtonEnhancement>
+          <MenuButton
+            className="activity-state-menu-button"
+            appearance="secondary"
+            disabled={busy}
+            aria-label={`State for ${item.properties.name}: ${item.properties.state}`}
+          >
+            {item.properties.state}
+          </MenuButton>
+        </MenuTrigger>
+        <MenuPopover>
+          <MenuList>
+            {Array.from(new Set(["Proposed", "Planned", "Rejected"])).map(
+              (state) => (
+                <MenuItemRadio key={state} name="state" value={state}>
+                  {state}
+                </MenuItemRadio>
+              ),
+            )}
+            <MenuDivider />
+            <MenuItem
+              className="activity-delete-menu-item"
+              icon={<Delete24Regular />}
+              disabled={busy}
+              onClick={() => {
+                // Let the menu close and restore focus before opening a modal.
+                window.setTimeout(() => setDeleteTarget(item), 0);
+              }}
+            >
+              Delete activity
+            </MenuItem>
+          </MenuList>
+        </MenuPopover>
+      </Menu>
+    ) : (
+      <span className="activity-state">{item.properties.state}</span>
+    );
+  }
+
   function renderActivityCard(item: Activity, index: number) {
     const mapLink = activityMapLink(item.geometry, item.properties.name);
     return (
@@ -640,57 +843,7 @@ export default function ActivityPlanning({
             {index + 1}
           </span>
           <h3>{item.properties.name}</h3>
-          {canEdit ? (
-            <Menu
-              checkedValues={{ state: [item.properties.state] }}
-              onCheckedValueChange={(_, data) => {
-                if (data.checkedItems[0])
-                  void changeActivityState(item, data.checkedItems[0]);
-              }}
-            >
-              <MenuTrigger disableButtonEnhancement>
-                <MenuButton
-                  className="activity-state-menu-button"
-                  appearance="secondary"
-                  disabled={busy}
-                  aria-label={`State for ${item.properties.name}: ${item.properties.state}`}
-                >
-                  {item.properties.state}
-                </MenuButton>
-              </MenuTrigger>
-              <MenuPopover>
-                <MenuList>
-                  {Array.from(
-                    new Set([
-                      "Proposed",
-                      "Planned",
-                      "Rejected",
-                      item.properties.state,
-                    ]),
-                  ).map((state) => (
-                    <MenuItemRadio key={state} name="state" value={state}>
-                      {state}
-                    </MenuItemRadio>
-                  ))}
-                  <MenuDivider />
-                  <MenuItem
-                    className="activity-delete-menu-item"
-                    icon={<Delete24Regular />}
-                    disabled={busy}
-                    onClick={() => {
-                      setDeleteError(undefined);
-                      // Let the menu close and restore focus before opening a modal.
-                      window.setTimeout(() => setDeleteTarget(item), 0);
-                    }}
-                  >
-                    Delete activity
-                  </MenuItem>
-                </MenuList>
-              </MenuPopover>
-            </Menu>
-          ) : (
-            <span className="activity-state">{item.properties.state}</span>
-          )}
+          {renderActivityMenu(item)}
         </div>
         {!item.geometry && (
           <small className="activity-location-missing">Needs location</small>
@@ -703,13 +856,14 @@ export default function ActivityPlanning({
         <dl className="activity-card-facts">
           <div>
             <dt>Duration</dt>
-            <dd>{formatDuration(item.properties.durationMinutes)}</dd>
+            <dd>{formatDuration(item.properties.duration)}</dd>
           </div>
           <div>
             <dt>Cost</dt>
             <dd>{formatCost(item.properties.cost)}</dd>
           </div>
         </dl>
+        <ActivityDetailsEvidence properties={item.properties} />
         {(item.properties.links ?? []).some(validActivityLink) && (
           <ul
             className="activity-links"
@@ -839,7 +993,6 @@ export default function ActivityPlanning({
             <p>
               This deletes the activity from the trip. This cannot be undone.
             </p>
-            {deleteError && <Text role="alert">{deleteError}</Text>}
           </DialogContent>
           <DialogActions>
             <Button
@@ -935,8 +1088,79 @@ export default function ActivityPlanning({
                   >
                     {searching ? "Searching…" : "Search Azure Maps"}
                   </Button>
+                  {canGenerate && editor.value.id && !editor.value.geometry && (
+                    <Button
+                      disabled={busy || searching}
+                      onClick={() => void researchLocation()}
+                    >
+                      {busy ? "Working…" : "Research saved activity location"}
+                    </Button>
+                  )}
                   {editor.value.geometry && <Text>Location selected</Text>}
                 </div>
+                {editor.value.properties.locationSuggestion &&
+                  !editor.value.geometry && (
+                    <section
+                      className="activity-location-suggestion"
+                      aria-label="Suggested location"
+                    >
+                      <Text weight="semibold">
+                        Suggested location:{" "}
+                        {editor.value.properties.locationSuggestion.venueName}
+                      </Text>
+                      <Text>
+                        Published coordinates; entrance not verified. Review the
+                        pin before saving.
+                      </Text>
+                      <Text>
+                        {editor.value.properties.locationSuggestion.geometry.coordinates[1].toFixed(
+                          6,
+                        )}
+                        ,{" "}
+                        {editor.value.properties.locationSuggestion.geometry.coordinates[0].toFixed(
+                          6,
+                        )}
+                      </Text>
+                      <div className="activity-place-actions">
+                        <a
+                          target="_blank"
+                          rel="noreferrer"
+                          href={
+                            editor.value.properties.locationSuggestion.source
+                              .url
+                          }
+                        >
+                          View coordinate source
+                        </a>
+                        <a
+                          target="_blank"
+                          rel="noreferrer"
+                          href={activityMapLink(
+                            editor.value.properties.locationSuggestion.geometry,
+                            editor.value.properties.locationSuggestion
+                              .venueName,
+                          )}
+                        >
+                          Preview on map
+                        </a>
+                      </div>
+                      <div className="activity-place-actions">
+                        <Button
+                          appearance="primary"
+                          onClick={useSuggestedLocation}
+                        >
+                          Use this location
+                        </Button>
+                        <Button
+                          onClick={() =>
+                            updateEditor({ locationSuggestion: null })
+                          }
+                        >
+                          Dismiss location
+                        </Button>
+                      </div>
+                    </section>
+                  )}
                 {places.length > 0 && (
                   <div
                     className="activity-place-results"
@@ -969,6 +1193,18 @@ export default function ActivityPlanning({
                     }
                   />
                 </label>
+                <ActivityDetailsResearch
+                  key={editor.value.id ?? "new"}
+                  tripId={trip.id}
+                  destination={destination}
+                  activity={editor.value}
+                  etag={editor.etag}
+                  canResearch={canGenerate}
+                  busy={busy}
+                  onBusyChange={setBusy}
+                  onChange={updateEditor}
+                  notify={notify}
+                />
                 <div className="activity-editor-grid">
                   <label>
                     Duration, minutes
@@ -976,13 +1212,14 @@ export default function ActivityPlanning({
                       type="number"
                       min={1}
                       value={
-                        editor.value.properties.durationMinutes?.toString() ??
-                        ""
+                        durationMinutes(
+                          editor.value.properties.duration,
+                        )?.toString() ?? ""
                       }
                       onChange={(_, data) =>
                         updateEditor({
-                          durationMinutes: data.value
-                            ? Number(data.value)
+                          duration: data.value
+                            ? durationFromMinutes(Number(data.value))
                             : null,
                         })
                       }
@@ -1085,12 +1322,7 @@ export default function ActivityPlanning({
                       <MenuPopover>
                         <MenuList>
                           {Array.from(
-                            new Set([
-                              "Proposed",
-                              "Planned",
-                              "Rejected",
-                              editor.value.properties.state,
-                            ]),
+                            new Set(["Proposed", "Planned", "Rejected"]),
                           ).map((state) => (
                             <MenuItemRadio
                               key={state}
@@ -1269,7 +1501,7 @@ export default function ActivityPlanning({
 
   return (
     <section className="activity-planning" aria-label="Activity planning">
-      <Toaster toasterId={toasterId} position="bottom-end" />
+      {toaster}
       <TabList
         aria-label="Destinations"
         selectedValue={destination.id}
@@ -1285,8 +1517,18 @@ export default function ActivityPlanning({
           </Tab>
         ))}
       </TabList>
+      <TabList
+        aria-label="Activity views"
+        selectedValue={activityView}
+        onTabSelect={(_, data) => {
+          setActivityView(String(data.value));
+          if (data.value === "daily") setMapCollapsed(true);
+        }}
+      >
+        <Tab value="ideas">Ideas</Tab>
+        <Tab value="daily">Daily plan</Tab>
+      </TabList>
       {error && !editor && <Text role="alert">{error}</Text>}
-      {message && <Text role="status">{message}</Text>}
       <Button
         className="activity-map-toggle"
         aria-expanded={!mapCollapsed}
@@ -1296,8 +1538,9 @@ export default function ActivityPlanning({
       >
         {mapCollapsed ? "Show map" : "Hide map"}
       </Button>
-      <div
-        className={`activity-workspace${mapCollapsed ? " activity-map-collapsed" : ""}`}
+      <ResizableActivityWorkspace
+        mapCollapsed={mapCollapsed}
+        mapPanelId={mapPanelId}
       >
         <div id={mapPanelId} className="activity-map-panel">
           {!mapExpanded && (
@@ -1326,44 +1569,153 @@ export default function ActivityPlanning({
           className="activity-cards-section"
           aria-label="Destination activities"
         >
-          <div className="activity-cards-heading">
-            <Title2 as="h2">Activities</Title2>
-            {canEdit && (
-              <Button appearance="primary" onClick={openAdd}>
-                Add activity
-              </Button>
-            )}
-          </div>
-          <ul
-            className="activity-cards"
-            aria-label={`${destination.properties.name} activities`}
-          >
-            {activities.features.map((item, index) => (
-              <li key={item.id} className="activity-list-item">
-                <button
-                  type="button"
-                  className="activity-list-select"
-                  aria-label={item.properties.name}
-                  aria-pressed={selectedId === item.id}
-                  onClick={() => selectActivity(item.id)}
-                >
-                  <span className="activity-number" aria-hidden="true">
-                    {index + 1}
-                  </span>
-                  <span>{item.properties.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {activities.features.length === 0 && (
-            <Text className="activity-empty">
-              {canEdit
-                ? "No activities yet. Add an activity to start planning."
-                : "No activities yet."}
-            </Text>
+          {activityView === "daily" ? (
+            <DailyActivityPlan
+              key={`${trip.id}-${destination.id}`}
+              tripId={trip.id}
+              destinationId={destination.id}
+              activities={activities.features}
+              readOnly={!canEdit}
+              useAiAllowed={canGenerate}
+              onSelect={selectActivity}
+              onChooseActivities={() => setActivityView("ideas")}
+              onSaved={async () => {
+                const collection = await getActivities(trip.id, destination.id);
+                setActivityData({ cityId: destination.id, collection });
+              }}
+            />
+          ) : (
+            <>
+              <div className="activity-cards-heading">
+                <Title2 as="h2">Activities</Title2>
+                {canEdit && (
+                  <div className="activity-cards-actions">
+                    <Button
+                      appearance="primary"
+                      disabled={busy}
+                      onClick={openAdd}
+                    >
+                      Add activity
+                    </Button>
+                    {canGenerate && missingLocations && (
+                      <Button
+                        appearance="secondary"
+                        disabled={busy}
+                        onClick={() => void findMissingLocations()}
+                      >
+                        Find location
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {locationProgress && (
+                <p role="status">
+                  Finding locations: {locationProgress.completed} of{" "}
+                  {locationProgress.total}
+                </p>
+              )}
+              <ul
+                className="activity-cards activity-state-groups"
+                aria-label={`${destination.properties.name} activities`}
+              >
+                {groupedActivities.map(([state, items], groupIndex) => {
+                  const key = JSON.stringify([cityId, state]);
+                  const expanded = !collapsedStates.has(key);
+                  const contentId = `${stateGroupsId}-${groupIndex}`;
+                  return (
+                    <li key={state} className="activity-state-group">
+                      <h3>
+                        <Button
+                          className="activity-state-group-toggle"
+                          appearance="secondary"
+                          icon={
+                            expanded ? (
+                              <ChevronDown24Regular />
+                            ) : (
+                              <ChevronRight24Regular />
+                            )
+                          }
+                          aria-label={`${state} activities`}
+                          aria-expanded={expanded}
+                          aria-controls={contentId}
+                          onClick={() =>
+                            setCollapsedStates((current) => {
+                              const next = new Set(current);
+                              if (next.has(key)) next.delete(key);
+                              else next.add(key);
+                              return next;
+                            })
+                          }
+                        >
+                          <span>{state}</span>
+                          <span className="activity-state-group-count">
+                            {items.length}
+                          </span>
+                        </Button>
+                      </h3>
+                      <ul
+                        id={contentId}
+                        className="activity-state-group-items"
+                        aria-label={`${state} activities`}
+                        hidden={!expanded}
+                      >
+                        {items.map(({ item, index }) => (
+                          <li key={item.id} className="activity-list-item">
+                            <div className="activity-list-heading">
+                              <button
+                                type="button"
+                                className="activity-list-select"
+                                aria-label={item.properties.name}
+                                aria-pressed={selectedId === item.id}
+                                onClick={() => selectActivity(item.id)}
+                              >
+                                <span
+                                  className="activity-number"
+                                  aria-hidden="true"
+                                >
+                                  {index + 1}
+                                </span>
+                                <span>{item.properties.name}</span>
+                              </button>
+                              {renderActivityMenu(item)}
+                            </div>
+                            {!item.geometry && (
+                              <div className="activity-list-location">
+                                <span>Needs location · Not on map</span>
+                                {canEdit && (
+                                  <Button
+                                    appearance="secondary"
+                                    size="small"
+                                    disabled={busy}
+                                    aria-label={`${item.properties.locationSuggestion ? "Review" : "Set"} location for ${item.properties.name}`}
+                                    onClick={() => void openEdit(item)}
+                                  >
+                                    {item.properties.locationSuggestion
+                                      ? "Review location"
+                                      : "Set location"}
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+              {activities.features.length === 0 && (
+                <Text className="activity-empty">
+                  {canEdit
+                    ? "No activities yet. Add an activity to start planning."
+                    : "No activities yet."}
+                </Text>
+              )}
+            </>
           )}
         </section>
-      </div>
+      </ResizableActivityWorkspace>
       {!mapExpanded && deletionDialog}
       <Dialog
         open={mapExpanded}

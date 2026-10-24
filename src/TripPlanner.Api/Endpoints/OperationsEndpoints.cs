@@ -1,7 +1,7 @@
+using System.ComponentModel.DataAnnotations;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -15,10 +15,18 @@ public static class OperationsEndpoints
         operations.MapGet("/{operationId:guid}", GetOperation).WithName("GetOperation");
     }
 
-    private static async Task<IResult> ListOperations(
-        int? top,
-        int? skip,
-        string? type,
+    internal static async Task<IResult> ListOperations(
+        [Range(1, 100)] int? top,
+        [Range(0, 100000)] int? skip,
+        [AllowedValues(
+            null,
+            "flightSearch",
+            "tripFormFill",
+            "activitySuggest",
+            "activityPlanAssessment",
+            "activityPlanProposal"
+        )]
+            string? type,
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser
@@ -30,17 +38,23 @@ public static class OperationsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         int take = top ?? 50;
         int offset = skip ?? 0;
         string? operationType = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
         if (take is < 1 or > 100 || offset < 0 || operationType?.Length > 100)
+        {
             return Results.BadRequest(
                 new
                 {
                     title = "top must be 1–100, skip cannot be negative, and type cannot exceed 100 characters.",
                 }
             );
+        }
+
         context.Response.Headers.CacheControl = "no-store";
         return Results.Ok(
             await database.GetOperationsAsync(
@@ -53,7 +67,7 @@ public static class OperationsEndpoints
         );
     }
 
-    private static async Task<IResult> GetOperation(
+    internal static async Task<IResult> GetOperation(
         Guid operationId,
         HttpContext context,
         IPlannerDb database,
@@ -66,7 +80,10 @@ public static class OperationsEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         var operation = await database.GetOperationAsync(
             user!.Id,
             operationId,
@@ -88,8 +105,12 @@ internal static class EndpointAuthorization
     {
         User? user = await database.GetUserByEmailAsync(profile.Email, context.RequestAborted);
         if (user is null)
+        {
             return (null, Results.StatusCode(StatusCodes.Status403Forbidden));
+        }
+
         if (user.HomeCityLocation is null)
+        {
             return (
                 null,
                 Results.Problem(
@@ -97,6 +118,8 @@ internal static class EndpointAuthorization
                     title: "Complete onboarding before planning trips."
                 )
             );
+        }
+
         return (user, null);
     }
 }

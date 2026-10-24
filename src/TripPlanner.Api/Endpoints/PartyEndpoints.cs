@@ -4,7 +4,7 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Flights;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -44,10 +44,16 @@ public static class PartyEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         Trip? trip = await database.GetVisibleTripAsync(user!.Id, tripId, context.RequestAborted);
         if (trip is null)
+        {
             return Results.NotFound();
+        }
+
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         User? owner = await database.GetUserAsync(trip.OwnerUserId, context.RequestAborted);
         SearchLocation? ownerOrigin = owner is null ? null : airports.SuggestOrigin([owner]);
@@ -63,7 +69,7 @@ public static class PartyEndpoints
                         memberId,
                         member?.DisplayName ?? "Unknown traveler",
                         member?.HomeCityName,
-                        memberId == trip.OwnerUserId ? "Planner" : party.RoleFor(memberId)
+                        memberId == trip.OwnerUserId ? PartyRole.Planner : party.RoleFor(memberId)
                     )
                 );
             }
@@ -85,15 +91,21 @@ public static class PartyEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         string text = query?.Trim() ?? "";
         if (text.Length is < 2 or > 100)
+        {
             return Results.ValidationProblem(
                 new Dictionary<string, string[]>
                 {
                     [nameof(query)] = ["Search by at least two and at most 100 characters."],
                 }
             );
+        }
+
         return Results.Ok(await database.SearchUsersAsync(user!.Id, text, context.RequestAborted));
     }
 
@@ -116,7 +128,7 @@ public static class PartyEndpoints
             context,
             database,
             currentUser,
-            request?.Role ?? "Traveller"
+            request?.Role ?? PartyRole.Traveller
         );
 
     private static Task<IResult> RemoveMember(
@@ -138,7 +150,7 @@ public static class PartyEndpoints
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser,
-        string role = "Traveller"
+        PartyRole role = PartyRole.Traveller
     )
     {
         var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
@@ -147,11 +159,19 @@ public static class PartyEndpoints
             currentUser.Profile!
         );
         if (error is not null)
+        {
             return error;
+        }
+
         if (user!.Id != userId)
+        {
             return Results.Forbid();
-        if (role is not ("Traveller" or "Planner"))
+        }
+
+        if (!Enum.IsDefined(role))
+        {
             return Results.BadRequest(new { title = "Role must be Traveller or Planner." });
+        }
         PartyMemberChangeStatus status = await database.ChangePartyMemberAsync(
             user.Id,
             tripId,

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -11,17 +12,19 @@ using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Options;
-using TripPlanner.Api.Services;
+using TripPlanner.Api.Services.Activities;
+using TripPlanner.Api.Services.Destinations;
 
 namespace TripPlanner.Api.Mcp;
 
 [McpServerToolType]
 public sealed class TripPlannerTools(
-    IHttpContextAccessor contexts,
+    McpExecutionAdapter adapter,
     IPlannerDb database,
     ICurrentUser currentUser,
     DestinationService destinations,
-    IOptions<McpOptions> options
+    IActivityCoordinateResearch coordinateResearch,
+    IActivityDetailsResearch detailsResearch
 )
 {
     private const string ReadSecurity = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]";
@@ -165,7 +168,14 @@ public sealed class TripPlannerTools(
     )]
     public Task<CallToolResult> UpdateDestination(
         Guid tripId,
-        string destinationId,
+        [
+            Required,
+            StringLength(200),
+            Description(
+                "Opaque destination ID returned by list_destinations; do not construct one."
+            )
+        ]
+            string destinationId,
         ReplaceDestinationRequest request
     ) =>
         Execute(
@@ -193,7 +203,10 @@ public sealed class TripPlannerTools(
     [Description(
         "Delete a destination, all its visits and activities. Use only when explicitly requested. Requires planning permission."
     )]
-    public Task<CallToolResult> DeleteDestination(Guid tripId, string destinationId) =>
+    public Task<CallToolResult> DeleteDestination(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId
+    ) =>
         Execute(
             true,
             context =>
@@ -219,7 +232,7 @@ public sealed class TripPlannerTools(
     )]
     public Task<CallToolResult> UpdateVisit(
         Guid tripId,
-        string destinationId,
+        [Required, StringLength(200)] string destinationId,
         Guid stayId,
         DestinationStayInput request
     ) =>
@@ -243,7 +256,10 @@ public sealed class TripPlannerTools(
     [Description(
         "List activities for a destination. Use get_activity to obtain an ETag before replacing or deleting an activity."
     )]
-    public Task<CallToolResult> ListActivities(Guid tripId, string destinationId) =>
+    public Task<CallToolResult> ListActivities(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId
+    ) =>
         Execute(
             false,
             context =>
@@ -260,7 +276,11 @@ public sealed class TripPlannerTools(
     [McpServerTool(Name = "get_activity", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
     [Description("Read an activity's complete Feature and ETag for a later update or delete.")]
-    public Task<CallToolResult> GetActivity(Guid tripId, string destinationId, Guid activityId) =>
+    public Task<CallToolResult> GetActivity(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        Guid activityId
+    ) =>
         Execute(
             false,
             context =>
@@ -287,9 +307,14 @@ public sealed class TripPlannerTools(
     )]
     public Task<CallToolResult> CreateActivity(
         Guid tripId,
-        string destinationId,
+        [Required, StringLength(200)] string destinationId,
         ActivityInput request,
-        string contextVersion
+        [
+            Required,
+            StringLength(200),
+            Description("Copy the destination contextVersion from list_destinations verbatim.")
+        ]
+            string contextVersion
     ) =>
         Execute(
             true,
@@ -319,11 +344,19 @@ public sealed class TripPlannerTools(
     )]
     public Task<CallToolResult> UpdateActivity(
         Guid tripId,
-        string destinationId,
+        [Required, StringLength(200)] string destinationId,
         Guid activityId,
         ActivityInput request,
-        string contextVersion,
-        string etag
+        [Required, StringLength(200)] string contextVersion,
+        [
+            Required,
+            StringLength(32),
+            RegularExpression("^\"[0-9]{1,19}\"$"),
+            Description(
+                "Copy the quoted ETag returned by get_activity verbatim, including the quotation marks."
+            )
+        ]
+            string etag
     ) =>
         Execute(
             true,
@@ -355,10 +388,10 @@ public sealed class TripPlannerTools(
     )]
     public Task<CallToolResult> DeleteActivity(
         Guid tripId,
-        string destinationId,
+        [Required, StringLength(200)] string destinationId,
         Guid activityId,
-        string contextVersion,
-        string etag
+        [Required, StringLength(200)] string contextVersion,
+        [Required, StringLength(32), RegularExpression("^\"[0-9]{1,19}\"$")] string etag
     ) =>
         Execute(
             true,
@@ -376,92 +409,80 @@ public sealed class TripPlannerTools(
             etag
         );
 
-    private async Task<CallToolResult> Execute(
+    [McpServerTool(
+        Name = "create_activity_location_proposal",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = false,
+        OpenWorld = true
+    )]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description(
+        "Research a published candidate location for a saved activity. Requires planning permission and the LLM feature. Preview only; an entrance is not verified. Show the source and map to the user. Only after acceptance, use update_activity with the suggested geometry, preserve unrelated fields and source link, and clear locationSuggestion. Supply current ETag and destination context; reread on 409 or 412."
+    )]
+    public Task<CallToolResult> CreateActivityLocationProposal(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        Guid activityId,
+        [Required, StringLength(200)] string contextVersion,
+        [Required, StringLength(32), RegularExpression("^\"[0-9]{1,19}\"$")] string etag
+    ) =>
+        Execute(
+            true,
+            context =>
+                ActivityEndpoints.CreateLocationProposal(
+                    tripId,
+                    destinationId,
+                    activityId,
+                    context,
+                    database,
+                    destinations,
+                    currentUser,
+                    coordinateResearch
+                ),
+            contextVersion,
+            etag
+        );
+
+    [McpServerTool(
+        Name = "create_activity_details_proposal",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = false,
+        OpenWorld = true
+    )]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description(
+        "Research duration and cost for a saved activity using web search. Requires planning permission and LLM. Preview only: show sources, duration estimates, pricing conditions and dates. Unknown fields stay null. Only after user acceptance, use update_activity to apply selected values and their durationEvidence/costEvidence, preserving unrelated fields. Supply current ETag and destination context; reread after 409/412."
+    )]
+    public Task<CallToolResult> CreateActivityDetailsProposal(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        Guid activityId,
+        [Required, StringLength(200)] string contextVersion,
+        [Required, StringLength(32), RegularExpression("^\"[0-9]{1,19}\"$")] string etag
+    ) =>
+        Execute(
+            true,
+            context =>
+                ActivityEndpoints.CreateDetailsProposal(
+                    tripId,
+                    destinationId,
+                    activityId,
+                    context,
+                    database,
+                    destinations,
+                    currentUser,
+                    detailsResearch
+                ),
+            contextVersion,
+            etag
+        );
+
+    private Task<CallToolResult> Execute(
         bool write,
         Func<HttpContext, Task<IResult>> action,
         string? contextVersion = null,
         string? etag = null
-    )
-    {
-        var original =
-            contexts.HttpContext
-            ?? throw new InvalidOperationException("MCP requires an HTTP request.");
-        if (
-            !original.User.HasScope(
-                write ? McpServiceExtensions.WriteScope : McpServiceExtensions.ReadScope
-            ) && (write || !original.User.HasScope(McpServiceExtensions.WriteScope))
-        )
-            return new()
-            {
-                IsError = true,
-                Content =
-                [
-                    new TextContentBlock
-                    {
-                        Text = "Insufficient scope. Reconnect with the required permission.",
-                    },
-                ],
-                Meta = new JsonObject
-                {
-                    ["mcp/www_authenticate"] = new JsonArray(
-                        $"Bearer error=\"insufficient_scope\", error_description=\"Reconnect TripPlanner to grant the required permission.\", scope=\"{(write ? McpServiceExtensions.WriteScope : McpServiceExtensions.ReadScope)}\", resource_metadata=\"{new Uri(new Uri(options.Value.Issuer!), "/.well-known/oauth-protected-resource/mcp")}\""
-                    ),
-                },
-            };
-        if (
-            !Guid.TryParse(
-                original.User.GetClaim(OpenIddictConstants.Claims.Subject),
-                out var userId
-            )
-            || await database.GetUserAsync(userId, original.RequestAborted)
-                is not { HomeCityLocation: not null } user
-            || !string.Equals(
-                user.Email,
-                currentUser.Profile?.Email,
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
-            return new()
-            {
-                IsError = true,
-                Content =
-                [
-                    new TextContentBlock
-                    {
-                        Text = "Complete your TripPlanner profile and reconnect this account.",
-                    },
-                ],
-            };
-        var context = new DefaultHttpContext
-        {
-            RequestServices = original.RequestServices,
-            User = original.User,
-            RequestAborted = original.RequestAborted,
-        };
-        context.Request.Headers["Destination-Context"] = contextVersion;
-        context.Request.Headers.IfMatch = etag;
-        await using var responseBody = new MemoryStream();
-        context.Response.Body = responseBody;
-        var result = await action(context);
-        // Forbid results from shared handlers must be MCP errors, not cookie-login redirects.
-        if (result is ForbidHttpResult)
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        else
-            await result.ExecuteAsync(context);
-        context.Response.Body.Position = 0;
-        using var reader = new StreamReader(context.Response.Body);
-        string json = await reader.ReadToEndAsync(original.RequestAborted);
-        var output = new JsonObject
-        {
-            ["status"] = context.Response.StatusCode,
-            ["data"] = json.Length == 0 ? null : JsonNode.Parse(json),
-            ["etag"] = context.Response.Headers.ETag.FirstOrDefault(),
-        };
-        return new()
-        {
-            IsError = context.Response.StatusCode >= 400,
-            StructuredContent = JsonSerializer.SerializeToElement(output),
-            Content = [new TextContentBlock { Text = output.ToJsonString() }],
-        };
-    }
+    ) => adapter.ExecuteAsync(write, action, contextVersion, etag);
 }

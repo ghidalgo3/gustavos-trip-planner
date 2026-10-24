@@ -11,6 +11,11 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
 import { getSelectedFlights } from "./selectedFlightsApi";
 import TripOverview from "./TripOverview";
+import { planningRequest } from "./activityPlanApi";
+vi.mock("./activityPlanApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./activityPlanApi")>()),
+  planningRequest: vi.fn(),
+}));
 import { resolveCity, searchCities, type Trip } from "./api";
 import {
   addDestination,
@@ -80,6 +85,10 @@ function show(readOnly = false, homeCity: string | null = "New York") {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(planningRequest).mockResolvedValue({
+    data: { version: 0 },
+    etag: '"0"',
+  });
   vi.mocked(getSelectedFlights).mockResolvedValue([]);
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -173,9 +182,11 @@ test("starts empty and adds a selected city through the drawer without requiring
   expect(
     screen.getByRole("link", { name: "Plan activities in Paris" }),
   ).toHaveAttribute("href", "/trips/trip/activities?destination=paris-fr");
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "Paris added to your trip.",
-  );
+  expect(
+    (await screen.findByText("Paris added to your trip.")).closest(
+      ".fui-Toast",
+    ),
+  ).not.toBeNull();
 });
 
 test("cancel closes the drawer and discards its unsaved selection", async () => {
@@ -209,9 +220,9 @@ test("retains the selected date range after a save failure for retry", async () 
   });
   chooseStayDates(drawer);
   fireEvent.click(submit);
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Please try again.",
-  );
+  expect(
+    (await screen.findByText("Please try again.")).closest(".fui-Toast"),
+  ).not.toBeNull();
   expect(
     within(drawer).getByRole("combobox", { name: "Destination city" }),
   ).toHaveValue("Paris, France");
@@ -371,8 +382,14 @@ test("a deletion failure retains the city and allows retry", async () => {
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Delete destination" }),
   );
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-    "Please retry.",
+  expect(
+    (await screen.findByText("Please retry.")).closest(".fui-Toast"),
+  ).not.toBeNull();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Dismiss notification" }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByText("Please retry.")).not.toBeInTheDocument(),
   );
   expect(
     screen.getByRole("heading", { name: "Paris", hidden: true }),
@@ -424,7 +441,10 @@ test("destination visit dates can be edited on Overview", async () => {
     "stay-1",
     { arrivalDate: "2027-06-10", departureDate: "2027-06-14" },
   );
-  expect(await screen.findByText("Visit dates saved.")).toBeVisible();
+  const notification = await screen.findByText("Visit dates saved.");
+  expect(notification).toBeVisible();
+  expect(notification.closest(".fui-Toast")).not.toBeNull();
+  expect(notification.closest(".trip-overview")).toBeNull();
   const reopen = await screen.findByRole("button", {
     name: "Edit dates: Paris, visit 1",
   });
@@ -505,7 +525,7 @@ test("shows activity counts by free-form state instead of a plan button for a po
         properties: {
           name: "Activity",
           description: "",
-          durationMinutes: null,
+          duration: null,
           cost: null,
           placeName: null,
           state,
@@ -750,25 +770,106 @@ test("overview shows persisted flight numbers instead of Plan Flights links", as
   ).not.toBeInTheDocument();
 });
 
-test("overview offers a Stay location drawer for a destination", async () => {
+test.each([null, "Hotel Paris"])(
+  "overview labels the stay button for %s and opens its drawer",
+  async (stayName) => {
+    vi.mocked(getDestinations).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        {
+          ...paris,
+          properties: {
+            ...paris.properties,
+            stayLocation: stayName
+              ? {
+                  type: "Feature",
+                  id: "hotel",
+                  geometry: { type: "Point", coordinates: [2.35, 48.86] },
+                  properties: { name: stayName },
+                }
+              : null,
+          },
+        },
+      ],
+      route: [
+        { destinationId: paris.id, stayId: paris.properties.stays[0].id },
+      ],
+    });
+    render(
+      <ColorSchemeProvider>
+        <MemoryRouter>
+          <TripOverview trip={trip} readOnly={false} />
+        </MemoryRouter>
+      </ColorSchemeProvider>,
+    );
+    const label = stayName ?? "Choose stay";
+    const button = await screen.findByRole("button", {
+      name: `${label} in Paris`,
+    });
+    expect(button).toHaveTextContent(label);
+    expect(screen.getAllByText(label)).toHaveLength(1);
+    fireEvent.click(button);
+    const drawer = await screen.findByRole("dialog", { name: "Stay in Paris" });
+    expect(
+      within(drawer).getByRole("combobox", { name: "Stay location" }),
+    ).toBeVisible();
+    if (!stayName) {
+      expect(
+        within(drawer).getByRole("button", { name: "Save Stay" }),
+      ).toBeDisabled();
+    }
+  },
+);
+
+test("the date range itself opens date editing and delete is in the card corner", async () => {
+  const destination = {
+    ...paris,
+    properties: {
+      ...paris.properties,
+      stays: [
+        {
+          ...paris.properties.stays[0],
+          arrivalDate: "2027-06-10",
+          departureDate: "2027-06-14",
+        },
+      ],
+    },
+  };
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [destination],
+    route: [{ destinationId: paris.id, stayId: "stay-1" }],
+  });
+  show();
+  const dates = await screen.findByRole("button", {
+    name: "Edit dates: Paris, visit 1",
+  });
+  expect(dates).toHaveTextContent("Jun 10, 2027 – Jun 14, 2027");
+  expect(
+    screen.getByRole("button", { name: "Delete destination: Paris" }),
+  ).toHaveClass("overview-destination-delete");
+  fireEvent.click(dates);
+  expect(await screen.findByRole("dialog")).toBeVisible();
+});
+
+test("failed planning summary can retry without losing activity counts", async () => {
   vi.mocked(getDestinations).mockResolvedValue({
     type: "FeatureCollection",
     features: [paris],
-    route: [{ destinationId: paris.id, stayId: paris.properties.stays[0].id }],
+    route: [{ destinationId: paris.id, stayId: "stay-1" }],
   });
-  render(
-    <ColorSchemeProvider>
-      <MemoryRouter>
-        <TripOverview trip={trip} readOnly={false} />
-      </MemoryRouter>
-    </ColorSchemeProvider>,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: "Stay in Paris" }));
-  const drawer = await screen.findByRole("dialog", { name: "Stay in Paris" });
+  vi.mocked(planningRequest).mockRejectedValueOnce(new Error("Unavailable"));
+  show();
+  const retry = await screen.findByRole("button", {
+    name: "Retry planning summary",
+  });
   expect(
-    within(drawer).getByRole("combobox", { name: "Stay location" }),
+    screen.getByRole("link", { name: "Plan activities in Paris" }),
   ).toBeVisible();
-  expect(
-    within(drawer).getByRole("button", { name: "Save Stay" }),
-  ).toBeDisabled();
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Retry planning summary" }),
+    ).not.toBeInTheDocument(),
+  );
 });

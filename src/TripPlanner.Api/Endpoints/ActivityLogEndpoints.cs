@@ -1,7 +1,6 @@
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
-using TripPlanner.Api.Services;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -19,15 +18,21 @@ public static class ActivityLogEndpoints
                 ) =>
                 {
                     if (skip is < 0 or > 100000)
+                    {
                         return Results.BadRequest(
                             new { title = "skip must be between 0 and 100000." }
                         );
+                    }
+
                     var user = await database.GetUserByEmailAsync(
                         currentUser.Profile!.Email,
                         context.RequestAborted
                     );
                     if (user is null)
+                    {
                         return Results.NotFound();
+                    }
+
                     var entries = await log.ListAsync(
                         user.Id,
                         51,
