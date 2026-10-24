@@ -19,6 +19,10 @@ var postgresServerName = 'psql-${namePrefix}-${uniqueSuffix}'
 var azureMapsAccountName = '${namePrefix}-maps-${uniqueSuffix}'
 var azureMapsSasIdentityName = '${namePrefix}-maps-sas-${uniqueSuffix}'
 
+resource applicationInsights 'Microsoft.Insights/components@2020-02-02' existing = {
+  name: '${namePrefix}-insights-${uniqueSuffix}'
+}
+
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
 }
@@ -67,6 +71,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     WEBSITES_PORT: '8080'
     WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'true'
     ASPNETCORE_ENVIRONMENT: 'Production'
+    ApplicationInsights__ConnectionString: applicationInsights.properties.ConnectionString
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
     ClientOrigins__0: 'https://${webApp.properties.defaultHostName}'
     ClientOrigins__1: 'http://localhost:5173'

@@ -960,6 +960,9 @@ main {
   width: 100%;
   min-width: 0;
 }
+.retained-activity-panel:not([hidden]) {
+  display: contents;
+}
 .activity-destination-tabs {
   max-width: 100%;
   overflow-x: auto;

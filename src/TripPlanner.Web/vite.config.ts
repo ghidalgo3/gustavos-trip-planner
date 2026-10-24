@@ -7,6 +7,10 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      "/telemetry": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: true,
+      },
       "/mcp": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: false,

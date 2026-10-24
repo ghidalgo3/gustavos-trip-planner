@@ -22,6 +22,18 @@ Starter architecture for a React single-page application and a C# API deployed t
 
 Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
 
+Frontend code under `src/TripPlanner.Web/src` is grouped by responsibility:
+
+- `features/activities`, `features/flights`, `features/trips`, `features/party`, and
+  `features/profile` contain each feature's components, API clients, and helpers.
+- `maps` owns the Azure Maps integration and marker transitions.
+- `shared/components`, `shared/hooks`, and `shared/time` hold reusable UI and utilities.
+- `api` holds shared API access, `app` holds application composition and theming,
+  and `telemetry` holds browser instrumentation.
+
+Tests live beside the modules they cover. `main.tsx` and the global `styles.css`
+remain at the source root.
+
 The API's `Services` folders group code by feature: `ActivityPlanning` (assessment,
 optimization, enrichment and calendars), `Activities` (idea generation and venue
 research), `Flights`, `Destinations`, `Maps`, `TripForms`, and `Jobs` (the shared
@@ -222,6 +234,22 @@ and [later milestones](docs/later_milestones.md) for the deferred trip revision 
 `GET /trips/{tripId}/destinations` returns an `application/geo+json` FeatureCollection, empty for a new trip. `POST` to the same route accepts a destination GeoJSON Feature with required Point coordinates from the selected autocomplete result and properties `name`, `countryCode`, optional object `constraints`, and optional `arrivalDate` and `departureDate`. The country code remains API metadata rather than a form field. `PUT /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` replaces its optional dates; `DELETE` removes the visit. `?includeInactive=true` includes cached past cities. `GET /trips/{tripId}/destinations/{destinationCity}` returns a city Feature. Under that city, `GET` and `POST /activities` list and create complete activity Features, and `GET`, `PUT`, and `DELETE /activities/{activityId}` read, replace, and remove one. Activity writes require the city's `contextVersion` in `Destination-Context`; replacements and deletes also require the current activity ETag in `If-Match`.
 
 The owner can request suggestions with `POST /trips/{tripId}/destinations/{destinationCity}:suggest` or upload up to ten JPEG, PNG, or WebP images with `POST .../{destinationCity}:import`. The import accepts repeated multipart `images` files, `requestId`, `destinationContext`, and optional `input`; legacy `image` files remain supported. Limits are ten images, 10 MB and 20 megapixels per image, and 50 MB total. Every image is validated before one durable extraction job is queued. The worker sends all images together, with instructions to extract only explicitly mentioned activities and image-supported details, deduplicate across images, and return no activities when none are mentioned. Image instructions may narrow extraction but cannot add activities. The drawer previews each accepted image and allows individual removal. When more than ten photos are selected, it keeps the first ten and explains the limit. Unsupported, empty, or oversized files are skipped individually with a reason beside the previews; files that would exceed the total size limit are also skipped. Both routes return a durable operation to poll at `/operations/{id}`. On completion, `GET .../{destinationCity}/suggestions/{operationId}` returns the created Features and warnings. Suggestions are immediately saved with state `Proposed` and remain editable. Generation requires the `LLM` feature flag; manual activity editing does not. The map uses the existing short-lived Maps SAS, and the worker resolves candidate locations separately so an unverified place is saved without a misleading pin. For image imports and AI text prompts, unresolved locations trigger an OpenAI Responses `web_search` fallback to identify the existing activity’s venue. Research uses the original prompt’s place names and descriptive clues, but cannot add activities or change candidate descriptions, durations, or costs. Research returns the venue name and its sourced street address separately, preferring the locally published address. A venue must have a supporting URL present in the search sources; that page is attached as a “Venue source” link. The worker sends the address directly to Azure Maps geocoding, bypassing venue-name search. A pin requires a high-confidence Address result in the expected country within 50 km of the destination; ambiguous, broader-area, and conflicting address matches are rejected. The researched address and citation remain available even when geocoding cannot place a pin. If Azure still cannot resolve the address, OpenAI searches for the exact venue’s Wikidata item. The server independently reads its published coordinates, checks the venue label or alias and a 50 km destination radius, and rejects conflicting or non-Earth coordinates. These coordinates are saved separately as a `locationSuggestion`, never automatically as the activity’s map location. In the editor, review the source and map, choose **Use this location**, then **Save activity**. The pin is a published candidate, not a verified visitor entrance. Existing unlocated activities offer **Research saved activity location** when AI is enabled. This preview uses saved activity details through `POST .../activities/{activityId}/location-proposals`, requiring the current `If-Match` and `Destination-Context` headers. MCP exposes the same preview as `create_activity_location_proposal`; use `update_activity` only after acceptance, preserving other fields and the source link. Research does not mutate existing activities. Manual Azure Maps lookup remains available. Ambiguous results or research failures leave the activity unlocated with a warning. This uses the configured OpenAI model and key, with additional search usage and up to 20 seconds per lookup.
+
+Manual activity and stay location searches use Azure Maps Fuzzy Search for venue
+names and street addresses (`POI`, `PAD`, and `Addr` indexes). Results remain limited
+to six candidates in the destination country and within 50 km of its center.
+City and region centroids are excluded from these location searches.
+While searching for an activity location, the map shows only numbered search
+results matching the list. Select a result from the map or list to use it;
+selecting a result or closing the editor restores the saved activity markers.
+Map camera changes animate between views, including destination changes. Markers
+fade in and out while unchanged markers remain in place. These transitions respect
+the device's reduced-motion preference.
+After first opening Activities, its map and unsaved editor state remain mounted
+while switching sections within the same trip. Returning refreshes destination
+and activity data without recreating the map. Fullscreen moves the same map surface
+into the dialog, retaining zoom, position, and loaded tiles. Leaving the trip
+disposes the map; persistence is in memory, not across page reloads.
 
 In Ideas, **Find location** appears beside **Add activity** when AI is enabled and
 activities are missing locations. It researches those activities two at a time and
@@ -458,14 +486,18 @@ SQL migrator; no schemas need to be dropped.
 
 ## Activity selection and daily planning (milestone 3)
 
-Activities now has **Ideas** and **Daily plan** views. Ideas are grouped by state
+Activities now has **Ideas** and **Plan** views. Ideas are grouped by state
 (Proposed, Planned, Rejected, and any custom states), with counts and independently
 collapsible group headers. Map marker numbers stay consistent across groups.
 A plan selects activities,
 assigns each activity at most once across repeat visits, and orders each day.
-Daily plan opens as an agenda. It starts empty until activities are marked
+Plan opens as an agenda. Its map shows only Planned activities (along with the stay).
+It starts empty until activities are marked
 **Planned** in Ideas. Every dated visit day appears, including days with no activities.
 Tap a day header to collapse or expand its activities and daily routines.
+Drag an activity's dotted handle to reorder it within its day, using a mouse or
+touch. The handle also supports Up/Down arrow keys; Escape cancels a drag. Use the
+Day selector to move between days, and Save changes to keep manual edits.
 Compact travel cards between activities show the assessed transport method and
 duration, with provisional routes labeled estimated. Assessed stay connections
 appear at the start and end of the route; missing travel times remain unknown.
@@ -522,7 +554,7 @@ scoring combines all travellers with equal weight and narrower instructions take
 precedence. AI-interpreted timing rules and flight-derived availability require
 explicit acceptance.
 
-On phones, Ideas and Daily plan scroll with the page, and activity editors scroll
+On phones, Ideas and Plan scroll with the page, and activity editors scroll
 through their action buttons. Overview keeps destination names and dates above
 the card actions. Action results use dismissible Fluent UI toasts anchored at the viewport’s top-right, above drawers and dialogs without moving when focus changes: successes close
 automatically, while failures stay visible for review. Field validation and
@@ -580,6 +612,71 @@ Calendar URLs are returned only by `create_calendar_subscription`.
 See [milestone 3](docs/milestone_3.md) for contracts, solver semantics, provider
 limits, verification commands, and live smoke-test steps.
 
+## Browser behavior analytics and correlated requests
+
+Application Insights collects named React page views, browser exceptions, and explicit
+behavior events. It is focused on product usage: no infrastructure alert rules, metric
+exports, application-log exports, or database statement collection are configured.
+A Log Analytics workspace is provisioned because workspace-based Application Insights
+requires it; this is storage for the application telemetry.
+
+Run `./scripts/buildout` before the next `./scripts/release` to provision the workspace
+and Application Insights resource. Release configures `ApplicationInsights__ConnectionString`
+for the API. The browser fetches only this public ingestion identifier from
+`GET /telemetry/config` before mounting React; no rebuild or frontend secret is needed.
+This endpoint is intentionally excluded from MCP. Empty configuration disables collection
+on both sides. A failed configuration fetch times out after three seconds and the app
+continues without analytics.
+
+Local development defaults to no telemetry. To opt in, supply a development Application
+Insights connection string through `APPLICATIONINSIGHTS_CONNECTION_STRING` when running
+`./scripts/server`; Compose passes it to the API. Direct API runs can use
+`ApplicationInsights__ConnectionString`. Use a separate development resource to keep
+local/test usage out of production funnels.
+
+In the Azure portal, open the deployed Application Insights resource and use **Usage →
+Funnels** or **User Flows**. Page names are `Trips`, `Profile`, `Trip overview`, `Trip
+activities`, `Trip flights`, `Trip party`, and `Other`. Useful funnels include:
+
+- `sign_in_started` → `session_authenticated` → `onboarding_completed`
+- `trip_creation_started` → `trip_creation_submitted` → `trip_created`
+- `destination_added` → `flight_search_started` → `flight_search_queued` → `flight_choices_saved`
+- `activity_creation_started` → `activity_saved`
+- `activity_suggestions_started` → `activity_suggestions_completed`
+
+Additional events record `onboarding_viewed`, `trip_creation_cancelled`,
+`trip_creation_failed`, `flight_search_rejected`, and `activity_suggestions_failed`.
+`session_authenticated` means an authenticated session was loaded, including a return
+visit, rather than exclusively a new login. `flight_search_queued` means the server
+accepted the search job, not that background work finished. Activity saves include both
+creation and editing. Completion events follow successful API responses; there is no
+DOM auto-click capture, session replay, or collection of user-entered form content.
+
+Anonymous user/session identification uses the SDK's first-party `ai_user` and
+`ai_session` cookies. Signed-in behavior also carries the app's opaque internal user ID,
+never email or display name. Collection currently starts automatically when configured;
+there is no consent UI. If the site adds a consent preference, gate SDK initialization
+on that preference. Funnel events are sent at 100% sampling, although browser blockers,
+closed tabs and connection failures can still cause missing events. Choose a session or
+user conversion window appropriate for the funnel; event counts alone are not conversion
+rates.
+
+The browser SDK adds W3C `traceparent` headers only to application API calls, including
+an explicitly configured `VITE_API_BASE_URL` origin. Existing API CORS policy accepts
+these headers. ASP.NET Core consumes the trace context and OpenTelemetry exports the
+matching request span, status, and duration. Outgoing HTTP dependencies within collected
+requests are included with origin-only URLs. Browser telemetry uses role `TripPlanner.Web`
+and server telemetry uses `TripPlanner.Api`. Inspect related dependencies and requests
+in **Transaction search / end-to-end transaction details** using the shared operation ID.
+
+URLs lose query strings, fragments and identifiers before export; server requests use
+route templates. Third-party browser calls, calendar feeds, authentication endpoints,
+avatars, health probes, token endpoints and configuration requests are excluded from
+HTTP telemetry. Headers, bodies, free text, page titles and referrers are not collected.
+Automatic browser exception messages and stacks are omitted to avoid exposing URLs or
+user input; exception types remain available. Existing protections that disable raw
+App Service HTTP logs and failed-request tracing remain in place.
+
 ## Azure infrastructure and deployment
 
 The intended target is **Gustavo Hidalgo personal subscription**, region **East US 2**. Bicep provisions:
@@ -588,6 +685,7 @@ The intended target is **Gustavo Hidalgo personal subscription**, region **East 
 - Azure Key Vault (RBAC authorization, soft delete, and purge protection enabled)
 - Azure Database for PostgreSQL Flexible Server (PostgreSQL 18, PostGIS, Burstable B1ms)
 - Azure Maps Gen2 in East US with browser CORS, a user-assigned identity with Search Reader plus route-read and timezone-read roles for SAS authorization, and a least-privilege SAS issuer role for the API
+- Application Insights and a backing Log Analytics workspace for browser behavior and correlated HTTP traces
 - Linux App Service plan and containerized Web App
 - App Service application diagnostics; HTTP-path logs and failed-request tracing are disabled to keep bearer calendar URLs out of logs
 - managed-identity access to pull images and read Key Vault secrets

@@ -34,6 +34,7 @@ services:
       dockerfile: src/TripPlanner.Api/Dockerfile.dev
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ApplicationInsights__ConnectionString: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
       Mcp__Enabled: "true"
       Mcp__Issuer: ${LOCAL_MCP_ISSUER:-http://localhost:5173/}
       DOTNET_USE_POLLING_FILE_WATCHER: "1"

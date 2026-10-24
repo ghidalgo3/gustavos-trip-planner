@@ -31,6 +31,30 @@ var postgresServerName = 'psql-${namePrefix}-${uniqueSuffix}'
 var postgresAdminIdentityName = '${namePrefix}-postgres-admin-${uniqueSuffix}'
 var azureMapsAccountName = '${namePrefix}-maps-${uniqueSuffix}'
 var azureMapsSasIdentityName = '${namePrefix}-maps-sas-${uniqueSuffix}'
+var applicationInsightsName = '${namePrefix}-insights-${uniqueSuffix}'
+
+// Workspace-backed Application Insights for browser behavior and HTTP traces.
+resource telemetryWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${namePrefix}-telemetry-${uniqueSuffix}'
+  location: location
+  tags: tags
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
+  }
+}
+
+resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: applicationInsightsName
+  location: location
+  tags: tags
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: telemetryWorkspace.id
+    IngestionMode: 'LogAnalytics'
+  }
+}
 var acrPullRoleDefinitionId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '7f951dda-4ed3-4680-a7ca-43fe172d538d'
@@ -451,6 +475,7 @@ output acrLoginServer string = acr.properties.loginServer
 output keyVaultName string = keyVault.name
 output keyVaultUri string = keyVault.properties.vaultUri
 output webAppName string = webApp.name
+output applicationInsightsName string = applicationInsights.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output postgresServerName string = postgresServer.name
 output postgresContributorRoleName string = 'gustavo_planner_contributor'

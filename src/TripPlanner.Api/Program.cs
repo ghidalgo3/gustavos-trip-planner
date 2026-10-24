@@ -15,9 +15,11 @@ using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.Maps;
 using TripPlanner.Api.Services.TripForms;
+using TripPlanner.Api.Telemetry;
 using TripPlanner.Api.Validation;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddTripPlannerTelemetry();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new IsoTimeOnlyConverter());
@@ -136,6 +138,7 @@ if (mcpEnabled)
 app.MapMcpEndpoints(mcpEnabled);
 
 app.MapAuthenticationEndpoints(authenticationEnabled);
+app.MapTelemetryEndpoints();
 app.MapHealthChecks("/health");
 
 var api = app.MapGroup("");
