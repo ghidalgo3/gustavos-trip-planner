@@ -98,7 +98,7 @@ export default function AsyncAutocomplete<OptionType>({
           placeholder={placeholder}
           value={inputValue}
           selectedOptions={selectedOptionValue ? [selectedOptionValue] : []}
-          open={open && Boolean(shouldSearch)}
+          open={open && !disabled}
           inlinePopup
           onOpenChange={(_, data) =>
             setOpen(data.open && suggestions.length > 0)

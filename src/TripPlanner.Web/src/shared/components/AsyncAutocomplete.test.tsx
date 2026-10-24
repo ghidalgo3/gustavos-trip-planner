@@ -1,7 +1,56 @@
-import { act, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { expect, test, vi } from "vitest";
 import AsyncAutocomplete from "./AsyncAutocomplete";
+
+test.each(["button", "keyboard"])(
+  "a selected city can reopen its existing suggestions using the %s without another search",
+  async (method) => {
+    const search = vi.fn(() => Promise.resolve(["Paris", "Rome"]));
+    function CityPicker() {
+      const [query, setQuery] = useState("Pa");
+      const [selected, setSelected] = useState<string>();
+      return (
+        <AsyncAutocomplete
+          label="City"
+          placeholder="Find a city"
+          inputValue={query}
+          selectedOptionValue={selected}
+          selectedOptionLabel={selected}
+          search={search}
+          getOptionValue={(value) => value}
+          getOptionText={(value) => value}
+          onInputChange={(value) => {
+            setQuery(value);
+            setSelected(undefined);
+          }}
+          onOptionSelect={(value) => {
+            setSelected(value);
+            setQuery(value);
+          }}
+          debounceMs={0}
+        />
+      );
+    }
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <CityPicker />
+      </FluentProvider>,
+    );
+    fireEvent.click(await screen.findByRole("option", { name: "Paris" }));
+    const input = screen.getByRole("combobox", { name: "City" });
+    expect(input).toHaveValue("Paris");
+    expect(screen.queryByRole("option", { name: "Paris" })).toBeNull();
+    if (method === "button")
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Open City" }));
+    else fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(await screen.findByRole("option", { name: "Paris" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "Rome" })).toBeVisible();
+    expect(input).toHaveValue("Paris");
+    expect(search).toHaveBeenCalledTimes(1);
+  },
+);
 
 test.each([false, true])(
   "autocomplete uses skeletons until results or an error arrive (failure: %s)",
