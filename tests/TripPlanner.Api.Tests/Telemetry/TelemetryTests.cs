@@ -63,28 +63,33 @@ public class TelemetryTests
             "/telemetry/config"
         );
         Assert.AreEqual(ConnectionString, enabledConfig!.ConnectionString);
-        var traceId = ActivityTraceId.CreateRandom().ToHexString();
+        var traceId = ActivityTraceId.CreateRandom();
         const string parentId = "1234567890abcdef";
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
             "/user/00000000-0000-0000-0000-000000000001/trips?query=bearer-secret"
         );
         request.Headers.Add("traceparent", $"00-{traceId}-{parentId}-01");
+        // Instrumentation also sees requests from other hosts running in parallel.
+        // A completed unrelated span must not satisfy the browser request's wait.
+        var unrelatedTraceId = ActivityTraceId.CreateRandom();
+        using var unrelated = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/user/00000000-0000-0000-0000-000000000002/trips"
+        );
+        unrelated.Headers.Add("traceparent", $"00-{unrelatedTraceId}-{parentId}-01");
+        using var unrelatedResponse = await client.SendAsync(unrelated);
+        Assert.AreEqual(HttpStatusCode.Unauthorized, unrelatedResponse.StatusCode);
+        await capture.WaitForServerSpanAsync(unrelatedTraceId);
+        var browserSpan = capture.WaitForServerSpanAsync(traceId);
+        Assert.IsFalse(
+            browserSpan.IsCompleted,
+            "An unrelated request must not complete the browser trace's wait."
+        );
         using var response = await client.SendAsync(request);
         Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-        await capture.Completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var span = capture.Activities.SingleOrDefault(activity =>
-            activity.Kind == ActivityKind.Server && activity.TraceId.ToHexString() == traceId
-        );
-        Assert.IsNotNull(
-            span,
-            string.Join(
-                "; ",
-                capture.Activities.Select(activity =>
-                    $"{activity.Kind} {activity.TraceId} {activity.DisplayName}"
-                )
-            )
-        );
+        var span = await browserSpan;
+        Assert.AreEqual(traceId, span.TraceId);
         Assert.AreEqual(parentId, span.ParentSpanId.ToHexString());
         StringAssert.Contains(span.DisplayName, "{userId:guid}");
         string tags = string.Join(" ", span.TagObjects.Select(tag => $"{tag.Key}={tag.Value}"));
@@ -159,15 +164,44 @@ public class TelemetryTests
     private sealed class CaptureProcessor : BaseProcessor<Activity>
     {
         public ConcurrentBag<Activity> Activities { get; } = [];
-        public TaskCompletionSource Completed { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ConcurrentDictionary<
+            ActivityTraceId,
+            TaskCompletionSource<Activity>
+        > serverSpans = new();
+
+        private TaskCompletionSource<Activity> ServerSpan(ActivityTraceId traceId) =>
+            serverSpans.GetOrAdd(
+                traceId,
+                static _ => new(TaskCreationOptions.RunContinuationsAsynchronously)
+            );
+
+        public async Task<Activity> WaitForServerSpanAsync(ActivityTraceId traceId)
+        {
+            try
+            {
+                return await ServerSpan(traceId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail(
+                    $"No server span completed for trace {traceId}. Captured: "
+                        + string.Join(
+                            "; ",
+                            Activities.Select(activity =>
+                                $"{activity.Kind} {activity.TraceId} {activity.DisplayName}"
+                            )
+                        )
+                );
+                throw;
+            }
+        }
 
         public override void OnEnd(Activity activity)
         {
             Activities.Add(activity);
             if (activity.Kind == ActivityKind.Server)
             {
-                Completed.TrySetResult();
+                ServerSpan(activity.TraceId).TrySetResult(activity);
             }
         }
     }
