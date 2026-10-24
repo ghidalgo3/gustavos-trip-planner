@@ -10,6 +10,59 @@ namespace TripPlanner.Api.Tests.Services.ActivityPlanning;
 public sealed class ActivityPlanOptimizerTests
 {
     [TestMethod]
+    public async Task RepeatVisits_ScheduleUsesAccommodationOnlyForTheVisitThatHasIt()
+    {
+        var context = Context(TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15));
+        var first = context.Visits[0];
+        var second = first with
+        {
+            StayId = Guid.NewGuid(),
+            Order = 1,
+            ArrivalDate = Date.AddDays(2),
+            DepartureDate = Date.AddDays(2),
+        };
+        context = context with { Visits = [first, second] };
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days =
+            [
+                plan.Days[0] with
+                {
+                    ActivityIds = [],
+                },
+                plan.Days[0] with
+                {
+                    StayId = second.StayId,
+                    Date = second.ArrivalDate!.Value,
+                    ActivityIds = [],
+                },
+            ],
+            Rules =
+            [
+                plan.Rules[0] with
+                {
+                    FixedDate = Date,
+                },
+                plan.Rules[1] with
+                {
+                    FixedDate = second.ArrivalDate,
+                },
+            ],
+        };
+        var result = await Schedule(context, plan);
+        Assert.HasCount(1, result.Alternatives);
+        var days = result.Alternatives.Single().Assessment.Days;
+        Assert.HasCount(2, days.Single(d => d.StayId == first.StayId).Travel);
+        var dayWithoutStay = days.Single(d => d.StayId == second.StayId);
+        Assert.IsEmpty(dayWithoutStay.Travel);
+        Assert.IsTrue(
+            dayWithoutStay.Entries.Single().Start
+                >= dayWithoutStay.Breaks.Single(b => b.Name == "dinner").End
+        );
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ScheduleSelected_MinimizesTravel_WithOrWithoutStay_ComparedWithAllOrders(
@@ -24,7 +77,10 @@ public sealed class ActivityPlanOptimizerTests
         );
         if (missingStay)
         {
-            context = context with { StayLocation = null };
+            context = context with
+            {
+                StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
+            };
         }
         var ids = context.Activities.Take(3).Select(a => a.Id).ToArray();
         Guid?[] stops = [null, .. ids];
@@ -119,7 +175,10 @@ public sealed class ActivityPlanOptimizerTests
         var context = Context(TimeSpan.FromHours(24), TimeSpan.FromHours(24));
         if (missingStay)
         {
-            context = context with { StayLocation = null };
+            context = context with
+            {
+                StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
+            };
         }
         var plan = Plan(context) with { Days = [Plan(context).Days[0] with { ActivityIds = [] }] };
         var result = await Schedule(context, plan);
@@ -131,7 +190,10 @@ public sealed class ActivityPlanOptimizerTests
     [TestMethod]
     public async Task WithoutStay_DinnerBoundaryRespectsFixedTimes_AndEditableMealAllowance()
     {
-        var context = Context(TimeSpan.FromHours(1)) with { StayLocation = null };
+        var context = Context(TimeSpan.FromHours(1)) with
+        {
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
+        };
         var plan = Plan(context);
         plan = plan with
         {

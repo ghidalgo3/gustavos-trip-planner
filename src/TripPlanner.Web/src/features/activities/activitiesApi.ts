@@ -425,7 +425,7 @@ export async function waitForActivityJob(
   throw new DOMException("Aborted", "AbortError");
 }
 
-export type StayAddressSuggestion = {
+export type VenueAddressSuggestion = {
   name: string;
   address: string;
   source: { url: string; label: string };
@@ -433,6 +433,29 @@ export type StayAddressSuggestion = {
   warning: string | null;
   mapAddress?: string | null;
 };
+
+export type StayAddressSuggestion = VenueAddressSuggestion;
+
+export async function researchActivityPlaces(
+  tripId: string,
+  cityId: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<VenueAddressSuggestion[]> {
+  const response = await fetch(
+    `${destinationUrl(tripId, cityId)}/activities/place-proposals`,
+    {
+      method: "POST",
+      credentials: "include",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    },
+  );
+  if (!response.ok)
+    await readTripError(response, "researching activity places");
+  return (await response.json()).suggestions;
+}
 
 export async function researchStayAddress(
   tripId: string,

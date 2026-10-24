@@ -75,6 +75,8 @@ import {
   importActivityImages,
   saveActivity,
   researchActivityLocation,
+  researchActivityPlaces,
+  type ActivityLink,
   suggestActivities,
   waitForActivityJob,
   type Activity,
@@ -87,6 +89,12 @@ import {
 
 const currencyNames = new Intl.DisplayNames(["en"], { type: "currency" });
 const currencies = Intl.supportedValuesOf("currency");
+
+type ActivityPlaceResult = PlaceSuggestion & {
+  source?: ActivityLink;
+  warning?: string | null;
+  mapAddress?: string | null;
+};
 
 type Editor = { value: ActivityInput; etag?: string };
 const emptyActivity = (): ActivityInput => ({
@@ -170,10 +178,12 @@ export default function ActivityPlanning({
   const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
   const [searching, setSearching] = useState(false);
+  const [researchingPlaces, setResearchingPlaces] = useState(false);
+  const [chosenPlace, setChosenPlace] = useState<ActivityPlaceResult>();
   const [placeSearchActive, setPlaceSearchActive] = useState(false);
   const placeAbort = useRef<AbortController | undefined>(undefined);
   const [placeQuery, setPlaceQuery] = useState("");
-  const [places, setPlaces] = useState<PlaceSuggestion[]>([]);
+  const [places, setPlaces] = useState<ActivityPlaceResult[]>([]);
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [imageWarnings, setImageWarnings] = useState<string[]>([]);
@@ -283,12 +293,23 @@ export default function ActivityPlanning({
     [],
   );
 
-  const activitiesForMap =
+  const savedActivitiesForMap =
     activityView === "daily"
       ? activities.features.filter(
           (activity) => activity.properties.state === "Planned",
         )
       : activities.features;
+  const draftOnMap =
+    editor && entryMode === "lookup" && editor.value.geometry
+      ? { ...editor.value, id: editor.value.id ?? "draft-activity" }
+      : undefined;
+  const activitiesForMap = draftOnMap
+    ? savedActivitiesForMap.some((activity) => activity.id === draftOnMap.id)
+      ? savedActivitiesForMap.map((activity) =>
+          activity.id === draftOnMap.id ? draftOnMap : activity,
+        )
+      : [...savedActivitiesForMap, draftOnMap]
+    : savedActivitiesForMap;
   const placeSearch =
     editor && canEdit && entryMode === "lookup" && placeSearchActive
       ? {
@@ -338,6 +359,7 @@ export default function ActivityPlanning({
       const current = await getActivity(trip.id, destination.id, item.id);
       setEntryMode("lookup");
       setPlaces([]);
+      setChosenPlace(undefined);
       setPlaceSearchActive(false);
       setEditor({ value: current.activity, etag: current.etag });
       setPlaceQuery(current.activity.properties.placeName ?? "");
@@ -603,8 +625,15 @@ export default function ActivityPlanning({
     }
   }
 
-  async function searchPlace() {
-    if (!destination || !placeQuery.trim()) return;
+  async function searchPlace(webOnly = false) {
+    if (
+      !destination ||
+      !placeQuery.trim() ||
+      busy ||
+      searching ||
+      (webOnly && !canGenerate)
+    )
+      return;
     setPlaceSearchActive(true);
     setMapCollapsed(false);
     setShowMapCard(false);
@@ -612,20 +641,50 @@ export default function ActivityPlanning({
     const controller = new AbortController();
     placeAbort.current = controller;
     setSearching(true);
+    setResearchingPlaces(webOnly);
     setError(undefined);
     setPlaces([]);
+    setChosenPlace(undefined);
     try {
-      const results = await searchPlaces(
-        placeQuery.trim(),
-        controller.signal,
-        destination.geometry.coordinates,
-        destination.properties.countryCode,
-      );
+      let results: ActivityPlaceResult[] = [];
+      if (!webOnly) {
+        try {
+          results = await searchPlaces(
+            placeQuery.trim(),
+            controller.signal,
+            destination.geometry.coordinates,
+            destination.properties.countryCode,
+          );
+        } catch (reason) {
+          if (controller.signal.aborted || !canGenerate) throw reason;
+        }
+      }
+      if (controller.signal.aborted) return;
+      if (!results.length && canGenerate) {
+        setResearchingPlaces(true);
+        const matches = await researchActivityPlaces(
+          trip.id,
+          destination.id,
+          placeQuery.trim(),
+          controller.signal,
+        );
+        results = matches.map((match, index) => ({
+          id: `researched-${index}`,
+          name: match.name,
+          label: `${match.name}, ${match.address}`,
+          address: match.address,
+          longitude: match.geometry?.coordinates[0],
+          latitude: match.geometry?.coordinates[1],
+          source: match.source,
+          warning: match.warning,
+          mapAddress: match.mapAddress,
+        }));
+      }
       if (!controller.signal.aborted) {
         setPlaces(results);
         if (!results.length)
           setError(
-            `No places found within 50 km of ${destination.properties.name}. Try another name.`,
+            `No matching places found near ${destination.properties.name}. Try another name or address.${!canGenerate ? " Enable AI in your profile to search venue websites too." : ""}`,
           );
       }
     } catch (reason) {
@@ -634,16 +693,14 @@ export default function ActivityPlanning({
           reason instanceof Error ? reason.message : "Could not search places.",
         );
     } finally {
-      if (!controller.signal.aborted) setSearching(false);
+      if (!controller.signal.aborted) {
+        setSearching(false);
+        setResearchingPlaces(false);
+      }
     }
   }
 
-  function choosePlace(place: {
-    label: string;
-    name?: string;
-    longitude?: number;
-    latitude?: number;
-  }) {
+  function choosePlace(place: ActivityPlaceResult) {
     if (place.longitude === undefined || place.latitude === undefined) return;
     setEditor((current) =>
       current
@@ -659,15 +716,22 @@ export default function ActivityPlanning({
           }
         : current,
     );
+    const links = editor?.value.properties.links ?? [];
     updateEditor({
-      placeName: place.label,
+      placeName: place.label.slice(0, 200),
       locationSuggestion: null,
+      ...(place.source &&
+      links.length < 20 &&
+      !links.some((link) => link.url === place.source!.url)
+        ? { links: [...links, place.source] }
+        : {}),
       ...(!editor?.value.properties.name.trim()
-        ? { name: place.name ?? place.label.split(",")[0] }
+        ? { name: (place.name ?? place.label.split(",")[0]).slice(0, 200) }
         : {}),
     });
-    setPlaceQuery(place.label);
+    setPlaceQuery(place.label.slice(0, 200));
     setPlaces([]);
+    setChosenPlace(place);
     setPlaceSearchActive(false);
   }
 
@@ -793,6 +857,7 @@ export default function ActivityPlanning({
     setEditor(undefined);
     setError(undefined);
     setPlaces([]);
+    setChosenPlace(undefined);
     setPlaceSearchActive(false);
     setPlaceQuery("");
     setPrompt("");
@@ -806,6 +871,7 @@ export default function ActivityPlanning({
     setPrompt("");
     chooseImages([]);
     setPlaces([]);
+    setChosenPlace(undefined);
     setPlaceSearchActive(false);
     setPlaceQuery("");
     setEntryMode("lookup");
@@ -955,8 +1021,10 @@ export default function ActivityPlanning({
   }
 
   function renderMapDetails() {
-    const stay = destination?.properties.stayLocation;
-    if (showMapCard && selectedId === "stay" && stay && !editor) {
+    const stay = destination?.properties.stays.find(
+      (visit) => `stay:${visit.id}` === selectedId,
+    )?.stayLocation;
+    if (showMapCard && stay && !editor) {
       const directions = activityMapLink(stay.geometry, stay.properties.name);
       return (
         <section className="activity-map-bottom-card" aria-label="Stay details">
@@ -1122,8 +1190,17 @@ export default function ActivityPlanning({
                 <Field label="Activity or place name">
                   <SearchBox
                     placeholder="Search attractions, restaurants, or places"
+                    maxLength={200}
                     value={placeQuery}
-                    onChange={(_, data) => setPlaceQuery(data.value)}
+                    onChange={(_, data) => {
+                      placeAbort.current?.abort();
+                      setSearching(false);
+                      setResearchingPlaces(false);
+                      setPlaceQuery(data.value);
+                      setPlaces([]);
+                      setChosenPlace(undefined);
+                      setError(undefined);
+                    }}
                     onKeyDown={(event) => {
                       if (
                         event.key !== "Enter" ||
@@ -1141,8 +1218,16 @@ export default function ActivityPlanning({
                     disabled={searching || !placeQuery.trim()}
                     onClick={() => void searchPlace()}
                   >
-                    {searching ? "Searching…" : "Search Azure Maps"}
+                    {searching ? "Searching…" : "Search places"}
                   </Button>
+                  {canGenerate && (
+                    <Button
+                      disabled={searching || !placeQuery.trim()}
+                      onClick={() => void searchPlace(true)}
+                    >
+                      Search web
+                    </Button>
+                  )}
                   {canGenerate && editor.value.id && !editor.value.geometry && (
                     <Button
                       disabled={busy || searching}
@@ -1155,10 +1240,15 @@ export default function ActivityPlanning({
                 </div>
                 {searching && (
                   <SearchResultsSkeleton
-                    label="Loading place results"
+                    label={
+                      researchingPlaces
+                        ? "Researching places and addresses"
+                        : "Loading place results"
+                    }
                     appearance="places"
                   />
                 )}
+                {chosenPlace?.warning && <Text>{chosenPlace.warning}</Text>}
                 {editor.value.properties.locationSuggestion &&
                   !editor.value.geometry && (
                     <section
@@ -1228,14 +1318,40 @@ export default function ActivityPlanning({
                     aria-label="Place results"
                   >
                     {places.map((place, index) => (
-                      <Button
+                      <div
+                        className="activity-place-result"
                         key={`${index}-${place.label}`}
-                        aria-label={`${index + 1}. ${place.label}`}
-                        onClick={() => choosePlace(place)}
                       >
-                        <span aria-hidden="true">{index + 1}.</span>
-                        <PlaceSearchResult place={place} />
-                      </Button>
+                        <Button
+                          aria-label={`${index + 1}. ${place.label}`}
+                          disabled={
+                            place.longitude === undefined ||
+                            place.latitude === undefined
+                          }
+                          onClick={() => choosePlace(place)}
+                        >
+                          <span aria-hidden="true">{index + 1}.</span>
+                          <PlaceSearchResult place={place} />
+                        </Button>
+                        {place.mapAddress &&
+                          place.mapAddress !== place.address && (
+                            <Text size={200}>
+                              Map address: {place.mapAddress}
+                            </Text>
+                          )}
+                        {place.warning && (
+                          <Text size={200}>{place.warning}</Text>
+                        )}
+                        {place.source && (
+                          <a
+                            href={place.source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Source for {place.name ?? place.label}
+                          </a>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -1611,11 +1727,15 @@ export default function ActivityPlanning({
           <ActivityMap
             center={destination.geometry}
             destinationName={destination.properties.name}
-            stayLocation={destination.properties.stayLocation}
+            stayLocations={destination.properties.stays.flatMap((visit) =>
+              visit.stayLocation
+                ? [{ ...visit.stayLocation, id: visit.id }]
+                : [],
+            )}
             activities={activitiesForMap}
             placeSearch={placeSearch}
             portalHost={mapExpanded && active ? fullscreenMapHost : undefined}
-            selectedId={selectedId}
+            selectedId={chosenPlace && draftOnMap ? draftOnMap.id : selectedId}
             onSelect={selectActivity}
           />
           {!mapExpanded && renderMapDetails()}

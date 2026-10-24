@@ -35,6 +35,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public IAddressGeocoder? AddressGeocoder { get; set; }
     public IActivityVenueResearch? ActivityVenueResearch { get; set; }
     public IStayVenueSearch? StayVenueSearch { get; set; }
+    public IActivityVenueSearch? ActivityVenueSearch { get; set; }
     public IActivityDetailsResearch? ActivityDetailsResearch { get; set; }
     public IActivityCoordinateResearch? ActivityCoordinateResearch { get; set; }
     public MapToken? MapTokenOverride { get; set; }
@@ -95,6 +96,10 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IActivityCoordinateResearch>();
             services.AddSingleton<IActivityCoordinateResearch>(
                 ActivityCoordinateResearch ?? new NoCoordinateResearch()
+            );
+            services.RemoveAll<IActivityVenueSearch>();
+            services.AddSingleton<IActivityVenueSearch>(
+                ActivityVenueSearch ?? new NoActivityVenueSearch()
             );
             services.RemoveAll<IStayVenueSearch>();
             services.AddSingleton<IStayVenueSearch>(StayVenueSearch ?? new NoStayVenueSearch());
@@ -203,6 +208,17 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             TripPlanner.Api.Models.GeoJsonPoint center,
             CancellationToken cancellationToken
         ) => Task.FromResult<TripPlanner.Api.Models.ActivityLocationSuggestion?>(null);
+    }
+
+    private sealed class NoActivityVenueSearch : IActivityVenueSearch
+    {
+        public Task<IReadOnlyList<ActivityVenue>> SearchActivitiesAsync(
+            string query,
+            string city,
+            string countryCode,
+            IReadOnlyList<TripPlanner.Api.Models.DestinationStay> stays,
+            CancellationToken cancellationToken
+        ) => Task.FromResult<IReadOnlyList<ActivityVenue>>([]);
     }
 
     private sealed class NoStayVenueSearch : IStayVenueSearch

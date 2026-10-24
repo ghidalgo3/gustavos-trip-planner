@@ -73,12 +73,15 @@ internal static class ActivityPlanningFixture
             new() { [user.Id] = new() },
             new(),
             new(),
-            new(
-                "Feature",
-                "stay",
-                new("Point", GeographyPoint.Create(latitude: 48.86, longitude: 2.35)),
-                new("Hotel")
-            ),
+            new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>
+            {
+                [visit.StayId] = new(
+                    "Feature",
+                    "stay",
+                    new("Point", GeographyPoint.Create(latitude: 48.86, longitude: 2.35)),
+                    new("Hotel")
+                ),
+            },
             [],
             null,
             new(),

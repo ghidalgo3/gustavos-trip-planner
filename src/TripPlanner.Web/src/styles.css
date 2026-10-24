@@ -1100,7 +1100,14 @@ main {
   flex-wrap: wrap;
   gap: 0.4rem;
 }
-.activity-place-results > .fui-Button {
+.activity-place-result {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-place-result > .fui-Button {
   width: 100%;
   justify-content: flex-start;
   align-items: flex-start;

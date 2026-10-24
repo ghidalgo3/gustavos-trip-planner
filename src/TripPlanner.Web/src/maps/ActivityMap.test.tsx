@@ -558,3 +558,42 @@ test("stay preview animates to street level without recreating its map", async (
   expect(createMap).toHaveBeenCalledTimes(1);
   expect(getMapToken).toHaveBeenCalledTimes(1);
 });
+
+test("repeat visits render separate accommodation pins and preserve their selection IDs", async () => {
+  vi.mocked(getMapToken).mockResolvedValue({
+    token: "sas",
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2030-01-01T02:00:00Z",
+  });
+  const onSelect = vi.fn();
+  render(
+    <ActivityMap
+      center={{ type: "Point", coordinates: [2.35, 48.86] }}
+      activities={[]}
+      onSelect={onSelect}
+      selectedId="stay:second"
+      stayLocations={[
+        {
+          type: "Feature",
+          id: "first",
+          geometry: { type: "Point", coordinates: [2.34, 48.85] },
+          properties: { name: "First hotel" },
+        },
+        {
+          type: "Feature",
+          id: "second",
+          geometry: { type: "Point", coordinates: [2.4, 48.9] },
+          properties: { name: "Second hotel" },
+        },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(createMap).toHaveBeenCalledTimes(1));
+  act(() => events.get("ready")?.({}));
+  expect(markers).toHaveLength(2);
+  expect(markers[0]).toHaveAccessibleName("Stay: First hotel");
+  expect(markers[1]).toHaveAccessibleName("Stay: Second hotel");
+  expect(markers[1]).toHaveAttribute("data-selected", "true");
+  fireEvent.click(markers[1]);
+  expect(onSelect).toHaveBeenCalledWith("stay:second");
+});

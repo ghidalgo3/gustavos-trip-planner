@@ -16,6 +16,109 @@ namespace TripPlanner.Api.Tests.Endpoints;
 public class ActivityEndpointTests
 {
     [TestMethod]
+    public async Task RepeatVisits_SaveIndependentStayResourcesAndInvalidatePlanningContext()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        await AddDestinations(client, trip, false);
+        const string city = "paris-fr";
+        string destinationUrl = $"/trips/{trip.Id}/destinations/{city}";
+        var first = (await factory.Database.GetDestinationVisitsAsync(owner, trip.Id)).Single();
+        var second = (
+            await factory.Database.AddDestinationVisitAsync(
+                owner,
+                new(trip.Id, city, Guid.NewGuid(), 1, null, null)
+            )
+        )!;
+        string firstUrl = $"{destinationUrl}/stays/{first.StayId}/location";
+        string secondUrl = $"{destinationUrl}/stays/{second.StayId}/location";
+        var before = (
+            await client.GetFromJsonAsync<ActivityPlanResponse>($"{destinationUrl}/activity-plan")
+        )!;
+        var hotel = new StayLocationRequest(
+            "Feature",
+            new("Point", GeographyPoint.Create(48.86, 2.35)),
+            new("First hotel")
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (await client.PutAsJsonAsync(firstUrl, hotel)).StatusCode
+        );
+        Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(secondUrl)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            (
+                await client.PutAsJsonAsync(
+                    secondUrl,
+                    hotel with
+                    {
+                        Properties = new("Second hotel"),
+                    }
+                )
+            ).StatusCode
+        );
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl)
+        )!;
+        Assert.AreEqual(
+            "First hotel",
+            destination
+                .Properties.Stays.Single(v => v.Id == first.StayId)
+                .StayLocation!.Properties.Name
+        );
+        Assert.AreEqual(
+            "Second hotel",
+            destination
+                .Properties.Stays.Single(v => v.Id == second.StayId)
+                .StayLocation!.Properties.Name
+        );
+        var after = (
+            await client.GetFromJsonAsync<ActivityPlanResponse>($"{destinationUrl}/activity-plan")
+        )!;
+        Assert.AreNotEqual(before.ContextVersion, after.ContextVersion);
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await client.PutAsJsonAsync(
+                    $"{destinationUrl}/stays/{Guid.NewGuid()}/location",
+                    hotel
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await client.PutAsJsonAsync(
+                    $"/trips/{trip.Id}/destinations/rome-it/stays/{second.StayId}/location",
+                    hotel
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (
+                await client.GetAsync(
+                    $"/trips/{trip.Id}/destinations/rome-it/stays/{second.StayId}/location"
+                )
+            ).StatusCode
+        );
+        Assert.AreEqual(HttpStatusCode.NoContent, (await client.DeleteAsync(firstUrl)).StatusCode);
+        Assert.AreEqual(
+            "Second hotel",
+            (await client.GetFromJsonAsync<GeoJsonFeature<StayLocationProperties>>(secondUrl))!
+                .Properties
+                .Name
+        );
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteAsync($"{destinationUrl}/stays/{second.StayId}")).StatusCode
+        );
+        Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(secondUrl)).StatusCode);
+        Assert.IsEmpty(await factory.Database.GetStayLocationsAsync(owner, trip.Id));
+    }
+
+    [TestMethod]
     [DataRow(null, "Europe/Paris", "Europe/Paris", 1)]
     [DataRow("Europe/London", "Europe/Paris", "Europe/London", 0)]
     [DataRow(null, null, null, 1)]
@@ -193,6 +296,10 @@ public class ActivityEndpointTests
         var (trip, owner, _) = await CreateTrip(client, factory);
         await AddDestinations(client, trip, false);
         string destinationUrl = $"/trips/{trip.Id}/destinations/paris-fr";
+        var visitId = (await factory.Database.GetDestinationVisitsAsync(owner, trip.Id))
+            .Single()
+            .StayId;
+        string locationUrl = $"{destinationUrl}/stays/{visitId}/location";
         var request = new StayLocationRequest(
             "Feature",
             new("Point", GeographyPoint.Create(latitude: 48.86, longitude: 2.34)),
@@ -200,13 +307,19 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync($"{destinationUrl}/stay", request)).StatusCode
+            (await client.PutAsJsonAsync(locationUrl, request)).StatusCode
         );
         var destination = (
             await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl)
         )!;
-        Assert.AreEqual("Paris Hotel", destination.Properties.StayLocation!.Properties.Name);
-        Assert.AreEqual("stay", destination.Properties.StayLocation.Id);
+        Assert.AreEqual(
+            "Paris Hotel",
+            destination.Properties.Stays.Single().StayLocation!.Properties.Name
+        );
+        Assert.AreEqual(
+            visitId.ToString("D"),
+            destination.Properties.Stays.Single().StayLocation!.Id
+        );
         Assert.IsEmpty(
             (
                 await client.GetFromJsonAsync<GeoJsonCollection<ActivityProperties>>(
@@ -230,12 +343,15 @@ public class ActivityEndpointTests
         destination = (
             await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl)
         )!;
-        Assert.AreEqual("Paris Hotel", destination.Properties.StayLocation!.Properties.Name);
+        Assert.AreEqual(
+            "Paris Hotel",
+            destination.Properties.Stays.Single().StayLocation!.Properties.Name
+        );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
                 await client.PutAsJsonAsync(
-                    $"{destinationUrl}/stay",
+                    locationUrl,
                     request with
                     {
                         Geometry = new(
@@ -248,11 +364,11 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await client.DeleteAsync($"{destinationUrl}/stay")).StatusCode
+            (await client.DeleteAsync(locationUrl)).StatusCode
         );
         Assert.IsNull(
             (await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl))!
-                .Properties
+                .Properties.Stays.Single()
                 .StayLocation
         );
     }
@@ -824,15 +940,20 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
-    [DataRow(true, false, true, 200)]
-    [DataRow(true, false, false, 200)]
-    [DataRow(false, false, true, 403)]
-    [DataRow(true, true, true, 502)]
-    public async Task StayAddressResearch_IsSourcedPreviewOnlyAndRequiresLlm(
+    [DataRow(true, false, true, 200, false)]
+    [DataRow(true, false, true, 200, true)]
+    [DataRow(true, false, false, 200, false)]
+    [DataRow(true, false, false, 200, true)]
+    [DataRow(false, false, true, 403, false)]
+    [DataRow(false, false, true, 403, true)]
+    [DataRow(true, true, true, 502, false)]
+    [DataRow(true, true, true, 502, true)]
+    public async Task VenueAddressResearch_IsSourcedPreviewOnlyAndRequiresLlm(
         bool llm,
         bool fails,
         bool geocodes,
-        int expectedStatus
+        int expectedStatus,
+        bool activitySearch
     )
     {
         var research = new StubVenueResearch(fails);
@@ -840,6 +961,7 @@ public class ActivityEndpointTests
         await using var factory = new TestApplicationFactory
         {
             StayVenueSearch = research,
+            ActivityVenueSearch = research,
             ActivityPlaceResolver = places,
             AddressGeocoder = places,
         };
@@ -855,12 +977,15 @@ public class ActivityEndpointTests
                 $"/trips/{trip.Id}/destinations"
             )
         )!.Features.Single();
+        string proposalPath = activitySearch
+            ? "activities/place-proposals"
+            : "stay/address-proposals";
         string stayUrl = $"/trips/{trip.Id}/destinations/{destination.Id}/stay";
         var beforeLog = (await client.GetFromJsonAsync<ActivityLogPage>("/user/activity-log"))!
             .Entries
             .Count;
         using var response = await client.PostAsJsonAsync(
-            stayUrl + "/address-proposals",
+            $"/trips/{trip.Id}/destinations/{destination.Id}/{proposalPath}",
             new StayAddressSearchRequest("Exact hotel name")
         );
         Assert.AreEqual(
@@ -906,7 +1031,7 @@ public class ActivityEndpointTests
             HttpStatusCode.NotFound,
             (
                 await client.PostAsJsonAsync(
-                    $"/trips/{Guid.NewGuid()}/destinations/{destination.Id}/stay/address-proposals",
+                    $"/trips/{Guid.NewGuid()}/destinations/{destination.Id}/{proposalPath}",
                     new StayAddressSearchRequest("Hotel")
                 )
             ).StatusCode
@@ -915,14 +1040,25 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
-    [DataRow(null)]
-    [DataRow("")]
-    [DataRow("   ")]
-    [DataRow("too-long")]
-    public async Task StayAddressResearch_ValidatesSearchBeforeCallingProviders(string? query)
+    [DataRow(null, false)]
+    [DataRow(null, true)]
+    [DataRow("", false)]
+    [DataRow("", true)]
+    [DataRow("   ", false)]
+    [DataRow("   ", true)]
+    [DataRow("too-long", false)]
+    [DataRow("too-long", true)]
+    public async Task VenueAddressResearch_ValidatesSearchBeforeCallingProviders(
+        string? query,
+        bool activitySearch
+    )
     {
         var research = new StubVenueResearch(false);
-        await using var factory = new TestApplicationFactory { StayVenueSearch = research };
+        await using var factory = new TestApplicationFactory
+        {
+            StayVenueSearch = research,
+            ActivityVenueSearch = research,
+        };
         using var client = factory.CreateClient();
         var (trip, owner, _) = await CreateTrip(client, factory);
         await factory.Database.SetUserFeatureFlagsAsync(owner, "LLM");
@@ -933,7 +1069,7 @@ public class ActivityEndpointTests
             )
         )!.Features.Single();
         using var response = await client.PostAsJsonAsync(
-            $"/trips/{trip.Id}/destinations/{destination.Id}/stay/address-proposals",
+            $"/trips/{trip.Id}/destinations/{destination.Id}/{(activitySearch ? "activities/place-proposals" : "stay/address-proposals")}",
             new { query = query == "too-long" ? new string('a', 201) : query }
         );
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
@@ -941,15 +1077,22 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
-    [DataRow(PartyRole.Planner, 200)]
-    [DataRow(PartyRole.Traveller, 403)]
-    public async Task StayAddressResearch_RequiresPlanningPermission(
+    [DataRow(PartyRole.Planner, 200, false)]
+    [DataRow(PartyRole.Planner, 200, true)]
+    [DataRow(PartyRole.Traveller, 403, false)]
+    [DataRow(PartyRole.Traveller, 403, true)]
+    public async Task VenueAddressResearch_RequiresPlanningPermission(
         PartyRole role,
-        int expectedStatus
+        int expectedStatus,
+        bool activitySearch
     )
     {
         var research = new StubVenueResearch(false);
-        await using var factory = new TestApplicationFactory { StayVenueSearch = research };
+        await using var factory = new TestApplicationFactory
+        {
+            StayVenueSearch = research,
+            ActivityVenueSearch = research,
+        };
         using var client = factory.CreateClient();
         var (trip, owner, party) = await CreateTrip(client, factory);
         await AddDestinations(client, trip, false);
@@ -979,7 +1122,7 @@ public class ActivityEndpointTests
             ).StatusCode
         );
         using var response = await client.PostAsJsonAsync(
-            $"/trips/{trip.Id}/destinations/paris-fr/stay/address-proposals",
+            $"/trips/{trip.Id}/destinations/paris-fr/{(activitySearch ? "activities/place-proposals" : "stay/address-proposals")}",
             new StayAddressSearchRequest("Hotel")
         );
         Assert.AreEqual(expectedStatus, (int)response.StatusCode);
@@ -1596,10 +1739,21 @@ public class ActivityEndpointTests
         }
     }
 
-    private sealed class StubVenueResearch(bool fails) : IActivityVenueResearch, IStayVenueSearch
+    private sealed class StubVenueResearch(bool fails)
+        : IActivityVenueResearch,
+            IStayVenueSearch,
+            IActivityVenueSearch
     {
         public int Calls { get; private set; }
         public string? Prompt { get; private set; }
+
+        public Task<IReadOnlyList<ActivityVenue>> SearchActivitiesAsync(
+            string query,
+            string city,
+            string countryCode,
+            IReadOnlyList<DestinationStay> stays,
+            CancellationToken cancellationToken
+        ) => SearchAsync(query, city, countryCode, stays, cancellationToken);
 
         public async Task<IReadOnlyList<ActivityVenue>> SearchAsync(
             string query,

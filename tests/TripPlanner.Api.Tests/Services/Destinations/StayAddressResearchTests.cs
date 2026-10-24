@@ -38,8 +38,7 @@ public sealed class StayAddressResearchTests
         var places = new Places(outcome);
         var matches = await new StayAddressResearch(
             venue,
-            places,
-            NullLogger<StayAddressResearch>.Instance
+            new VenueAddressLookup(places, NullLogger<VenueAddressLookup>.Instance)
         ).FindAsync("JR-East Hotel Mets Shibuya", Destination, default);
         Assert.AreEqual("JR-East Hotel Mets Shibuya", venue.Query);
         Assert.AreEqual("Tokyo", venue.City);
@@ -70,8 +69,7 @@ public sealed class StayAddressResearchTests
         var places = new Places("located");
         var result = await new StayAddressResearch(
             new VenueResearch { Result = [] },
-            places,
-            NullLogger<StayAddressResearch>.Instance
+            new VenueAddressLookup(places, NullLogger<VenueAddressLookup>.Instance)
         ).FindAsync("Ambiguous hotel", Destination, default);
         Assert.IsEmpty(result);
         Assert.IsNull(places.Address);
@@ -84,8 +82,7 @@ public sealed class StayAddressResearchTests
         var places = new Places("timeout", cancellation);
         var research = new StayAddressResearch(
             new VenueResearch(),
-            places,
-            NullLogger<StayAddressResearch>.Instance
+            new VenueAddressLookup(places, NullLogger<VenueAddressLookup>.Instance)
         );
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             research.FindAsync("Hotel", Destination, cancellation.Token)
@@ -107,8 +104,7 @@ public sealed class StayAddressResearchTests
         var places = new BatchPlaces();
         var results = await new StayAddressResearch(
             new VenueResearch { Result = matches },
-            places,
-            NullLogger<StayAddressResearch>.Instance
+            new VenueAddressLookup(places, NullLogger<VenueAddressLookup>.Instance)
         ).FindAsync("Hotel", Destination, default);
         Assert.HasCount(5, results);
         CollectionAssert.AreEqual(
@@ -145,8 +141,10 @@ public sealed class StayAddressResearchTests
         };
         var results = await new StayAddressResearch(
             venue,
-            new CandidateGeocoder(candidates),
-            NullLogger<StayAddressResearch>.Instance
+            new VenueAddressLookup(
+                new CandidateGeocoder(candidates),
+                NullLogger<VenueAddressLookup>.Instance
+            )
         ).FindAsync("Hotel", Destination, default);
         Assert.HasCount(2, results);
         CollectionAssert.AreEqual(

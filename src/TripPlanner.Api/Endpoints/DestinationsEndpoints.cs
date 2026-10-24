@@ -131,7 +131,11 @@ public static class DestinationsEndpoints
             return error;
         }
 
-        var visits = await database.GetDestinationVisitsAsync(user!.Id, tripId, context.RequestAborted);
+        var visits = await database.GetDestinationVisitsAsync(
+            user!.Id,
+            tripId,
+            context.RequestAborted
+        );
         if (!visits.Any(v => v.StayId == stayId && v.CityId == destinationCity))
         {
             return Results.NotFound();

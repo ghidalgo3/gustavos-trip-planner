@@ -68,7 +68,7 @@ public static class ActivityPlanningProviderVerification
             new() { [user.Id] = new("I enjoy art museums") },
             new(),
             new(),
-            null,
+            new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
             [],
             null,
             new(),

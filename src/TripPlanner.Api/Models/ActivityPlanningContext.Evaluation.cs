@@ -233,7 +233,7 @@ public sealed partial record ActivityPlanningContext
         foreach (var day in orderedDays)
         {
             var stayLocation = StayLocationFor(day.StayId);
-        var settings = day.Settings ?? plan.Settings;
+            var settings = day.Settings ?? plan.Settings;
             var visit = Visits.First(v => v.StayId == day.StayId);
             if (visit.ArrivalDate is null || visit.DepartureDate is null)
             {

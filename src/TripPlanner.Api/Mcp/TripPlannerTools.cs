@@ -25,7 +25,8 @@ public sealed class TripPlannerTools(
     DestinationService destinations,
     IActivityCoordinateResearch coordinateResearch,
     IActivityDetailsResearch detailsResearch,
-    IStayAddressResearch stayAddressResearch
+    IStayAddressResearch stayAddressResearch,
+    IActivityPlaceResearch activityPlaceResearch
 )
 {
     private const string ReadSecurity = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]";
@@ -63,33 +64,119 @@ public sealed class TripPlannerTools(
                 )
         );
 
+    [McpServerTool(
+        Name = "create_activity_place_proposal",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = false,
+        OpenWorld = true
+    )]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description(
+        "Research physical activity venues matching a name using OpenAI web search, then resolve their sourced street addresses through Azure Maps with structured-address fallback. Useful when ordinary map search misses a venue or branch. Requires planning permission and LLM. Preview only: show names, published addresses, mapAddress, warnings, sources and candidate pins for the user to choose. Unresolved coordinates remain null and must not be guessed. Does not create or change activities. After selection use create_activity or update_activity with the chosen geometry and source link; keep activity ideas undated."
+    )]
+    public Task<CallToolResult> CreateActivityPlaceProposal(
+        Guid tripId,
+        [Required, StringLength(200)] string destinationId,
+        ActivityPlaceSearchRequest request
+    ) =>
+        Execute(
+            true,
+            context =>
+                ActivityEndpoints.CreatePlaceProposal(
+                    tripId,
+                    destinationId,
+                    request,
+                    context,
+                    database,
+                    currentUser,
+                    destinations,
+                    activityPlaceResearch
+                )
+        );
+
     [McpServerTool(Name = "get_visit_stay_location", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description("Read accommodation for exactly one destination visit. Get stayId from list_destinations properties.stays[].id. Repeat visits have independent accommodation; 404 means this visit has no saved stay.")]
+    [Description(
+        "Read accommodation for exactly one destination visit. Get stayId from list_destinations properties.stays[].id. Repeat visits have independent accommodation; 404 means this visit has no saved stay."
+    )]
     public Task<CallToolResult> GetVisitStayLocation(
         Guid tripId,
         [Required, StringLength(200)] string destinationId,
         Guid stayId
-    ) => Execute(false, context => DestinationsEndpoints.GetStayLocation(tripId, destinationId, stayId, context, database, currentUser));
+    ) =>
+        Execute(
+            false,
+            context =>
+                DestinationsEndpoints.GetStayLocation(
+                    tripId,
+                    destinationId,
+                    stayId,
+                    context,
+                    database,
+                    currentUser
+                )
+        );
 
-    [McpServerTool(Name = "replace_visit_stay_location", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(
+        Name = "replace_visit_stay_location",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
+        OpenWorld = false
+    )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description("Save the complete accommodation Point Feature for exactly one visit after the user chooses a location. Use stayId from list_destinations properties.stays[].id. Does not affect other visits, dates or activity selection. Requires planning permission. Reread the activity plan afterwards: changing accommodation invalidates its input-context version and travel estimates.")]
+    [Description(
+        "Save the complete accommodation Point Feature for exactly one visit after the user chooses a location. Use stayId from list_destinations properties.stays[].id. Does not affect other visits, dates or activity selection. Requires planning permission. Reread the activity plan afterwards: changing accommodation invalidates its input-context version and travel estimates."
+    )]
     public Task<CallToolResult> ReplaceVisitStayLocation(
         Guid tripId,
         [Required, StringLength(200)] string destinationId,
         Guid stayId,
         StayLocationRequest request
-    ) => Execute(true, context => DestinationsEndpoints.SaveStayLocation(tripId, destinationId, stayId, request, context, database, currentUser));
+    ) =>
+        Execute(
+            true,
+            context =>
+                DestinationsEndpoints.SaveStayLocation(
+                    tripId,
+                    destinationId,
+                    stayId,
+                    request,
+                    context,
+                    database,
+                    currentUser
+                )
+        );
 
-    [McpServerTool(Name = "delete_visit_stay_location", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(
+        Name = "delete_visit_stay_location",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
+        OpenWorld = false
+    )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description("Remove accommodation from exactly one visit, leaving other visits unchanged. Use stayId from list_destinations properties.stays[].id. Does not remove the visit or activities. Requires planning permission.")]
+    [Description(
+        "Remove accommodation from exactly one visit, leaving other visits unchanged. Use stayId from list_destinations properties.stays[].id. Does not remove the visit or activities. Requires planning permission."
+    )]
     public Task<CallToolResult> DeleteVisitStayLocation(
         Guid tripId,
         [Required, StringLength(200)] string destinationId,
         Guid stayId
-    ) => Execute(true, context => DestinationsEndpoints.DeleteStayLocation(tripId, destinationId, stayId, context, database, currentUser));
+    ) =>
+        Execute(
+            true,
+            context =>
+                DestinationsEndpoints.DeleteStayLocation(
+                    tripId,
+                    destinationId,
+                    stayId,
+                    context,
+                    database,
+                    currentUser
+                )
+        );
 
     [McpServerTool(Name = "get_profile", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]

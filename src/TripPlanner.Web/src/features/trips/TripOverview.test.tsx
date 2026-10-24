@@ -830,6 +830,66 @@ test.each([
   },
 );
 
+test.each([false, true])(
+  "repeat visits display independent accommodation (read only: %s)",
+  async (readOnly) => {
+    const visits = ["Left Bank Hotel", "Airport Hotel"].map((name, index) => ({
+      ...paris.properties.stays[0],
+      id: `visit-${index}`,
+      order: index,
+      arrivalDate: index === 0 ? "2027-06-10" : "2027-06-20",
+      departureDate: index === 0 ? "2027-06-12" : "2027-06-22",
+      stayLocation: {
+        type: "Feature" as const,
+        id: `visit-${index}`,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [2.35 + index * 0.1, 48.86] as [number, number],
+        },
+        properties: { name },
+      },
+    }));
+    vi.mocked(getDestinations).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        { ...paris, properties: { ...paris.properties, stays: visits } },
+      ],
+      route: visits.map((visit) => ({
+        destinationId: paris.id,
+        stayId: visit.id,
+      })),
+    });
+    render(
+      <ColorSchemeProvider>
+        <MemoryRouter>
+          <TripOverview trip={trip} readOnly={readOnly} />
+        </MemoryRouter>
+      </ColorSchemeProvider>,
+    );
+    if (readOnly) {
+      expect(await screen.findByText("Left Bank Hotel")).toBeVisible();
+      expect(screen.getByText("Airport Hotel")).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: "Airport Hotel in Paris" }),
+      ).toBeNull();
+    } else {
+      expect(
+        await screen.findByRole("button", { name: "Left Bank Hotel in Paris" }),
+      ).toBeVisible();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Airport Hotel in Paris" }),
+      );
+      const drawer = await screen.findByRole("dialog", {
+        name: "Stay in Paris",
+      });
+      expect(
+        within(drawer).getByRole("textbox", { name: "Stay location" }),
+      ).toHaveValue("Airport Hotel");
+      expect(within(drawer).getByText("2027-06-20 – 2027-06-22")).toBeVisible();
+    }
+  },
+);
+
 test.each([null, "Hotel Paris"])(
   "overview labels the stay button for %s and opens its drawer",
   async (stayName) => {
@@ -840,14 +900,19 @@ test.each([null, "Hotel Paris"])(
           ...paris,
           properties: {
             ...paris.properties,
-            stayLocation: stayName
-              ? {
-                  type: "Feature",
-                  id: "hotel",
-                  geometry: { type: "Point", coordinates: [2.35, 48.86] },
-                  properties: { name: stayName },
-                }
-              : null,
+            stays: [
+              {
+                ...paris.properties.stays[0],
+                stayLocation: stayName
+                  ? {
+                      type: "Feature",
+                      id: "hotel",
+                      geometry: { type: "Point", coordinates: [2.35, 48.86] },
+                      properties: { name: stayName },
+                    }
+                  : null,
+              },
+            ],
           },
         },
       ],

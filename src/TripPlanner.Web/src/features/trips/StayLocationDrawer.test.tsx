@@ -53,7 +53,16 @@ const destination: Destination = {
     contextVersion: "1",
     arrivalDate: null,
     departureDate: null,
-    stays: [],
+    stays: [
+      {
+        id: "visit",
+        order: 0,
+        arrivalDate: "2027-06-10",
+        departureDate: "2027-06-14",
+        arrivalAt: "",
+        departureAt: "",
+      },
+    ],
     isActive: true,
   },
 };
@@ -80,12 +89,17 @@ const savedDestination: Destination = {
   ...destination,
   properties: {
     ...destination.properties,
-    stayLocation: {
-      type: "Feature",
-      id: "stay",
-      geometry: { type: "Point", coordinates: [139.71, 35.71] },
-      properties: { name: "Existing Hotel" },
-    },
+    stays: [
+      {
+        ...destination.properties.stays[0],
+        stayLocation: {
+          type: "Feature",
+          id: "stay",
+          geometry: { type: "Point", coordinates: [139.71, 35.71] },
+          properties: { name: "Existing Hotel" },
+        },
+      },
+    ],
   },
 };
 function showDrawer(stayDestination = destination) {
@@ -97,6 +111,7 @@ function showDrawer(stayDestination = destination) {
         <StayLocationDrawer
           tripId="trip"
           destination={stayDestination}
+          visit={stayDestination.properties.stays[0]}
           onSaved={onSaved}
           onClose={onClose}
         />
@@ -155,7 +170,7 @@ test("typing makes no search requests; explicit search returns choices and saves
   expect(saveStayLocation).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
-  expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", {
+  expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", "visit", {
     type: "Feature",
     id: "stay",
     geometry: matches[1].geometry,
@@ -246,7 +261,7 @@ test("ambiguous Azure street addresses remain selectable and only the reviewed p
   expect(saveStayLocation).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
   await waitFor(() =>
-    expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", {
+    expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", "visit", {
       type: "Feature",
       id: "stay",
       geometry: candidates[1].geometry,
@@ -313,6 +328,55 @@ test("an existing stay can still be removed without a search", async () => {
   const { onSaved } = showDrawer(savedDestination);
   fireEvent.click(screen.getByRole("button", { name: "Remove Stay" }));
   await waitFor(() => expect(onSaved).toHaveBeenCalled());
-  expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", null);
+  expect(saveStayLocation).toHaveBeenCalledWith(
+    "trip",
+    "tokyo-jp",
+    "visit",
+    null,
+  );
   expect(researchStayAddress).not.toHaveBeenCalled();
+});
+
+test("editing the second visit saves only that visit's accommodation", async () => {
+  const first = savedDestination.properties.stays[0];
+  const second = {
+    ...first,
+    id: "return-visit",
+    arrivalDate: "2027-06-20",
+    departureDate: "2027-06-22",
+    stayLocation: {
+      ...first.stayLocation!,
+      properties: { name: "Return hotel" },
+    },
+  };
+  vi.mocked(saveStayLocation).mockResolvedValue();
+  render(
+    <ColorSchemeProvider>
+      <StayLocationDrawer
+        tripId="trip"
+        destination={{
+          ...savedDestination,
+          properties: {
+            ...savedDestination.properties,
+            stays: [first, second],
+          },
+        }}
+        visit={second}
+        onClose={vi.fn()}
+        onSaved={vi.fn().mockResolvedValue(undefined)}
+      />
+    </ColorSchemeProvider>,
+  );
+  expect(screen.getByRole("textbox", { name: "Stay location" })).toHaveValue(
+    "Return hotel",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
+  await waitFor(() =>
+    expect(saveStayLocation).toHaveBeenCalledWith(
+      "trip",
+      "tokyo-jp",
+      "return-visit",
+      second.stayLocation,
+    ),
+  );
 });

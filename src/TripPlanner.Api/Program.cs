@@ -53,6 +53,8 @@ builder.AddPostgres();
 builder.Services.AddSingleton<AirportCatalog>();
 builder.Services.AddSingleton<DestinationService>();
 builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
+builder.Services.AddTransient<IActivityPlaceResearch, ActivityPlaceResearch>();
+builder.Services.AddTransient<VenueAddressLookup>();
 builder.Services.AddSingleton<DestinationFlightPlanning>();
 builder.Services.AddHttpClient<ICityPlaceResolver, AzureCityPlaceResolver>();
 builder.Services.AddHttpClient<AzureDestinationTimeZoneResolver>();
@@ -67,6 +69,9 @@ builder.Services.AddHttpClient<IActivityCoordinateResearch, OpenAiActivityCoordi
 );
 builder.Services.AddHttpClient<IActivityAssistant, OpenAiActivityAssistant>(client =>
     client.Timeout = TimeSpan.FromSeconds(120)
+);
+builder.Services.AddHttpClient<IActivityVenueSearch, OpenAiActivityVenueResearch>(client =>
+    client.Timeout = TimeSpan.FromSeconds(20)
 );
 builder.Services.AddHttpClient<IStayVenueSearch, OpenAiActivityVenueResearch>(client =>
     client.Timeout = TimeSpan.FromSeconds(20)

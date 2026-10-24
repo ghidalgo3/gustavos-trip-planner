@@ -25,6 +25,194 @@ namespace TripPlanner.Api.Tests.Mcp;
 [TestClass]
 public class McpEndpointTests
 {
+    [TestMethod]
+    [DataRow("Owner", "tripplanner.read tripplanner.write", true)]
+    [DataRow("Planner", "tripplanner.read tripplanner.write", true)]
+    [DataRow("Traveller", "tripplanner.read tripplanner.write", false)]
+    [DataRow("Owner", "tripplanner.read", false)]
+    public async Task VisitAccommodationTools_RespectVisitIdentityAndPermissions(
+        string role,
+        string scope,
+        bool canWrite
+    )
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = CreateClient(factory);
+        var user = await SeedAndSetCookie(factory, browser);
+        var owner =
+            role == "Owner"
+                ? user
+                : await factory.Database.GetOrCreateUserAsync(
+                    new("google", "stay-owner@example.com", "Owner")
+                );
+        var trip = await factory.Database.CreateTripAsync(owner.Id, "Repeat visits", "");
+        if (role != "Owner")
+        {
+            var party = (await factory.Database.GetPartiesAsync(owner.Id, trip.Id)).Single();
+            await factory.Database.ChangePartyMemberAsync(
+                owner.Id,
+                trip.Id,
+                party.Id,
+                user.Id,
+                true,
+                role: Enum.Parse<PartyRole>(role)
+            );
+        }
+        var place = await factory.Database.SaveDestinationPlaceAsync(
+            owner.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
+        );
+        var first = (
+            await factory.Database.AddDestinationVisitAsync(
+                owner.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+            )
+        )!;
+        var second = (
+            await factory.Database.AddDestinationVisitAsync(
+                owner.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 1, null, null)
+            )
+        )!;
+        var request = new StayLocationRequest(
+            "Feature",
+            new("Point", GeographyPoint.Create(48.86, 2.35)),
+            new("First hotel")
+        );
+        SetTestPrincipal(browser, user.Email);
+        var beforeLog = (await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log"))!
+            .Entries
+            .Count;
+        var token = await Tokens(browser, scope);
+        using var agent = CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            token.GetProperty("access_token").GetString()
+        );
+        async Task<JsonElement> Call(string name, Guid stayId, object? body = null) =>
+            await Result(
+                await Rpc(
+                    agent,
+                    "tools/call",
+                    new
+                    {
+                        name,
+                        arguments = new
+                        {
+                            tripId = trip.Id,
+                            destinationId = place.CityId,
+                            stayId,
+                            request = body,
+                        },
+                    }
+                )
+            );
+        var tools = (await Result(await Rpc(agent, "tools/list"))).GetProperty("tools");
+        foreach (
+            var name in new[]
+            {
+                "get_visit_stay_location",
+                "replace_visit_stay_location",
+                "delete_visit_stay_location",
+            }
+        )
+        {
+            var tool = tools
+                .EnumerateArray()
+                .Single(t => t.GetProperty("name").GetString() == name);
+            Assert.IsFalse(
+                tool.GetProperty("annotations").GetProperty("openWorldHint").GetBoolean()
+            );
+            Assert.AreEqual(
+                name.StartsWith("get_", StringComparison.Ordinal),
+                tool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()
+            );
+            Assert.IsTrue(
+                tool.GetProperty("inputSchema")
+                    .GetProperty("properties")
+                    .TryGetProperty("stayId", out _)
+            );
+        }
+        var saved = await Call("replace_visit_stay_location", first.StayId, request);
+        Assert.AreEqual(!canWrite, saved.GetProperty("isError").GetBoolean(), saved.ToString());
+        if (!canWrite)
+        {
+            Assert.IsEmpty(await factory.Database.GetStayLocationsAsync(owner.Id, trip.Id));
+            Assert.HasCount(
+                beforeLog,
+                (await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log"))!.Entries
+            );
+            return;
+        }
+        var read = await Call("get_visit_stay_location", first.StayId);
+        Assert.AreEqual(
+            "First hotel",
+            read.GetProperty("structuredContent")
+                .GetProperty("data")
+                .GetProperty("properties")
+                .GetProperty("name")
+                .GetString()
+        );
+        Assert.IsTrue(
+            (await Call("get_visit_stay_location", second.StayId))
+                .GetProperty("isError")
+                .GetBoolean()
+        );
+        var listed = (
+            await browser.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                $"/trips/{trip.Id}/destinations"
+            )
+        )!;
+        Assert.AreEqual(
+            "First hotel",
+            listed
+                .Features.Single()
+                .Properties.Stays.Single(v => v.Id == first.StayId)
+                .StayLocation!.Properties.Name
+        );
+        Assert.IsNull(
+            listed
+                .Features.Single()
+                .Properties.Stays.Single(v => v.Id == second.StayId)
+                .StayLocation
+        );
+        Assert.IsFalse(
+            (
+                await Call(
+                    "replace_visit_stay_location",
+                    second.StayId,
+                    request with
+                    {
+                        Properties = new("Second hotel"),
+                    }
+                )
+            )
+                .GetProperty("isError")
+                .GetBoolean()
+        );
+        Assert.IsTrue(
+            (await Call("replace_visit_stay_location", Guid.NewGuid(), request))
+                .GetProperty("isError")
+                .GetBoolean()
+        );
+        Assert.IsFalse(
+            (await Call("delete_visit_stay_location", first.StayId))
+                .GetProperty("isError")
+                .GetBoolean()
+        );
+        Assert.AreEqual(
+            "Second hotel",
+            (await factory.Database.GetStayLocationsAsync(owner.Id, trip.Id))
+                .Single()
+                .Value.Properties.Name
+        );
+        var entries = (
+            await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log")
+        )!.Entries;
+        Assert.HasCount(beforeLog + 3, entries);
+        Assert.IsTrue(entries.Take(3).All(e => e.ActorUserId == user.Id && e.Source == "ChatGPT"));
+    }
+
     private sealed class CoordinateResearch : IActivityCoordinateResearch
     {
         public int Calls { get; private set; }
@@ -559,6 +747,45 @@ public class McpEndpointTests
                 .GetProperty("suggestions")
                 .GetArrayLength()
         );
+        var placeTool = tools
+            .EnumerateArray()
+            .Single(tool =>
+                tool.GetProperty("name").GetString() == "create_activity_place_proposal"
+            );
+        Assert.IsTrue(
+            placeTool.GetProperty("annotations").GetProperty("openWorldHint").GetBoolean()
+        );
+        Assert.IsFalse(
+            placeTool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()
+        );
+        Assert.IsFalse(
+            placeTool.GetProperty("annotations").GetProperty("destructiveHint").GetBoolean()
+        );
+        var placePreview = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new
+                {
+                    name = "create_activity_place_proposal",
+                    arguments = new
+                    {
+                        tripId = trip.Id,
+                        destinationId,
+                        request = new ActivityPlaceSearchRequest("teamlabs planets"),
+                    },
+                }
+            )
+        );
+        Assert.IsFalse(placePreview.GetProperty("isError").GetBoolean(), placePreview.ToString());
+        Assert.AreEqual(
+            0,
+            placePreview
+                .GetProperty("structuredContent")
+                .GetProperty("data")
+                .GetProperty("suggestions")
+                .GetArrayLength()
+        );
         var locationTool = tools
             .EnumerateArray()
             .Single(tool =>
@@ -812,6 +1039,30 @@ public class McpEndpointTests
                 "insufficient_scope"
             );
         }
+        var placeSearchDenied = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new
+                {
+                    name = "create_activity_place_proposal",
+                    arguments = new
+                    {
+                        tripId = Guid.NewGuid(),
+                        destinationId = "paris-fr",
+                        request = new ActivityPlaceSearchRequest("Venue"),
+                    },
+                }
+            )
+        );
+        Assert.IsTrue(placeSearchDenied.GetProperty("isError").GetBoolean());
+        StringAssert.Contains(
+            placeSearchDenied
+                .GetProperty("_meta")
+                .GetProperty("mcp/www_authenticate")[0]
+                .GetString()!,
+            "insufficient_scope"
+        );
         var stayDenied = await Result(
             await Rpc(
                 agent,

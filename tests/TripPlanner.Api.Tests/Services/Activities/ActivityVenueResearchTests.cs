@@ -9,14 +9,22 @@ namespace TripPlanner.Api.Tests.Services.Activities;
 public class ActivityVenueResearchTests
 {
     [TestMethod]
-    [DataRow("南4条西4丁目1番1", true)]
-    [DataRow(null, false)]
+    [DataRow("南4条西4丁目1番1", true, false)]
+    [DataRow(null, false, false)]
+    [DataRow("6-1-16 豊洲", true, true)]
+    [DataRow(null, false, true)]
     public async Task ResearchRetainsSourcedAddressComponentsWithoutInventingMissingParts(
         string? street,
-        bool hasComponents
+        bool hasComponents,
+        bool activitySearch
     )
     {
-        const string source = "https://www.tokyuhotels.co.jp/sapporostream/access/index.html";
+        string source = activitySearch
+            ? "https://www.teamlab.art/e/planets/"
+            : "https://www.tokyuhotels.co.jp/sapporostream/access/index.html";
+        string locality = activitySearch ? "江東区" : "札幌市中央区";
+        string district = activitySearch ? "東京都" : "北海道";
+        string postalCode = activitySearch ? "135-0061" : "064-0804";
         var response = JsonSerializer.Serialize(
             new
             {
@@ -44,15 +52,19 @@ public class ActivityVenueResearchTests
                                         {
                                             new
                                             {
-                                                placeName = "Sapporo Stream Hotel",
-                                                address = "〒064-0804 北海道札幌市中央区南4条西4丁目1番1",
+                                                placeName = activitySearch
+                                                    ? "teamLab Planets TOKYO"
+                                                    : "Sapporo Stream Hotel",
+                                                address = activitySearch
+                                                    ? "〒135-0061 東京都江東区豊洲6-1-16"
+                                                    : "〒064-0804 北海道札幌市中央区南4条西4丁目1番1",
                                                 sourceUrl = source,
                                                 addressComponents = new
                                                 {
                                                     addressLine = street,
-                                                    locality = "札幌市中央区",
-                                                    adminDistrict = "北海道",
-                                                    postalCode = "064-0804",
+                                                    locality,
+                                                    adminDistrict = district,
+                                                    postalCode,
                                                 },
                                             },
                                         },
@@ -69,19 +81,33 @@ public class ActivityVenueResearchTests
             new HttpClient(handler),
             Microsoft.Extensions.Options.Options.Create(new OpenAiOptions { ApiKey = "test" })
         );
-        var venues = await research.SearchAsync(
-            "Sapporo Stream Hotel",
-            "Sapporo",
-            "JP",
-            [],
-            default
-        );
+        var venues = activitySearch
+            ? await ((IActivityVenueSearch)research).SearchActivitiesAsync(
+                "teamlabs planets",
+                "Tokyo",
+                "JP",
+                [],
+                default
+            )
+            : await research.SearchAsync("Sapporo Stream Hotel", "Sapporo", "JP", [], default);
+        using var sent = JsonDocument.Parse(handler.Request!);
+        if (activitySearch)
+        {
+            StringAssert.Contains(
+                sent.RootElement.GetProperty("instructions").GetString()!,
+                "physical activity venues"
+            );
+            using var input = JsonDocument.Parse(
+                sent.RootElement.GetProperty("input").GetString()!
+            );
+            Assert.AreEqual("teamlabs planets", input.RootElement.GetProperty("query").GetString());
+        }
         Assert.HasCount(1, venues);
         Assert.AreEqual(hasComponents, venues[0].AddressComponents is not null);
         if (hasComponents)
         {
             Assert.AreEqual(
-                new StructuredAddress(street!, "札幌市中央区", "北海道", "064-0804"),
+                new StructuredAddress(street!, locality, district, postalCode),
                 venues[0].AddressComponents
             );
         }

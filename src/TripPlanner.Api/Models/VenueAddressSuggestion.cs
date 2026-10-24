@@ -1,6 +1,6 @@
 namespace TripPlanner.Api.Models;
 
-public sealed record StayAddressSuggestion(
+public sealed record VenueAddressSuggestion(
     string Name,
     string Address,
     ActivityLink Source,

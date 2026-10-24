@@ -75,9 +75,10 @@ dotnet run --project tests/TripPlanner.Api.Tests -c Release -- --verify-solver
 # Requires the normal provider configuration in the environment; makes live calls.
 dotnet run --project tests/TripPlanner.Api.Tests -c Release -- --verify-planning-providers
 dotnet run --project tests/TripPlanner.Api.Tests -c Release -- --verify-stay-address
+dotnet run --project tests/TripPlanner.Api.Tests -c Release -- --verify-activity-place
 ```
 
-The stay-address smoke test researches Sapporo Stream Hotel and checks that Azure returns a reviewable address pin. It uses the same typed OpenAI and Azure Maps configuration as the API and does not save trip data.
+The stay-address smoke test researches Sapporo Stream Hotel and checks that Azure returns a reviewable address pin. The activity-place smoke test checks the misspelled query `teamlabs planets` in Tokyo through the same researched-address lookup. It uses the same typed OpenAI and Azure Maps configuration as the API and does not save trip data.
 
 Normal `dotnet test` runs do not call live providers. See the
 [plain-language optimizer walkthrough](docs/milestone_3.md#how-the-activity-optimizer-works)
@@ -843,6 +844,7 @@ plugin's tool definitions so it receives the updated schemas.
 | GET, POST | `/trips/{tripId}/destinations` | Read destination FeatureCollection or add a destination Feature and initial stay |
 | GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}` | Read or replace the place Feature; delete the destination and its stays, activities, and jobs |
 | PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` | Replace stay dates or remove one visit |
+| GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/stays/{stayId}/location` | Read, replace or remove one visit's accommodation |
 | GET, POST | `/trips/{tripId}/destinations/{destinationCity}/activities` | Read activity FeatureCollection or create an activity Feature |
 | GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/activities/{activityId}` | Read, replace, or delete an activity Feature |
 | POST | `/trips/{tripId}/destinations/{destinationCity}:suggest` | Generate activities from a prompt and save them as Proposed |
@@ -892,4 +894,10 @@ The API serves `index.html`, including SPA route fallbacks, with `Cache-Control:
 
 `scripts/release` waits for both API health and a SHA-256 match between the public HTML and the locally built `dist/index.html`, using a unique query string to bypass older cached responses. This prevents the previous container's healthy response from being treated as proof that the new UI is live. The stable `release` image tag is unchanged.
 
-Destination accommodation is managed with the **Stay** button on Overview. The drawer selects a location near the destination through Azure Maps. Each city has one accommodation resource, independent of visit dates and activities: `GET`/`PUT`/`DELETE /trips/{tripId}/destinations/{destinationCity}/stay`. PUT accepts a GeoJSON Point Feature with `properties.name`. It is returned as `properties.stayLocation` on destination Features and rendered as a distinct house marker in both activity map views. Owners and Planners can change it; Travellers can view it. Migration `0008_StayLocations.sql` persists the feature, with deletion cascading when a destination is removed.
+Destination accommodation is managed with the stay button on each visit card on Overview. Repeat visits to the same city have independent accommodations. `GET`/`PUT`/`DELETE /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}/location` reads, replaces, or removes that visit's accommodation; PUT accepts a GeoJSON Point Feature with `properties.name`. Destination Features return it as `properties.stays[].stayLocation`. Each visit's accommodation appears as a distinct house marker on the activity map. Owners and Planners can change it; Travellers can view it. The evaluator, route enrichment, and solver use the correct visit's hotel for the day's outbound and return travel; a visit without a hotel keeps the existing open-route behavior. Changing accommodation invalidates the planning input context without moving saved calendar events. MCP exposes `get_visit_stay_location`, `replace_visit_stay_location`, and `delete_visit_stay_location` with the same authorization and validation as REST. Address research remains a city-scoped preview; saving the chosen result always requires a visit ID.
+
+Migration `0015_VisitStayLocations.sql` copies each old city-wide accommodation onto all of its existing visits, preserving current choices while allowing independent edits afterwards. New visits start with no accommodation, and deleting a visit cascades only to its own accommodation. The old city-wide `/stay` read/write routes are replaced by the visit-specific resource so clients cannot accidentally update all visits.
+
+Activity place lookup uses **Search places** (Enter submits) for fast Azure Maps fuzzy results. With AI enabled, empty or failed Azure searches fall back to OpenAI web research automatically; **Search web** explicitly researches a venue when ordinary results miss the right branch. The server finds up to five sourced venues, then uses the same bounded Azure address lookup as stays, including structured street/locality/prefecture/postcode fields. Results show published addresses, source links, mapped addresses and ambiguity warnings. Unlocated results cannot be selected; possible address pins require review. Selecting a result updates the draft geometry and adds its source to activity links; **Save activity** remains the only persistence step. Existing names, descriptions and other fields remain intact.
+
+`POST /trips/{tripId}/destinations/{destinationCity}/activities/place-proposals` accepts `{ "query": "teamlabs planets" }` and returns `{ "suggestions": [...] }`. It requires planning permission and the `LLM` feature, performs no writes, and is available to agents as `create_activity_place_proposal` with write scope. The saved-activity `create_activity_location_proposal` tool remains available for researching an existing idea.

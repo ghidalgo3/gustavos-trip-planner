@@ -23,7 +23,8 @@ public sealed partial class InMemoryPlannerDb
                 _trips.TryGetValue(tripId, out var trip) && CanViewTrip(userId, trip)
                     ? _stayLocations
                         .Where(item =>
-                            item.Key.TripId == tripId && _destinationVisits.ContainsKey(item.Key.StayId)
+                            item.Key.TripId == tripId
+                            && _destinationVisits.ContainsKey(item.Key.StayId)
                         )
                         .ToDictionary(item => item.Key.StayId, item => item.Value)
                     : new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>()

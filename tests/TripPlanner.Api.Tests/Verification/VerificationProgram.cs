@@ -23,10 +23,11 @@ public static class VerificationProgram
             return 0;
         }
         bool verifyStay = args is ["--verify-stay-address"];
-        if (!verifyStay && args is not ["--verify-planning-providers"])
+        bool verifyActivity = args is ["--verify-activity-place"];
+        if (!verifyStay && !verifyActivity && args is not ["--verify-planning-providers"])
         {
             Console.Error.WriteLine(
-                "Use dotnet test, --verify-solver, --verify-planning-providers, or --verify-stay-address."
+                "Use dotnet test, --verify-solver, --verify-planning-providers, --verify-stay-address, or --verify-activity-place."
             );
             return 1;
         }
@@ -53,7 +54,14 @@ public static class VerificationProgram
                 client.Timeout = TimeSpan.FromSeconds(20)
             )
             .RemoveAllLoggers();
+        builder
+            .Services.AddHttpClient<IActivityVenueSearch, OpenAiActivityVenueResearch>(client =>
+                client.Timeout = TimeSpan.FromSeconds(20)
+            )
+            .RemoveAllLoggers();
+        builder.Services.AddTransient<IActivityPlaceResearch, ActivityPlaceResearch>();
         builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
+        builder.Services.AddTransient<VenueAddressLookup>();
         builder.Services.AddSingleton<IMapTokenProvider>(services =>
             !string.IsNullOrWhiteSpace(
                 services.GetRequiredService<IOptions<AzureMapsOptions>>().Value.SasToken
@@ -62,6 +70,14 @@ public static class VerificationProgram
                 : ActivatorUtilities.CreateInstance<AzureMapsSasTokenProvider>(services)
         );
         using var host = builder.Build();
+        if (verifyActivity)
+        {
+            return await ActivityPlaceVerification.RunAsync(
+                host.Services.GetRequiredService<IActivityPlaceResearch>()
+            )
+                ? 0
+                : 1;
+        }
         if (verifyStay)
         {
             return await StayAddressVerification.RunAsync(

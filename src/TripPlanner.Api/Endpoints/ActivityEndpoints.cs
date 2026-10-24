@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
@@ -17,6 +18,9 @@ public static class ActivityEndpoints
         var destinations = api.MapGroup("/trips/{tripId:guid}/destinations")
             .WithTags("Activities")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+        destinations
+            .MapPost("/{destinationCity}/activities/place-proposals", CreatePlaceProposal)
+            .WithName("CreateActivityPlaceProposal");
         destinations
             .MapGet("/{destinationCity}/activities", GetActivities)
             .WithName("GetDestinationActivities");
@@ -56,6 +60,78 @@ public static class ActivityEndpoints
         destinations
             .MapGet("/{destinationCity}/suggestions/{operationId:guid}", GetSuggestionResult)
             .WithName("GetDestinationActivitySuggestions");
+    }
+
+    internal static async Task<IResult> CreatePlaceProposal(
+        Guid tripId,
+        string destinationCity,
+        ActivityPlaceSearchRequest request,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser,
+        DestinationService destinations,
+        IActivityPlaceResearch research
+    )
+    {
+        var (trip, user, error) = await AuthorizeAsync(
+            tripId,
+            true,
+            context,
+            database,
+            currentUser
+        );
+        if (error is not null)
+        {
+            return error;
+        }
+        if (!user!.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
+        {
+            return Results.Forbid();
+        }
+        var (snapshot, resolveError) = await ResolveAsync(
+            user.Id,
+            trip!,
+            destinationCity,
+            destinations,
+            context
+        );
+        if (resolveError is not null)
+        {
+            return resolveError;
+        }
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var suggestions = await research.FindAsync(
+                request.Query.Trim(),
+                snapshot!.Find(destinationCity)!,
+                context.RequestAborted
+            );
+            // Preview only: selecting a result changes the activity draft, never persisted ideas.
+            return Results.Ok(new { suggestions });
+        }
+        catch (Exception exception)
+            when (exception
+                    is HttpRequestException
+                        or InvalidOperationException
+                        or JsonException
+                        or OperationCanceledException
+                        or IOException
+            )
+        {
+            context.RequestAborted.ThrowIfCancellationRequested();
+            context
+                .RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("ActivityPlaceResearch")
+                .LogWarning(
+                    "Activity place research unavailable ({FailureType})",
+                    exception.GetType().Name
+                );
+            return Results.Problem(
+                "Web place search is unavailable. Please try again.",
+                statusCode: 502
+            );
+        }
     }
 
     internal static async Task<IResult> GetActivities(

@@ -155,7 +155,8 @@ export default function StayLocationDrawer({
         </DrawerHeader>
         <DrawerBody>
           <Text block>
-            {visit.arrivalDate ?? "Arrival not set"} – {visit.departureDate ?? "Departure not set"}
+            {visit.arrivalDate ?? "Arrival not set"} –{" "}
+            {visit.departureDate ?? "Departure not set"}
           </Text>
           <form
             className="stay-search-form"

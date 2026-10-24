@@ -7,12 +7,100 @@ namespace TripPlanner.Api.Tests.Models;
 public sealed class ActivityPlanningContextTests
 {
     [TestMethod]
+    public void RepeatVisits_UseTheirOwnAccommodationForBothTravelDirections()
+    {
+        var context = Context(TimeSpan.FromHours(1));
+        var first = context.Visits[0];
+        var second = first with
+        {
+            StayId = Guid.NewGuid(),
+            Order = 1,
+            ArrivalDate = Date.AddDays(2),
+            DepartureDate = Date.AddDays(2),
+        };
+        var hotel = context.StayLocations[first.StayId];
+        var otherHotel = hotel with
+        {
+            Geometry = new("Point", Microsoft.Spatial.GeographyPoint.Create(48.90, 2.40)),
+            Properties = new("Other hotel"),
+        };
+        context = context with
+        {
+            Visits = [first, second],
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>
+            {
+                [first.StayId] = hotel,
+                [second.StayId] = otherHotel,
+            },
+        };
+        var plan = Plan(context) with { TransportOverrides = [] };
+        var departure = Now;
+        var activity = context.Activities[0];
+        var evidence = new List<ActivityRouteEvidence>();
+        foreach (var (stay, minutes) in new[] { (hotel, 10), (otherHotel, 40) })
+        {
+            foreach (bool returning in new[] { false, true })
+            {
+                var from = returning ? activity.Geometry!.Position : stay.Geometry!.Position;
+                var to = returning ? stay.Geometry!.Position : activity.Geometry!.Position;
+                evidence.Add(
+                    new(
+                        ActivityPlanningContext.RouteKey(from, to, departure, "walking"),
+                        "walking",
+                        TimeSpan.FromMinutes(minutes),
+                        Now,
+                        Now.AddHours(1),
+                        stay.Properties.Name
+                    )
+                );
+            }
+        }
+        context = context with { Evidence = new() { Routes = evidence.ToArray() } };
+        foreach (var (visit, expected) in new[] { (first, 10), (second, 40) })
+        {
+            var day = plan.Days[0] with { StayId = visit.StayId, Date = visit.ArrivalDate!.Value };
+            Assert.AreEqual(
+                TimeSpan.FromMinutes(expected),
+                context.Travel(plan, day, null, activity.Id, departure, Now).Duration
+            );
+            Assert.AreEqual(
+                TimeSpan.FromMinutes(expected),
+                context.Travel(plan, day, activity.Id, null, departure, Now).Duration
+            );
+        }
+        context = context with
+        {
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>
+            {
+                [first.StayId] = hotel,
+            },
+        };
+        var withoutStay = plan.Days[0] with
+        {
+            StayId = second.StayId,
+            Date = second.ArrivalDate!.Value,
+        };
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            context.Travel(plan, withoutStay, null, activity.Id, departure, Now).Duration
+        );
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            context.Travel(plan, withoutStay, activity.Id, null, departure, Now).Duration
+        );
+        Assert.AreEqual(
+            TimeSpan.FromMinutes(10),
+            context.Travel(plan, plan.Days[0], null, activity.Id, departure, Now).Duration
+        );
+    }
+
+    [TestMethod]
     public void WithoutStay_OnlyCountsTravelBetweenActivities_AndKeepsUnknownLocationsEstimated()
     {
         var original = Context(TimeSpan.FromHours(1), TimeSpan.FromHours(1));
         var context = original with
         {
-            StayLocation = null,
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
             Activities = [original.Activities[0], original.Activities[1] with { Geometry = null }],
         };
         var plan = Plan(context) with { TransportOverrides = [] };
@@ -30,7 +118,10 @@ public sealed class ActivityPlanningContextTests
         Assert.AreEqual(TimeSpan.FromHours(1), day.RequiredSlackDuration);
         Assert.IsFalse(result.Issues.Any(i => i.Code == "return_travel_estimated"));
 
-        var withStay = (context with { StayLocation = original.StayLocation }).Evaluate(plan, Now);
+        var withStay = (context with { StayLocations = original.StayLocations }).Evaluate(
+            plan,
+            Now
+        );
         Assert.HasCount(3, withStay.Days.Single().Travel);
         Assert.IsGreaterThan(day.TravelDuration, withStay.TravelDuration);
     }
@@ -38,7 +129,10 @@ public sealed class ActivityPlanningContextTests
     [TestMethod]
     public void WithoutStay_FixedBookingBeforeDinnerRemainsVisibleAsAConflict()
     {
-        var context = Context(TimeSpan.FromHours(1)) with { StayLocation = null };
+        var context = Context(TimeSpan.FromHours(1)) with
+        {
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
+        };
         var plan = Plan(context);
         plan = plan with { Rules = [plan.Rules[0] with { FixedStart = new TimeOnly(17, 0) }] };
         var result = context.Evaluate(plan, Now);
@@ -54,7 +148,7 @@ public sealed class ActivityPlanningContextTests
     {
         var context = Context(TimeSpan.FromHours(1), TimeSpan.FromHours(1)) with
         {
-            StayLocation = null,
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
         };
         var plan = Plan(context);
         plan = plan with

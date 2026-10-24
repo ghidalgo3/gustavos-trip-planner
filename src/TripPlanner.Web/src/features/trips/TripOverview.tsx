@@ -84,7 +84,10 @@ export default function TripOverview({
     destination: Destination;
     stay: Stay;
   }>();
-  const [stayVisit, setStayVisit] = useState<{ destination: Destination; stay: Stay }>();
+  const [stayVisit, setStayVisit] = useState<{
+    destination: Destination;
+    stay: Stay;
+  }>();
   const [showDateDrawer, setShowDateDrawer] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
   const { notify, toaster } = useActionToast();
@@ -410,8 +413,7 @@ export default function TripOverview({
                     aria-label={`${stay.stayLocation?.properties.name ?? "Choose stay"} in ${destination.properties.name}`}
                     onClick={() => setStayVisit({ destination, stay })}
                   >
-                    {stay.stayLocation?.properties.name ??
-                      "Choose stay"}
+                    {stay.stayLocation?.properties.name ?? "Choose stay"}
                   </Button>
                 )}
                 {planningSummaries[destination.id] && (

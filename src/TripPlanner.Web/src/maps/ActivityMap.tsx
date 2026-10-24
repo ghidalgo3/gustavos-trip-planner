@@ -87,11 +87,13 @@ export default function ActivityMap({
   onSelect,
   onPick,
   stayLocation: savedStayLocation,
+  stayLocations: savedStayLocations,
   placeSearch,
   portalHost,
   zoom = 11,
 }: {
   stayLocation?: StayLocation | null;
+  stayLocations?: StayLocation[];
   center: Point;
   destinationName?: string;
   activities: Activity[];
@@ -122,7 +124,14 @@ export default function ActivityMap({
         : savedActivities,
     [placeSearch, savedActivities],
   );
-  const stayLocation = placeSearch ? undefined : savedStayLocation;
+  const stayLocations = useMemo(
+    () =>
+      placeSearch
+        ? []
+        : (savedStayLocations ??
+          (savedStayLocation ? [savedStayLocation] : [])),
+    [placeSearch, savedStayLocations, savedStayLocation],
+  );
   const darkMode = useSystemDarkMode();
   const reducedMotion = useReducedMotion();
   const style = darkMode ? "grayscale_dark" : "grayscale_light";
@@ -151,12 +160,12 @@ export default function ActivityMap({
       ...(!placeSearch || activities.length === 0
         ? [[longitude, latitude]]
         : []),
-      ...(stayLocation ? [stayLocation.geometry.coordinates] : []),
+      ...stayLocations.map((stay) => stay.geometry.coordinates),
       ...activities.flatMap((activity) =>
         activity.geometry ? [activity.geometry.coordinates] : [],
       ),
     ],
-    [longitude, latitude, stayLocation, activities, placeSearch],
+    [longitude, latitude, stayLocations, activities, placeSearch],
   );
   const positions = JSON.stringify({ points, zoom });
   const fitActivities = useCallback(() => {
@@ -199,7 +208,7 @@ export default function ActivityMap({
     // An empty map starts at its destination already. Later destination changes pan.
     if (
       framedMap.current?.instance !== instance &&
-      !stayLocation &&
+      stayLocations.length === 0 &&
       locatedCount === 0
     ) {
       framedMap.current = { instance, positions };
@@ -209,7 +218,7 @@ export default function ActivityMap({
     framedMap.current = { instance, positions };
   }, [
     ready,
-    stayLocation,
+    stayLocations,
     locatedCount,
     positions,
     fitActivities,
@@ -368,7 +377,8 @@ export default function ActivityMap({
         button,
       });
     }
-    if (stayLocation) {
+    for (const stayLocation of stayLocations) {
+      const stayKey = savedStayLocations ? `stay:${stayLocation.id}` : "stay";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "activity-map-marker activity-map-stay";
@@ -394,10 +404,10 @@ export default function ActivityMap({
       button.append(icon);
       button.title = `Stay: ${stayLocation.properties.name}`;
       button.setAttribute("aria-label", button.title);
-      if (selectedId === "stay") button.dataset.selected = "true";
-      button.onclick = () => callbacks.current.onSelect("stay");
+      if (selectedId === stayKey) button.dataset.selected = "true";
+      button.onclick = () => callbacks.current.onSelect(stayKey);
       descriptions.push({
-        key: "stay",
+        key: stayKey,
         position: stayLocation.geometry.coordinates,
         button,
       });
@@ -408,7 +418,8 @@ export default function ActivityMap({
     ready,
     activities,
     selectedId,
-    stayLocation,
+    stayLocations,
+    savedStayLocations,
     placeSearch,
     reducedMotion,
   ]);

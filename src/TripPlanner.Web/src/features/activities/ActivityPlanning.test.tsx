@@ -17,6 +17,7 @@ import {
   getActivity,
   saveActivity,
   researchActivityLocation,
+  researchActivityPlaces,
   researchActivityDetails,
   deleteActivity,
   suggestActivities,
@@ -33,13 +34,13 @@ vi.mock("../../maps/ActivityMap", () => ({
   default: ({
     activities,
     onSelect,
-    stayLocation,
+    stayLocations,
     placeSearch,
     portalHost,
   }: {
     portalHost?: HTMLElement | null;
     placeSearch?: PlaceSearch;
-    stayLocation?: DestinationCollection["features"][number]["properties"]["stayLocation"];
+    stayLocations?: import("./activitiesApi").StayLocation[];
     activities: Activity[];
     onSelect: (id: string) => void;
   }) => (
@@ -50,11 +51,13 @@ vi.mock("../../maps/ActivityMap", () => ({
             {`Search marker: ${index + 1}. ${place.label}`}
           </button>
         ))}
-        {!placeSearch && stayLocation && (
-          <button
-            onClick={() => onSelect("stay")}
-          >{`Stay marker: ${stayLocation.properties.name}`}</button>
-        )}
+        {!placeSearch &&
+          stayLocations?.map((stay) => (
+            <button
+              key={stay.id}
+              onClick={() => onSelect(`stay:${stay.id}`)}
+            >{`Stay marker: ${stay.properties.name}`}</button>
+          ))}
         {(placeSearch ? [] : activities)
           .filter((item) => item.geometry)
           .map((item) => (
@@ -77,6 +80,7 @@ vi.mock("./activitiesApi", () => ({
   getActivity: vi.fn(),
   saveActivity: vi.fn(),
   researchActivityLocation: vi.fn(),
+  researchActivityPlaces: vi.fn(),
   researchActivityDetails: vi.fn(),
   deleteActivity: vi.fn(),
   suggestActivities: vi.fn(),
@@ -197,6 +201,7 @@ function show(
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(researchActivityPlaces).mockResolvedValue([]);
   vi.mocked(getDestinations).mockResolvedValue(destinations);
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -345,7 +350,7 @@ test.each(["map", "list", "cancel"])(
     change(within(drawer).getByLabelText("Activity or place name"), {
       target: { value: "Garden" },
     });
-    click(within(drawer).getByRole("button", { name: "Search Azure Maps" }));
+    click(within(drawer).getByRole("button", { name: "Search places" }));
     expect(
       screen.queryByRole("button", { name: "Map marker: Louvre" }),
     ).not.toBeInTheDocument();
@@ -406,8 +411,163 @@ test("the place SearchBox searches on Enter without submitting the editor or sta
   expect(saveActivity).not.toHaveBeenCalled();
   await act(async () => completeSearch([]));
   expect(
-    within(drawer).getByRole("button", { name: "Search Azure Maps" }),
+    within(drawer).getByRole("button", { name: "Search places" }),
   ).toBeEnabled();
+});
+
+test.each(["empty", "failure", "explicit"])(
+  "web place research handles Azure %s results and preserves sourced candidates for review",
+  async (outcome) => {
+    if (outcome === "failure")
+      vi.mocked(searchPlaces).mockRejectedValue(new Error("Map search failed"));
+    else vi.mocked(searchPlaces).mockResolvedValue([]);
+    const source = {
+      url: "https://venue.example/access",
+      label: "Venue source",
+    };
+    vi.mocked(researchActivityPlaces).mockResolvedValue([
+      {
+        name: "teamLab Planets TOKYO",
+        address: "6-1-16 Toyosu, Tokyo",
+        mapAddress: "6 Chome 1-16, Toyosu, Tokyo",
+        source,
+        geometry: { type: "Point", coordinates: [139.795, 35.649] },
+        warning:
+          "Possible address match. Check the map address and pin before saving.",
+      },
+      {
+        name: "Another branch",
+        address: "Unknown map address",
+        source,
+        geometry: null,
+        warning: "Address found, but no usable street-address pin.",
+      },
+    ]);
+    show(false, ["LLM"]);
+    const drawer = await add();
+    change(
+      within(drawer).getByRole("searchbox", { name: "Activity or place name" }),
+      { target: { value: "teamlabs planets" } },
+    );
+    click(
+      within(drawer).getByRole("button", {
+        name: outcome === "explicit" ? "Search web" : "Search places",
+      }),
+    );
+    const result = await within(drawer).findByRole("button", {
+      name: "1. teamLab Planets TOKYO, 6-1-16 Toyosu, Tokyo",
+    });
+    expect(researchActivityPlaces).toHaveBeenCalledWith(
+      "trip",
+      "paris-fr",
+      "teamlabs planets",
+      expect.any(AbortSignal),
+    );
+    if (outcome === "explicit") expect(searchPlaces).not.toHaveBeenCalled();
+    expect(within(drawer).getByText("6-1-16 Toyosu, Tokyo")).toBeVisible();
+    expect(
+      within(drawer).getByText("Map address: 6 Chome 1-16, Toyosu, Tokyo"),
+    ).toBeVisible();
+    expect(
+      within(drawer).getByRole("link", {
+        name: "Source for teamLab Planets TOKYO",
+      }),
+    ).toHaveAttribute("href", source.url);
+    expect(
+      within(drawer).getByRole("button", {
+        name: "2. Another branch, Unknown map address",
+      }),
+    ).toBeDisabled();
+    expect(saveActivity).not.toHaveBeenCalled();
+    expect(within(drawer).getByLabelText("Name")).toHaveValue("");
+    if (outcome === "explicit") {
+      change(within(drawer).getByLabelText("Name"), {
+        target: { value: "Explore immersive art" },
+      });
+      change(within(drawer).getByLabelText("Description"), {
+        target: { value: "Keep this description" },
+      });
+    }
+    click(result);
+    expect(within(drawer).getByLabelText("Name")).toHaveValue(
+      outcome === "explicit"
+        ? "Explore immersive art"
+        : "teamLab Planets TOKYO",
+    );
+    expect(
+      screen.getByRole("button", {
+        name: `Map marker: ${outcome === "explicit" ? "Explore immersive art" : "teamLab Planets TOKYO"}`,
+      }),
+    ).toBeInTheDocument();
+    if (outcome === "explicit")
+      expect(within(drawer).getByLabelText("Description")).toHaveValue(
+        "Keep this description",
+      );
+    expect(
+      within(drawer).getByText(
+        "Possible address match. Check the map address and pin before saving.",
+      ),
+    ).toBeVisible();
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    const saved = vi.mocked(saveActivity).mock.calls[0][2];
+    expect(saved.geometry?.coordinates).toEqual([139.795, 35.649]);
+    expect(saved.properties.links).toContainEqual(source);
+  },
+);
+
+test("changing the query cancels web research and ignores its old results", async () => {
+  let finish!: (
+    value: Awaited<ReturnType<typeof researchActivityPlaces>>,
+  ) => void;
+  vi.mocked(researchActivityPlaces).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  show(false, ["LLM"]);
+  const drawer = await add();
+  const input = within(drawer).getByRole("searchbox", {
+    name: "Activity or place name",
+  });
+  change(input, { target: { value: "Old venue" } });
+  click(within(drawer).getByRole("button", { name: "Search web" }));
+  const signal = vi.mocked(researchActivityPlaces).mock.calls[0][3]!;
+  change(input, { target: { value: "New venue" } });
+  expect(signal.aborted).toBe(true);
+  await act(async () =>
+    finish([
+      {
+        name: "Old venue",
+        address: "Old address",
+        source: { url: "https://venue.example", label: "Source" },
+        geometry: { type: "Point", coordinates: [2.35, 48.86] },
+        warning: null,
+      },
+    ]),
+  );
+  expect(
+    within(drawer).queryByRole("button", { name: "1. Old venue, Old address" }),
+  ).toBeNull();
+  expect(
+    within(drawer).getByRole("button", { name: "Search places" }),
+  ).toBeEnabled();
+  expect(saveActivity).not.toHaveBeenCalled();
+});
+
+test("successful Azure lookup skips AI research", async () => {
+  vi.mocked(searchPlaces).mockResolvedValue([
+    { id: "venue", label: "Venue, Paris", longitude: 2.35, latitude: 48.86 },
+  ]);
+  show(false, ["LLM"]);
+  const drawer = await add();
+  change(
+    within(drawer).getByRole("searchbox", { name: "Activity or place name" }),
+    { target: { value: "Venue" } },
+  );
+  click(within(drawer).getByRole("button", { name: "Search places" }));
+  await within(drawer).findByRole("button", { name: "1. Venue, Paris" });
+  expect(researchActivityPlaces).not.toHaveBeenCalled();
 });
 
 test("place lookup populates the activity's name and location, and saving updates the cards", async () => {
@@ -424,10 +584,13 @@ test("place lookup populates the activity's name and location, and saving update
   show();
   const drawer = await add();
   expect(within(drawer).getByRole("tab", { name: "AI prompt" })).toBeDisabled();
+  expect(
+    within(drawer).queryByRole("button", { name: "Search web" }),
+  ).toBeNull();
   change(within(drawer).getByLabelText("Activity or place name"), {
     target: { value: "Louvre" },
   });
-  click(within(drawer).getByRole("button", { name: "Search Azure Maps" }));
+  click(within(drawer).getByRole("button", { name: "Search places" }));
   const result = await within(drawer).findByRole("button", {
     name: "1. Louvre, Paris",
   });
@@ -985,12 +1148,18 @@ test("a Stay marker presents accommodation details separately from activities", 
             ...destination,
             properties: {
               ...destination.properties,
-              stayLocation: {
-                type: "Feature",
-                id: "stay",
-                geometry: { type: "Point", coordinates: [2.34, 48.85] },
-                properties: { name: "Paris Hotel" },
-              },
+              stays: [
+                {
+                  ...destination.properties.stays[0],
+                  stayLocation: {
+                    type: "Feature",
+                    id: "stay",
+                    geometry: { type: "Point", coordinates: [2.34, 48.85] },
+                    properties: { name: "Paris Hotel" },
+                  },
+                },
+                destination.properties.stays[1],
+              ],
             },
           },
     ),

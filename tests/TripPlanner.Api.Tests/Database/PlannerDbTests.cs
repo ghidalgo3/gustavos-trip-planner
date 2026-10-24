@@ -23,6 +23,7 @@ public sealed class PlannerDbTests
         await DestinationContract(db);
         await ResourceConstraintsContract(db);
         await PartyRolesContract(db);
+        await VisitStayLocationsContract(db);
     }
 
     [TestMethod]
@@ -71,7 +72,7 @@ public sealed class PlannerDbTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(14L, reader.GetInt64(0));
+                Assert.AreEqual(15L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
@@ -85,6 +86,8 @@ public sealed class PlannerDbTests
             await DestinationContract(db);
             await ResourceConstraintsContract(db);
             await PartyRolesContract(db);
+            await VisitStayLocationsContract(db);
+            await MigrationPreservesVisitStayLocations(source);
             await MigrationPreservesFlightPlanning(source);
             await MigrationUpgradesActivityJobs(source);
             await MigrationUpgradesClockTimes(source);
@@ -96,6 +99,161 @@ public sealed class PlannerDbTests
             await using var drop = admin.CreateCommand($"DROP DATABASE {name} WITH (FORCE)");
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task VisitStayLocationsContract(IPlannerDb db)
+    {
+        var (owner, trip, _) = await Seed(db);
+        var place = await db.SaveDestinationPlaceAsync(
+            owner.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
+        );
+        var first = (
+            await db.AddDestinationVisitAsync(
+                owner.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+            )
+        )!;
+        var second = (
+            await db.AddDestinationVisitAsync(
+                owner.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 1, null, null)
+            )
+        )!;
+        var hotel = new GeoJsonFeature<StayLocationProperties>(
+            "Feature",
+            first.StayId.ToString("D"),
+            new("Point", GeographyPoint.Create(48.86, 2.35)),
+            new("First hotel")
+        );
+        var before = await db.GetActivityPlanningRevisionAsync(owner.Id, trip.Id);
+        Assert.IsTrue(
+            await db.SaveStayLocationAsync(owner.Id, trip.Id, place.CityId, first.StayId, hotel)
+        );
+        Assert.AreNotEqual(before, await db.GetActivityPlanningRevisionAsync(owner.Id, trip.Id));
+        Assert.HasCount(1, await db.GetStayLocationsAsync(owner.Id, trip.Id));
+        Assert.IsTrue(
+            await db.SaveStayLocationAsync(
+                owner.Id,
+                trip.Id,
+                place.CityId,
+                second.StayId,
+                hotel with
+                {
+                    Id = second.StayId.ToString("D"),
+                    Properties = new("Second hotel"),
+                }
+            )
+        );
+        Assert.AreEqual(
+            "First hotel",
+            (await db.GetStayLocationsAsync(owner.Id, trip.Id))[first.StayId].Properties.Name
+        );
+        Assert.AreEqual(
+            "Second hotel",
+            (await db.GetStayLocationsAsync(owner.Id, trip.Id))[second.StayId].Properties.Name
+        );
+        Assert.IsFalse(
+            await db.SaveStayLocationAsync(owner.Id, trip.Id, "rome-it", second.StayId, hotel)
+        );
+        Assert.IsFalse(
+            await db.SaveStayLocationAsync(
+                owner.Id,
+                Guid.NewGuid(),
+                place.CityId,
+                second.StayId,
+                hotel
+            )
+        );
+        Assert.IsFalse(
+            await db.SaveStayLocationAsync(owner.Id, trip.Id, place.CityId, Guid.NewGuid(), hotel)
+        );
+        Assert.IsTrue(
+            await db.SaveStayLocationAsync(owner.Id, trip.Id, place.CityId, first.StayId, null)
+        );
+        Assert.AreEqual(
+            "Second hotel",
+            (await db.GetStayLocationsAsync(owner.Id, trip.Id)).Single().Value.Properties.Name
+        );
+        var third = (
+            await db.AddDestinationVisitAsync(
+                owner.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 2, null, null)
+            )
+        )!;
+        Assert.IsFalse(
+            (await db.GetStayLocationsAsync(owner.Id, trip.Id)).ContainsKey(third.StayId)
+        );
+        Assert.IsTrue(
+            await db.DeleteDestinationVisitAsync(owner.Id, trip.Id, place.CityId, second.StayId)
+        );
+        Assert.IsEmpty(await db.GetStayLocationsAsync(owner.Id, trip.Id));
+    }
+
+    private static async Task MigrationPreservesVisitStayLocations(NpgsqlDataSource source)
+    {
+        var db = new PostgresPlannerDb(source);
+        var (user, trip, _) = await Seed(db);
+        var place = await db.SaveDestinationPlaceAsync(
+            user.Id,
+            new(trip.Id, "tokyo-jp", "Tokyo", "JP", "Asia/Tokyo", 139.7, 35.7)
+        );
+        var first = (
+            await db.AddDestinationVisitAsync(
+                user.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+            )
+        )!;
+        var second = (
+            await db.AddDestinationVisitAsync(
+                user.Id,
+                new(trip.Id, place.CityId, Guid.NewGuid(), 1, null, null)
+            )
+        )!;
+        // Reconstruct the old city-wide table, retaining its revision trigger, then run the upgrade.
+        await using (
+            var legacy = source.CreateCommand(
+                """
+                DELETE FROM destination_stay_locations;
+                ALTER TABLE destination_stay_locations DROP CONSTRAINT destination_stay_locations_pkey;
+                ALTER TABLE destination_stay_locations DROP COLUMN stay_id CASCADE;
+                ALTER TABLE destination_stay_locations ADD PRIMARY KEY(trip_id,city_id);
+                ALTER TABLE destination_stays DROP CONSTRAINT destination_stays_trip_city_visit_key;
+                """
+            )
+        )
+        {
+            await legacy.ExecuteNonQueryAsync();
+        }
+        await using (
+            var legacy = source.CreateCommand(
+                """
+                WITH previous AS (
+                    INSERT INTO destination_stay_locations(trip_id,city_id,feature)
+                    VALUES($1,'tokyo-jp','{"type":"Feature","id":"stay","geometry":{"type":"Point","coordinates":[139.7,35.7]},"properties":{"name":"Existing hotel"}}')
+                )
+                DELETE FROM schema_migrations WHERE version=15;
+                """
+            )
+        )
+        {
+            legacy.Parameters.AddWithValue(trip.Id);
+            await legacy.ExecuteNonQueryAsync();
+        }
+        await new DatabaseMigrator(source, NullLogger<DatabaseMigrator>.Instance).MigrateAsync();
+        var locations = await db.GetStayLocationsAsync(user.Id, trip.Id);
+        Assert.HasCount(2, locations);
+        foreach (var id in new[] { first.StayId, second.StayId })
+        {
+            Assert.AreEqual("Existing hotel", locations[id].Properties.Name);
+            Assert.AreEqual(id.ToString("D"), locations[id].Id);
+        }
+        Assert.IsTrue(
+            await db.SaveStayLocationAsync(user.Id, trip.Id, place.CityId, first.StayId, null)
+        );
+        Assert.IsTrue(
+            (await db.GetStayLocationsAsync(user.Id, trip.Id)).ContainsKey(second.StayId)
+        );
     }
 
     private static async Task MigrationRetiresTransit(NpgsqlDataSource source)
@@ -344,6 +502,7 @@ public sealed class PlannerDbTests
             )
         );
         place = (await db.GetDestinationPlaceAsync(member.Id, trip.Id, place.CityId))!;
+        var visitId = (await db.GetDestinationVisitsAsync(member.Id, trip.Id)).Single().StayId;
         var stayLocation = new GeoJsonFeature<StayLocationProperties>(
             "Feature",
             "stay",
@@ -351,11 +510,11 @@ public sealed class PlannerDbTests
             new("Hotel")
         );
         Assert.IsTrue(
-            await db.SaveStayLocationAsync(member.Id, trip.Id, place.CityId, stayLocation)
+            await db.SaveStayLocationAsync(member.Id, trip.Id, place.CityId, visitId, stayLocation)
         );
         Assert.AreEqual(
             "Hotel",
-            (await db.GetStayLocationsAsync(owner.Id, trip.Id))[place.CityId].Properties.Name
+            (await db.GetStayLocationsAsync(owner.Id, trip.Id))[visitId].Properties.Name
         );
         var now = DateTimeOffset.UtcNow;
         var activity = new Activity(
@@ -392,8 +551,12 @@ public sealed class PlannerDbTests
         );
         Assert.IsNull(await db.GetTripAsync(member.Id, trip.Id));
         Assert.IsNull(await db.UpdateTripAsync(member.Id, trip.Id, "Unauthorized", ""));
-        Assert.IsFalse(await db.SaveStayLocationAsync(member.Id, trip.Id, place.CityId, null));
-        Assert.IsTrue(await db.SaveStayLocationAsync(owner.Id, trip.Id, place.CityId, null));
+        Assert.IsFalse(
+            await db.SaveStayLocationAsync(member.Id, trip.Id, place.CityId, visitId, null)
+        );
+        Assert.IsTrue(
+            await db.SaveStayLocationAsync(owner.Id, trip.Id, place.CityId, visitId, null)
+        );
         Assert.IsEmpty(await db.GetStayLocationsAsync(owner.Id, trip.Id));
         await db.ChangePartyMemberAsync(owner.Id, trip.Id, party.Id, member.Id, false);
         Assert.IsFalse(
