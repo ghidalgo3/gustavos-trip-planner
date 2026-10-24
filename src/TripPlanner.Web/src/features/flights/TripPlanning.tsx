@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { FlightPlanningSkeleton } from "./FlightSkeletons";
 import { useEffect, useState } from "react";
 import { Button, Text } from "@fluentui/react-components";
 import type { Trip } from "../../api/api";
@@ -59,7 +59,7 @@ export default function TripPlanning({
           </Button>
         </>
       ) : !data ? (
-        <ContentSkeleton label="Loading flight planning" layout="cards" />
+        <FlightPlanningSkeleton />
       ) : !hasDestinations ? (
         <Text>Add destinations on Overview before finding flights.</Text>
       ) : (

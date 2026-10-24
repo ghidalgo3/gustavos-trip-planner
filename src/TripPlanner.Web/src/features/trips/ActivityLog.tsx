@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { ActivityLogSkeleton } from "./TripSkeletons";
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Text, Title2 } from "@fluentui/react-components";
 import { getActivityLog, type ActivityLogEntry } from "../../api/api";
@@ -103,7 +103,7 @@ export default function ActivityLog() {
           </li>
         ))}
       </ol>
-      {loading && <ContentSkeleton label="Loading activity" />}
+      {loading && <ActivityLogSkeleton />}
       {hasMore && (
         <Button
           appearance="secondary"

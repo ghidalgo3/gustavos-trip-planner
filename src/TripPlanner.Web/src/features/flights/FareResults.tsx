@@ -409,7 +409,7 @@ function BookingLink({
         {loading ? "Finding booking link…" : "Book this fare"}
       </Button>
       {loading && (
-        <ContentSkeleton label="Loading booking link" layout="field" />
+        <ContentSkeleton label="Loading booking link" layout="text" />
       )}
       {error && <Text role="alert">{error}</Text>}
     </>

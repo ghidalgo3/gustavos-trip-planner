@@ -49,6 +49,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 - Mobile UI is the primary design target. Design for small screens.
 - Use Skeletons when loading GUI content. Reserve Spinners for long-running operations; short saves should retain existing content with disabled controls and status text.
+- Skeletons must mirror the content being loaded, including its layout and approximate dimensions. Define feature-specific placeholders for agendas, search results, forms, and other distinct views instead of reusing a generic card skeleton.
 - Button should always have a border or different background color to signal to the user on mobile that this is a button.
 
 ## Test practices

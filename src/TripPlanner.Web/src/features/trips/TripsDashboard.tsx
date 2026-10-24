@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { TripsSkeleton } from "./TripSkeletons";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -169,7 +169,7 @@ export default function TripsDashboard({ user }: Props) {
       )}
 
       {!trips ? (
-        <ContentSkeleton label="Loading your trips" layout="cards" />
+        <TripsSkeleton />
       ) : trips.length === 0 && !showCreate ? (
         <Card className="empty-trips" appearance="filled-alternative">
           <Title3 as="h2">No trips yet</Title3>

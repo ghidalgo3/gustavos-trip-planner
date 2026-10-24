@@ -1,4 +1,7 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
+import { ActivityWorkspaceSkeleton } from "../activities/ActivityPlanningSkeletons";
+import { FlightPlanningSkeleton } from "../flights/FlightSkeletons";
+import PartySkeleton from "../party/PartySkeleton";
 import { useEffect, useState } from "react";
 import { Button, Text, Title1 } from "@fluentui/react-components";
 import { NavLink, useNavigate, useParams } from "react-router";
@@ -67,7 +70,19 @@ export default function TripPlanningPage({
       </section>
     );
   if (!current?.trip)
-    return <ContentSkeleton label="Loading trip" layout="cards" />;
+    return (
+      <TripPageSkeleton>
+        {activeTab === "activities" ? (
+          <ActivityWorkspaceSkeleton />
+        ) : activeTab === "flights" ? (
+          <FlightPlanningSkeleton />
+        ) : activeTab === "party" ? (
+          <PartySkeleton />
+        ) : (
+          <DestinationOverviewSkeleton />
+        )}
+      </TripPageSkeleton>
+    );
   const trip = current.trip;
   const readOnly = trip.ownerUserId !== userId && !trip.canPlan;
 

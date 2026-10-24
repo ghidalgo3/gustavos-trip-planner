@@ -1,4 +1,5 @@
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { Fragment, useEffect, useState } from "react";
 import { Button, Badge, Text, Title3 } from "@fluentui/react-components";
@@ -333,7 +334,7 @@ export default function TripOverview({
           </Button>
         </div>
       ) : !destinations ? (
-        <ContentSkeleton label="Loading destinations" layout="cards" />
+        <DestinationOverviewSkeleton />
       ) : destinations.features.length === 0 ? (
         <div className="overview-empty">
           <div className="overview-empty-icon" aria-hidden="true">

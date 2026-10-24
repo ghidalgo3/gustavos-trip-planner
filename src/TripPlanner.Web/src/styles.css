@@ -2683,35 +2683,178 @@ main:has(.trip-workspace-activities) > .topbar {
   }
 }
 
-
 /* Reserve content space while fetching UI; spinners are for long operations. */
 .content-skeleton {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
-.content-skeleton--list,
-.content-skeleton--cards,
-.content-skeleton-field,
-.content-skeleton-item {
+.skeleton-stack,
+.skeleton-panel {
   display: grid;
   gap: 12px;
-}
-.content-skeleton-item {
   min-width: 0;
+}
+.skeleton-panel {
   padding: 16px;
-}
-.content-skeleton--cards {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-}
-.content-skeleton--cards .content-skeleton-item {
   border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 12px;
-  padding: 20px;
-  gap: 16px;
+  border-radius: 8px;
+  background: var(--colorNeutralBackground1);
 }
-.content-skeleton--field {
-  max-width: 420px;
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+.skeleton-row > *,
+.content-skeleton .fui-SkeletonItem {
+  min-width: 0;
+  max-width: 100%;
+}
+.skeleton-trip-card {
+  padding: 20px;
+  border-radius: 12px;
+}
+.content-skeleton .trip-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+}
+.skeleton-flight-spacer {
+  padding: 12px 20px;
+  justify-content: start;
+}
+.skeleton-badges {
+  justify-content: start;
+  flex-wrap: wrap;
+}
+.skeleton-trip-navigation {
+  max-width: 680px;
+}
+.skeleton-trip-navigation > * {
+  flex: 1;
+}
+.search-results-skeleton {
+  display: grid;
+  gap: 8px;
+  padding-block: 8px;
+}
+.search-result-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 12px;
+}
+.search-result-skeleton > .skeleton-stack {
+  flex: 1;
+  gap: 8px;
+}
+.search-result-skeleton > .fui-SkeletonItem {
+  flex-shrink: 0;
+}
+.search-results-skeleton--stays {
+  gap: 12px;
+  margin-top: 12px;
+}
+.search-results-skeleton--stays > .search-result-skeleton {
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+}
+.skeleton-agenda {
+  gap: 28px;
+}
+.skeleton-agenda-heading {
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 4px;
+  background: var(--colorNeutralBackground2);
+}
+.skeleton-agenda-entry {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.skeleton-agenda-entry > .fui-SkeletonItem {
+  margin-top: 16px;
+}
+.skeleton-agenda-activity {
+  min-height: 96px;
+  border-left: 4px solid var(--colorNeutralStroke2);
+  align-content: center;
+}
+.skeleton-agenda-routine {
+  padding-block: 14px;
+}
+.skeleton-destination-tabs > .skeleton-stack {
+  flex: 1;
+  padding-block: 12px;
+  border-bottom: 2px solid var(--colorNeutralStroke2);
+}
+.skeleton-activity-workspace {
+  display: grid;
+  gap: 20px;
+}
+.skeleton-workspace-map > .fui-SkeletonItem {
+  width: 100%;
+  height: 100%;
+}
+.skeleton-workspace-ideas {
+  align-content: start;
+}
+.skeleton-activity-tabs {
+  justify-content: start;
+  padding-block: 8px;
+}
+.skeleton-idea {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 88px;
+  align-items: center;
+  gap: 12px;
+}
+.skeleton-preferences,
+.skeleton-subscriptions {
+  margin-top: 16px;
+}
+.skeleton-party-member {
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+}
+.skeleton-journey-leg {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding-block: 12px;
+}
+.skeleton-booking-option {
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 4px;
+}
+@media (min-width: 768px) {
+  .skeleton-activity-workspace {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+  .skeleton-workspace-map {
+    grid-column: 2;
+    grid-row: 1;
+    height: clamp(400px, 60svh, 720px);
+  }
+  .skeleton-workspace-ideas {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+@media (max-width: 480px) {
+  .skeleton-agenda-entry {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 8px;
+  }
 }
 .content-skeleton--text {
   width: 10rem;
@@ -2730,7 +2873,6 @@ main:has(.trip-workspace-activities) > .topbar {
   }
 }
 
-
 .stay-location-preview {
   display: grid;
   min-width: 0;
@@ -2741,7 +2883,6 @@ main:has(.trip-workspace-activities) > .topbar {
 .stay-location-preview .activity-map-shell {
   height: clamp(240px, 35svh, 360px);
 }
-
 
 .place-search-result {
   display: grid;

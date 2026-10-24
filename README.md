@@ -80,7 +80,7 @@ Normal `dotnet test` runs do not call live providers. See the
 [plain-language optimizer walkthrough](docs/milestone_3.md#how-the-activity-optimizer-works)
 for how the planner chooses and checks suggestions.
 
-Page, map, picker, and list loading states use Fluent UI skeletons that reserve space for incoming content. Existing content remains visible during short saves, with disabled controls and status text. Spinners are reserved for long-running operations such as AI activity generation and image extraction.
+Page, map, picker, and list loading states use Fluent UI skeletons that mirror the incoming content: agenda timelines, destination cards with flight separators, compact search options, stay names and addresses, traveller rows, and form controls. Feature-specific skeletons live beside their views; the shared wrapper handles loading announcements and simple map/text placeholders without a generic card fallback. Existing content remains visible during short saves, with disabled controls and status text. Spinners are reserved for long-running operations such as AI activity generation and image extraction.
 
 ## Local development
 

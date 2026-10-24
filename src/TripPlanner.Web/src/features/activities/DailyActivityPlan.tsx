@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { DailyPlanSkeleton } from "./ActivityPlanningSkeletons";
 import ActivityOrderHandle from "./ActivityOrderHandle";
 import ActivityAgenda from "./ActivityAgenda";
 import { useActivityPlanPreview } from "./useActivityPlanPreview";
@@ -522,11 +522,7 @@ export default function DailyActivityPlan({
   if (!plan || !resource)
     return (
       <section className="daily-plan">
-        {error ? (
-          <p role="alert">{error}</p>
-        ) : (
-          <ContentSkeleton label="Loading daily plan" layout="cards" />
-        )}
+        {error ? <p role="alert">{error}</p> : <DailyPlanSkeleton />}
       </section>
     );
   const disabled = readOnly || busy || Boolean(pending);

@@ -128,6 +128,16 @@ beforeEach(() => {
   });
   vi.mocked(addDestination).mockResolvedValue(paris);
 });
+
+test("reserves vertically stacked destinations and flight separators while loading", () => {
+  vi.mocked(getDestinations).mockReturnValueOnce(new Promise(() => {}));
+  show();
+  const loading = screen.getByRole("status", { name: "Loading destinations" });
+  expect(loading.querySelectorAll(".overview-destination")).toHaveLength(2);
+  expect(loading.querySelectorAll(".skeleton-flight-spacer")).toHaveLength(2);
+  expect(loading.querySelector(".trip-grid")).toBeNull();
+  expect(within(loading).queryByRole("button")).toBeNull();
+});
 function chooseStayDates(drawer: HTMLElement) {
   const calendar = within(drawer).getByLabelText("Destination dates");
   for (

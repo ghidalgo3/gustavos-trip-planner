@@ -1,4 +1,5 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
+import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { findActivityLocations } from "./findActivityLocations";
 import { useActionToast } from "../../shared/hooks/useActionToast";
@@ -1007,8 +1008,7 @@ export default function ActivityPlanning({
     ) : null;
   }
 
-  if (loading)
-    return <ContentSkeleton label="Loading destinations" layout="cards" />;
+  if (loading) return <ActivityWorkspaceSkeleton />;
   if (!destinations || !destination)
     return (
       <section className="activity-planning">
@@ -1154,7 +1154,10 @@ export default function ActivityPlanning({
                   {editor.value.geometry && <Text>Location selected</Text>}
                 </div>
                 {searching && (
-                  <ContentSkeleton label="Loading place results" count={2} />
+                  <SearchResultsSkeleton
+                    label="Loading place results"
+                    appearance="places"
+                  />
                 )}
                 {editor.value.properties.locationSuggestion &&
                   !editor.value.geometry && (

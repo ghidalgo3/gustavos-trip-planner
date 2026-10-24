@@ -89,6 +89,8 @@ test("keeps only flight search and selection, using the server's destination-der
   });
   expect(loading).toHaveAttribute("aria-busy", "true");
   expect(loading).toHaveClass("fui-Skeleton");
+  expect(loading.querySelectorAll(".skeleton-panel")).toHaveLength(1);
+  expect(loading.querySelector(".flight-grid-card")).toBeNull();
   expect(document.querySelector(".fui-Spinner")).toBeNull();
   expect(await screen.findByText("Flight search and selection")).toBeVisible();
   expect(

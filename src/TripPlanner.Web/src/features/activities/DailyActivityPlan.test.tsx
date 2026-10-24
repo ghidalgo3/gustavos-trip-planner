@@ -112,6 +112,18 @@ const props = {
 };
 
 describe("daily planning", () => {
+  it("reserves an agenda with day headings and time columns while loading", () => {
+    vi.mocked(planningRequest).mockReturnValueOnce(new Promise(() => {}));
+    render(<DailyActivityPlan {...props} />);
+    const loading = screen.getByRole("status", { name: "Loading daily plan" });
+    expect(loading).toHaveAttribute("aria-busy", "true");
+    expect(loading.querySelectorAll(".skeleton-agenda-day")).toHaveLength(3);
+    expect(loading.querySelector(".skeleton-agenda-entry")).not.toBeNull();
+    expect(loading.querySelector(".skeleton-agenda-activity")).not.toBeNull();
+    expect(loading.querySelector(".flight-grid-card")).toBeNull();
+    expect(within(loading).queryByRole("button")).toBeNull();
+  });
+
   it("offers the solver for unscheduled activities without saving or changing the selection", async () => {
     const data = structuredClone(response);
     data.plan.days[0].activityIds = [];

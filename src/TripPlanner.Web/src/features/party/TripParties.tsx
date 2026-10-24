@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import PartySkeleton from "./PartySkeleton";
 import { useEffect, useState } from "react";
 import { Button, Text, Title2 } from "@fluentui/react-components";
 import PartySelector from "./PartySelector";
@@ -49,7 +49,7 @@ export default function TripParties({
           </Button>
         </>
       ) : !parties ? (
-        <ContentSkeleton label="Loading travelers" />
+        <PartySkeleton readOnly={readOnly} />
       ) : (
         parties.map((party, index) =>
           readOnly ? (

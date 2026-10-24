@@ -13,6 +13,7 @@ import {
   Card,
   CardHeader,
   LargeTitle,
+  SkeletonItem,
   Subtitle1,
   Text,
   Title3,
@@ -147,7 +148,12 @@ export default function App() {
                 refresh.
               </Text>
             ) : !user ? (
-              <ContentSkeleton label="Checking your session" layout="field" />
+              <ContentSkeleton label="Checking your session">
+                <div className="auth-actions">
+                  <SkeletonItem style={{ width: 180, height: 40 }} />
+                  <SkeletonItem style={{ width: 180, height: 40 }} />
+                </div>
+              </ContentSkeleton>
             ) : user.isAuthenticated ? (
               <div className="welcome" aria-label="Complete your profile">
                 <Title3 as="h2">Where do you call home?</Title3>

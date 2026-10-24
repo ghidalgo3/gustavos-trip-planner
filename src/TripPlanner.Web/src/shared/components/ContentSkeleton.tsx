@@ -1,46 +1,33 @@
 import { Skeleton, SkeletonItem } from "@fluentui/react-components";
+import type { ReactNode } from "react";
 
-type Layout = "text" | "field" | "list" | "cards" | "map";
+type Props = { label: string; className?: string } & (
+  | { layout: "text" | "map"; children?: never }
+  | { layout?: never; children: ReactNode }
+);
 
 export default function ContentSkeleton({
   label,
-  layout = "list",
-  count = 3,
-}: {
-  label: string;
-  layout?: Layout;
-  count?: number;
-}) {
+  layout,
+  children,
+  className = "",
+}: Props) {
   return (
     <Skeleton
       aria-label={label}
       aria-busy="true"
       role="status"
       animation="pulse"
-      className={`content-skeleton content-skeleton--${layout}`}
+      className={`content-skeleton${layout ? ` content-skeleton--${layout}` : ""} ${className}`}
     >
       <span className="visually-hidden">{label}</span>
-      {layout === "map" ? (
+      {children ? (
+        <div aria-hidden="true">{children}</div>
+      ) : layout === "map" ? (
         <SkeletonItem aria-hidden="true" className="content-skeleton-map" />
       ) : layout === "text" ? (
         <SkeletonItem aria-hidden="true" size={16} />
-      ) : layout === "field" ? (
-        <div className="content-skeleton-field" aria-hidden="true">
-          <SkeletonItem size={12} style={{ width: "40%" }} />
-          <SkeletonItem size={32} />
-        </div>
-      ) : (
-        Array.from({ length: count }, (_, index) => (
-          <div key={index} className="content-skeleton-item" aria-hidden="true">
-            <SkeletonItem size={20} style={{ width: "55%" }} />
-            <SkeletonItem size={12} />
-            <SkeletonItem size={12} style={{ width: "75%" }} />
-            {layout === "cards" && (
-              <SkeletonItem size={32} style={{ width: "40%" }} />
-            )}
-          </div>
-        ))
-      )}
+      ) : null}
     </Skeleton>
   );
 }

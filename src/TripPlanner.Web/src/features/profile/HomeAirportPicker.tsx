@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { HomeAirportSkeleton } from "./ProfileSkeletons";
 import { useEffect, useState } from "react";
 import { Field, Select, Text } from "@fluentui/react-components";
 import { apiBaseUrl, resolveCity, type CitySuggestion } from "../../api/api";
@@ -74,8 +74,7 @@ export default function HomeAirportPicker({
     );
   }, [current, value, onChange, onReadyChange]);
   if (!city) return null;
-  if (!current)
-    return <ContentSkeleton label="Finding home airports" layout="field" />;
+  if (!current) return <HomeAirportSkeleton />;
   if (current.error) return <Text role="alert">{current.error}</Text>;
   if (current.airports.length === 0)
     return (

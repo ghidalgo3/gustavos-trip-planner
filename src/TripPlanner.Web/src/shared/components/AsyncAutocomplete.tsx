@@ -1,4 +1,4 @@
-import ContentSkeleton from "./ContentSkeleton";
+import SearchResultsSkeleton from "./SearchResultsSkeleton";
 import { useEffect, useState, type ReactNode } from "react";
 import { Combobox, Field, Option, Text } from "@fluentui/react-components";
 
@@ -134,7 +134,7 @@ export default function AsyncAutocomplete<OptionType>({
         </Combobox>
       </Field>
       {searching && shouldSearch && (
-        <ContentSkeleton label={`Searching ${label}`} count={2} />
+        <SearchResultsSkeleton label={`Searching ${label}`} />
       )}
       {searched &&
         shouldSearch &&

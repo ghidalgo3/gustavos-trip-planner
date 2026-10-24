@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { SelectedFlightsSkeleton } from "./FlightSkeletons";
 import { useEffect, useState } from "react";
 import { Button, Card, Text, Title2, Title3 } from "@fluentui/react-components";
 import type { Trip } from "../../api/api";
@@ -181,7 +181,7 @@ export default function PlansOverview({
         </div>
       )}
       {loading ? (
-        <ContentSkeleton label="Loading trip overview" layout="cards" />
+        <SelectedFlightsSkeleton />
       ) : flights.length === 0 ? (
         <Card className="planning-card">
           <Title3 as="h3">No flight selected yet</Title3>

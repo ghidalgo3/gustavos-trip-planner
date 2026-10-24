@@ -82,6 +82,11 @@ test.each([false, true])(
     });
     expect(skeleton).toHaveAttribute("aria-busy", "true");
     expect(container.querySelector(".fui-Skeleton")).not.toBeNull();
+    expect(skeleton.querySelectorAll(".search-result-skeleton")).toHaveLength(
+      2,
+    );
+    expect(skeleton.querySelector(".skeleton-panel")).toBeNull();
+    expect(skeleton.querySelector(".flight-grid-card")).toBeNull();
     expect(container.querySelector(".fui-Spinner")).toBeNull();
     await act(async () => {
       if (fail) reject(new Error("City search unavailable"));

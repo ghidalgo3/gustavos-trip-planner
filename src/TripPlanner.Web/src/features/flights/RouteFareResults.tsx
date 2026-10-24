@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { BookingOptionsSkeleton } from "./FlightSkeletons";
 import FlightPriceStatus from "./FlightPriceStatus";
 import {
   restoreFlightResults,
@@ -1161,7 +1161,7 @@ function RouteBookingLinks({
           {busy ? "Finding airline links…" : buttonLabel}
         </Button>
       )}
-      {busy && <ContentSkeleton label="Loading booking options" count={2} />}
+      {busy && <BookingOptionsSkeleton />}
       {offers.length === 0 && (
         <Text size={200}>
           No airline booking offer is available for this flight.

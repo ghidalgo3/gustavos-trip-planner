@@ -14,7 +14,7 @@ import {
   Text,
 } from "@fluentui/react-components";
 import { Dismiss24Regular, Search20Regular } from "@fluentui/react-icons";
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
 import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import ActivityMap from "../../maps/ActivityMap";
@@ -184,7 +184,9 @@ export default function StayLocationDrawer({
               Search
             </Button>
           </form>
-          {researching && <ContentSkeleton label="Searching stays" count={2} />}
+          {researching && (
+            <SearchResultsSkeleton label="Searching stays" appearance="stays" />
+          )}
           {searched && results.length === 0 && (
             <Text role="status">
               No matching stays found. Try a more specific hotel name or

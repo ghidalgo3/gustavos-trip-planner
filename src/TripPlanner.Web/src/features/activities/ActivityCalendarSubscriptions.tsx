@@ -1,4 +1,4 @@
-import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import { CalendarSubscriptionsSkeleton } from "./ActivityPlanningSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useState } from "react";
 import { planningRequest, type CalendarSubscription } from "./activityPlanApi";
@@ -37,9 +37,7 @@ export default function ActivityCalendarSubscriptions({
         Calendar subscriptions
       </button>
       {toaster}
-      {busy && items === undefined && (
-        <ContentSkeleton label="Loading calendar subscriptions" />
-      )}
+      {busy && items === undefined && <CalendarSubscriptionsSkeleton />}
       {items && (
         <div>
           <p>
