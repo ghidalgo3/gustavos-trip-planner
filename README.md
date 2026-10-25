@@ -152,6 +152,22 @@ During onboarding, the client debounces city searches and calls Azure Maps Geoco
 
 Airline preferences in the profile and the airline filter in flight results, use the same searchable multi-select combobox. Chosen airlines appear as removable tags; profile and planning preferences persist airline codes, while result filters preserve carrier names in the route query.
 
+The UI uses explicit Save/Apply buttons for groups of values that need validation together, and saves independent valid actions directly. Independent free text saves on blur. Automatic saves retain confirmed values or drafts on failure and provide an error and a retry path. Requests still replace complete resources; independent edits preserve other confirmed values rather than submitting unrelated unfinished drafts.
+
+| Editor or action | Save behavior | Reason |
+| --- | --- | --- |
+| Existing trip name and description | Each field saves on blur | Each field is independently validated; an empty name stays in the editor until corrected |
+| Destination visit dates and constraints | **Save dates** | Arrival, departure, flexibility, and ordering must be valid together |
+| Stay search result | Selecting a located result saves immediately; removal also saves immediately | A result is a complete accommodation choice; searching alone does not change the saved stay |
+| Activity details | **Save activity** | Required name, location, links, duration, and other details are edited as one validated activity draft |
+| Home city and preferred airport | **Save home city** | The preferred airport must belong to the selected city's airport choices |
+| Preferred airlines | Adding or removing an airline saves immediately | Independent selection; unfinished city edits are preserved locally |
+| Private, trip, and destination interests | Each text field saves on blur | Each interest text is independently valid within its length limit |
+| Daily activity plan | **Save changes** | Dates, activity order, rules, availability, and timing can conflict and need validation together |
+| Schedule or proposal preview | **Apply schedule / Apply this proposal** | Explicitly accepts an entire proposed replacement plan |
+| Complete flight itinerary | **Save complete itinerary** | Commits the complete connected set of itinerary legs; individual flight choices already save when selected |
+| New trip, destination, traveler, and onboarding | Explicit **Create**, **Add**, or **Continue** action | Submits a complete new resource or the coupled home-city/airport form |
+
 The web client follows the browser's `prefers-color-scheme` setting and updates
 between Fluent UI's light and dark themes when that preference changes.
 React Router keeps the trips dashboard at `/` and each planner at `/trips/{tripId}`.

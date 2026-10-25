@@ -24,6 +24,19 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+@media (max-width: 767px), (pointer: coarse) {
+  /* Prevent iOS focus zoom, including in portals and landscape touch layouts.
+     Override Fluent and feature styles while preserving larger inherited text. */
+  input,
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable="plaintext-only"] {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 .app-theme {
   min-height: 100vh;
   --app-page-background: #f8fafc;
@@ -136,6 +149,14 @@ main {
 }
 .profile-form > button {
   justify-self: start;
+}
+.profile-fields {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .hero {
   width: calc(100% - 2 * var(--app-page-gutter));
@@ -1272,6 +1293,43 @@ main {
 .overview-planning-progress {
   display: grid;
   gap: 8px;
+}
+.overview-plans {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.overview-plans > button {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+}
+.overview-plan-days {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+}
+.overview-plan-day {
+  display: grid;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--colorNeutralStroke2);
+}
+.overview-plan-day h4,
+.overview-plan-day p,
+.overview-plan-day ol {
+  margin: 0;
+}
+.overview-plan-day ol {
+  display: grid;
+  gap: 8px;
+  padding-left: 20px;
+}
+.overview-plan-boundary {
+  font-weight: 600;
+}
+.overview-plan-empty {
+  color: var(--colorNeutralForeground2);
 }
 .overview-destination-details > span {
   grid-column: 1 / -1;

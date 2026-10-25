@@ -20,6 +20,7 @@ import {
   type Destination,
   type DestinationCollection,
   type Stay,
+  type Activity,
 } from "../activities/activitiesApi";
 import {
   getSelectedFlights,
@@ -38,6 +39,7 @@ import AddDestinationDrawer from "./AddDestinationDrawer";
 import StayLocationDrawer from "./StayLocationDrawer";
 import DeleteDestinationDialog from "./DeleteDestinationDialog";
 import DestinationPlanningProgress from "./DestinationPlanningProgress";
+import VisitPlans from "./VisitPlans";
 import {
   activityPlanPath,
   planningRequest,
@@ -72,7 +74,14 @@ export default function TripOverview({
   const airportCities = useAirportCities(flightAirportCodes(legs));
   const [summaryRetry, setSummaryRetry] = useState(0);
   const [activitySummaries, setActivitySummaries] = useState<
-    Record<string, { counts?: Record<string, number>; error?: boolean }>
+    Record<
+      string,
+      {
+        counts?: Record<string, number>;
+        activities?: Activity[];
+        error?: boolean;
+      }
+    >
   >({});
   const [planningSummaries, setPlanningSummaries] = useState<
     Record<string, PlanResponse | null>
@@ -126,7 +135,7 @@ export default function TripOverview({
         for (const activity of activities.features)
           counts[activity.properties.state] =
             (counts[activity.properties.state] ?? 0) + 1;
-        return counts;
+        return { counts, activities: activities.features };
       }),
     ).then((results) => {
       if (!controller.signal.aborted)
@@ -134,9 +143,7 @@ export default function TripOverview({
           Object.fromEntries(
             results.map((result, index) => [
               features[index].id,
-              result.status === "fulfilled"
-                ? { counts: result.value }
-                : { error: true },
+              result.status === "fulfilled" ? result.value : { error: true },
             ]),
           ),
         );
@@ -490,6 +497,14 @@ export default function TripOverview({
                     />
                   )}
                 </div>
+                <VisitPlans
+                  stay={stay}
+                  name={destination.properties.name}
+                  response={planningSummaries[destination.id]}
+                  activities={activitySummaries[destination.id]?.activities}
+                  activityError={activitySummaries[destination.id]?.error}
+                  onRetry={() => setSummaryRetry((value) => value + 1)}
+                />
               </li>
               {index === visits.length - 1 &&
                 flightSpacer(visitStop({ destination, stay }), {

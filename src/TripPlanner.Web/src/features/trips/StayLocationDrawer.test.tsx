@@ -156,9 +156,13 @@ test("typing makes no search requests; explicit search returns choices and saves
     expect.any(AbortSignal),
   );
   expect(searchPlaces).not.toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
   fireEvent.click(choices[1]);
-  expect(screen.getByText("Stay pin: Hotel Mets Shinjuku")).toBeVisible();
+  expect(
+    await screen.findByText("Stay pin: Hotel Mets Shinjuku"),
+  ).toBeVisible();
   expect(screen.getByRole("img", { name: "Stay map preview" })).toHaveAttribute(
     "data-center",
     "[139.7,35.69]",
@@ -167,9 +171,8 @@ test("typing makes no search requests; explicit search returns choices and saves
     "data-zoom",
     "15",
   );
-  expect(saveStayLocation).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
-  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(onClose).not.toHaveBeenCalled();
   expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", "visit", {
     type: "Feature",
     id: "stay",
@@ -188,28 +191,36 @@ test("Enter submits the search form and even a single result requires explicit s
   );
   const choice = await screen.findByRole("radio");
   expect(choice).not.toBeChecked();
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
   fireEvent.click(choice);
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeEnabled();
-  expect(saveStayLocation).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
+  await waitFor(() => expect(saveStayLocation).toHaveBeenCalledOnce());
 });
 
-test("editing the query clears the draft pin and old results while preserving the map", async () => {
+test("editing the query preserves the confirmed stay and map without saving", async () => {
   vi.mocked(researchStayAddress).mockResolvedValue(matches);
   showDrawer(savedDestination);
   const map = screen.getByRole("img", { name: "Stay map preview" });
   expect(screen.getByText("Stay pin: Existing Hotel")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeEnabled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
   typeQuery();
-  expect(screen.queryByText("Stay pin: Existing Hotel")).toBeNull();
+  expect(screen.getByText("Stay pin: Existing Hotel")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  fireEvent.click((await screen.findAllByRole("radio"))[0]);
+  await screen.findAllByRole("radio");
   typeQuery("Another Hotel");
   expect(screen.queryAllByRole("radio")).toHaveLength(0);
   expect(screen.queryByText("Stay pin: Hotel Mets Shibuya")).toBeNull();
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
   expect(screen.getByRole("img", { name: "Stay map preview" })).toBe(map);
-  expect(map).toHaveAttribute("data-center", "[139.69,35.68]");
+  expect(map).toHaveAttribute("data-center", "[139.71,35.71]");
   expect(researchStayAddress).toHaveBeenCalledTimes(1);
   expect(saveStayLocation).not.toHaveBeenCalled();
 });
@@ -250,16 +261,18 @@ test("ambiguous Azure street addresses remain selectable and only the reviewed p
     options.every((option) => !(option as HTMLInputElement).disabled),
   ).toBe(true);
   expect(screen.getAllByText(warning)).toHaveLength(2);
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole("radio", { name: /Map address: 4 Chome 1-1,/ }),
   );
-  expect(screen.getByRole("img", { name: "Stay map preview" })).toHaveAttribute(
-    "data-center",
-    "[141.3524322,43.0552182]",
+  await waitFor(() =>
+    expect(
+      screen.getByRole("img", { name: "Stay map preview" }),
+    ).toHaveAttribute("data-center", "[141.3524322,43.0552182]"),
   );
-  expect(saveStayLocation).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
+  await waitFor(() => expect(saveStayLocation).toHaveBeenCalledOnce());
   await waitFor(() =>
     expect(saveStayLocation).toHaveBeenCalledWith("trip", "tokyo-jp", "visit", {
       type: "Feature",
@@ -290,8 +303,10 @@ test.each(["unresolved", "missing", "failed"])(
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Search" })).toBeEnabled(),
     );
-    expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
-    expect(screen.queryByText("Stay pin: Existing Hotel")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Save Stay" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Stay pin: Existing Hotel")).toBeVisible();
     expect(saveStayLocation).not.toHaveBeenCalled();
     if (scenario === "unresolved") {
       expect(screen.getByRole("radio")).toBeDisabled();
@@ -317,7 +332,9 @@ test("search shows skeletons, locks the field, and aborts when the drawer closes
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
   expect(screen.getByRole("status", { name: "Searching stays" })).toBeVisible();
   expect(screen.getByRole("textbox", { name: "Stay location" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Save Stay" })).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Save Stay" }),
+  ).not.toBeInTheDocument();
   const signal = vi.mocked(researchStayAddress).mock.calls[0][3]!;
   unmount();
   expect(signal.aborted).toBe(true);
@@ -370,13 +387,36 @@ test("editing the second visit saves only that visit's accommodation", async () 
   expect(screen.getByRole("textbox", { name: "Stay location" })).toHaveValue(
     "Return hotel",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Save Stay" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove Stay" }));
   await waitFor(() =>
     expect(saveStayLocation).toHaveBeenCalledWith(
       "trip",
       "tokyo-jp",
       "return-visit",
-      second.stayLocation,
+      null,
     ),
   );
+});
+
+test("failed stay selection keeps the confirmed pin and allows retry", async () => {
+  vi.mocked(researchStayAddress).mockResolvedValue(matches);
+  vi.mocked(saveStayLocation)
+    .mockRejectedValueOnce(new Error("Offline"))
+    .mockResolvedValueOnce();
+  showDrawer(savedDestination);
+  typeQuery();
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  fireEvent.click((await screen.findAllByRole("radio"))[0]);
+  const retry = await screen.findByRole("button", {
+    name: "Retry stay selection",
+  });
+  expect(screen.getByText("Stay pin: Existing Hotel")).toBeVisible();
+  expect(
+    screen
+      .getAllByRole("radio")
+      .every((radio) => !(radio as HTMLInputElement).checked),
+  ).toBe(true);
+  fireEvent.click(retry);
+  expect(await screen.findByText("Stay pin: Hotel Mets Shibuya")).toBeVisible();
+  expect(saveStayLocation).toHaveBeenCalledTimes(2);
 });

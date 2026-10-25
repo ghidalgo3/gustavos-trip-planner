@@ -51,6 +51,9 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - Use Skeletons when loading GUI content. Reserve Spinners for long-running operations; short saves should retain existing content with disabled controls and status text.
 - Skeletons must mirror the content being loaded, including its layout and approximate dimensions. Define feature-specific placeholders for agendas, search results, forms, and other distinct views instead of reusing a generic card skeleton.
 - Button should always have a border or different background color to signal to the user on mobile that this is a button.
+- Show an explicit Save/Apply button when a form edits related values that must be validated together. Keep those edits in a draft and submit the complete resource after the user finishes the group; do not persist intermediate invalid combinations.
+- Save independent, complete, valid actions immediately (for example selecting a stay, toggling a setting, or adding/removing an airline), without a separate Save button. For independent free text, save on blur after local validation rather than on each keystroke. This rule concerns validation, not a guarantee that network requests will succeed.
+- Automatic saves must preserve unrelated values, retain existing content during requests, prevent overlapping writes, show saving/error status, and preserve or restore the user's last confirmed value on failure with a retry path. Keep resource-level REST updates and concurrency checks; do not add per-property APIs to implement automatic saves.
 
 ## Test practices
 

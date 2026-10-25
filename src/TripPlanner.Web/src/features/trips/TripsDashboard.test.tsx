@@ -49,11 +49,12 @@ test("creates, edits, and deletes a trip", async () => {
       }
       if (method === "PUT") {
         expect(url.endsWith("/trip-1")).toBe(true);
-        expect(JSON.parse(init?.body as string)).toEqual({
-          name: "Lisbon and Porto",
-          description: "Travel by train",
-        });
-        storedTrip = trip("Lisbon and Porto", "Travel by train");
+        const input = JSON.parse(init?.body as string);
+        expect(input.name).toBe("Lisbon and Porto");
+        expect(["Food and museums", "Travel by train"]).toContain(
+          input.description,
+        );
+        storedTrip = trip(input.name, input.description);
         return { ok: true, status: 200, json: async () => storedTrip };
       }
       if (method === "DELETE") {
@@ -113,7 +114,15 @@ test("creates, edits, and deletes a trip", async () => {
   fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
     target: { value: "Travel by train" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  fireEvent.blur(screen.getByRole("textbox", { name: "Trip name" }));
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Description" })).toBeEnabled(),
+  );
+  fireEvent.blur(screen.getByRole("textbox", { name: "Description" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Done" })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
   expect(
     await screen.findByRole("heading", { name: "Lisbon and Porto" }),
@@ -148,7 +157,7 @@ test("creates, edits, and deletes a trip", async () => {
       screen.queryByRole("heading", { name: "Lisbon and Porto" }),
     ).not.toBeInTheDocument(),
   );
-  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(fetchMock).toHaveBeenCalledTimes(5);
 });
 
 test("opens an existing trip editor directly from the URL", async () => {

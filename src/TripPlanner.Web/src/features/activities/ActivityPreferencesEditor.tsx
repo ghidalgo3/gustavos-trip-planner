@@ -23,6 +23,7 @@ export default function ActivityPreferencesEditor({
   const { notify, toaster } = useActionToast();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
   async function load() {
     setBusy(true);
     try {
@@ -37,8 +38,10 @@ export default function ActivityPreferencesEditor({
     }
   }
   async function save() {
-    if (!resource) return;
+    if (!resource || readOnly || busy || text === resource.data.instructions)
+      return;
     setBusy(true);
+    setSaveError(undefined);
     try {
       const value = await planningRequest<Preferences>(path, {
         method: "PUT",
@@ -47,8 +50,8 @@ export default function ActivityPreferencesEditor({
       });
       setResource(value);
       if (onSaved) onSaved();
-      else notify("Preferences saved.");
     } catch (e) {
+      setSaveError((e as Error).message);
       notify((e as Error).message, "error");
     } finally {
       setBusy(false);
@@ -60,7 +63,7 @@ export default function ActivityPreferencesEditor({
         type="button"
         disabled={busy}
         aria-expanded={open}
-        onClick={() => (open ? setOpen(false) : void load())}
+        onClick={() => (resource ? setOpen(!open) : void load())}
       >
         {label}
       </button>
@@ -76,7 +79,11 @@ export default function ActivityPreferencesEditor({
               disabled={busy}
               maxLength={10000}
               rows={4}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                setSaveError(undefined);
+              }}
+              onBlur={() => void save()}
             />
           </label>
           <p>
@@ -85,16 +92,23 @@ export default function ActivityPreferencesEditor({
             from text needs your confirmation.
           </p>
           {!readOnly && (
-            <button
-              type="button"
-              className={
-                text !== resource.data.instructions ? "planning-primary" : ""
-              }
-              disabled={busy || text === resource.data.instructions}
-              onClick={() => void save()}
-            >
-              Save preferences
-            </button>
+            <p role="status">
+              {busy
+                ? "Saving preferences…"
+                : saveError
+                  ? "Changes have not been saved."
+                  : text === resource.data.instructions
+                    ? "Preferences saved."
+                    : "Changes save when you leave this field."}
+            </p>
+          )}
+          {saveError && (
+            <div>
+              <p role="alert">{saveError}</p>
+              <button type="button" disabled={busy} onClick={() => void save()}>
+                Retry preferences
+              </button>
+            </div>
           )}
         </div>
       )}

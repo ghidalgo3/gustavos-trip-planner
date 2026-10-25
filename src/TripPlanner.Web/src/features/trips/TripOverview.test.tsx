@@ -129,6 +129,42 @@ beforeEach(() => {
   vi.mocked(addDestination).mockResolvedValue(paris);
 });
 
+test.each([false, true])(
+  "overview includes collapsible visit plans (read only: %s)",
+  async (readOnly) => {
+    vi.mocked(getDestinations).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        {
+          ...paris,
+          properties: {
+            ...paris.properties,
+            stays: [
+              {
+                ...paris.properties.stays[0],
+                arrivalDate: "2027-06-10",
+                departureDate: "2027-06-12",
+              },
+            ],
+          },
+        },
+      ],
+      route: [],
+    });
+    show(readOnly);
+    const plans = await screen.findByRole("button", {
+      name: "Plans for Paris, visit 1",
+    });
+    expect(plans).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(plans);
+    expect(await screen.findByText("Arrive")).toBeVisible();
+    expect(screen.getByText("Leave")).toBeVisible();
+    expect(
+      screen.getAllByRole("list", { name: /^Activities on / }),
+    ).toHaveLength(3);
+  },
+);
+
 test("reserves vertically stacked destinations and flight separators while loading", () => {
   vi.mocked(getDestinations).mockReturnValueOnce(new Promise(() => {}));
   show();
@@ -940,8 +976,8 @@ test.each([null, "Hotel Paris"])(
     ).toBeVisible();
     if (!stayName) {
       expect(
-        within(drawer).getByRole("button", { name: "Save Stay" }),
-      ).toBeDisabled();
+        within(drawer).queryByRole("button", { name: "Save Stay" }),
+      ).not.toBeInTheDocument();
     }
   },
 );

@@ -1,4 +1,5 @@
 import { TripsSkeleton } from "./TripSkeletons";
+import TripMetadataEditor from "./TripMetadataEditor";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -21,7 +22,6 @@ import {
   createTrip,
   deleteTrip,
   listTrips,
-  updateTrip,
   type CurrentUser,
   type Trip,
   type TripInput,
@@ -38,10 +38,6 @@ export default function TripsDashboard({ user }: Props) {
   const showCreate = searchParams.get("create") === "1";
   const editingId = searchParams.get("edit") ?? undefined;
   const [createInput, setCreateInput] = useState<TripInput>(emptyInput);
-  const [editDraft, setEditDraft] = useState<{
-    tripId: string;
-    input: TripInput;
-  }>();
   const [busyId, setBusyId] = useState<string>();
   const [error, setError] = useState<string>();
   const [tripToDelete, setTripToDelete] = useState<Trip>();
@@ -80,34 +76,7 @@ export default function TripsDashboard({ user }: Props) {
 
   function startEditing(trip: Trip) {
     setSearchParams({ edit: trip.id });
-    setEditDraft(undefined);
     setError(undefined);
-  }
-
-  async function submitEdit(event: FormEvent, tripId: string) {
-    event.preventDefault();
-    const original = trips?.find((trip) => trip.id === tripId);
-    const editInput =
-      editDraft?.tripId === tripId
-        ? editDraft.input
-        : {
-            name: original?.name ?? "",
-            description: original?.description ?? "",
-          };
-    if (!editInput.name.trim()) return;
-    setBusyId(tripId);
-    setError(undefined);
-    try {
-      const updated = await updateTrip(user.id, tripId, editInput);
-      setTrips((current) =>
-        current?.map((trip) => (trip.id === tripId ? updated : trip)),
-      );
-      setSearchParams({}, { replace: true });
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setBusyId(undefined);
-    }
   }
 
   async function removeTrip(trip: Trip) {
@@ -180,17 +149,18 @@ export default function TripsDashboard({ user }: Props) {
           {trips.map((trip) => (
             <Card key={trip.id} className="trip-card">
               {editingId === trip.id && trip.ownerUserId === user.id ? (
-                <TripForm
-                  input={
-                    editDraft?.tripId === trip.id
-                      ? editDraft.input
-                      : { name: trip.name, description: trip.description }
+                <TripMetadataEditor
+                  key={trip.id}
+                  trip={trip}
+                  userId={user.id}
+                  onSaved={(updated) =>
+                    setTrips((current) =>
+                      current?.map((item) =>
+                        item.id === updated.id ? updated : item,
+                      ),
+                    )
                   }
-                  onChange={(input) => setEditDraft({ tripId: trip.id, input })}
-                  onSubmit={(event) => submitEdit(event, trip.id)}
-                  onCancel={() => setSearchParams({}, { replace: true })}
-                  submitLabel="Save changes"
-                  busy={busyId === trip.id}
+                  onClose={() => setSearchParams({}, { replace: true })}
                 />
               ) : (
                 <>

@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DailyActivityPlan from "./DailyActivityPlan";
+import { expandedAgendaDays } from "./agendaDayState";
 import {
   chooseActivity,
   moveActivity,
@@ -110,6 +111,16 @@ const props = {
   onSelect: vi.fn(),
   onSaved: vi.fn(async () => {}),
 };
+
+async function expandAgenda() {
+  await screen.findByRole("button", { name: "Thursday, Jun 10" });
+  for (const name of ["Thursday, Jun 10", "Tuesday, Jun 15"]) {
+    const day = screen.getByRole("button", { name });
+    if (day.getAttribute("aria-expanded") === "false") fireEvent.click(day);
+  }
+}
+
+beforeEach(() => expandedAgendaDays.clear());
 
 describe("daily planning", () => {
   it("reserves an agenda with day headings and time columns while loading", () => {
@@ -285,6 +296,7 @@ describe("daily planning", () => {
         const heading = screen.getByRole("button", {
           name: "Thursday, Jun 10",
         });
+        fireEvent.click(heading);
         const day = document.getElementById(
           heading.getAttribute("aria-controls")!,
         )!;
@@ -327,7 +339,7 @@ describe("daily planning", () => {
   );
 
   it.each([false, true])(
-    "collapses each day independently, including read-only plans: %s",
+    "starts every day collapsed and expands each independently, including read-only plans: %s",
     async (readOnly) => {
       const data = structuredClone(response);
       data.plan.days[0].activityIds = [first];
@@ -341,23 +353,60 @@ describe("daily planning", () => {
         screen.queryByRole("heading", { name: "Daily plan" }),
       ).not.toBeInTheDocument();
       expect(screen.queryByText(/Paris ·/)).not.toBeInTheDocument();
-      expect(day).toHaveAttribute("aria-expanded", "true");
+      expect(day).toHaveAttribute("aria-expanded", "false");
+      const otherDay = screen.getByRole("button", { name: "Tuesday, Jun 15" });
+      expect(otherDay).toHaveAttribute("aria-expanded", "false");
       const content = document.getElementById(
         day.getAttribute("aria-controls")!,
       )!;
-      expect(content).toBeVisible();
-      fireEvent.click(day);
-      expect(day).toHaveAttribute("aria-expanded", "false");
       expect(content).not.toBeVisible();
-      expect(screen.getByRole("button", { name: "Garden" })).toBeVisible();
-      expect(
-        screen.queryByRole("button", { name: "Museum" }),
-      ).not.toBeInTheDocument();
-      expect(day).toBeEnabled();
       fireEvent.click(day);
+      expect(day).toHaveAttribute("aria-expanded", "true");
+      expect(content).toBeVisible();
       expect(screen.getByRole("button", { name: "Museum" })).toBeVisible();
+      expect(otherDay).toHaveAttribute("aria-expanded", "false");
+      expect(
+        screen.queryByRole("button", { name: "Garden" }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(day);
+      expect(content).not.toBeVisible();
+      expect(day).toBeEnabled();
     },
   );
+
+  it("remembers day toggles after navigation and keeps plans independent", async () => {
+    vi.mocked(planningRequest).mockResolvedValue({
+      data: response,
+      etag: '"1"',
+    });
+    const firstVisit = render(<DailyActivityPlan {...props} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+    );
+    firstVisit.unmount();
+
+    const otherTrip = render(
+      <DailyActivityPlan {...props} tripId="other-trip" />,
+    );
+    expect(
+      await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    otherTrip.unmount();
+
+    const returnVisit = render(<DailyActivityPlan {...props} />);
+    const day = await screen.findByRole("button", { name: "Thursday, Jun 10" });
+    expect(day).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: "Tuesday, Jun 15" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(day);
+    returnVisit.unmount();
+
+    render(<DailyActivityPlan {...props} />);
+    expect(
+      await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
 
   it.each([
     ["PT10H", "PT1H", "PT0M", "fits", "9 h free"],
@@ -401,7 +450,6 @@ describe("daily planning", () => {
       expect(within(day).getByText(label)).toBeVisible();
       fireEvent.click(day);
       expect(within(day).getByText(label)).toBeVisible();
-      fireEvent.click(day);
       vi.mocked(previewActivityPlan).mockResolvedValueOnce({
         ...data.assessment,
         status: "provisional",
@@ -494,6 +542,9 @@ describe("daily planning", () => {
           onSelectTravel={onTravel}
         />,
       );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+      );
       const day = within(
         await screen.findByRole("region", { name: "Thursday, Jun 10" }),
       );
@@ -579,6 +630,9 @@ describe("daily planning", () => {
     ];
     vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
     render(<DailyActivityPlan {...props} readOnly />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+    );
     const travel = await screen.findByRole("listitem", {
       name: "Travel from Museum to Garden",
     });
@@ -602,6 +656,9 @@ describe("daily planning", () => {
       }
       vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
       render(<DailyActivityPlan {...props} />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+      );
       const day = within(
         await screen.findByRole("region", { name: "Thursday, Jun 10" }),
       );
@@ -678,6 +735,9 @@ describe("daily planning", () => {
     ];
     vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
     render(<DailyActivityPlan {...props} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Thursday, Jun 10" }),
+    );
     const day = within(
       await screen.findByRole("region", { name: "Thursday, Jun 10" }),
     );
@@ -717,6 +777,9 @@ describe("daily planning", () => {
         const content = document.getElementById(
           heading.getAttribute("aria-controls")!,
         )!;
+        expect(heading).toHaveAttribute("aria-expanded", "false");
+        expect(content).not.toBeVisible();
+        fireEvent.click(heading);
         expect(
           within(content).getByText("No activities scheduled for this day."),
         ).toBeVisible();
@@ -798,6 +861,7 @@ describe("daily planning", () => {
     expect(
       screen.queryByRole("region", { name: "To schedule" }),
     ).not.toBeInTheDocument();
+    await expandAgenda();
     expect(
       screen.getByRole("button", { name: "Museum" }).closest("section"),
     ).toHaveAttribute("aria-label", "Tuesday, Jun 15");
@@ -813,6 +877,7 @@ describe("daily planning", () => {
 
   it("returns a planned activity to Ideas without removing the other agenda entries", async () => {
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     fireEvent.click(
       await screen.findByRole("button", { name: "Return Museum to Ideas" }),
     );
@@ -913,6 +978,7 @@ describe("daily planning", () => {
 
   it("refreshes context after research without discarding the unsaved draft", async () => {
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     await screen.findByRole("button", { name: "Reorder Garden" });
     fireEvent.keyDown(screen.getByRole("button", { name: "Reorder Garden" }), {
       key: "ArrowUp",
@@ -1019,6 +1085,7 @@ describe("daily planning", () => {
   });
   it("offers keyboard reorder handles and day selectors, and saves only after the user chooses", async () => {
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     await screen.findByRole("button", { name: "Reorder Garden" });
     fireEvent.keyDown(screen.getByRole("button", { name: "Reorder Garden" }), {
       key: "ArrowUp",
@@ -1026,6 +1093,7 @@ describe("daily planning", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Day for Museum" }), {
       target: { value: "2027-06-15" },
     });
+    await expandAgenda();
     const agendaActivity = screen.getByRole("button", { name: "Museum" });
     fireEvent.click(screen.getByRole("button", { name: "Planning tools" }));
     expect(
@@ -1083,6 +1151,7 @@ describe("daily planning", () => {
   });
   it("disables editing for travellers while preserving map detail navigation", async () => {
     render(<DailyActivityPlan {...props} readOnly />);
+    await expandAgenda();
     await screen.findByRole("button", { name: "Museum" });
     expect(
       screen.queryByRole("button", { name: "Reorder Museum" }),
@@ -1101,6 +1170,7 @@ describe("daily planning", () => {
   });
   it("reorders agenda cards through the handle and saves the new order", async () => {
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     const handle = await screen.findByRole("button", {
       name: "Reorder Garden",
     });
@@ -1127,6 +1197,7 @@ describe("daily planning", () => {
     single.plan.selectedActivityIds = [first];
     vi.mocked(planningRequest).mockResolvedValue({ data: single, etag: '"1"' });
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     const handle = await screen.findByRole("button", {
       name: "Reorder Museum",
     });
@@ -1168,6 +1239,7 @@ describe("daily planning", () => {
     single.plan.selectedActivityIds = [first];
     vi.mocked(planningRequest).mockResolvedValue({ data: single, etag: '"1"' });
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     const handle = await screen.findByRole("button", {
       name: "Reorder Museum",
     });
@@ -1281,6 +1353,7 @@ describe("daily planning", () => {
         }}
       />,
     );
+    await expandAgenda();
     const rises = await screen.findAllByRole("listitem", { name: "Sunrise" });
     expect(rises).toHaveLength(2);
     expect(screen.getAllByRole("listitem", { name: "Sunset" })).toHaveLength(2);
@@ -1327,6 +1400,7 @@ describe("daily planning", () => {
           }),
       );
       render(<DailyActivityPlan {...props} />);
+      await expandAgenda();
       const select = await screen.findByRole("combobox", {
         name: "Day for Museum",
       });
@@ -1375,6 +1449,7 @@ describe("daily planning", () => {
 
   it("reports stale saves and retains the local draft for review", async () => {
     render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
     await screen.findByRole("button", { name: "Reorder Garden" });
     fireEvent.keyDown(screen.getByRole("button", { name: "Reorder Garden" }), {
       key: "ArrowUp",

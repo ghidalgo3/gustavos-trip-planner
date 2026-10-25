@@ -85,6 +85,7 @@ export default function AirlineCombobox({
   ariaLabel = "Search preferred airlines",
   tagsLabel = "Preferred airlines",
   placeholder = "Search airline name or code",
+  disabled = false,
 }: {
   value: string[];
   onChange: (codes: string[]) => void;
@@ -93,6 +94,7 @@ export default function AirlineCombobox({
   ariaLabel?: string;
   tagsLabel?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const matches = options.filter((option) =>
@@ -120,17 +122,18 @@ export default function AirlineCombobox({
           aria-label={tagsLabel}
           dismissible
           onDismiss={(_, data) =>
-            onChange(value.filter((code) => code !== data.value))
+            !disabled && onChange(value.filter((code) => code !== data.value))
           }
         >
           {value.map((code) => (
-            <Tag key={code} value={code} size="small">
+            <Tag key={code} value={code} size="small" disabled={disabled}>
               {labelFor(code)}
             </Tag>
           ))}
         </TagGroup>
       )}
       <Combobox
+        disabled={disabled}
         multiselect
         aria-label={ariaLabel}
         placeholder={placeholder}

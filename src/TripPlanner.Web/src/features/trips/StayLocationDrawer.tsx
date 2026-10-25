@@ -49,6 +49,13 @@ export default function StayLocationDrawer({
   const [selectedStay, setSelectedStay] = useState<StayLocation | null>(
     existing ?? null,
   );
+  const [savedStay, setSavedStay] = useState<StayLocation | null>(
+    existing ?? null,
+  );
+  const [failedSelection, setFailedSelection] = useState<{
+    location: StayLocation | null;
+    index: string;
+  }>();
   const [results, setResults] = useState<StayAddressSuggestion[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<string>("");
   const [searched, setSearched] = useState(false);
@@ -63,7 +70,6 @@ export default function StayLocationDrawer({
     const controller = new AbortController();
     researchRequest.current = controller;
     setResearching(true);
-    setSelectedStay(null);
     setSelectedIndex("");
     setResults([]);
     setSearched(false);
@@ -93,28 +99,29 @@ export default function StayLocationDrawer({
   function selectResult(index: string) {
     const match = results[Number(index)];
     if (!match?.geometry) return;
-    setSelectedIndex(index);
-    setSelectedStay({
-      type: "Feature",
-      id: "stay",
-      geometry: match.geometry,
-      properties: { name: match.name.slice(0, 200) },
-    });
+    void save(
+      {
+        type: "Feature",
+        id: "stay",
+        geometry: match.geometry,
+        properties: { name: match.name.slice(0, 200) },
+      },
+      index,
+    );
   }
 
-  async function save(remove = false) {
-    if (!remove && !selectedStay) return;
+  async function save(location: StayLocation | null, index = "") {
+    if (busy || researching) return;
     setBusy(true);
+    setFailedSelection(undefined);
     try {
-      await saveStayLocation(
-        tripId,
-        destination.id,
-        visit.id,
-        remove ? null : selectedStay,
-      );
+      await saveStayLocation(tripId, destination.id, visit.id, location);
+      setSavedStay(location);
+      setSelectedStay(location);
+      setSelectedIndex(index);
       await onSaved();
-      onClose();
     } catch (reason) {
+      setFailedSelection({ location, index });
       notify(
         reason instanceof Error
           ? reason.message
@@ -167,7 +174,7 @@ export default function StayLocationDrawer({
           >
             <Field
               label="Stay location"
-              hint="Enter a hotel name or address, then search the web for matching stays."
+              hint="Search for a hotel name or address. Selecting a result saves it immediately."
             >
               <Input
                 value={query}
@@ -176,7 +183,6 @@ export default function StayLocationDrawer({
                 disabled={busy || researching}
                 onChange={(_, data) => {
                   setQuery(data.value);
-                  setSelectedStay(null);
                   setSelectedIndex("");
                   setResults([]);
                   setSearched(false);
@@ -250,12 +256,12 @@ export default function StayLocationDrawer({
           )}
           <section
             className="stay-location-preview"
-            aria-label="Confirm stay location"
+            aria-label="Saved stay location"
           >
             <Text>
               {selectedStay
                 ? selectedStay.properties.name
-                : "Select a matching stay to preview its location."}
+                : "Select a matching stay to save its location."}
             </Text>
             <ActivityMap
               center={selectedStay?.geometry ?? destination.geometry}
@@ -270,31 +276,35 @@ export default function StayLocationDrawer({
             />
             {selectedStay && (
               <Text size={200}>
-                Check that the pin is where you expect to stay, then choose Save
-                Stay to confirm.
+                Selecting a matching stay saves it immediately. You can choose
+                another result to change it.
               </Text>
             )}
           </section>
         </DrawerBody>
         <DrawerFooter className="activity-drawer-footer">
-          {existing && (
+          {savedStay && (
             <Button
               disabled={busy || researching}
-              onClick={() => void save(true)}
+              onClick={() => void save(null)}
             >
               Remove Stay
             </Button>
           )}
           <Button disabled={busy} onClick={onClose}>
-            Cancel
+            Done
           </Button>
-          <Button
-            appearance="primary"
-            disabled={!selectedStay || busy || researching}
-            onClick={() => void save()}
-          >
-            Save Stay
-          </Button>
+          {busy && <Text role="status">Saving stay…</Text>}
+          {failedSelection && (
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void save(failedSelection.location, failedSelection.index)
+              }
+            >
+              Retry stay selection
+            </Button>
+          )}
         </DrawerFooter>
       </OverlayDrawer>
     </>

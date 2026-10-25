@@ -1,5 +1,5 @@
 import { useActionToast } from "../../shared/hooks/useActionToast";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { Button, Card, Field, Text, Title1 } from "@fluentui/react-components";
 import { useNavigate } from "react-router";
 import HomeAirportPicker from "./HomeAirportPicker";
@@ -46,11 +46,14 @@ export default function ProfilePage({
   );
   const [airportsReady, setAirportsReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  const confirmedProfile = useRef(user.profile);
+  const [airlineError, setAirlineError] = useState<string>();
   const [error, setError] = useState<string>();
   const { notify, toaster } = useActionToast();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const currentCity = user.profile.homeCity;
     if (cityChanged && !selectedCity) {
       setError("Choose a home city from the suggestions.");
@@ -88,6 +91,7 @@ export default function ProfilePage({
         preferredAirlines,
         preferredAirport,
       });
+      confirmedProfile.current = saved.profile;
       onSaved(saved);
       setCityChanged(false);
       setSelectedCity(
@@ -115,6 +119,45 @@ export default function ProfilePage({
     }
   }
 
+  async function changeAirlines(codes: string[]) {
+    if (saving) return;
+    const preferredAirlines = [
+      ...new Set(
+        codes.map((code) => code.trim().toUpperCase()).filter(Boolean),
+      ),
+    ].sort();
+    if (
+      preferredAirlines.length > 20 ||
+      preferredAirlines.some((code) => !/^[A-Z0-9]{2}$/.test(code))
+    ) {
+      setAirlineError("Choose up to 20 airlines with two-character codes.");
+      return;
+    }
+    setSaving(true);
+    setAirlineError(undefined);
+    try {
+      const saved = await saveUserProfile({
+        ...confirmedProfile.current,
+        preferredAirport:
+          confirmedProfile.current.preferredAirport ??
+          (!cityChanged ? preferredAirport : null),
+        preferredAirlines,
+      });
+      confirmedProfile.current = saved.profile;
+      setAirlines(saved.profile.preferredAirlines);
+      onSaved(saved);
+      notify("Airline preferences saved.");
+    } catch (reason) {
+      setAirlineError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not save airline preferences. Select the airline again to retry.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="profile-page" aria-label="Your profile">
       <Button appearance="secondary" onClick={() => navigate("/")}>
@@ -126,48 +169,40 @@ export default function ProfilePage({
       </Text>
       <Card>
         <form className="profile-form" onSubmit={submit}>
-          <AsyncAutocomplete
-            label="Home city"
-            placeholder="Start typing a city"
-            inputValue={cityQuery}
-            selectedOptionValue={selectedCity?.id}
-            selectedOptionLabel={selectedCity?.label}
-            search={searchCities}
-            getOptionValue={(city) => city.id}
-            getOptionText={(city) => city.label}
-            onInputChange={(value) => {
-              setCityQuery(value);
-              setSelectedCity(undefined);
-              setPreferredAirport(null);
-              setCityChanged(true);
-              setError(undefined);
-            }}
-            onOptionSelect={(city) => {
-              setSelectedCity(city);
-              setPreferredAirport(null);
-              setCityQuery(city.label);
-              setCityChanged(true);
-              setError(undefined);
-            }}
-            debounceMs={300}
-          />
-          <HomeAirportPicker
-            city={selectedCity}
-            value={preferredAirport}
-            onChange={setPreferredAirport}
-            onReadyChange={setAirportsReady}
-          />
-          <Field
-            label="Preferred airlines"
-            hint="Search by airline name or code. These are preferences, not exclusions."
-          >
-            <AirlineCombobox
-              value={airlines}
-              onChange={(codes) => {
-                setAirlines(codes);
+          <fieldset disabled={saving} className="profile-fields">
+            <AsyncAutocomplete
+              disabled={saving}
+              label="Home city"
+              placeholder="Start typing a city"
+              inputValue={cityQuery}
+              selectedOptionValue={selectedCity?.id}
+              selectedOptionLabel={selectedCity?.label}
+              search={searchCities}
+              getOptionValue={(city) => city.id}
+              getOptionText={(city) => city.label}
+              onInputChange={(value) => {
+                setCityQuery(value);
+                setSelectedCity(undefined);
+                setPreferredAirport(null);
+                setCityChanged(true);
+                setError(undefined);
               }}
+              onOptionSelect={(city) => {
+                setSelectedCity(city);
+                setPreferredAirport(null);
+                setCityQuery(city.label);
+                setCityChanged(true);
+                setError(undefined);
+              }}
+              debounceMs={300}
             />
-          </Field>
+            <HomeAirportPicker
+              city={selectedCity}
+              value={preferredAirport}
+              onChange={setPreferredAirport}
+              onReadyChange={setAirportsReady}
+            />
+          </fieldset>
           {error && <Text role="alert">{error}</Text>}
           {toaster}
           <Button
@@ -175,9 +210,28 @@ export default function ProfilePage({
             appearance="primary"
             disabled={saving || !airportsReady}
           >
-            {saving ? "Saving…" : "Save profile"}
+            {saving ? "Saving…" : "Save home city"}
           </Button>
         </form>
+        <Field
+          label="Preferred airlines"
+          hint="Search by airline name or code. These are preferences, not exclusions."
+        >
+          <AirlineCombobox
+            value={airlines}
+            disabled={saving}
+            onChange={(codes) => void changeAirlines(codes)}
+          />
+        </Field>
+        <Text role="status">
+          {saving ? "Saving profile…" : "Airline selections save immediately."}
+        </Text>
+        {airlineError && (
+          <Text role="alert">
+            {airlineError} Your previous airline selections are unchanged.
+            Select again to retry.
+          </Text>
+        )}
       </Card>
       <ActivityLog />
       <ActivityPreferencesEditor

@@ -975,6 +975,8 @@ export default function DailyActivityPlan({
         </p>
       )}
       <ActivityAgenda
+        key={path}
+        stateKey={path}
         plan={plan}
         activities={activities}
         location={

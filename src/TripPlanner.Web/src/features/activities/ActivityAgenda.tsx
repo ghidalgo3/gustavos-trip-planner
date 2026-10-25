@@ -18,6 +18,7 @@ import {
   type PlanAssessment,
   type PlanDay,
 } from "./activityPlanApi";
+import { expandedAgendaDays } from "./agendaDayState";
 import { durationMinutes } from "../../shared/time/durations";
 
 const dateLabel = (date: string) =>
@@ -28,6 +29,7 @@ const dateLabel = (date: string) =>
   });
 
 export default function ActivityAgenda({
+  stateKey,
   plan,
   activities,
   location,
@@ -44,6 +46,7 @@ export default function ActivityAgenda({
   onMove,
   onRemove,
 }: {
+  stateKey: string;
   plan: ActivityPlan;
   activities: Activity[];
   location?: SolarLocation;
@@ -66,7 +69,9 @@ export default function ActivityAgenda({
   onRemove: (id: string) => void;
 }) {
   const agendaId = useId();
-  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(
+    () => expandedAgendaDays.get(stateKey) ?? new Set(),
+  );
   const scheduled = new Set(plan.days.flatMap((day) => day.activityIds));
   const unscheduled = plan.selectedActivityIds.filter(
     (id) => !scheduled.has(id),
@@ -479,7 +484,7 @@ export default function ActivityAgenda({
         .sort((a, b) => a.date.localeCompare(b.date))
         .map((day) => {
           const key = `${day.stayId}-${day.date}`;
-          const expanded = !collapsedDays.has(key);
+          const expanded = expandedDays.has(key);
           const contentId = `${agendaId}-${key}`;
           return (
             <section
@@ -496,14 +501,13 @@ export default function ActivityAgenda({
                   aria-describedby={`${contentId}-summary`}
                   aria-expanded={expanded}
                   aria-controls={contentId}
-                  onClick={() =>
-                    setCollapsedDays((current) => {
-                      const next = new Set(current);
-                      if (next.has(key)) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    })
-                  }
+                  onClick={() => {
+                    const next = new Set(expandedDays);
+                    if (next.has(key)) next.delete(key);
+                    else next.add(key);
+                    expandedAgendaDays.set(stateKey, next);
+                    setExpandedDays(next);
+                  }}
                 >
                   {expanded ? (
                     <ChevronDown20Regular aria-hidden="true" />
