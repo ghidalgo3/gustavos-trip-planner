@@ -295,6 +295,97 @@ public sealed class ActivityPlanningContextTests
         Assert.AreEqual(TimeSpan.FromMinutes(45), day.OverrunDuration);
     }
 
+    [TestMethod]
+    [DataRow("fastest", 5, 12, "walking", 5)]
+    [DataRow("fastest", 20, 6, "driving", 6)]
+    [DataRow("walking", 20, 6, "driving", 6)]
+    [DataRow("fastest", 6, 6, "walking", 6)]
+    public void AutomaticTravel_UsesShortestWalkingOrDrivingTime(
+        string setting,
+        int walking,
+        int driving,
+        string expectedMode,
+        int expectedMinutes
+    )
+    {
+        var context = Context(TimeSpan.FromHours(1));
+        var plan = Plan(context) with { TransportOverrides = [] };
+        plan = plan with { Settings = plan.Settings with { TransportMode = setting } };
+        var from = context.StayLocations[plan.Days[0].StayId].Geometry!.Position;
+        var to = context.Activities[0].Geometry!.Position;
+        context = context with
+        {
+            Evidence = new()
+            {
+                Routes = new[] { ("walking", walking), ("driving", driving) }
+                    .Select(r => new ActivityRouteEvidence(
+                        ActivityPlanningContext.RouteKey(from, to, Now, r.Item1),
+                        r.Item1,
+                        TimeSpan.FromMinutes(r.Item2),
+                        Now,
+                        Now.AddHours(1),
+                        "Verified route",
+                        PreferenceScore: r.Item1 == "walking" ? 5 : 1
+                    ))
+                    .ToArray(),
+            },
+        };
+        var travel = context.Travel(plan, plan.Days[0], null, context.Activities[0].Id, Now, Now);
+        Assert.AreEqual(expectedMode, travel.Mode);
+        Assert.AreEqual(TimeSpan.FromMinutes(expectedMinutes), travel.Duration);
+        Assert.IsFalse(travel.Provisional);
+    }
+
+    [TestMethod]
+    [DataRow("walking", null, 20)]
+    [DataRow("driving", null, 6)]
+    [DataRow("walking", 9, 9)]
+    public void AutomaticTravel_PreservesExplicitLegChoicesAndDurations(
+        string mode,
+        int? supplied,
+        int expectedMinutes
+    )
+    {
+        var context = Context(TimeSpan.FromHours(1));
+        var plan = Plan(context);
+        var day = plan.Days[0];
+        var id = context.Activities[0].Id;
+        var from = context.StayLocations[day.StayId].Geometry!.Position;
+        var to = context.Activities[0].Geometry!.Position;
+        context = context with
+        {
+            Evidence = new()
+            {
+                Routes = new[] { ("walking", 20), ("driving", 6) }
+                    .Select(r => new ActivityRouteEvidence(
+                        ActivityPlanningContext.RouteKey(from, to, Now, r.Item1),
+                        r.Item1,
+                        TimeSpan.FromMinutes(r.Item2),
+                        Now,
+                        Now.AddHours(1),
+                        "Verified route"
+                    ))
+                    .ToArray(),
+            },
+        };
+        plan = plan with
+        {
+            TransportOverrides =
+            [
+                new(
+                    day.Date,
+                    null,
+                    id,
+                    mode,
+                    supplied is { } minutes ? TimeSpan.FromMinutes(minutes) : null
+                ),
+            ],
+        };
+        var travel = context.Travel(plan, day, null, id, Now, Now);
+        Assert.AreEqual(mode, travel.Mode);
+        Assert.AreEqual(TimeSpan.FromMinutes(expectedMinutes), travel.Duration);
+    }
+
     public static IEnumerable<object[]> CapacityCases =>
         [
             [TimeSpan.FromHours(13), TimeSpan.Zero],

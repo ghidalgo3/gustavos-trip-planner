@@ -718,7 +718,7 @@ public class InputValidationTests
             .GetProperty("defaults")
             .GetProperty("properties");
         CollectionAssert.AreEquivalent(
-            new[] { "walking", "taxi", "driving" },
+            new[] { "fastest", "walking", "taxi", "driving" },
             settings
                 .GetProperty("transportMode")
                 .GetProperty("enum")

@@ -9,4 +9,5 @@ public sealed record VenueAddressSuggestion(
 )
 {
     public string? MapAddress { get; init; }
+    public ActivityLink? LocationSource { get; init; }
 }

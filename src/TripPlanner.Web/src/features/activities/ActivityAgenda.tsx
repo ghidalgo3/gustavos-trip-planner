@@ -1,3 +1,4 @@
+import { activityRouteKey, type ActivityRouteStep } from "./activityRouteApi";
 import { addFlightItems, flightWindowForDay } from "./AgendaFlights";
 import { addDaylightDividers } from "./AgendaDaylight";
 import type { SolarLocation } from "../../shared/time/daylight";
@@ -38,6 +39,8 @@ export default function ActivityAgenda({
   onChooseActivities,
   onSchedule,
   onSelect,
+  onSelectTravel,
+  selectedRouteKey,
   onMove,
   onRemove,
 }: {
@@ -52,6 +55,8 @@ export default function ActivityAgenda({
   onChooseActivities?: () => void;
   onSchedule?: () => void;
   onSelect: (id: string) => void;
+  onSelectTravel?: (step: ActivityRouteStep) => void;
+  selectedRouteKey?: string;
   onMove: (
     id: string,
     date: string | null,
@@ -237,6 +242,7 @@ export default function ActivityAgenda({
       const modeLabel =
         (
           {
+            fastest: "Walking or driving",
             walking: "Walking",
             taxi: "Taxi / rideshare",
             driving: "Driving",
@@ -265,14 +271,42 @@ export default function ActivityAgenda({
           <div className="agenda-time">
             <ArrowRight20Regular aria-hidden="true" />
           </div>
-          <div className="agenda-travel-card" title={leg?.source}>
+          <button
+            type="button"
+            className="agenda-travel-card"
+            title={leg?.source}
+            aria-label={`Show ${modeLabel.toLowerCase()} route ${label.replace("Travel ", "")}`}
+            aria-pressed={
+              selectedRouteKey ===
+              activityRouteKey({
+                stayId: day.stayId,
+                date: day.date,
+                fromActivityId: from,
+                toActivityId: to,
+              })
+            }
+            disabled={!onSelectTravel || !leg || (disabled && !readOnly)}
+            onClick={() =>
+              leg &&
+              onSelectTravel?.({
+                stayId: day.stayId,
+                date: day.date,
+                fromActivityId: from,
+                toActivityId: to,
+                mode: leg.mode,
+                duration: leg.duration,
+                label,
+              })
+            }
+          >
             <strong>
               {modeLabel} · {duration}
             </strong>
             {from === null && <span>From stay</span>}
             {to === null && <span>Back to stay</span>}
             {leg?.provisional && <span>Estimated</span>}
-          </div>
+            {onSelectTravel && <span>Show route on map</span>}
+          </button>
         </li>
       );
     }

@@ -1060,6 +1060,11 @@ public sealed class ActivityPlanOptimizer(
             {
                 if (
                     leg.Mode == "driving"
+                    || (
+                        original.Days.First(d => d.Date == day.Date).Settings ?? original.Settings
+                    ).TransportMode
+                        is "fastest"
+                            or "walking"
                     || original.TransportOverrides.Any(t =>
                         t.Date == day.Date
                         && t.FromActivityId == leg.FromActivityId

@@ -30,6 +30,15 @@ import {
 import type { TrackedOperation } from "../../api/operationsApi";
 import type { PlaceSearch } from "../../maps/ActivityMap";
 import PersistentMapSurface from "../../maps/PersistentMapSurface";
+import { planningRequest } from "./activityPlanApi";
+import type {
+  ActivityRouteSelection,
+  ActivityRoutePreview,
+} from "./activityRouteApi";
+vi.mock("./activityPlanApi", async (original) => ({
+  ...(await original<typeof import("./activityPlanApi")>()),
+  planningRequest: vi.fn(),
+}));
 vi.mock("../../maps/ActivityMap", () => ({
   default: ({
     activities,
@@ -37,7 +46,11 @@ vi.mock("../../maps/ActivityMap", () => ({
     stayLocations,
     placeSearch,
     portalHost,
+    route,
+    onClearRoute,
   }: {
+    route?: ActivityRoutePreview;
+    onClearRoute?: () => void;
     portalHost?: HTMLElement | null;
     placeSearch?: PlaceSearch;
     stayLocations?: import("./activitiesApi").StayLocation[];
@@ -46,6 +59,9 @@ vi.mock("../../maps/ActivityMap", () => ({
   }) => (
     <PersistentMapSurface host={portalHost}>
       <div aria-label="Map">
+        {route && (
+          <button onClick={onClearRoute}>Selected {route.mode} route</button>
+        )}
         {placeSearch?.results.map((place, index) => (
           <button key={index} onClick={() => placeSearch.onSelect(index)}>
             {`Search marker: ${index + 1}. ${place.label}`}
@@ -72,7 +88,32 @@ vi.mock("../../maps/ActivityMap", () => ({
 }));
 vi.mock("../../api/api", () => ({ searchPlaces: vi.fn() }));
 vi.mock("./DailyActivityPlan", () => ({
-  default: () => <div>Plan editor</div>,
+  default: ({
+    onSelectTravel,
+  }: {
+    onSelectTravel?: (value: ActivityRouteSelection) => void;
+  }) => (
+    <div>
+      Plan editor
+      <button
+        onClick={() =>
+          onSelectTravel?.({
+            stayId: "visit",
+            date: "2027-06-10",
+            fromActivityId: "museum",
+            toActivityId: "garden",
+            mode: "walking",
+            duration: "PT10M",
+            label: "Travel from Museum to Garden",
+            contextVersion: "revision",
+            plan: {} as ActivityRouteSelection["plan"],
+          })
+        }
+      >
+        Show sample travel route
+      </button>
+    </div>
+  ),
 }));
 vi.mock("./activitiesApi", () => ({
   getDestinations: vi.fn(),
@@ -240,6 +281,59 @@ test("an empty trip points back to Overview without destination forms", async ()
     await screen.findByRole("link", { name: "Go to Overview" }),
   ).toHaveAttribute("href", "/trips/trip");
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+});
+
+test("selecting a Plan travel step opens the map and forwards its route; closing it clears the path", async () => {
+  vi.mocked(planningRequest).mockResolvedValue({
+    data: {
+      mode: "walking",
+      geometry: {
+        type: "MultiLineString",
+        coordinates: [
+          [
+            [2.3, 48.8],
+            [2.35, 48.86],
+          ],
+        ],
+      },
+    },
+    etag: "",
+  });
+  show(true);
+  await screen.findByRole("tab", { name: "Plan" });
+  click(screen.getByRole("tab", { name: "Plan" }));
+  click(screen.getByRole("button", { name: "Hide map" }));
+  const scrollToMap = vi.fn();
+  document.querySelector<HTMLDivElement>(
+    ".activity-map-panel",
+  )!.scrollIntoView = scrollToMap;
+  click(screen.getByRole("button", { name: "Show sample travel route" }));
+  const selected = await screen.findByRole("button", {
+    name: "Selected walking route",
+  });
+  expect(screen.getByRole("button", { name: "Hide map" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await waitFor(() =>
+    expect(scrollToMap).toHaveBeenCalledWith({ block: "nearest" }),
+  );
+  expect(planningRequest).toHaveBeenCalledWith(
+    expect.stringContaining("/activity-plan/route-previews"),
+    expect.objectContaining({
+      method: "POST",
+      body: expect.objectContaining({
+        stayId: "visit",
+        fromActivityId: "museum",
+        toActivityId: "garden",
+        contextVersion: "revision",
+      }),
+    }),
+  );
+  click(selected);
+  expect(
+    screen.queryByRole("button", { name: "Selected walking route" }),
+  ).not.toBeInTheDocument();
 });
 
 test("Plan shows only Planned activity bubbles, and Ideas restores the others", async () => {
@@ -425,12 +519,17 @@ test.each(["empty", "failure", "explicit"])(
       url: "https://venue.example/access",
       label: "Venue source",
     };
+    const locationSource = {
+      url: "https://www.wikidata.org/wiki/Q106738687",
+      label: "Published coordinates",
+    };
     vi.mocked(researchActivityPlaces).mockResolvedValue([
       {
         name: "teamLab Planets TOKYO",
         address: "6-1-16 Toyosu, Tokyo",
         mapAddress: "6 Chome 1-16, Toyosu, Tokyo",
         source,
+        locationSource,
         geometry: { type: "Point", coordinates: [139.795, 35.649] },
         warning:
           "Possible address match. Check the map address and pin before saving.",
@@ -474,6 +573,11 @@ test.each(["empty", "failure", "explicit"])(
       }),
     ).toHaveAttribute("href", source.url);
     expect(
+      within(drawer).getByRole("link", {
+        name: "Map location source for teamLab Planets TOKYO",
+      }),
+    ).toHaveAttribute("href", locationSource.url);
+    expect(
       within(drawer).getByRole("button", {
         name: "2. Another branch, Unknown map address",
       }),
@@ -513,6 +617,7 @@ test.each(["empty", "failure", "explicit"])(
     const saved = vi.mocked(saveActivity).mock.calls[0][2];
     expect(saved.geometry?.coordinates).toEqual([139.795, 35.649]);
     expect(saved.properties.links).toContainEqual(source);
+    expect(saved.properties.links).toContainEqual(locationSource);
   },
 );
 
@@ -1080,8 +1185,10 @@ test.each([false, true])(
         screen.queryByRole("dialog", { name: "Map of Paris" }),
       ).not.toBeInTheDocument(),
     );
+    // Tabster restores background accessibility asynchronously after closing.
+    // Wait for the control to be accessible, not just for the dialog to disappear.
     expect(
-      screen.getByRole("button", { name: "Explore map full screen" }),
+      await screen.findByRole("button", { name: "Explore map full screen" }),
     ).toBeVisible();
   },
 );

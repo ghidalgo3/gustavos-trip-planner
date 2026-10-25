@@ -379,20 +379,12 @@ public static class ActivityPlanRules
             ];
         }
         else if (
-            plan.TransportOverrides.GroupBy(t => (t.Date, t.FromActivityId, t.ToActivityId))
+            plan
+                .TransportOverrides.GroupBy(t => (t.Date, t.FromActivityId, t.ToActivityId))
                 .Any(g => g.Count() > 1)
-            || plan.TransportOverrides.Any(t =>
-                t.Mode == "driving"
-                && (
-                    plan.Days.FirstOrDefault(d => d.Date == t.Date)?.Settings ?? plan.Settings
-                ).TransportMode != "driving"
-            )
         )
         {
-            errors["transportOverrides"] =
-            [
-                "Provide one override per leg. Self-driving must be selected for the whole day.",
-            ];
+            errors["transportOverrides"] = ["Provide one override per leg."];
         }
 
         return errors;
@@ -431,9 +423,9 @@ public static class ActivityPlanRules
             errors["allowances"] = ["Time allowances must be 0–1440 minutes."];
         }
 
-        if (!TransportModes.Contains(settings.TransportMode))
+        if (settings.TransportMode != "fastest" && !TransportModes.Contains(settings.TransportMode))
         {
-            errors["transportMode"] = ["Choose walking, taxi, or driving."];
+            errors["transportMode"] = ["Choose fastest walking/driving, taxi, or driving."];
         }
 
         return errors;

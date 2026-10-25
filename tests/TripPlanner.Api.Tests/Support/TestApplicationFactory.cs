@@ -33,6 +33,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public IDestinationTimeZoneResolver? TimeZoneResolver { get; set; }
     public IActivityPlaceResolver? ActivityPlaceResolver { get; set; }
     public IAddressGeocoder? AddressGeocoder { get; set; }
+    public IActivityRouteMapProvider? RouteMapProvider { get; set; }
     public IActivityVenueResearch? ActivityVenueResearch { get; set; }
     public IStayVenueSearch? StayVenueSearch { get; set; }
     public IActivityVenueSearch? ActivityVenueSearch { get; set; }
@@ -87,6 +88,11 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 TimeZoneResolver ?? new TestDestinationTimeZoneResolver()
             );
             services.RemoveAll<IActivityPlaceResolver>();
+            if (RouteMapProvider is not null)
+            {
+                services.RemoveAll<IActivityRouteMapProvider>();
+                services.AddSingleton(RouteMapProvider);
+            }
             services.RemoveAll<IAddressGeocoder>();
             services.AddSingleton<IAddressGeocoder>(AddressGeocoder ?? new TestAddressGeocoder());
             services.RemoveAll<IActivityDetailsResearch>();

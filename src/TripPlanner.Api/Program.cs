@@ -61,6 +61,9 @@ builder.Services.AddHttpClient<AzureDestinationTimeZoneResolver>();
 builder.Services.AddSingleton<IDestinationTimeZoneResolver, DestinationTimeZoneResolver>();
 builder.Services.AddHttpClient<IActivityPlaceResolver, AzureActivityPlaceResolver>();
 builder.Services.AddHttpClient<IAddressGeocoder, AzureAddressGeocoder>();
+builder.Services.AddHttpClient<IActivityRouteMapProvider, ActivityRouteMapProvider>(client =>
+    client.Timeout = TimeSpan.FromSeconds(20)
+);
 builder.Services.AddHttpClient<IActivityDetailsResearch, OpenAiActivityDetailsResearch>(client =>
     client.Timeout = TimeSpan.FromSeconds(30)
 );
@@ -210,6 +213,7 @@ api.MapPartyEndpoints();
 api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();
 api.MapActivityPlanEndpoints();
+api.MapActivityRouteEndpoints();
 app.MapActivityCalendarEndpoints(api);
 
 app.MapFallbackToFile("index.html", SpaHosting.StaticFiles());

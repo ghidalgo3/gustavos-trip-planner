@@ -1,5 +1,6 @@
 import { DailyPlanSkeleton } from "./ActivityPlanningSkeletons";
 import ActivityOrderHandle from "./ActivityOrderHandle";
+import type { ActivityRouteSelection } from "./activityRouteApi";
 import ActivityAgenda from "./ActivityAgenda";
 import { useActivityPlanPreview } from "./useActivityPlanPreview";
 import { isTimeZoneId } from "../../shared/time/timeZones";
@@ -39,13 +40,15 @@ const isoClockTime = (value: string) =>
 
 const modes = ["walking", "taxi", "driving"];
 const modeName = (mode: string) =>
-  mode === "taxi"
-    ? "Taxi / rideshare"
-    : mode === "driving"
-      ? "Self-driving (whole day)"
-      : mode === "walking"
-        ? "Walking"
-        : "Unsupported transport";
+  mode === "fastest"
+    ? "Fastest walking or driving"
+    : mode === "taxi"
+      ? "Taxi / rideshare"
+      : mode === "driving"
+        ? "Driving"
+        : mode === "walking"
+          ? "Walking"
+          : "Unsupported transport";
 const dateName = (date: string) =>
   new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
     weekday: "short",
@@ -117,12 +120,16 @@ export function PlanningSettings({
         Transport
         <select
           aria-label={`${prefix} transport`}
-          value={settings.transportMode}
+          value={
+            settings.transportMode === "walking"
+              ? "fastest"
+              : settings.transportMode
+          }
           onChange={(e) =>
             onChange({ ...settings, transportMode: e.target.value })
           }
         >
-          {modes.map((mode) => (
+          {["fastest", "taxi", "driving"].map((mode) => (
             <option key={mode} value={mode}>
               {modeName(mode)}
             </option>
@@ -229,6 +236,9 @@ export default function DailyActivityPlan({
   onSelect,
   onSaved,
   onChooseActivities,
+  onSelectTravel,
+  selectedRouteKey,
+  onPlanChange,
 }: {
   tripId: string;
   destinationId: string;
@@ -239,10 +249,17 @@ export default function DailyActivityPlan({
   onSelect: (id: string) => void;
   onSaved: () => Promise<void>;
   onChooseActivities?: () => void;
+  onSelectTravel?: (selection: ActivityRouteSelection) => void;
+  selectedRouteKey?: string;
+  onPlanChange?: () => void;
 }) {
   const path = activityPlanPath(tripId, destinationId);
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [plan, setPlan] = useState<ActivityPlan>();
+  const invalidateRoute = useEffectEvent(() => onPlanChange?.());
+  useEffect(() => {
+    invalidateRoute();
+  }, [plan]);
   const [assessment, setAssessment] = useState<PlanAssessment>();
   const [error, setError] = useState("");
   const { notify, toaster } = useActionToast();
@@ -791,6 +808,18 @@ export default function DailyActivityPlan({
         t.toActivityId === to,
     );
     const settings = day.settings ?? plan.settings;
+    const assessedMode = (
+      needsPreview ? livePreview?.assessment : assessment
+    )?.days
+      .find((d) => d.stayId === day.stayId && d.date === day.date)
+      ?.travel.find(
+        (t) => t.fromActivityId === from && t.toActivityId === to,
+      )?.mode;
+    const defaultMode =
+      settings.transportMode === "fastest" ||
+      settings.transportMode === "walking"
+        ? (assessedMode ?? "walking")
+        : settings.transportMode;
     const replace = (mode: string, duration: string | null) =>
       setPlan({
         ...plan,
@@ -819,22 +848,27 @@ export default function DailyActivityPlan({
                 value={
                   settings.transportMode === "driving"
                     ? "driving"
-                    : (override?.mode ?? settings.transportMode)
+                    : (override?.mode ?? "")
                 }
                 onChange={(e) =>
-                  replace(e.target.value, override?.duration ?? null)
+                  e.target.value
+                    ? replace(e.target.value, override?.duration ?? null)
+                    : setPlan({
+                        ...plan,
+                        transportOverrides: plan.transportOverrides.filter(
+                          (t) => t !== override,
+                        ),
+                      })
                 }
               >
-                {modes
-                  .filter(
-                    (m) =>
-                      m !== "driving" || settings.transportMode === "driving",
-                  )
-                  .map((m) => (
-                    <option key={m} value={m}>
-                      {modeName(m)}
-                    </option>
-                  ))}
+                {settings.transportMode !== "driving" && (
+                  <option value="">Use day setting</option>
+                )}
+                {modes.map((m) => (
+                  <option key={m} value={m}>
+                    {modeName(m)}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -846,7 +880,7 @@ export default function DailyActivityPlan({
                 value={durationMinutes(override?.duration) ?? ""}
                 onChange={(e) =>
                   replace(
-                    override?.mode ?? settings.transportMode,
+                    override?.mode ?? defaultMode,
                     e.target.value
                       ? durationFromMinutes(Number(e.target.value))
                       : null,
@@ -960,6 +994,17 @@ export default function DailyActivityPlan({
         onChooseActivities={onChooseActivities}
         onSchedule={() => void run(() => request("schedule"))}
         onSelect={onSelect}
+        selectedRouteKey={selectedRouteKey}
+        onSelectTravel={
+          onSelectTravel
+            ? (step) =>
+                onSelectTravel({
+                  ...step,
+                  plan,
+                  contextVersion: resource.data.contextVersion,
+                })
+            : undefined
+        }
         onMove={move}
         onRemove={(id) => state(id, "idea")}
       />

@@ -61,6 +61,11 @@ import ActivityDetailsResearch, {
 import ActivityLinksEditor from "./ActivityLinksEditor";
 import ActivityDurationSlider from "./ActivityDurationSlider";
 import { validActivityLink } from "./activityLinks";
+import {
+  activityRouteKey,
+  useActivityRoute,
+  type ActivityRouteSelection,
+} from "./activityRouteApi";
 import ActivityMap from "../../maps/ActivityMap";
 import DailyActivityPlan from "./DailyActivityPlan";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
@@ -90,6 +95,7 @@ const currencies = Intl.supportedValuesOf("currency");
 
 type ActivityPlaceResult = PlaceSuggestion & {
   source?: ActivityLink;
+  locationSource?: ActivityLink | null;
   warning?: string | null;
   mapAddress?: string | null;
 };
@@ -164,10 +170,15 @@ export default function ActivityPlanning({
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
   const editorCloseRef = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string>();
+  const [selectedTravel, setSelectedTravel] = useState<{
+    cityId: string;
+    selection: ActivityRouteSelection;
+  }>();
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
   const [mapCollapsed, setMapCollapsed] = useState(false);
   const mapPanelId = useId("activity-map-panel");
+  const mapPanel = useRef<HTMLDivElement>(null);
   const [fullscreenContainer, setFullscreenContainer] =
     useState<HTMLDivElement | null>(null);
   const [fullscreenMapHost, setFullscreenMapHost] =
@@ -201,6 +212,21 @@ export default function ActivityPlanning({
     destinations?.features.find((item) => item.id === selectedCity) ??
     destinations?.features[0];
   const cityId = destination?.id;
+  const routeSelection =
+    activityView === "daily" &&
+    !editor &&
+    selectedTravel &&
+    selectedTravel.cityId === cityId
+      ? selectedTravel.selection
+      : undefined;
+  const routePreview = useActivityRoute(trip.id, cityId, routeSelection);
+  useEffect(() => {
+    if (!routeSelection) return;
+    const frame = requestAnimationFrame(() =>
+      mapPanel.current?.scrollIntoView?.({ block: "nearest" }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [routeSelection]);
   const activities =
     activityData && activityData.cityId === cityId
       ? activityData.collection
@@ -319,6 +345,7 @@ export default function ActivityPlanning({
   function selectDestination(cityId: string) {
     if (editor && !window.confirm("Discard unsaved changes?")) return;
     setSelectedId(undefined);
+    setSelectedTravel(undefined);
     setEditor(undefined);
     setQuery(
       (current) => {
@@ -674,6 +701,7 @@ export default function ActivityPlanning({
           longitude: match.geometry?.coordinates[0],
           latitude: match.geometry?.coordinates[1],
           source: match.source,
+          locationSource: match.locationSource,
           warning: match.warning,
           mapAddress: match.mapAddress,
         }));
@@ -718,11 +746,15 @@ export default function ActivityPlanning({
     updateEditor({
       placeName: place.label.slice(0, 200),
       locationSuggestion: null,
-      ...(place.source &&
-      links.length < 20 &&
-      !links.some((link) => link.url === place.source!.url)
-        ? { links: [...links, place.source] }
-        : {}),
+      links: [place.source, place.locationSource].reduce(
+        (current, source) =>
+          source &&
+          current.length < 20 &&
+          !current.some((link) => link.url === source.url)
+            ? [...current, source]
+            : current,
+        links,
+      ),
       ...(!editor?.value.properties.name.trim()
         ? { name: (place.name ?? place.label.split(",")[0]).slice(0, 200) }
         : {}),
@@ -877,6 +909,7 @@ export default function ActivityPlanning({
   }
 
   function selectActivity(id: string) {
+    setSelectedTravel(undefined);
     setMapCollapsed(false);
     setSelectedId(id);
     setShowMapCard(true);
@@ -1349,6 +1382,15 @@ export default function ActivityPlanning({
                             Source for {place.name ?? place.label}
                           </a>
                         )}
+                        {place.locationSource && (
+                          <a
+                            href={place.locationSource.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Map location source for {place.name ?? place.label}
+                          </a>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1687,6 +1729,7 @@ export default function ActivityPlanning({
         selectedValue={activityView}
         onTabSelect={(_, data) => {
           setActivityView(String(data.value));
+          setSelectedTravel(undefined);
           setShowMapCard(false);
         }}
       >
@@ -1707,7 +1750,7 @@ export default function ActivityPlanning({
         mapCollapsed={mapCollapsed}
         mapPanelId={mapPanelId}
       >
-        <div id={mapPanelId} className="activity-map-panel">
+        <div ref={mapPanel} id={mapPanelId} className="activity-map-panel">
           <ActivityMap
             center={destination.geometry}
             destinationName={destination.properties.name}
@@ -1719,6 +1762,13 @@ export default function ActivityPlanning({
             activities={activitiesForMap}
             placeSearch={placeSearch}
             portalHost={mapExpanded && active ? fullscreenMapHost : undefined}
+            route={routePreview.route}
+            routeLoading={routePreview.loading}
+            routeError={routePreview.error}
+            routeLabel={routeSelection?.label}
+            onClearRoute={
+              routeSelection ? () => setSelectedTravel(undefined) : undefined
+            }
             selectedId={chosenPlace && draftOnMap ? draftOnMap.id : selectedId}
             onSelect={selectActivity}
           />
@@ -1748,6 +1798,16 @@ export default function ActivityPlanning({
               readOnly={!canEdit}
               useAiAllowed={canGenerate}
               onSelect={selectActivity}
+              selectedRouteKey={
+                routeSelection ? activityRouteKey(routeSelection) : undefined
+              }
+              onPlanChange={() => setSelectedTravel(undefined)}
+              onSelectTravel={(selection) => {
+                setSelectedTravel({ cityId: destination.id, selection });
+                setSelectedId(undefined);
+                setShowMapCard(false);
+                setMapCollapsed(false);
+              }}
               onChooseActivities={() => setActivityView("ideas")}
               onSaved={async () => {
                 const collection = await getActivities(trip.id, destination.id);

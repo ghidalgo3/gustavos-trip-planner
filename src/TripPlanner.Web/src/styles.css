@@ -2967,3 +2967,44 @@ main:has(.trip-workspace-activities) > .topbar {
     margin-top: 0;
   }
 }
+.activity-map-route {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 56px;
+  z-index: 2;
+  max-height: 35%;
+  overflow: auto;
+  box-shadow: var(--shadow4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-size: 0.85rem;
+}
+.activity-map-route p {
+  margin: 4px 0 0;
+}
+.activity-map-route > div {
+  flex: 1;
+  min-width: 0;
+}
+.activity-route-skeleton {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.activity-route-skeleton span {
+  display: block;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--colorNeutralBackground4);
+}
+.activity-route-skeleton span:last-child {
+  width: 65%;
+}

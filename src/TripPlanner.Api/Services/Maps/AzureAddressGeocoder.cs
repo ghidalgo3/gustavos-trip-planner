@@ -208,22 +208,21 @@ public sealed class AzureAddressGeocoder(
                 continue;
             }
             var point = new GeoJsonPoint("Point", GeographyPoint.Create(latitude, longitude));
-            if (MapGeometry.IsNearby(point, center))
-            {
-                candidates.Add(
-                    new(
-                        point,
-                        formatted,
-                        !postalMismatch && Text(properties, "confidence") == "High"
-                            ? AddressMatchConfidence.High
-                            : AddressMatchConfidence.Medium,
-                        ambiguous || postalMismatch
-                    )
-                    {
-                        PostalCodeMismatch = postalMismatch,
-                    }
-                );
-            }
+            // The map centre biases the provider query, but must not reject a
+            // precise, country-checked address merely because it is a day trip.
+            candidates.Add(
+                new(
+                    point,
+                    formatted,
+                    !postalMismatch && Text(properties, "confidence") == "High"
+                        ? AddressMatchConfidence.High
+                        : AddressMatchConfidence.Medium,
+                    ambiguous || postalMismatch
+                )
+                {
+                    PostalCodeMismatch = postalMismatch,
+                }
+            );
         }
         return candidates.DistinctBy(candidate => candidate.Geometry.Position).ToArray();
     }

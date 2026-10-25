@@ -23,11 +23,12 @@ public static class VerificationProgram
             return 0;
         }
         bool verifyStay = args is ["--verify-stay-address"];
-        bool verifyActivity = args is ["--verify-activity-place"];
+        bool verifyZoo = args is ["--verify-zoo-place"];
+        bool verifyActivity = verifyZoo || args is ["--verify-activity-place"];
         if (!verifyStay && !verifyActivity && args is not ["--verify-planning-providers"])
         {
             Console.Error.WriteLine(
-                "Use dotnet test, --verify-solver, --verify-planning-providers, --verify-stay-address, or --verify-activity-place."
+                "Use dotnet test, --verify-solver, --verify-planning-providers, --verify-stay-address, or --verify-activity-place, or --verify-zoo-place."
             );
             return 1;
         }
@@ -59,6 +60,11 @@ public static class VerificationProgram
                 client.Timeout = TimeSpan.FromSeconds(20)
             )
             .RemoveAllLoggers();
+        builder
+            .Services.AddHttpClient<IActivityCoordinateResearch, OpenAiActivityCoordinateResearch>(
+                client => client.Timeout = TimeSpan.FromSeconds(20)
+            )
+            .RemoveAllLoggers();
         builder.Services.AddTransient<IActivityPlaceResearch, ActivityPlaceResearch>();
         builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
         builder.Services.AddTransient<VenueAddressLookup>();
@@ -73,7 +79,8 @@ public static class VerificationProgram
         if (verifyActivity)
         {
             return await ActivityPlaceVerification.RunAsync(
-                host.Services.GetRequiredService<IActivityPlaceResearch>()
+                host.Services.GetRequiredService<IActivityPlaceResearch>(),
+                verifyZoo
             )
                 ? 0
                 : 1;

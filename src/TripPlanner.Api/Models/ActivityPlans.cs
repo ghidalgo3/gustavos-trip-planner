@@ -37,8 +37,11 @@ public sealed record DailyPlanningSettings
     [JsonConverter(typeof(IsoDurationConverter))]
     public TimeSpan SlackDuration { get; init; } = TimeSpan.FromMinutes(60);
 
-    [AllowedValues("walking", "taxi", "driving")]
-    public string TransportMode { get; init; } = "walking";
+    [AllowedValues("fastest", "walking", "taxi", "driving")]
+    [Description(
+        "fastest compares walking and driving per leg. walking is a legacy alias for fastest; use a per-leg walking override to require walking."
+    )]
+    public string TransportMode { get; init; } = "fastest";
 
     [DurationRange(0, 1440)]
     [JsonConverter(typeof(IsoDurationConverter))]

@@ -18,8 +18,8 @@ public sealed class AzureActivityPlaceResolverTests
     [DataRow("PopulatedPlace", "High", "Good", "JP", 139.7, false)]
     [DataRow("RoadBlock", "High", "Good", "JP", 139.7, false)]
     [DataRow("Address", "High", "Good", "US", 139.7, false)]
-    [DataRow("Address", "High", "Good", "JP", 135.5, false)]
-    public async Task ResearchedAddress_RequiresPreciseNearbyGeocoding(
+    [DataRow("Address", "High", "Good", "JP", 135.5, true)]
+    public async Task ResearchedAddress_RequiresPreciseGeocodingRegardlessOfDistance(
         string type,
         string confidence,
         string? matchCode,

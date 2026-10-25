@@ -18,12 +18,26 @@ const createMap = vi.fn();
 const setStyle = vi.fn();
 const setCamera = vi.fn();
 const markers: HTMLButtonElement[] = [];
+const sourceAdd = vi.fn(),
+  sourceRemove = vi.fn(),
+  layerAdd = vi.fn(),
+  layerRemove = vi.fn(),
+  routeData = vi.fn(),
+  lineOptions = vi.fn();
 
 beforeEach(() => {
   vi.mocked(getMapToken).mockReset();
   createMap.mockReset();
   setStyle.mockReset();
   setCamera.mockReset();
+  [
+    sourceAdd,
+    sourceRemove,
+    layerAdd,
+    layerRemove,
+    routeData,
+    lineOptions,
+  ].forEach((mock) => mock.mockReset());
   events.clear();
   markers.length = 0;
   class TestMap {
@@ -38,6 +52,8 @@ beforeEach(() => {
         if (index >= 0) markers.splice(index, 1);
       },
     };
+    sources = { add: sourceAdd, remove: sourceRemove };
+    layers = { add: layerAdd, remove: layerRemove };
     setCamera = setCamera;
     setStyle = setStyle;
     dispose = vi.fn();
@@ -48,6 +64,18 @@ beforeEach(() => {
   }
   window.atlas = {
     Map: TestMap,
+    source: {
+      DataSource: class {
+        add = routeData;
+      },
+    },
+    layer: {
+      LineLayer: class {
+        constructor(_source: object, _id: string | null, options: object) {
+          lineOptions(options);
+        }
+      },
+    },
     HtmlMarker: class {
       button: HTMLButtonElement;
       constructor(options: { htmlContent: HTMLButtonElement }) {
@@ -596,4 +624,85 @@ test("repeat visits render separate accommodation pins and preserve their select
   expect(markers[1]).toHaveAttribute("data-selected", "true");
   fireEvent.click(markers[1]);
   expect(onSelect).toHaveBeenCalledWith("stay:second");
+});
+
+test("draws the selected street path, frames it, and replaces or clears it without rebuilding the map", async () => {
+  vi.mocked(getMapToken).mockResolvedValue({
+    token: "sas",
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2030-01-01T00:00:00Z",
+  });
+  const props = {
+    center: {
+      type: "Point" as const,
+      coordinates: [2.35, 48.86] as [number, number],
+    },
+    activities: [],
+    onSelect: vi.fn(),
+  };
+  const route = {
+    mode: "walking",
+    geometry: {
+      type: "MultiLineString" as const,
+      coordinates: [
+        [
+          [2.3, 48.8],
+          [2.32, 48.81],
+          [2.4, 48.9],
+        ],
+      ] as [number, number][][],
+    },
+  };
+  const clear = vi.fn();
+  const { rerender } = render(
+    <ActivityMap
+      {...props}
+      route={route}
+      routeLabel="Travel from Museum to Garden"
+      onClearRoute={clear}
+    />,
+  );
+  await waitFor(() => expect(createMap).toHaveBeenCalledTimes(1));
+  act(() => events.get("ready")?.({}));
+  await waitFor(() => expect(layerAdd).toHaveBeenCalledTimes(1));
+  expect(routeData).toHaveBeenCalledWith(
+    expect.objectContaining({ geometry: route.geometry }),
+  );
+  expect(lineOptions).toHaveBeenCalledWith(
+    expect.objectContaining({ strokeDashArray: [2, 2] }),
+  );
+  expect(setCamera).toHaveBeenLastCalledWith(
+    expect.objectContaining({ bounds: [2.3, 48.8, 2.4, 48.9], maxZoom: 16 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close route" }));
+  expect(clear).toHaveBeenCalledOnce();
+  rerender(
+    <ActivityMap
+      {...props}
+      route={{ ...route, mode: "driving" }}
+      routeLabel="Travel back to stay"
+    />,
+  );
+  expect(layerRemove).toHaveBeenCalledTimes(1);
+  expect(sourceRemove).toHaveBeenCalledTimes(1);
+  expect(layerAdd).toHaveBeenCalledTimes(2);
+  expect(lineOptions.mock.calls.at(-1)![0]).not.toHaveProperty(
+    "strokeDashArray",
+  );
+  rerender(
+    <ActivityMap
+      {...props}
+      routeLabel="Travel back to stay"
+      routeError="Route unavailable. Azure Maps could not return a valid street route between these locations."
+    />,
+  );
+  expect(layerRemove).toHaveBeenCalledTimes(2);
+  expect(sourceRemove).toHaveBeenCalledTimes(2);
+  expect(layerAdd).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("alert")).toHaveTextContent("Route unavailable");
+  rerender(<ActivityMap {...props} />);
+  expect(createMap).toHaveBeenCalledTimes(1);
+  expect(
+    screen.queryByRole("region", { name: "Selected travel route" }),
+  ).not.toBeInTheDocument();
 });

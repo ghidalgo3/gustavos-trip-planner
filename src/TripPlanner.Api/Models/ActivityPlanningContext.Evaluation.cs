@@ -79,10 +79,12 @@ public sealed partial record ActivityPlanningContext
         var change = plan.TransportOverrides.LastOrDefault(t =>
             t.Date == day.Date && t.FromActivityId == fromId && t.ToActivityId == toId
         );
-        string mode =
-            settings.TransportMode == "driving"
-                ? "driving"
-                : change?.Mode ?? settings.TransportMode;
+        string[] modes =
+            settings.TransportMode == "driving" ? ["driving"]
+            : change is not null ? [change.Mode]
+            : settings.TransportMode is "fastest" or "walking" ? ["walking", "driving"]
+            : [settings.TransportMode];
+        string mode = modes[0];
         // Without accommodation, optimize an open path through the activities.
         // Old accommodation overrides must not introduce a journey to a deleted stay.
         if (stayLocation is null && (fromId is null || toId is null))
@@ -107,16 +109,26 @@ public sealed partial record ActivityPlanningContext
                 : stayLocation?.Geometry?.Position;
         var from = Position(fromId);
         var to = Position(toId);
-        var key = RouteKey(from, to, departure, mode);
-        var cached = Evidence.Routes.LastOrDefault(r =>
-            r.Key == key && r.Mode == mode && r.ExpiresAt > now
-        );
+        // Compare supported, fresh evidence at the same departure time. A missing
+        // alternative must not let a rough distance estimate beat a measured route.
+        var cached = modes
+            .Select(candidate =>
+                Evidence.Routes.LastOrDefault(r =>
+                    r.Key == RouteKey(from, to, departure, candidate)
+                    && r.Mode == candidate
+                    && r.ExpiresAt > now
+                )
+            )
+            .OfType<ActivityRouteEvidence>()
+            .OrderBy(r => r.Duration)
+            .ThenBy(r => r.Provisional)
+            .FirstOrDefault();
         if (cached is not null)
         {
             return new(
                 fromId,
                 toId,
-                mode,
+                cached.Mode,
                 cached.Duration,
                 cached.Provisional,
                 cached.Source,
@@ -139,23 +151,28 @@ public sealed partial record ActivityPlanningContext
         }
 
         double kilometres = Distance(from, to);
-        int estimate = (int)
-            Math.Ceiling(
-                mode switch
-                {
-                    "walking" => kilometres * 1.3 / 4.5 * 60,
-                    _ => kilometres * 1.3 / 25 * 60 + (mode == "taxi" ? 5 : 0),
-                }
-            );
-        return new(
-            fromId,
-            toId,
-            mode,
-            TimeSpan.FromMinutes(Math.Max(1, estimate)),
-            true,
-            "Distance-based estimate; route unverified",
-            mode == "walking" ? TimeSpan.FromMinutes(estimate) : TimeSpan.Zero
-        );
+        return modes
+            .Select(candidate =>
+            {
+                int estimate = (int)
+                    Math.Ceiling(
+                        candidate == "walking"
+                            ? kilometres * 1.3 / 4.5 * 60
+                            : kilometres * 1.3 / 25 * 60 + (candidate == "taxi" ? 5 : 0)
+                    );
+                var duration = TimeSpan.FromMinutes(Math.Max(1, estimate));
+                return new ActivityTravelLeg(
+                    fromId,
+                    toId,
+                    candidate,
+                    duration,
+                    true,
+                    "Distance-based estimate; route unverified",
+                    candidate == "walking" ? duration : TimeSpan.Zero
+                );
+            })
+            .OrderBy(leg => leg.Duration)
+            .First();
     }
 
     public static double Distance(GeographyPoint a, GeographyPoint b)

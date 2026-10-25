@@ -487,3 +487,17 @@
 .agenda-unavailable {
   opacity: 0.55;
 }
+.agenda-travel-card {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.agenda-travel-card[aria-pressed="true"] {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorBrandBackground2);
+}
+.agenda-travel-card:disabled {
+  cursor: default;
+}

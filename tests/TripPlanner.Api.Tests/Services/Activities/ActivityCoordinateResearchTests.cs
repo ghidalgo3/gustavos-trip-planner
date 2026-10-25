@@ -13,9 +13,9 @@ public class ActivityCoordinateResearchTests
     [TestMethod]
     [DataRow("Meiji Jingu", 35.676111, 139.699167, true, true)]
     [DataRow("Meiji Jingu Stadium", 35.676111, 139.699167, true, false)]
-    [DataRow("Meiji Jingu", 48.86, 2.34, true, false)]
+    [DataRow("Meiji Jingu", 48.86, 2.34, true, true)]
     [DataRow("Meiji Jingu", 35.676111, 139.699167, false, false)]
-    public async Task Research_RequiresConsultedSourceMatchingVenueAndNearbyPublishedPoint(
+    public async Task Research_RequiresConsultedSourceAndMatchingVenueRegardlessOfDistance(
         string publishedName,
         double latitude,
         double longitude,
@@ -82,6 +82,37 @@ public class ActivityCoordinateResearchTests
             default
         );
         Assert.AreEqual(expected, result is not null);
+    }
+
+    [TestMethod]
+    public async Task AsahiyamaZoo_PublishedPointResolvesFromSapporoBase()
+    {
+        using var handler = new ResearchHandler("Asahiyama Zoo", 43.76805114, 142.4797823, true);
+        var research = new OpenAiActivityCoordinateResearch(
+            new HttpClient(handler),
+            Microsoft.Extensions.Options.Options.Create(
+                new OpenAiOptions { ApiKey = "test-key", Model = "configured-model" }
+            )
+        );
+        var result = await research.FindAsync(
+            new(
+                "Asahiyama Zoo",
+                "Asahiyama Zoo",
+                null,
+                "Kuranuma, Asahikawa, Hokkaido 078-8205, Japan",
+                null,
+                null,
+                null,
+                null,
+                null
+            ),
+            "Sapporo",
+            new("Point", GeographyPoint.Create(43.0618, 141.3545)),
+            default
+        );
+        Assert.IsNotNull(result);
+        Assert.AreEqual(43.76805114, result.Geometry.Position.Latitude);
+        Assert.AreEqual(142.4797823, result.Geometry.Position.Longitude);
     }
 
     private static string Entity(

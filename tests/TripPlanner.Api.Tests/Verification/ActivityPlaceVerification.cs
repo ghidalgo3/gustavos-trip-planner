@@ -7,7 +7,7 @@ namespace TripPlanner.Api.Tests.Verification;
 
 public static class ActivityPlaceVerification
 {
-    public static async Task<bool> RunAsync(IActivityPlaceResearch research)
+    public static async Task<bool> RunAsync(IActivityPlaceResearch research, bool zooOnly = false)
     {
         bool successful = true;
         foreach (
@@ -23,6 +23,15 @@ public static class ActivityPlaceVerification
                     new[] { "Planets", "プラネッツ" }
                 ),
                 (
+                    "Asahiyama Zoo",
+                    "Sapporo",
+                    "sapporo-jp",
+                    "Asia/Tokyo",
+                    43.0618,
+                    141.3545,
+                    new[] { "Asahiyama", "旭山動物園" }
+                ),
+                (
                     "Beer Museum",
                     "Sapporo",
                     "sapporo-jp",
@@ -34,7 +43,11 @@ public static class ActivityPlaceVerification
             }
         )
         {
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            if (zooOnly && query != "Asahiyama Zoo")
+            {
+                continue;
+            }
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(70));
             var destination = new GeoJsonFeature<DestinationProperties>(
                 "Feature",
                 cityId,
@@ -50,7 +63,7 @@ public static class ActivityPlaceVerification
                 )
             );
             Console.WriteLine(
-                $"Activity place verification ({city}, {query}): {(found ? "passed: sourced venue has a reviewable Azure map pin" : "failed: no reviewable venue pin returned")}."
+                $"Activity place verification ({city}, {query}): {(found ? "passed: sourced venue has a reviewable map pin" : "failed: no reviewable venue pin returned")}."
             );
             successful &= found;
         }

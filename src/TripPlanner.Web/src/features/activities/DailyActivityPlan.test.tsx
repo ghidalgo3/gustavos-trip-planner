@@ -439,7 +439,7 @@ describe("daily planning", () => {
     ["taxi", "Taxi / rideshare"],
     ["driving", "Driving"],
   ])(
-    "shows %s travel cards between activities and for stay connections",
+    "shows selectable %s travel cards between activities and for stay connections",
     async (mode, label) => {
       const data = structuredClone(response);
       const leg = {
@@ -486,7 +486,14 @@ describe("daily planning", () => {
         },
       ];
       vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
-      render(<DailyActivityPlan {...props} />);
+      const onTravel = vi.fn();
+      render(
+        <DailyActivityPlan
+          {...props}
+          readOnly={mode === "walking"}
+          onSelectTravel={onTravel}
+        />,
+      );
       const day = within(
         await screen.findByRole("region", { name: "Thursday, Jun 10" }),
       );
@@ -500,6 +507,26 @@ describe("daily planning", () => {
       });
       const inbound = day.getByRole("listitem", {
         name: "Travel from Garden to stay",
+      });
+      fireEvent.click(within(outbound).getByRole("button"));
+      fireEvent.click(within(travel).getByRole("button"));
+      fireEvent.click(within(inbound).getByRole("button"));
+      expect(
+        onTravel.mock.calls.map((call) => [
+          call[0].fromActivityId,
+          call[0].toActivityId,
+        ]),
+      ).toEqual([
+        [null, first],
+        [first, second],
+        [second, null],
+      ]);
+      expect(onTravel.mock.calls[0][0]).toMatchObject({
+        plan: data.plan,
+        contextVersion: data.contextVersion,
+        date: "2027-06-10",
+        stayId: "visit-1",
+        mode,
       });
       expect(outbound).toHaveTextContent("From stay");
       expect(inbound).toHaveTextContent("Back to stay");
@@ -519,7 +546,7 @@ describe("daily planning", () => {
     },
   );
 
-  it("offers only walking and car transport settings", async () => {
+  it("offers fastest walking/driving as the default transport setting", async () => {
     render(<DailyActivityPlan {...props} />);
     fireEvent.click(
       await screen.findByRole("button", { name: "Planning tools" }),
@@ -532,7 +559,8 @@ describe("daily planning", () => {
       within(transport)
         .getAllByRole("option")
         .map((option) => option.getAttribute("value")),
-    ).toEqual(["walking", "taxi", "driving"]);
+    ).toEqual(["fastest", "taxi", "driving"]);
+    expect(transport).toHaveValue("fastest");
     expect(
       within(transport).queryByRole("option", { name: "Public transit" }),
     ).not.toBeInTheDocument();

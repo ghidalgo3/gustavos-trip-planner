@@ -109,7 +109,7 @@ public sealed class VenueAddressLookup(IAddressGeocoder places, ILogger<VenueAdd
                     venue.Address,
                     venue.Source,
                     null,
-                    "Address found, but Azure Maps returned no usable street-address pin. Try another published address."
+                    "Published address found, but no precise venue pin could be verified for this destination. Neighbourhood and postcode centres are not used as venue locations."
                 ),
             ];
         }

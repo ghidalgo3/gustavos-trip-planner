@@ -230,10 +230,22 @@ public sealed class ActivityPlanningEnrichment(
                             continue;
                         }
 
+                        var settings =
+                            plan.Days.First(d =>
+                                d.StayId == day.StayId && d.Date == day.Date
+                            ).Settings
+                            ?? plan.Settings;
+                        bool automatic =
+                            settings.TransportMode is "fastest" or "walking"
+                            && !plan.TransportOverrides.Any(t =>
+                                t.Date == day.Date
+                                && t.FromActivityId == leg.FromActivityId
+                                && t.ToActivityId == leg.ToActivityId
+                            );
                         foreach (
-                            string mode in leg.Mode == "driving"
-                                ? new[] { "driving" }
-                                : new[] { leg.Mode, "walking", "taxi" }.Distinct()
+                            string mode in automatic
+                                ? new[] { "walking", "driving" }
+                                : new[] { leg.Mode }
                         )
                         {
                             string key = ActivityPlanningContext.RouteKey(
@@ -301,8 +313,8 @@ public sealed class ActivityPlanningEnrichment(
                         }
                         if (
                             choices
-                                .OrderByDescending(c => c.PreferenceScore)
-                                .ThenBy(c => c.Duration)
+                                .OrderBy(c => c.Duration)
+                                .ThenByDescending(c => c.PreferenceScore)
                                 .FirstOrDefault() is
                             { } chosen
                         )

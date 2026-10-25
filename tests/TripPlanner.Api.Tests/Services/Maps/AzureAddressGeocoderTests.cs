@@ -166,9 +166,9 @@ public sealed class AzureAddressGeocoderTests
     [DataRow("Neighborhood", "High", "Good", "JP", 141.3524, false)]
     [DataRow("Postcode1", "High", "Good", "JP", 141.3524, false)]
     [DataRow("Address", "High", "Good", "US", 141.3524, false)]
-    [DataRow("Address", "High", "Good", "JP", 139.7, false)]
+    [DataRow("Address", "High", "Good", "JP", 139.7, true)]
     [DataRow("Address", "High", "Good", "JP", 181.0, false)]
-    public async Task Candidates_RequireStreetAddressQualityAndTheCorrectDestination(
+    public async Task Candidates_RequireStreetAddressQualityAndCountryButNotProximity(
         string type,
         string confidence,
         string code,
@@ -229,6 +229,80 @@ public sealed class AzureAddressGeocoderTests
                 .FindAsync("Address", "Sapporo", "JP", cancellation.Token, Center, Components)
         );
         Assert.HasCount(1, handler.Urls);
+    }
+
+    [TestMethod]
+    public async Task AsahiyamaZoo_AreaCentresDoNotBecomeVenuePins()
+    {
+        var freeform = JsonSerializer.Serialize(
+            new
+            {
+                features = new[]
+                {
+                    new
+                    {
+                        properties = new
+                        {
+                            type = "Neighborhood",
+                            confidence = "High",
+                            address = new
+                            {
+                                formattedAddress = "Higashiasahikawacho-kuranuma, Japan",
+                                countryRegion = new { ISO = "JP" },
+                            },
+                        },
+                        geometry = new
+                        {
+                            type = "Point",
+                            coordinates = new[] { 142.48712158203125, 43.773460388183594 },
+                        },
+                    },
+                },
+            }
+        );
+        var structured = JsonSerializer.Serialize(
+            new
+            {
+                features = new[]
+                {
+                    new
+                    {
+                        properties = new
+                        {
+                            type = "Postcode1",
+                            confidence = "Medium",
+                            matchCodes = new[] { "UpHierarchy" },
+                            address = new
+                            {
+                                formattedAddress = "078-8205, Japan",
+                                postalCode = "078-8205",
+                                countryRegion = new { ISO = "JP" },
+                            },
+                        },
+                        geometry = new
+                        {
+                            type = "Point",
+                            coordinates = new[] { 142.4862823486328, 43.76129150390625 },
+                        },
+                    },
+                },
+            }
+        );
+        using var handler = new Responses(freeform, structured);
+        var candidates = await Geocoder(handler)
+            .FindAsync(
+                "〒078-8205 北海道旭川市東旭川町倉沼, Japan",
+                "Sapporo",
+                "JP",
+                default,
+                Center,
+                new("東旭川町倉沼", "旭川市", "北海道", "078-8205")
+            );
+        Assert.IsEmpty(
+            candidates,
+            "A neighbourhood or postcode centre is not the zoo's precise location."
+        );
+        Assert.HasCount(2, handler.Urls);
     }
 
     private static string Neighborhood() =>

@@ -1,5 +1,13 @@
+import type { ActivityRoutePreview } from "../features/activities/activityRouteApi";
 import ContentSkeleton from "../shared/components/ContentSkeleton";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@fluentui/react-components";
 import { useSystemDarkMode } from "../shared/hooks/useSystemDarkMode";
 import { useReducedMotion } from "../shared/hooks/useReducedMotion";
@@ -22,11 +30,21 @@ export type PlaceSearch = {
 
 type Marker = { getElement?: () => HTMLElement };
 type MapEvent = { position?: [number, number]; error?: Error };
+type RouteSource = { add: (feature: object) => void };
+type RouteLayer = object;
 type MapHandle = {
   events: {
     add: (event: string, callback: (event: MapEvent) => void) => void;
   };
   markers: { add: (marker: Marker) => void; remove: (marker: Marker) => void };
+  sources: {
+    add: (source: RouteSource) => void;
+    remove: (source: RouteSource) => void;
+  };
+  layers: {
+    add: (layer: RouteLayer) => void;
+    remove: (layer: RouteLayer) => void;
+  };
   setCamera: (options: object) => void;
   setStyle: (options: object) => void;
   dispose: () => void;
@@ -35,6 +53,14 @@ type MapHandle = {
 type Atlas = {
   Map: new (container: HTMLElement, options: object) => MapHandle;
   HtmlMarker: new (options: object) => Marker;
+  source: { DataSource: new () => RouteSource };
+  layer: {
+    LineLayer: new (
+      source: RouteSource,
+      id: string | null,
+      options: object,
+    ) => RouteLayer;
+  };
 };
 
 let atlasPromise: Promise<Atlas> | undefined;
@@ -91,6 +117,11 @@ export default function ActivityMap({
   placeSearch,
   portalHost,
   zoom = 11,
+  route,
+  routeLabel,
+  routeLoading,
+  routeError,
+  onClearRoute,
 }: {
   stayLocation?: StayLocation | null;
   stayLocations?: StayLocation[];
@@ -103,6 +134,11 @@ export default function ActivityMap({
   placeSearch?: PlaceSearch;
   portalHost?: HTMLElement | null;
   zoom?: number;
+  route?: ActivityRoutePreview;
+  routeLabel?: string;
+  routeLoading?: boolean;
+  routeError?: string;
+  onClearRoute?: () => void;
 }) {
   const activities = useMemo(
     () =>
@@ -141,6 +177,7 @@ export default function ActivityMap({
   );
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<MapHandle | null>(null);
+  const routeWasShown = useRef(false);
   const markerTransitions = useRef<AnimatedMapMarkers<Marker> | null>(null);
   const centerRef = useRef(center.coordinates);
   const zoomRef = useRef(zoom);
@@ -424,6 +461,45 @@ export default function ActivityMap({
     reducedMotion,
   ]);
 
+  const restoreMap = useEffectEvent(() => fitActivities());
+  useEffect(() => {
+    const instance = map.current;
+    if (!ready || !instance || !atlas) return;
+    if (!route) {
+      if (routeWasShown.current) restoreMap();
+      routeWasShown.current = false;
+      return;
+    }
+    const source = new atlas.source.DataSource();
+    instance.sources.add(source);
+    source.add({ type: "Feature", geometry: route.geometry, properties: {} });
+    const layer = new atlas.layer.LineLayer(source, null, {
+      strokeColor: darkMode ? "#60cdff" : "#0067c0",
+      strokeWidth: 5,
+      ...(route.mode === "walking" ? { strokeDashArray: [2, 2] } : {}),
+    });
+    instance.layers.add(layer);
+    const points = route.geometry.coordinates.flat();
+    instance.setCamera({
+      bounds: [
+        Math.min(...points.map((p) => p[0])),
+        Math.min(...points.map((p) => p[1])),
+        Math.max(...points.map((p) => p[0])),
+        Math.max(...points.map((p) => p[1])),
+      ],
+      padding: 64,
+      maxZoom: 16,
+      type: reducedMotion ? "jump" : "ease",
+      duration: reducedMotion ? 0 : 650,
+    });
+    routeWasShown.current = true;
+    return () => {
+      if (map.current !== instance) return;
+      instance.layers.remove(layer);
+      instance.sources.remove(source);
+    };
+  }, [atlas, ready, route, darkMode, reducedMotion]);
+
   return (
     <PersistentMapSurface host={portalHost}>
       <div
@@ -435,7 +511,44 @@ export default function ActivityMap({
         }
         aria-busy={!ready && !error}
       />
-      {ready && !error && activities.length > 0 && (
+      {routeLabel && (
+        <section
+          className="activity-map-route"
+          aria-label="Selected travel route"
+          aria-busy={routeLoading}
+        >
+          <div>
+            <strong>{routeLabel}</strong>
+            {routeLoading ? (
+              <div
+                className="activity-route-skeleton"
+                role="status"
+                aria-label="Loading route"
+              >
+                <span />
+                <span />
+              </div>
+            ) : routeError ? (
+              <p role="alert">{routeError}</p>
+            ) : route ? (
+              <p>
+                {route.mode === "walking"
+                  ? "Walking"
+                  : route.mode === "taxi"
+                    ? "Taxi / rideshare"
+                    : "Driving"}{" "}
+                route
+              </p>
+            ) : null}
+          </div>
+          {onClearRoute && (
+            <Button appearance="secondary" size="small" onClick={onClearRoute}>
+              Close route
+            </Button>
+          )}
+        </section>
+      )}
+      {ready && !error && !routeLabel && activities.length > 0 && (
         <div className="activity-map-summary">
           <span>
             {placeSearch

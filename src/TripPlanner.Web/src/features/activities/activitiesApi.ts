@@ -432,6 +432,7 @@ export type VenueAddressSuggestion = {
   geometry: Point | null;
   warning: string | null;
   mapAddress?: string | null;
+  locationSource?: ActivityLink | null;
 };
 
 export type StayAddressSuggestion = VenueAddressSuggestion;
