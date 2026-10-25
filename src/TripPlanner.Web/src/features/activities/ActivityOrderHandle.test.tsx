@@ -253,3 +253,38 @@ test("keyboard movement crosses meals for a single activity", () => {
   });
   expect(move).toHaveBeenCalledExactlyOnceWith("2027-06-10", 0, 2);
 });
+
+test("does not accept a drop on a flight-unavailable row", () => {
+  const move = vi.fn();
+  render(
+    <div data-order-agenda>
+      <section data-order-day="2027-06-10">
+        <ol>
+          <li data-order-index={0}>
+            <ActivityOrderHandle
+              name="Museum"
+              index={0}
+              count={1}
+              disabled={false}
+              onMove={vi.fn()}
+              onMoveToDay={move}
+            />
+          </li>
+          <li data-order-unavailable data-testid="blocked">
+            Unavailable during flight
+          </li>
+        </ol>
+      </section>
+    </div>,
+  );
+  const handle = screen.getByRole("button", { name: "Reorder Museum" });
+  handle.setPointerCapture = vi.fn();
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: vi.fn(() => screen.getByTestId("blocked")),
+  });
+  fireEvent.pointerDown(handle, { pointerId: 1, button: 0 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientX: 100, clientY: 200 });
+  fireEvent.pointerUp(handle, { pointerId: 1 });
+  expect(move).not.toHaveBeenCalled();
+});

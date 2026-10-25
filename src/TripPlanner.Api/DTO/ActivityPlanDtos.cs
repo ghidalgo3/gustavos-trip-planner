@@ -89,6 +89,8 @@ public sealed record ActivityAvailabilitySuggestion(
 )
 {
     public ActivityFlightCandidate[] Candidates { get; init; } = [];
+    public DateTimeOffset? AvailableFromInstant { get; init; }
+    public DateTimeOffset? AvailableUntilInstant { get; init; }
 }
 
 public sealed record ActivityFlightCandidate(
@@ -97,7 +99,14 @@ public sealed record ActivityFlightCandidate(
     string TravellerName,
     string Direction,
     DateTimeOffset Time
-);
+)
+{
+    public bool Selected { get; init; }
+    public string? DepartureAirport { get; init; }
+    public string? ArrivalAirport { get; init; }
+    public DateTimeOffset? Departure { get; init; }
+    public DateTimeOffset? Arrival { get; init; }
+}
 
 public sealed record CalendarSubscriptionResponse(
     Guid Id,

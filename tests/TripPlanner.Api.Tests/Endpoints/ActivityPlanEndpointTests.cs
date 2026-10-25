@@ -167,6 +167,119 @@ public sealed class ActivityPlanEndpointTests
         Assert.IsNull(reloaded.Plan.Rules.Single().FixedStart);
     }
 
+    [TestMethod]
+    public async Task FlightBlockedActivity_PreviewExplainsAndSaveRejects_WhileValidPlacementPersists()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, user, place, activity) = await Seed(factory, client);
+        var party = (await factory.Database.GetPartiesAsync(user.Id, trip.Id)).Single();
+        await factory.Database.SetSelectedFlightAsync(user.Id, ReturnFlight(trip.Id, party.Id));
+        string path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
+        var read = await client.GetAsync(path);
+        var initial = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+        var plan = initial.Plan with
+        {
+            Days =
+            [
+                initial.Plan.Days[0] with
+                {
+                    ActivityIds = [activity.Id],
+                    MealPositions = new(0, 0, 1),
+                    AvailableFrom = new(7, 0),
+                    AvailableUntil = new(23, 0),
+                },
+            ],
+            Rules = [new(activity.Id) { FixedStart = new(18, 0), AlwaysAvailable = true }],
+        };
+        var preview = await client.PostAsJsonAsync(
+            path + "/previews",
+            new PreviewActivityPlanRequest(plan, initial.ContextVersion)
+        );
+        Assert.AreEqual(HttpStatusCode.OK, preview.StatusCode);
+        var assessment = (await preview.Content.ReadFromJsonAsync<ActivityPlanAssessment>())!;
+        Assert.IsTrue(assessment.Issues.Any(i => i.Code == "flight_unavailable"));
+        Assert.IsNotNull(assessment.Days.Single().FlightAvailability);
+        var invalid = await Put(
+            client,
+            path,
+            new ReplaceActivityPlanRequest(plan, initial.ContextVersion),
+            read.Headers.ETag!.ToString()
+        );
+        Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.IsNull(await factory.Database.GetActivityPlanAsync(user.Id, trip.Id, place.CityId));
+        plan = plan with { Rules = [plan.Rules[0] with { FixedStart = new(14, 0) }] };
+        var valid = await Put(
+            client,
+            path,
+            new ReplaceActivityPlanRequest(plan, initial.ContextVersion),
+            read.Headers.ETag!.ToString()
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            valid.StatusCode,
+            await valid.Content.ReadAsStringAsync()
+        );
+        var reloaded = (await client.GetFromJsonAsync<ActivityPlanResponse>(path))!;
+        Assert.AreEqual(
+            2,
+            reloaded.Context.SuggestedAvailability.Single().Candidates.Count(c => c.Selected)
+        );
+        Assert.IsFalse(reloaded.Assessment.Issues.Any(i => i.Code == "flight_unavailable"));
+    }
+
+    [TestMethod]
+    public async Task PartialFlightChoices_AreShownAndConstrainPlanningBeforeTheItineraryIsComplete()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, user, place, _) = await Seed(factory, client);
+        var party = (await factory.Database.GetPartiesAsync(user.Id, trip.Id)).Single();
+        string path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
+        var initial = (await client.GetFromJsonAsync<ActivityPlanResponse>(path))!;
+        var flight = ReturnFlight(trip.Id, party.Id);
+        var outbound = flight.Itinerary.GetProperty("outbound");
+        var fare = new FareSearchResult(
+            party.Id,
+            "saved",
+            flight.Request,
+            System.Text.Json.JsonSerializer.SerializeToElement(
+                new { itineraries = new[] { flight.Itinerary } }
+            ),
+            Now,
+            Now.AddHours(1)
+        );
+        await factory.Database.SetFlightChoicesAsync(
+            user.Id,
+            trip.Id,
+            new(
+                party.Id,
+                [TripPlanner.Api.Services.Flights.FlightChoiceRoute.FlightKey(outbound), null],
+                []
+            )
+            {
+                SavedFares = [fare],
+            }
+        );
+        Assert.IsEmpty(await factory.Database.GetSelectedFlightsAsync(user.Id, trip.Id));
+        var current = (await client.GetFromJsonAsync<ActivityPlanResponse>(path))!;
+        Assert.AreNotEqual(initial.ContextVersion, current.ContextVersion);
+        var chosen = current
+            .Context.SuggestedAvailability.Single()
+            .Candidates.Single(c => c.Selected);
+        Assert.AreEqual("BOS", chosen.DepartureAirport);
+        Assert.AreEqual("CDG", chosen.ArrivalAirport);
+        Assert.AreEqual(
+            12,
+            current.Assessment.Days.Single().FlightAvailability!.AvailableFromInstant!.Value.Hour
+        );
+        var stale = await client.PostAsJsonAsync(
+            path + "/previews",
+            new PreviewActivityPlanRequest(initial.Plan, initial.ContextVersion)
+        );
+        Assert.AreEqual(HttpStatusCode.Conflict, stale.StatusCode);
+    }
+
     private static async Task<HttpResponseMessage> Put(
         HttpClient client,
         string path,

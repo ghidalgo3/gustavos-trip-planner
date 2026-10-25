@@ -72,6 +72,7 @@ export default function ActivityOrderHandle({
     current.destination = undefined;
     current.mealsBefore = undefined;
     current.index = index;
+    if (hit?.closest("[data-order-unavailable]")) return;
     if (acrossDays) {
       if (target === current.card) return;
       const sameDay = destination === source;
@@ -82,13 +83,18 @@ export default function ActivityOrderHandle({
       ];
       // The space between rows belongs to the nearest timeline boundary.
       if (!target && hit?.closest("ol") && rows.length) {
-        target = rows.reduce((nearest, row) => {
-          const distance = (element: HTMLElement) => {
-            const bounds = element.getBoundingClientRect();
-            return Math.abs(current.y - (bounds.top + bounds.bottom) / 2);
-          };
-          return distance(row) < distance(nearest) ? row : nearest;
-        });
+        const availableRows = rows.filter(
+          (row) => !row.hasAttribute("data-order-unavailable"),
+        );
+        target = availableRows.length
+          ? availableRows.reduce((nearest, row) => {
+              const distance = (element: HTMLElement) => {
+                const bounds = element.getBoundingClientRect();
+                return Math.abs(current.y - (bounds.top + bounds.bottom) / 2);
+              };
+              return distance(row) < distance(nearest) ? row : nearest;
+            })
+          : undefined;
       }
       if (target === current.card) return;
       const bounds = target?.getBoundingClientRect();

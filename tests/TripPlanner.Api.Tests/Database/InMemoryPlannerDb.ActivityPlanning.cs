@@ -44,6 +44,10 @@ public sealed partial class InMemoryPlannerDb
                     .Where(p => p.Key.TripId == tripId)
                     .OrderBy(p => p.Key.PartyId)
                     .Select(p => p.Value),
+                FlightChoices = _flightChoices
+                    .Where(p => p.Key.TripId == tripId)
+                    .OrderBy(p => p.Key.PartyId)
+                    .Select(p => p.Value),
                 Preferences = _activityPreferences
                     .Where(p => p.Key.Subject == tripId || ids.Contains(p.Key.Subject))
                     .OrderBy(p => p.Key.Subject)

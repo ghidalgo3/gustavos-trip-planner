@@ -1271,6 +1271,80 @@ describe("daily planning", () => {
       expect(local).toBe(group.getAttribute("data-order-day"));
     }
   });
+  it.each(["blocked", "valid", "failure"])(
+    "checks flight availability before committing a day move: %s",
+    async (outcome) => {
+      const data = structuredClone(response);
+      data.context.suggestedAvailability = [
+        {
+          stayId: "visit-2",
+          date: "2027-06-15",
+          availableFrom: "12:00:00",
+          availableUntil: "17:00:00",
+          availableFromInstant: "2027-06-15T12:00:00+02:00",
+          availableUntilInstant: "2027-06-15T17:00:00+02:00",
+          ambiguous: false,
+          explanation: "Flights",
+          flightChoices: [],
+        },
+      ];
+      vi.mocked(planningRequest).mockResolvedValue({ data, etag: '"1"' });
+      let finish!: (value: typeof response.assessment) => void;
+      let fail!: (reason: Error) => void;
+      vi.mocked(previewActivityPlan).mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finish = resolve;
+            fail = reject;
+          }),
+      );
+      render(<DailyActivityPlan {...props} />);
+      const select = await screen.findByRole("combobox", {
+        name: "Day for Museum",
+      });
+      fireEvent.change(select, { target: { value: "2027-06-15" } });
+      expect(select).toHaveValue("2027-06-10");
+      expect(select).toBeDisabled();
+      expect(screen.getByText("Checking flight availability…")).toBeVisible();
+      if (outcome === "failure")
+        fail(new Error("Could not check flight availability"));
+      else
+        finish({
+          ...response.assessment,
+          issues:
+            outcome === "blocked"
+              ? [
+                  {
+                    code: "flight_unavailable",
+                    severity: "conflict",
+                    message: "Activity overlaps flight travel.",
+                    date: "2027-06-15",
+                    activityId: first,
+                    duration: null,
+                  },
+                ]
+              : [],
+        });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("combobox", { name: "Day for Museum" }),
+        ).toBeEnabled(),
+      );
+      expect(
+        screen.getByRole("combobox", { name: "Day for Museum" }),
+      ).toHaveValue(outcome === "valid" ? "2027-06-15" : "2027-06-10");
+      if (outcome !== "valid")
+        expect(
+          await screen.findByText(
+            outcome === "blocked"
+              ? /Cannot move this activity/
+              : /Could not check flight availability/,
+          ),
+        ).toBeVisible();
+      expect(planningRequest).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("reports stale saves and retains the local draft for review", async () => {
     render(<DailyActivityPlan {...props} />);
     await screen.findByRole("button", { name: "Reorder Garden" });

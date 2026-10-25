@@ -130,6 +130,56 @@ internal static class ActivityPlanningFixture
                 .ToArray(),
         };
 
+    internal static SelectedFlight ReturnFlight(Guid tripId, Guid partyId) =>
+        new(
+            tripId,
+            partyId,
+            "selected",
+            0,
+            new("BOS", "CDG", Date, Date, 1, "economy", "US", null),
+            JsonSerializer.SerializeToElement(
+                new
+                {
+                    outbound = new
+                    {
+                        segments = new[]
+                        {
+                            new
+                            {
+                                departure_airport = "BOS",
+                                arrival_airport = "CDG",
+                                departure_time_utc = "2027-06-09T22:00:00Z",
+                                arrival_time_utc = "2027-06-10T08:00:00Z",
+                            },
+                        },
+                    },
+                    inbound = new
+                    {
+                        segments = new[]
+                        {
+                            new
+                            {
+                                departure_airport = "CDG",
+                                arrival_airport = "BOS",
+                                departure_time_utc = "2027-06-10T18:00:00Z",
+                                arrival_time_utc = "2027-06-11T00:00:00Z",
+                            },
+                        },
+                    },
+                }
+            ),
+            Now
+        );
+
+    internal static ActivityPlanningContext WithFlights(ActivityPlanningContext context)
+    {
+        context = context with { Flights = [ReturnFlight(context.Trip.Id, context.Parties[0].Id)] };
+        return context with
+        {
+            FlightLegs = new ActivityFlightAvailability(new()).ReadLegs(context),
+        };
+    }
+
     internal static async Task<(
         Trip Trip,
         User User,

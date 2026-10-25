@@ -407,6 +407,7 @@ public sealed class ActivityPlanOptimizer(
         var dailyTravel = Enumerable.Range(0, dCount).Select(_ => new List<LinearExpr>()).ToArray();
         var outgoingTravel = Enumerable.Range(0, n).Select(_ => new List<LinearExpr>()).ToArray();
         var circuit = model.AddCircuit();
+        var flightSuggestions = ActivityFlightAvailability.SuggestKnown(planningContext, plan);
         var origins = new DateTimeOffset[dCount];
         var capacity = new int[dCount];
         for (int d = 0; d < dCount; d++)
@@ -436,6 +437,15 @@ public sealed class ActivityPlanOptimizer(
                     TimeSpan.Zero
                 ).Add(from);
             var end = ActivityPlanRules.Instant(days[d].Date, sleep < until ? sleep : until, zone);
+            var flightWindow = ActivityFlightAvailability.ForDay(flightSuggestions, days[d]);
+            if (flightWindow?.AvailableFromInstant is { } ready && ready > origins[d])
+            {
+                origins[d] = ready;
+            }
+            if (flightWindow?.AvailableUntilInstant is { } leave && (end is null || leave < end))
+            {
+                end = leave;
+            }
             capacity[d] = end is null
                 ? 0
                 : Math.Max(
@@ -696,7 +706,7 @@ public sealed class ActivityPlanOptimizer(
             var settings = days[d].Settings ?? plan.Settings;
             var meals = new List<IntVar>();
             foreach (
-                var (name, allowance) in new[]
+                var (name, baseAllowance) in new[]
                 {
                     ("breakfast", SolverMinutes(settings.BreakfastDuration)),
                     ("lunch", SolverMinutes(settings.LunchDuration)),
@@ -704,6 +714,16 @@ public sealed class ActivityPlanOptimizer(
                 }
             )
             {
+                var window = ActivityFlightAvailability.ForDay(flightSuggestions, days[d]);
+                var allowance = ActivityFlightAvailability.IncludesMeal(
+                    days[d],
+                    settings,
+                    zone,
+                    window,
+                    name
+                )
+                    ? baseAllowance
+                    : 0;
                 var remaining = model.NewIntVar(0, allowance, $"meal_{name}_{d}");
                 var credits = Enumerable
                     .Range(0, n)

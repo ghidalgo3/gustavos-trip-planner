@@ -71,6 +71,8 @@ public static class AuthenticationServiceExtensions
                 cookie.Cookie.Name = "tripplanner.auth";
                 cookie.Cookie.HttpOnly = true;
                 cookie.Cookie.SameSite = SameSiteMode.Lax;
+                cookie.ExpireTimeSpan = TimeSpan.FromDays(30);
+                cookie.SlidingExpiration = true;
                 cookie.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
                     ? CookieSecurePolicy.SameAsRequest
                     : CookieSecurePolicy.Always;

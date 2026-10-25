@@ -106,6 +106,7 @@ export type DayAssessment = {
   overrunDuration: string;
   entries: ScheduleEntry[];
   travel: TravelLeg[];
+  flightAvailability?: Availability | null;
   breaks: {
     name: string;
     start: string | null;
@@ -146,12 +147,19 @@ export type Availability = {
   ambiguous: boolean;
   explanation: string;
   flightChoices: string[];
+  availableFromInstant?: string | null;
+  availableUntilInstant?: string | null;
   candidates?: {
     id: string;
     travellerId: string;
     travellerName: string;
     direction: string;
     time: string;
+    selected?: boolean;
+    departureAirport?: string | null;
+    arrivalAirport?: string | null;
+    departure?: string | null;
+    arrival?: string | null;
   }[];
 };
 export type PlanResponse = {

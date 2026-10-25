@@ -36,6 +36,7 @@ public static class AuthenticationEndpoints
                     : Results.Challenge(
                         new AuthenticationProperties
                         {
+                            IsPersistent = true,
                             RedirectUri = SafeRedirect(
                                 post_login_redirect_uri,
                                 webOptions.Value.ClientOrigins

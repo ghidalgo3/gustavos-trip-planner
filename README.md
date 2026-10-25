@@ -376,7 +376,7 @@ expiry, then remove only that database. In-memory tests use `InMemoryPlannerDb`.
 
 ## Authentication
 
-Authentication is handled by the API's ASP.NET Google and OpenID Connect middleware in both production and development. Azure App Service Authentication is explicitly disabled. The API stores provider tokens in its encrypted HTTP-only authentication cookie so it can retrieve profile images without persisting image URLs. The production container serves the React application and API from one origin, allowing a `SameSite=Lax`, `Secure` session cookie; development uses equivalent settings compatible with HTTP localhost. Data Protection keys persist in App Service's mounted `/home` storage and a local Docker volume so sessions survive container replacement. Provider secrets remain server-side in both environments.
+Authentication is handled by the API's ASP.NET Google and OpenID Connect middleware in both production and development. Azure App Service Authentication is explicitly disabled. The API stores provider tokens in its encrypted HTTP-only authentication cookie so it can retrieve profile images without persisting image URLs. Google and Microsoft sign-ins persist across browser restarts for 30 days. Sliding expiration renews the cookie when a request arrives after more than half its lifetime has elapsed; 30 days without renewal requires signing in again. Signing out clears the cookie. The production container serves the React application and API from one origin, allowing a `SameSite=Lax`, `Secure` persistent cookie; development uses equivalent settings compatible with HTTP localhost. Data Protection keys persist in App Service's mounted `/home` storage and a local Docker volume so sessions survive container replacement. Provider secrets remain server-side in both environments. Existing session cookies become persistent after the next sign-in.
 
 Register both callback URLs for each provider on the same OAuth application:
 
@@ -514,6 +514,18 @@ Plan opens as an agenda. Its map shows only Planned activities (along with the s
 It starts empty until activities are marked
 **Planned** in Ideas. Every dated visit day appears, including days with no activities.
 Tap a day header to collapse or expand its activities and daily routines.
+Selected flights, including individually saved legs of an incomplete itinerary,
+appear in the agenda with departure and arrival airports, dates,
+and times in the destination's time zone. Unavailable periods include airport and
+transfer buffers. Known flight matches automatically constrain the shared day to
+the latest traveller arrival and earliest departure; manual availability can only
+narrow that window. Dragging and the Day selector check a proposed move before
+applying it, and leave the activity in place if it overlaps flight travel or the
+check fails. The API also rejects saving flight conflicts, and generated schedules
+use the same limits. Meals during unavailable travel time do not reserve a second
+meal allowance in the destination. Ambiguous flight-to-visit matches still require
+choosing the matching flight in day availability; until then, planning uses the
+latest possible arrival and earliest possible departure from the known candidates.
 Small sunrise and sunset dividers appear at their chronological positions for each
 visit date, including before wake-up. Times are calculated locally with
 [SunCalc](https://github.com/mourner/suncalc) from the destination coordinates and

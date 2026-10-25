@@ -247,6 +247,7 @@ public sealed record ActivityDayAssessment(
 )
 {
     public ActivityPlanBreak[] Breaks { get; init; } = [];
+    public ActivityAvailabilitySuggestion? FlightAvailability { get; init; }
 }
 
 public sealed record ActivityPlanBreak(

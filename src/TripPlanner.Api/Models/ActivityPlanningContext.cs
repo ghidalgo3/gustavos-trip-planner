@@ -19,6 +19,24 @@ public sealed partial record ActivityPlanningContext(
     long InputRevision
 )
 {
+    public FlightChoiceProgress[] FlightChoices { get; init; } = [];
+
+    public ActivityFlightLeg[] FlightLegs { get; init; } = [];
+
     public GeoJsonFeature<StayLocationProperties>? StayLocationFor(Guid stayId) =>
         StayLocations.GetValueOrDefault(stayId);
 }
+
+// Flight facts resolved once from selected itineraries and the airport catalog.
+public sealed record ActivityFlightLeg(
+    Guid TravellerId,
+    string TravellerName,
+    string DepartureAirport,
+    string ArrivalAirport,
+    DateTimeOffset? Departure,
+    DateTimeOffset? Arrival,
+    bool DepartsDestination,
+    bool ArrivesDestination,
+    string DepartureCandidateId,
+    string ArrivalCandidateId
+);

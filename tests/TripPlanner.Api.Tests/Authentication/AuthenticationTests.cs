@@ -1,7 +1,17 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.Maps;
@@ -12,6 +22,113 @@ namespace TripPlanner.Api.Tests.Authentication;
 [TestClass]
 public class AuthenticationTests
 {
+    [TestMethod]
+    [DataRow("google")]
+    [DataRow("aad")]
+    public async Task SignIn_PersistsAcrossVisits_RenewsAndExpires_AndSignOutClearsCookie(
+        string provider
+    )
+    {
+        var clock = new AuthenticationClock();
+        await using var baseFactory = new TestApplicationFactory();
+        await using var factory = baseFactory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.PostConfigure<Microsoft.AspNetCore.Authentication.AuthenticationOptions>(
+                    options =>
+                        options.DefaultAuthenticateScheme =
+                            CookieAuthenticationDefaults.AuthenticationScheme
+                );
+                services.PostConfigure<CookieAuthenticationOptions>(
+                    CookieAuthenticationDefaults.AuthenticationScheme,
+                    options => options.TimeProvider = clock
+                );
+            })
+        );
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+                HandleCookies = false,
+            }
+        );
+        using var challenge = await client.GetAsync($"/.auth/login/{provider}");
+        Assert.AreEqual(HttpStatusCode.Redirect, challenge.StatusCode);
+        string state = QueryHelpers
+            .ParseQuery(challenge.Headers.Location!.Query)["state"]
+            .ToString();
+        var properties =
+            provider == "google"
+                ? factory
+                    .Services.GetRequiredService<IOptionsMonitor<GoogleOptions>>()
+                    .Get("google")
+                    .StateDataFormat.Unprotect(state)
+                : factory
+                    .Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
+                    .Get("aad")
+                    .StateDataFormat.Unprotect(state);
+        Assert.IsNotNull(properties);
+        Assert.IsTrue(properties.IsPersistent);
+
+        // Complete the provider sign-in with the properties carried through OAuth state.
+        using var scope = factory.Services.CreateScope();
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        await context.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(
+                new ClaimsIdentity(
+                    [
+                        new Claim(ClaimTypes.NameIdentifier, "returning-user"),
+                        new Claim(ClaimTypes.Email, "returning@example.com"),
+                        new Claim("provider", provider == "aad" ? "microsoft" : provider),
+                    ],
+                    CookieAuthenticationDefaults.AuthenticationScheme
+                )
+            ),
+            properties
+        );
+        var cookie = SetCookieHeaderValue.Parse(context.Response.Headers.SetCookie.Single()!);
+        Assert.AreEqual(clock.GetUtcNow().AddDays(30), cookie.Expires);
+        Assert.IsTrue(cookie.HttpOnly);
+        Assert.AreEqual(Microsoft.Net.Http.Headers.SameSiteMode.Lax, cookie.SameSite);
+
+        // A fresh browser client can restore the user using only the persistent cookie.
+        client.DefaultRequestHeaders.Add("Cookie", $"{cookie.Name}={cookie.Value}");
+        clock.Advance(TimeSpan.FromDays(20));
+        using var returning = await client.GetAsync("/user");
+        var user = await returning.Content.ReadFromJsonAsync<UserResponse>();
+        Assert.IsTrue(user!.IsAuthenticated);
+        var renewed = SetCookieHeaderValue.Parse(
+            returning.Headers.GetValues("Set-Cookie").Single()
+        );
+        Assert.AreEqual(clock.GetUtcNow().AddDays(30), renewed.Expires);
+
+        client.DefaultRequestHeaders.Remove("Cookie");
+        client.DefaultRequestHeaders.Add("Cookie", $"{renewed.Name}={renewed.Value}");
+        clock.Advance(TimeSpan.FromDays(1));
+        Assert.IsTrue((await client.GetFromJsonAsync<UserResponse>("/user"))!.IsAuthenticated);
+        using var logout = await client.GetAsync("/.auth/logout");
+        var deleted = SetCookieHeaderValue.Parse(logout.Headers.GetValues("Set-Cookie").Single());
+        Assert.AreEqual("tripplanner.auth", deleted.Name.ToString());
+        Assert.AreEqual(string.Empty, deleted.Value.ToString());
+        Assert.IsTrue(deleted.Expires < clock.GetUtcNow());
+
+        // Even a retained copy of the renewed cookie stops authenticating after expiry.
+        clock.Advance(TimeSpan.FromDays(30));
+        Assert.IsFalse((await client.GetFromJsonAsync<UserResponse>("/user"))!.IsAuthenticated);
+        client.DefaultRequestHeaders.Remove("Cookie");
+        Assert.IsFalse((await client.GetFromJsonAsync<UserResponse>("/user"))!.IsAuthenticated);
+    }
+
+    private sealed class AuthenticationClock : TimeProvider
+    {
+        private DateTimeOffset now = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => now;
+
+        public void Advance(TimeSpan elapsed) => now += elapsed;
+    }
+
     [TestMethod]
     [DataRow("/profile", "/profile")]
     [DataRow("//attacker.example", "http://localhost:5173/")]

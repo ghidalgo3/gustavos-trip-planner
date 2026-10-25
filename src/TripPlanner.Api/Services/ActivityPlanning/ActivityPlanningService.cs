@@ -97,9 +97,15 @@ public sealed class ActivityPlanningService(
                 await database.GetActivityPlanningEvidenceAsync(userId, tripId, cityId, ct),
                 revision
             );
+            planningContext = planningContext with
+            {
+                FlightChoices = (
+                    await database.GetFlightChoicesAsync(userId, tripId, ct)
+                ).ToArray(),
+            };
             if (revision == await database.GetActivityPlanningRevisionAsync(userId, tripId, ct))
             {
-                return planningContext;
+                return planningContext with { FlightLegs = flights.ReadLegs(planningContext) };
             }
         }
         throw new ActivityPlanningChangedException();

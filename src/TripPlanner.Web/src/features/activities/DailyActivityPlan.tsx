@@ -16,6 +16,7 @@ import {
   chooseActivity,
   moveActivity,
   planningRequest,
+  previewActivityPlan,
   type ActivityPlan,
   type DailySettings,
   type DayAssessment,
@@ -246,6 +247,7 @@ export default function DailyActivityPlan({
   const [error, setError] = useState("");
   const { notify, toaster } = useActionToast();
   const [busy, setBusy] = useState(false);
+  const [checkingMove, setCheckingMove] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [useAi, setUseAi] = useState(false);
   const [refresh, setRefresh] = useState(false);
@@ -515,17 +517,46 @@ export default function DailyActivityPlan({
     index?: number,
     mealsBefore?: number,
   ) {
-    if (plan)
-      setPlan(
-        moveActivity(
-          plan,
-          id,
-          date,
-          index,
-          mealsBefore,
-          needsPreview ? livePreview?.assessment : assessment,
-        ),
-      );
+    if (!plan || !resource || busy) return;
+    const next = moveActivity(
+      plan,
+      id,
+      date,
+      index,
+      mealsBefore,
+      needsPreview ? livePreview?.assessment : assessment,
+    );
+    const hasFlights = resource.data.context.suggestedAvailability.some(
+      (a) =>
+        a.availableFromInstant ||
+        a.availableUntilInstant ||
+        a.candidates?.length,
+    );
+    if (!hasFlights || date === null) {
+      setPlan(next);
+      return;
+    }
+    setCheckingMove(true);
+    void run(async () => {
+      try {
+        const checked = await previewActivityPlan(
+          path,
+          next,
+          resource.data.contextVersion,
+          new AbortController().signal,
+        );
+        if (!active.current) return;
+        const conflict = checked.issues.find(
+          (issue) => issue.code === "flight_unavailable",
+        );
+        if (conflict)
+          throw new Error(`Cannot move this activity. ${conflict.message}`);
+        setPlan(next);
+        setAssessment(checked);
+      } finally {
+        if (active.current) setCheckingMove(false);
+      }
+    });
   }
   function state(id: string, next: "selected" | "idea" | "excluded") {
     if (plan) setPlan(chooseActivity(plan, id, next));
@@ -897,6 +928,7 @@ export default function DailyActivityPlan({
           </button>
         </div>
       )}
+      {checkingMove && <p role="status">Checking flight availability…</p>}
       {dirty && (
         <p className="agenda-draft">
           Unsaved changes · Save changes to keep your manual edits.
@@ -922,6 +954,7 @@ export default function DailyActivityPlan({
         }
         assessment={needsPreview ? livePreview?.assessment : assessment}
         assessmentError={livePreview?.error}
+        flightAvailability={resource.data.context.suggestedAvailability}
         disabled={disabled}
         readOnly={readOnly}
         onChooseActivities={onChooseActivities}

@@ -1,3 +1,4 @@
+import { addFlightItems, flightWindowForDay } from "./AgendaFlights";
 import { addDaylightDividers } from "./AgendaDaylight";
 import type { SolarLocation } from "../../shared/time/daylight";
 import ActivityOrderHandle from "./ActivityOrderHandle";
@@ -11,6 +12,7 @@ import { useId, useState, type ReactNode } from "react";
 import type { Activity } from "./activitiesApi";
 import {
   agendaMealPositions,
+  type Availability,
   type ActivityPlan,
   type PlanAssessment,
   type PlanDay,
@@ -30,6 +32,7 @@ export default function ActivityAgenda({
   location,
   assessment,
   assessmentError,
+  flightAvailability = [],
   disabled,
   readOnly,
   onChooseActivities,
@@ -43,6 +46,7 @@ export default function ActivityAgenda({
   location?: SolarLocation;
   assessment?: PlanAssessment;
   assessmentError?: string;
+  flightAvailability?: Availability[];
   disabled: boolean;
   readOnly: boolean;
   onChooseActivities?: () => void;
@@ -318,25 +322,30 @@ export default function ActivityAgenda({
     }
 
     return addDaylightDividers(
-      [
-        routine("Wake up", settings.sleepEnd.slice(0, 5), "Start of day"),
-        ...day.activityIds.flatMap((id, index) => [
-          ...meals[index],
-          travelCard(index === 0 ? null : day.activityIds[index - 1], id),
-          activityItem(id, day, index),
-        ]),
-        ...(day.activityIds.length > 0
-          ? [travelCard(day.activityIds.at(-1)!, null)]
-          : []),
-        ...meals[day.activityIds.length],
-        routine(
-          "Sleep",
-          settings.sleepStart.slice(0, 5),
-          settings.sleepStart <= settings.sleepEnd
-            ? "Bedtime · Next day"
-            : "Bedtime",
-        ),
-      ],
+      addFlightItems(
+        [
+          routine("Wake up", settings.sleepEnd.slice(0, 5), "Start of day"),
+          ...day.activityIds.flatMap((id, index) => [
+            ...meals[index],
+            travelCard(index === 0 ? null : day.activityIds[index - 1], id),
+            activityItem(id, day, index),
+          ]),
+          ...(day.activityIds.length > 0
+            ? [travelCard(day.activityIds.at(-1)!, null)]
+            : []),
+          ...meals[day.activityIds.length],
+          routine(
+            "Sleep",
+            settings.sleepStart.slice(0, 5),
+            settings.sleepStart <= settings.sleepEnd
+              ? "Bedtime · Next day"
+              : "Bedtime",
+          ),
+        ],
+        day.date,
+        evaluatedDay?.flightAvailability ??
+          flightWindowForDay(day, flightAvailability),
+      ),
       day.date,
       location,
     );

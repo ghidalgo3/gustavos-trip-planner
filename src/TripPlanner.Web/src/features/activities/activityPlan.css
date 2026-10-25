@@ -459,3 +459,31 @@
   font-size: 0.75rem;
   text-align: center;
 }
+
+.agenda-flight-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground2);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.agenda-flight-card > svg {
+  flex-shrink: 0;
+}
+.agenda-flight-card p {
+  margin: 4px 0;
+}
+.agenda-flight-card small {
+  color: var(--colorNeutralForeground3);
+}
+.agenda-flight-block .agenda-flight-card {
+  border-style: dashed;
+  background: var(--colorNeutralBackground3);
+}
+.agenda-unavailable {
+  opacity: 0.55;
+}

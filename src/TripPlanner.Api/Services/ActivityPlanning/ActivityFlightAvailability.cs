@@ -13,8 +13,20 @@ public sealed class ActivityFlightAvailability(AirportCatalog airports)
         ActivityPlan plan
     )
     {
+        return SuggestKnown(planningContext with { FlightLegs = ReadLegs(planningContext) }, plan);
+    }
+
+    public static ActivityAvailabilitySuggestion[] SuggestKnown(
+        ActivityPlanningContext planningContext,
+        ActivityPlan plan
+    )
+    {
         var zone = ActivityPlanRules.Zone(
-            ActivityPlanRules.EffectiveTimeZone(plan, planningContext)
+            (
+                string.IsNullOrWhiteSpace(planningContext.Place.TimeZone)
+                    ? ActivityPlanRules.EffectiveTimeZone(plan, planningContext)
+                    : planningContext.Place.TimeZone
+            )
         );
         if (zone is null)
         {
@@ -39,67 +51,59 @@ public sealed class ActivityFlightAvailability(AirportCatalog airports)
                 bool ambiguous = false;
                 foreach (var traveller in planningContext.Travellers)
                 {
-                    var parties = planningContext
-                        .Parties.Where(p => p.UserIds.Contains(traveller.Id))
-                        .Select(p => p.Id)
-                        .ToArray();
-                    var flights = planningContext
-                        .Flights.Where(f => parties.Contains(f.PartyId))
-                        .ToArray();
-                    var ends = flights.SelectMany(f => Legs(f.Itinerary)).ToArray();
                     ActivityFlightCandidate[] Candidates(bool arrival) =>
-                        ends.Select(leg => arrival ? leg.Last() : leg.First())
-                            .Where(segment =>
-                            {
-                                var airport = airports.FindByCode(
-                                    Text(segment, arrival ? "arrival_airport" : "departure_airport")
-                                        ?? ""
-                                );
-                                return airport is not null
-                                    && ActivityPlanningContext.Distance(
-                                        Microsoft.Spatial.GeographyPoint.Create(
-                                            airport.Latitude,
-                                            airport.Longitude
-                                        ),
-                                        Microsoft.Spatial.GeographyPoint.Create(
-                                            planningContext.Place.Latitude,
-                                            planningContext.Place.Longitude
-                                        )
-                                    ) <= 150;
-                            })
-                            .Select(segment =>
-                                (Segment: segment, Time: ReadInstant(segment, arrival, zone))
+                        planningContext
+                            .FlightLegs.Where(leg =>
+                                leg.TravellerId == traveller.Id
+                                && (arrival ? leg.ArrivesDestination : leg.DepartsDestination)
                             )
-                            .Where(candidate =>
-                                candidate.Time is { } time
-                                && DateOnly.FromDateTime(time.DateTime) == date
+                            .Select(leg => (Leg: leg, Time: arrival ? leg.Arrival : leg.Departure))
+                            .Where(c =>
+                                c.Time is { } instant
+                                && DateOnly.FromDateTime(
+                                    TimeZoneInfo.ConvertTime(instant, zone).DateTime
+                                ) == date
                             )
-                            .Select(candidate => new ActivityFlightCandidate(
-                                ActivityPlanRules.Hash(
-                                    new
-                                    {
-                                        traveller.Id,
-                                        arrival,
-                                        candidate.Segment,
-                                    }
-                                ),
+                            .Select(c => new ActivityFlightCandidate(
+                                arrival ? c.Leg.ArrivalCandidateId : c.Leg.DepartureCandidateId,
                                 traveller.Id,
                                 traveller.DisplayName,
                                 arrival ? "arrival" : "departure",
-                                candidate.Time!.Value
-                            ))
+                                TimeZoneInfo.ConvertTime(c.Time!.Value, zone)
+                            )
+                            {
+                                DepartureAirport = c.Leg.DepartureAirport,
+                                ArrivalAirport = c.Leg.ArrivalAirport,
+                                Departure = c.Leg.Departure is { } departure
+                                    ? TimeZoneInfo.ConvertTime(departure, zone)
+                                    : null,
+                                Arrival = c.Leg.Arrival is { } landing
+                                    ? TimeZoneInfo.ConvertTime(landing, zone)
+                                    : null,
+                            })
                             .DistinctBy(c => c.Id)
                             .ToArray();
                     DateTimeOffset? Choose(ActivityFlightCandidate[] candidates, string direction)
                     {
-                        availableCandidates.AddRange(candidates);
                         var match = day?.FlightMatches.FirstOrDefault(m =>
                             m.TravellerId == traveller.Id && m.Direction == direction
                         );
-                        return match is not null
-                                ? candidates.FirstOrDefault(c => c.Id == match.CandidateId)?.Time
-                            : candidates.Length == 1 ? candidates[0].Time
+                        var selected =
+                            match is not null
+                                ? candidates.FirstOrDefault(c => c.Id == match.CandidateId)
+                            : candidates.Length == 1 ? candidates[0]
                             : null;
+                        availableCandidates.AddRange(
+                            candidates.Select(c => c with { Selected = c.Id == selected?.Id })
+                        );
+                        if (selected is null && candidates.Length > 1)
+                        {
+                            ambiguous = true;
+                            return direction == "arrival"
+                                ? candidates.Max(c => c.Time)
+                                : candidates.Min(c => c.Time);
+                        }
+                        return selected?.Time;
                     }
                     if (date == visit.ArrivalDate)
                     {
@@ -111,9 +115,12 @@ public sealed class ActivityFlightAvailability(AirportCatalog airports)
                         else
                         {
                             arrivals.Add(
-                                chosen.Add(
-                                    settings.AirportArrivalBufferDuration
-                                        + settings.AirportTransferDuration
+                                TimeZoneInfo.ConvertTime(
+                                    chosen.Add(
+                                        settings.AirportArrivalBufferDuration
+                                            + settings.AirportTransferDuration
+                                    ),
+                                    zone
                                 )
                             );
                         }
@@ -134,9 +141,12 @@ public sealed class ActivityFlightAvailability(AirportCatalog airports)
                         else
                         {
                             departures.Add(
-                                chosen.Add(
-                                    -settings.AirportDepartureBufferDuration
-                                        - settings.AirportTransferDuration
+                                TimeZoneInfo.ConvertTime(
+                                    chosen.Add(
+                                        -settings.AirportDepartureBufferDuration
+                                            - settings.AirportTransferDuration
+                                    ),
+                                    zone
                                 )
                             );
                         }
@@ -172,16 +182,130 @@ public sealed class ActivityFlightAvailability(AirportCatalog airports)
                         ambiguous,
                         ambiguous
                             ? "Choose the matching flights and assess the draft again, or enter availability manually. Some travellers have missing or ambiguous flight-to-visit matches, or buffers cross a date boundary."
-                            : "Proposed shared availability uses the latest traveller arrival and earliest departure, including your airport and transfer buffers. Confirm before using it.",
+                            : "Proposed shared availability uses the latest traveller arrival and earliest departure, including your airport and transfer buffers. Selected flights automatically limit activity planning.",
                         [.. choices]
                     )
                     {
                         Candidates = [.. availableCandidates],
+                        AvailableFromInstant = from,
+                        AvailableUntilInstant = until,
                     }
                 );
             }
         }
         return [.. result];
+    }
+
+    public static ActivityAvailabilitySuggestion? ForDay(
+        ActivityAvailabilitySuggestion[] suggestions,
+        ActivityPlanDay day
+    )
+    {
+        var visit = suggestions.Where(s => s.StayId == day.StayId).ToArray();
+        if (visit.Length == 0)
+        {
+            return null;
+        }
+        var starts = visit.Select(s => s.AvailableFromInstant).OfType<DateTimeOffset>().ToArray();
+        var ends = visit.Select(s => s.AvailableUntilInstant).OfType<DateTimeOffset>().ToArray();
+        return visit[0] with
+        {
+            Date = day.Date,
+            Ambiguous = visit.Any(s => s.Ambiguous),
+            AvailableFromInstant = starts.Length > 0 ? starts.Max() : null,
+            AvailableUntilInstant = ends.Length > 0 ? ends.Min() : null,
+            Candidates = visit.SelectMany(s => s.Candidates).DistinctBy(c => c.Id).ToArray(),
+        };
+    }
+
+    public static bool IncludesMeal(
+        ActivityPlanDay day,
+        DailyPlanningSettings settings,
+        TimeZoneInfo zone,
+        ActivityAvailabilitySuggestion? window,
+        string meal
+    )
+    {
+        var target = meal switch
+        {
+            "breakfast" => settings.SleepEnd.ToTimeSpan(),
+            "lunch" => new TimeOnly(13, 0).ToTimeSpan(),
+            _ => ActivityPlanRules.DinnerTarget.ToTimeSpan(),
+        };
+        var instant = ActivityPlanRules.Instant(day.Date, target, zone);
+        return instant is null
+            || !(
+                window?.AvailableFromInstant is { } ready && instant < ready
+                || window?.AvailableUntilInstant is { } leave && instant >= leave
+            );
+    }
+
+    public ActivityFlightLeg[] ReadLegs(ActivityPlanningContext context)
+    {
+        var zone = ActivityPlanRules.Zone(context.Place.TimeZone) ?? TimeZoneInfo.Utc;
+        bool Nearby(string? code)
+        {
+            var airport = airports.FindByCode(code ?? "");
+            return airport is not null
+                && ActivityPlanningContext.Distance(
+                    Microsoft.Spatial.GeographyPoint.Create(airport.Latitude, airport.Longitude),
+                    Microsoft.Spatial.GeographyPoint.Create(
+                        context.Place.Latitude,
+                        context.Place.Longitude
+                    )
+                ) <= 150;
+        }
+        return context
+            .Travellers.SelectMany(traveller =>
+            {
+                var parties = context
+                    .Parties.Where(p => p.UserIds.Contains(traveller.Id))
+                    .Select(p => p.Id)
+                    .ToHashSet();
+                return context
+                    .Flights.Where(f =>
+                        parties.Contains(f.PartyId)
+                        && !context.FlightChoices.Any(c =>
+                            c.PartyId == f.PartyId
+                            && (c.LegKeys.Length == 0 || c.SavedFares.Length > 0)
+                        )
+                    )
+                    .SelectMany(f => Legs(f.Itinerary))
+                    .Concat(
+                        context
+                            .FlightChoices.Where(c => parties.Contains(c.PartyId))
+                            .SelectMany(SavedFlightChoices.SelectedLegs)
+                            .SelectMany(leg => Legs(leg.Leg))
+                    )
+                    .Select(leg => new ActivityFlightLeg(
+                        traveller.Id,
+                        traveller.DisplayName,
+                        Text(leg[0], "departure_airport") ?? "",
+                        Text(leg[^1], "arrival_airport") ?? "",
+                        ReadInstant(leg[0], false, zone),
+                        ReadInstant(leg[^1], true, zone),
+                        Nearby(Text(leg[0], "departure_airport")),
+                        Nearby(Text(leg[^1], "arrival_airport")),
+                        ActivityPlanRules.Hash(
+                            new
+                            {
+                                traveller.Id,
+                                arrival = false,
+                                Segment = leg[0],
+                            }
+                        ),
+                        ActivityPlanRules.Hash(
+                            new
+                            {
+                                traveller.Id,
+                                arrival = true,
+                                Segment = leg[^1],
+                            }
+                        )
+                    ))
+                    .DistinctBy(leg => (leg.ArrivalCandidateId, leg.DepartureCandidateId));
+            })
+            .ToArray();
     }
 
     private DateTimeOffset? ReadInstant(

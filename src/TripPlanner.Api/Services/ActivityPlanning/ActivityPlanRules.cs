@@ -304,6 +304,31 @@ public static class ActivityPlanRules
                     errors[error.Key] = error.Value;
                 }
             }
+            if (errors.Count == 0 && planningContext.FlightLegs.Length > 0)
+            {
+                var candidates = ActivityFlightAvailability.SuggestKnown(planningContext, plan);
+                if (
+                    plan.Days.Any(day =>
+                        day.FlightMatches.Any(match =>
+                            !candidates.Any(s =>
+                                s.StayId == day.StayId
+                                && s.Date == day.Date
+                                && s.Candidates.Any(c =>
+                                    c.Id == match.CandidateId
+                                    && c.TravellerId == match.TravellerId
+                                    && c.Direction == match.Direction
+                                )
+                            )
+                        )
+                    )
+                )
+                {
+                    errors["flightMatches"] =
+                    [
+                        "Use a matching flight candidate supplied for this traveller and visit date.",
+                    ];
+                }
+            }
         }
         if (plan.TimeZone is { Length: > 0 } && Zone(plan.TimeZone) is null)
         {

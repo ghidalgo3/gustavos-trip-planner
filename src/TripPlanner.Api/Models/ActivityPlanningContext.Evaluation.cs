@@ -229,6 +229,7 @@ public sealed partial record ActivityPlanningContext
             );
         }
 
+        var flightSuggestions = ActivityFlightAvailability.SuggestKnown(this, plan);
         var orderedDays = plan.Days.OrderBy(d => d.Date).ToArray();
         foreach (var day in orderedDays)
         {
@@ -320,6 +321,15 @@ public sealed partial record ActivityPlanningContext
                     from
                 );
             DateTimeOffset limit = end ?? cursor.Add(Max(TimeSpan.Zero, until - from));
+            var flightAvailability = ActivityFlightAvailability.ForDay(flightSuggestions, day);
+            if (flightAvailability?.AvailableFromInstant is { } ready && ready > cursor)
+            {
+                cursor = ready;
+            }
+            if (flightAvailability?.AvailableUntilInstant is { } leave && leave < limit)
+            {
+                limit = leave;
+            }
             TimeSpan available = Max(TimeSpan.Zero, limit - cursor);
             var entries = new List<ActivityScheduleEntry>();
             var travel = new List<ActivityTravelLeg>();
@@ -330,6 +340,22 @@ public sealed partial record ActivityPlanningContext
                 ["lunch"] = settings.LunchDuration,
                 ["dinner"] = settings.DinnerDuration,
             };
+            foreach (var meal in new[] { "breakfast", "lunch", "dinner" })
+            {
+                if (
+                    !ActivityFlightAvailability.IncludesMeal(
+                        day,
+                        settings,
+                        zone,
+                        flightAvailability,
+                        meal
+                    )
+                )
+                {
+                    allowances[meal] = TimeSpan.Zero;
+                    breaks.Add(new(meal, null, null, TimeSpan.Zero));
+                }
+            }
             foreach (var id in day.ActivityIds)
             {
                 if (rules.GetValueOrDefault(id) is { CoversMeal: { } meal } rule)
@@ -621,6 +647,23 @@ public sealed partial record ActivityPlanningContext
                 provisional |= hoursProvisional && rule?.AlwaysAvailable != true;
                 var activityStart = cursor;
                 cursor = cursor.Add(duration);
+                if (
+                    flightAvailability?.AvailableFromInstant is { } firstAvailable
+                        && activityStart < firstAvailable
+                    || flightAvailability?.AvailableUntilInstant is { } lastAvailable
+                        && cursor > lastAvailable
+                )
+                {
+                    issues.Add(
+                        new(
+                            "flight_unavailable",
+                            "conflict",
+                            $"{activity.Properties.Name} overlaps flight travel or airport/transfer time. Choose a time within the flight availability window.",
+                            day.Date,
+                            id
+                        )
+                    );
+                }
                 entries.Add(
                     new(
                         id,
@@ -671,6 +714,40 @@ public sealed partial record ActivityPlanningContext
             {
                 AddMeal(respectTarget: day.MealPositions is not null);
             }
+            if (
+                previous is not null
+                && flightAvailability?.AvailableUntilInstant is { } departureLimit
+                && cursor > departureLimit
+            )
+            {
+                issues.Add(
+                    new(
+                        "flight_unavailable",
+                        "conflict",
+                        "Activities, return travel, or meals finish after you need to leave for the airport.",
+                        day.Date
+                    )
+                );
+            }
+
+            if (
+                entries.Count > 0
+                && available == TimeSpan.Zero
+                && (
+                    flightAvailability?.AvailableFromInstant is not null
+                    || flightAvailability?.AvailableUntilInstant is not null
+                )
+            )
+            {
+                issues.Add(
+                    new(
+                        "flight_unavailable",
+                        "conflict",
+                        "This day is unavailable because of flight travel and airport/transfer time.",
+                        day.Date
+                    )
+                );
+            }
 
             TimeSpan activityDuration = Sum(entries.Select(e => e.Duration)),
                 travelDuration = Sum(travel.Select(t => t.Duration)),
@@ -682,6 +759,17 @@ public sealed partial record ActivityPlanningContext
                 TimeSpan.Zero,
                 Max(cursor - limit, settings.SlackDuration - free)
             );
+            if (
+                entries.Count == 0
+                && available == TimeSpan.Zero
+                && (
+                    flightAvailability?.AvailableFromInstant is not null
+                    || flightAvailability?.AvailableUntilInstant is not null
+                )
+            )
+            {
+                overrun = TimeSpan.Zero;
+            }
             if (overrun > TimeSpan.Zero)
             {
                 issues.Add(
@@ -727,6 +815,7 @@ public sealed partial record ActivityPlanningContext
                 )
                 {
                     Breaks = [.. breaks],
+                    FlightAvailability = flightAvailability,
                 }
             );
         }

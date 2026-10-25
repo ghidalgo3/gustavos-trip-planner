@@ -219,6 +219,25 @@ public sealed class ActivityPlanOptimizerTests
         Assert.IsEmpty(day.Travel);
     }
 
+    [TestMethod]
+    public async Task SelectedFlights_ConstrainGeneratedSchedulesWithoutManualConfirmation()
+    {
+        var context = WithFlights(Context(TimeSpan.FromHours(1)));
+        var result = await Schedule(context, Plan(context));
+        Assert.IsNotEmpty(result.Alternatives);
+        foreach (var alternative in result.Alternatives)
+        {
+            var day = alternative.Assessment.Days.Single();
+            Assert.IsTrue(
+                day.Entries.Single().Start >= day.FlightAvailability!.AvailableFromInstant
+            );
+            Assert.IsTrue(
+                day.Entries.Single().End <= day.FlightAvailability!.AvailableUntilInstant
+            );
+            Assert.IsFalse(alternative.Assessment.Issues.Any(i => i.Code == "flight_unavailable"));
+        }
+    }
+
     private static Task<ActivityPlanningResult> Schedule(
         ActivityPlanningContext context,
         ActivityPlan plan

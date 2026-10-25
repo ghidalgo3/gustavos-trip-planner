@@ -482,17 +482,24 @@ public static class ActivityPlanEndpoints
             return Results.ValidationProblem(errors);
         }
 
+        var assessment = planningContext.Evaluate(plan, clock.GetUtcNow());
+        var flightConflicts = assessment
+            .Issues.Where(i => i.Code == "flight_unavailable")
+            .Select(i => i.Message)
+            .Distinct()
+            .ToArray();
+        if (flightConflicts.Length > 0)
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["flights"] = flightConflicts }
+            );
+        }
+
         var saved = await database.SaveActivityPlanAsync(
             user.Id,
             tripId,
             destinationCity,
-            new(
-                plan,
-                planningContext.Evaluate(plan, clock.GetUtcNow()),
-                version,
-                planningContext.InputRevision,
-                clock.GetUtcNow()
-            ),
+            new(plan, assessment, version, planningContext.InputRevision, clock.GetUtcNow()),
             version,
             planningContext.InputRevision,
             context.RequestAborted
