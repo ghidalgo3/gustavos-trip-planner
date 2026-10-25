@@ -9,7 +9,7 @@ import {
   durationMinutes,
 } from "../../shared/time/durations";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import type { Activity } from "./activitiesApi";
+import type { Activity, Destination } from "./activitiesApi";
 import {
   activityPlanPath,
   activityRule,
@@ -204,8 +204,8 @@ function DayTotals({ assessment }: { assessment?: DayAssessment }) {
       {durationMinutes(assessment.activityDuration)} activities ·{" "}
       {durationMinutes(assessment.travelDuration)} travel ·{" "}
       {durationMinutes(assessment.mealDuration)} meals ·{" "}
-      {durationMinutes(assessment.waitingDuration)} waiting ·{" "}
-      {durationMinutes(assessment.slackDuration)} slack (
+      {durationMinutes(assessment.waitingDuration)} min in gaps (included in
+      free time) · {durationMinutes(assessment.slackDuration)} slack (
       {durationMinutes(assessment.requiredSlackDuration)} reserved) ·{" "}
       {durationMinutes(assessment.restDuration)} rest
       {durationMinutes(assessment.overrunDuration) > 0 && (
@@ -221,6 +221,7 @@ function DayTotals({ assessment }: { assessment?: DayAssessment }) {
 export default function DailyActivityPlan({
   tripId,
   destinationId,
+  destination,
   activities,
   readOnly,
   useAiAllowed,
@@ -230,6 +231,7 @@ export default function DailyActivityPlan({
 }: {
   tripId: string;
   destinationId: string;
+  destination?: Destination;
   activities: Activity[];
   readOnly: boolean;
   useAiAllowed: boolean;
@@ -507,8 +509,23 @@ export default function DailyActivityPlan({
         ],
       });
   }
-  function move(id: string, date: string | null, index?: number) {
-    if (plan) setPlan(moveActivity(plan, id, date, index));
+  function move(
+    id: string,
+    date: string | null,
+    index?: number,
+    mealsBefore?: number,
+  ) {
+    if (plan)
+      setPlan(
+        moveActivity(
+          plan,
+          id,
+          date,
+          index,
+          mealsBefore,
+          needsPreview ? livePreview?.assessment : assessment,
+        ),
+      );
   }
   function state(id: string, next: "selected" | "idea" | "excluded") {
     if (plan) setPlan(chooseActivity(plan, id, next));
@@ -894,6 +911,15 @@ export default function DailyActivityPlan({
       <ActivityAgenda
         plan={plan}
         activities={activities}
+        location={
+          destination
+            ? {
+                longitude: destination.geometry.coordinates[0],
+                latitude: destination.geometry.coordinates[1],
+                timeZone: destination.properties.timeZone ?? plan.timeZone,
+              }
+            : undefined
+        }
         assessment={needsPreview ? livePreview?.assessment : assessment}
         assessmentError={livePreview?.error}
         disabled={disabled}

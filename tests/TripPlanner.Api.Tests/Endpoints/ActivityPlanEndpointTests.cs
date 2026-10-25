@@ -115,6 +115,58 @@ public sealed class ActivityPlanEndpointTests
         );
     }
 
+    [TestMethod]
+    public async Task ManualMealPositions_PreviewSaveAndReloadPreserveCalculatedTiming()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, _, place, activity) = await Seed(factory, client);
+        string path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
+        var read = await client.GetAsync(path);
+        var initial = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+        var positions = new ActivityMealPositions(0, 1, 1);
+        var draft = initial.Plan with
+        {
+            Days =
+            [
+                initial.Plan.Days[0] with
+                {
+                    ActivityIds = [activity.Id],
+                    MealPositions = positions,
+                },
+            ],
+            Rules = [new(activity.Id) { AlwaysAvailable = true }],
+        };
+        var preview = await client.PostAsJsonAsync(
+            path + "/previews",
+            new PreviewActivityPlanRequest(draft, initial.ContextVersion)
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            preview.StatusCode,
+            await preview.Content.ReadAsStringAsync()
+        );
+        var timing = (await preview.Content.ReadFromJsonAsync<ActivityPlanAssessment>())!
+            .Days.Single()
+            .Entries.Single();
+        Assert.AreEqual(new TimeOnly(7, 30), TimeOnly.FromDateTime(timing.Start!.Value.DateTime));
+        var saved = await Put(
+            client,
+            path,
+            new ReplaceActivityPlanRequest(draft, initial.ContextVersion),
+            read.Headers.ETag!.ToString()
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            saved.StatusCode,
+            await saved.Content.ReadAsStringAsync()
+        );
+        var reloaded = (await client.GetFromJsonAsync<ActivityPlanResponse>(path))!;
+        Assert.AreEqual(positions, reloaded.Plan.Days.Single().MealPositions);
+        Assert.AreEqual(timing.Start, reloaded.Assessment.Days.Single().Entries.Single().Start);
+        Assert.IsNull(reloaded.Plan.Rules.Single().FixedStart);
+    }
+
     private static async Task<HttpResponseMessage> Put(
         HttpClient client,
         string path,

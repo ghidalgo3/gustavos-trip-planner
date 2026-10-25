@@ -362,6 +362,7 @@ describe("daily planning", () => {
   it.each([
     ["PT10H", "PT1H", "PT0M", "fits", "9 h free"],
     ["PT3H30M", "PT1H", "PT0M", "provisional", "2.5 h free (estimated)"],
+    ["PT9H42M", "PT1H", "PT0M", "provisional", "8.7 h free (estimated)"],
     [
       "PT30M",
       "PT1H",
@@ -383,7 +384,7 @@ describe("daily planning", () => {
           travelDuration: "PT1H",
           mealDuration: "PT2H",
           restDuration: "PT8H",
-          waitingDuration: "PT1H",
+          waitingDuration: slack === "PT9H42M" ? "PT6H27M" : "PT1H",
           slackDuration: slack,
           requiredSlackDuration: reserved,
           overrunDuration: overrun,
@@ -1091,6 +1092,184 @@ describe("daily planning", () => {
     };
     expect(body.plan.days[0].activityIds).toEqual([second, first]);
     expect(body.plan.days[1]).toEqual(plan.days[1]);
+  });
+  it("drags the only activity across days and saves it exactly once", async () => {
+    const single = structuredClone(response);
+    single.plan.days[0].activityIds = [first];
+    single.plan.selectedActivityIds = [first];
+    vi.mocked(planningRequest).mockResolvedValue({ data: single, etag: '"1"' });
+    render(<DailyActivityPlan {...props} />);
+    const handle = await screen.findByRole("button", {
+      name: "Reorder Museum",
+    });
+    expect(handle).toBeEnabled();
+    handle.setPointerCapture = vi.fn();
+    const target = document.querySelector<HTMLElement>(
+      '[data-order-day="2027-06-15"]',
+    )!;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => target),
+    });
+    try {
+      fireEvent.pointerDown(handle, { pointerId: 1, button: 0 });
+      fireEvent.pointerMove(handle, {
+        pointerId: 1,
+        clientX: 100,
+        clientY: 200,
+      });
+      fireEvent.pointerUp(handle, { pointerId: 1 });
+      expect(target).toHaveTextContent("Museum");
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => expect(planningRequest).toHaveBeenCalledTimes(2));
+      const body = vi.mocked(planningRequest).mock.calls[1][1]!.body as {
+        plan: ActivityPlan;
+      };
+      expect(body.plan.days.map((day) => day.activityIds)).toEqual([
+        [],
+        [first],
+      ]);
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+  it("saves a single activity between breakfast and lunch without fixing its clock time", async () => {
+    const single = structuredClone(response);
+    single.plan.days[0].activityIds = [first];
+    single.plan.days[0].mealPositions = { breakfast: 0, lunch: 0, dinner: 0 };
+    single.plan.selectedActivityIds = [first];
+    vi.mocked(planningRequest).mockResolvedValue({ data: single, etag: '"1"' });
+    render(<DailyActivityPlan {...props} />);
+    const handle = await screen.findByRole("button", {
+      name: "Reorder Museum",
+    });
+    handle.setPointerCapture = vi.fn();
+    const lunch = screen.getAllByRole("listitem", { name: "Lunch" })[0];
+    vi.spyOn(lunch, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 100, 300, 100),
+    );
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => lunch),
+    });
+    try {
+      fireEvent.pointerDown(handle, { pointerId: 1, button: 0 });
+      fireEvent.pointerMove(handle, {
+        pointerId: 1,
+        clientX: 100,
+        clientY: 110,
+      });
+      fireEvent.pointerUp(handle, { pointerId: 1 });
+      const day = document.querySelector('[data-order-day="2027-06-10"]')!;
+      const rows = [
+        ...day.querySelectorAll("[data-order-meal], [data-order-index]"),
+      ];
+      expect(rows.map((row) => row.textContent)).toEqual([
+        expect.stringContaining("Breakfast"),
+        expect.stringContaining("Museum"),
+        expect.stringContaining("Lunch"),
+        expect.stringContaining("Dinner"),
+      ]);
+      await waitFor(() => expect(previewActivityPlan).toHaveBeenCalled());
+      const draft = vi.mocked(previewActivityPlan).mock.calls.at(-1)![1];
+      expect(draft.days[0].mealPositions).toEqual({
+        breakfast: 0,
+        lunch: 1,
+        dinner: 1,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => expect(planningRequest).toHaveBeenCalledTimes(2));
+      const body = vi.mocked(planningRequest).mock.calls[1][1]!.body as {
+        plan: ActivityPlan;
+      };
+      expect(body.plan.days[0].mealPositions).toEqual({
+        breakfast: 0,
+        lunch: 1,
+        dinner: 1,
+      });
+      expect(body.plan.rules).toEqual(single.plan.rules);
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
+  it.each([
+    [0, { breakfast: 1, lunch: 1, dinner: 1 }],
+    [1, { breakfast: 0, lunch: 1, dinner: 1 }],
+    [2, { breakfast: 0, lunch: 0, dinner: 1 }],
+    [3, { breakfast: 0, lunch: 0, dinner: 0 }],
+  ])(
+    "retains the selected meal interval %s through moves and removal",
+    (mealsBefore, expected) => {
+      const single = {
+        ...plan,
+        selectedActivityIds: [first],
+        days: [
+          {
+            ...plan.days[0],
+            activityIds: [first],
+            mealPositions: { breakfast: 0, lunch: 0, dinner: 0 },
+          },
+          plan.days[1],
+        ],
+      };
+      const moved = moveActivity(
+        single,
+        first,
+        single.days[1].date,
+        0,
+        mealsBefore,
+      );
+      expect(moved.days[0].mealPositions).toEqual({
+        breakfast: 0,
+        lunch: 0,
+        dinner: 0,
+      });
+      expect(moved.days[1].mealPositions).toEqual(expected);
+      expect(moved.days.map((d) => d.activityIds)).toEqual([[], [first]]);
+      expect(
+        chooseActivity(moved, first, "idea").days[1].mealPositions,
+      ).toEqual({ breakfast: 0, lunch: 0, dinner: 0 });
+    },
+  );
+  it("shows destination-local sunrise and sunset on every visit day, including empty days", async () => {
+    render(
+      <DailyActivityPlan
+        {...props}
+        destination={{
+          type: "Feature",
+          id: "sapporo-jp",
+          geometry: { type: "Point", coordinates: [141.3545, 43.0618] },
+          properties: {
+            name: "Sapporo",
+            countryCode: "JP",
+            timeZone: "Asia/Tokyo",
+            contextVersion: "context-1",
+            arrivalDate: "2027-06-10",
+            departureDate: "2027-06-15",
+            stays: [],
+            isActive: true,
+          },
+        }}
+      />,
+    );
+    const rises = await screen.findAllByRole("listitem", { name: "Sunrise" });
+    expect(rises).toHaveLength(2);
+    expect(screen.getAllByRole("listitem", { name: "Sunset" })).toHaveLength(2);
+    for (const rise of rises) {
+      // Sapporo's June sunrise is before 04:00, even when the traveller's
+      // browser or an old plan carries another time zone.
+      expect(rise.querySelector("time")).toHaveTextContent(/^03:/);
+      const group = rise.closest("[data-order-day]")!;
+      const instant = rise.querySelector("time")!.getAttribute("datetime")!;
+      const local = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(instant));
+      expect(local).toBe(group.getAttribute("data-order-day"));
+    }
   });
   it("reports stale saves and retains the local draft for review", async () => {
     render(<DailyActivityPlan {...props} />);

@@ -1743,6 +1743,7 @@ export default function ActivityPlanning({
               key={`${trip.id}-${destination.id}`}
               tripId={trip.id}
               destinationId={destination.id}
+              destination={destination}
               activities={activities.features}
               readOnly={!canEdit}
               useAiAllowed={canGenerate}

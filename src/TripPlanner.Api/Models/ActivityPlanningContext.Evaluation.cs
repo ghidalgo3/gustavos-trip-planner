@@ -414,32 +414,39 @@ public sealed partial record ActivityPlanningContext
                 // the last. Keep conflicting bookings at their requested times and report them.
                 while (
                     pending.TryPeek(out var meal)
-                    && (stayLocation is not null || meal.Name != "dinner" || lastWithoutStay)
                     && (
-                        lastWithoutStay
-                        || entries.Count == 0 && meal.Name == "breakfast"
-                        || TimeZoneInfo.ConvertTime(cursor.Add(duration), zone).TimeOfDay
-                            >= meal.Target.ToTimeSpan()
-                    )
-                    && (
-                        lastWithoutStay
-                        || stayLocation is null && entries.Count == 0 && meal.Name == "breakfast"
-                        || fixedTime is null
-                        || cursor.Add(
-                            meal.Duration
-                                + Travel(
-                                    plan,
-                                    day,
-                                    previous,
-                                    id,
-                                    cursor.Add(meal.Duration),
-                                    now
-                                ).Duration
-                        ) <= fixedTime
+                        day.MealPositions is { } positions
+                            ? positions.Before(meal.Name) <= entries.Count
+                            : (stayLocation is not null || meal.Name != "dinner" || lastWithoutStay)
+                                && (
+                                    lastWithoutStay
+                                    || entries.Count == 0 && meal.Name == "breakfast"
+                                    || TimeZoneInfo
+                                        .ConvertTime(cursor.Add(duration), zone)
+                                        .TimeOfDay >= meal.Target.ToTimeSpan()
+                                )
+                                && (
+                                    lastWithoutStay
+                                    || stayLocation is null
+                                        && entries.Count == 0
+                                        && meal.Name == "breakfast"
+                                    || fixedTime is null
+                                    || cursor.Add(
+                                        meal.Duration
+                                            + Travel(
+                                                plan,
+                                                day,
+                                                previous,
+                                                id,
+                                                cursor.Add(meal.Duration),
+                                                now
+                                            ).Duration
+                                    ) <= fixedTime
+                                )
                     )
                 )
                 {
-                    AddMeal(respectTarget: lastWithoutStay);
+                    AddMeal(respectTarget: day.MealPositions is not null || lastWithoutStay);
                 }
 
                 var leg = Travel(plan, day, previous, id, cursor, now) with { Departure = cursor };
@@ -662,13 +669,15 @@ public sealed partial record ActivityPlanningContext
             }
             while (pending.Count > 0)
             {
-                AddMeal();
+                AddMeal(respectTarget: day.MealPositions is not null);
             }
 
             TimeSpan activityDuration = Sum(entries.Select(e => e.Duration)),
                 travelDuration = Sum(travel.Select(t => t.Duration)),
                 mealDuration = Sum(breaks.Select(b => b.Duration));
-            TimeSpan free = available - activityDuration - travelDuration - mealDuration - waiting;
+            // Gaps before meals, bookings, or opening hours remain available for
+            // other activities. Actual transit waiting is already part of travel.
+            TimeSpan free = available - activityDuration - travelDuration - mealDuration;
             TimeSpan overrun = Max(
                 TimeSpan.Zero,
                 Max(cursor - limit, settings.SlackDuration - free)

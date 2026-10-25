@@ -94,6 +94,11 @@ public sealed record ActivityPlanDay(
 {
     public DailyPlanningSettings? Settings { get; init; }
 
+    [Description(
+        "Optional manual meal positions: the number of activities before each meal. Omit to let the scheduler place meals. Start times remain calculated from durations, travel, opening hours, and bookings."
+    )]
+    public ActivityMealPositions? MealPositions { get; init; }
+
     [ClockTime, JsonConverter(typeof(IsoTimeOnlyConverter))]
     public TimeOnly? AvailableFrom { get; init; }
 
@@ -103,6 +108,22 @@ public sealed record ActivityPlanDay(
 
     [Required, MaxLength(200)]
     public ActivityFlightMatch[] FlightMatches { get; init; } = [];
+}
+
+public sealed record ActivityMealPositions(
+    [property: Range(0, 1000)] int Breakfast,
+    [property: Range(0, 1000)] int Lunch,
+    [property: Range(0, 1000)] int Dinner
+)
+{
+    public int Before(string meal) =>
+        meal switch
+        {
+            "breakfast" => Breakfast,
+            "lunch" => Lunch,
+            "dinner" => Dinner,
+            _ => throw new ArgumentOutOfRangeException(nameof(meal)),
+        };
 }
 
 public sealed record ActivityFlightMatch(
@@ -209,8 +230,16 @@ public sealed record ActivityDayAssessment(
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan TravelDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan MealDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan RestDuration,
-    [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan WaitingDuration,
-    [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan SlackDuration,
+    [property: Description(
+        "Unallocated gaps before meals, bookings, or opening hours. Included in slackDuration, not deducted from free time."
+    )]
+    [property: JsonConverter(typeof(IsoDurationConverter))]
+        TimeSpan WaitingDuration,
+    [property: Description(
+        "All unallocated time within the available day, including gaps between scheduled items, before required slack is reserved."
+    )]
+    [property: JsonConverter(typeof(IsoDurationConverter))]
+        TimeSpan SlackDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan RequiredSlackDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan OverrunDuration,
     ActivityScheduleEntry[] Entries,

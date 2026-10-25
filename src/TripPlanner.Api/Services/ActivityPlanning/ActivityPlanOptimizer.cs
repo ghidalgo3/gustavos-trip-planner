@@ -259,7 +259,7 @@ public sealed class ActivityPlanOptimizer(
             SelectedActivityIds = [],
             Days = original
                 .Days.OrderBy(d => d.Date)
-                .Select(d => d with { ActivityIds = [] })
+                .Select(d => d with { ActivityIds = [], MealPositions = null })
                 .ToArray(),
         };
         var rules = original.Rules.ToDictionary(r => r.ActivityId);
@@ -314,6 +314,7 @@ public sealed class ActivityPlanOptimizer(
                                 at == d
                                     ? day with
                                     {
+                                        MealPositions = null,
                                         ActivityIds = [.. day.ActivityIds, activity.Id],
                                     }
                                     : day
@@ -824,6 +825,7 @@ public sealed class ActivityPlanOptimizer(
                     (d, index) =>
                         d with
                         {
+                            MealPositions = null,
                             ActivityIds = model
                                 .Activities.Select((a, i) => (Activity: a, Index: i))
                                 .Where(a => value(model.Assigned[a.Index, index]) != 0)
@@ -969,6 +971,7 @@ public sealed class ActivityPlanOptimizer(
                         .Days.Select(d =>
                             d with
                             {
+                                MealPositions = null,
                                 ActivityIds = d.ActivityIds.Where(a => a != id).ToArray(),
                             }
                         )
@@ -976,6 +979,7 @@ public sealed class ActivityPlanOptimizer(
                             d.Date == day.Date && d.StayId == day.StayId
                                 ? d with
                                 {
+                                    MealPositions = null,
                                     ActivityIds = d
                                         .ActivityIds.Take(index)
                                         .Append(id)
@@ -1020,6 +1024,7 @@ public sealed class ActivityPlanOptimizer(
                         .Days.Select(d =>
                             d with
                             {
+                                MealPositions = null,
                                 ActivityIds = d.ActivityIds.Where(a => a != id).ToArray(),
                             }
                         )

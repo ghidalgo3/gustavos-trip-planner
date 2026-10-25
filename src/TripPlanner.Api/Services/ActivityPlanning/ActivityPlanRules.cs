@@ -102,6 +102,13 @@ public static class ActivityPlanRules
                     d with
                     {
                         ActivityIds = d.ActivityIds.Where(selected.Contains).ToArray(),
+                        MealPositions = d.MealPositions is { } meals
+                            ? new(
+                                d.ActivityIds.Take(meals.Breakfast).Count(selected.Contains),
+                                d.ActivityIds.Take(meals.Lunch).Count(selected.Contains),
+                                d.ActivityIds.Take(meals.Dinner).Count(selected.Contains)
+                            )
+                            : null,
                     }
                 )
                 .ToArray(),
@@ -227,6 +234,24 @@ public static class ActivityPlanRules
             )
             {
                 errors["days"] = ["Use one shared schedule per local date."];
+            }
+
+            if (
+                plan.Days.Any(d =>
+                    d.MealPositions is { } meals
+                    && (
+                        meals.Breakfast < 0
+                        || meals.Lunch < meals.Breakfast
+                        || meals.Dinner < meals.Lunch
+                        || meals.Dinner > d.ActivityIds.Length
+                    )
+                )
+            )
+            {
+                errors["mealPositions"] =
+                [
+                    "Meal positions must follow breakfast, lunch, dinner order and fall within the day's activities.",
+                ];
             }
 
             var scheduled = plan.Days.SelectMany(d => d.ActivityIds).ToArray();

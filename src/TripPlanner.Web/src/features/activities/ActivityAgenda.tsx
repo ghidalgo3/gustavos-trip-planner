@@ -1,3 +1,5 @@
+import { addDaylightDividers } from "./AgendaDaylight";
+import type { SolarLocation } from "../../shared/time/daylight";
 import ActivityOrderHandle from "./ActivityOrderHandle";
 import {
   CalendarLtr24Regular,
@@ -7,7 +9,12 @@ import {
 } from "@fluentui/react-icons";
 import { useId, useState, type ReactNode } from "react";
 import type { Activity } from "./activitiesApi";
-import type { ActivityPlan, PlanAssessment, PlanDay } from "./activityPlanApi";
+import {
+  agendaMealPositions,
+  type ActivityPlan,
+  type PlanAssessment,
+  type PlanDay,
+} from "./activityPlanApi";
 import { durationMinutes } from "../../shared/time/durations";
 
 const dateLabel = (date: string) =>
@@ -20,6 +27,7 @@ const dateLabel = (date: string) =>
 export default function ActivityAgenda({
   plan,
   activities,
+  location,
   assessment,
   assessmentError,
   disabled,
@@ -32,6 +40,7 @@ export default function ActivityAgenda({
 }: {
   plan: ActivityPlan;
   activities: Activity[];
+  location?: SolarLocation;
   assessment?: PlanAssessment;
   assessmentError?: string;
   disabled: boolean;
@@ -39,7 +48,12 @@ export default function ActivityAgenda({
   onChooseActivities?: () => void;
   onSchedule?: () => void;
   onSelect: (id: string) => void;
-  onMove: (id: string, date: string | null, index?: number) => void;
+  onMove: (
+    id: string,
+    date: string | null,
+    index?: number,
+    mealsBefore?: number,
+  ) => void;
   onRemove: (id: string) => void;
 }) {
   const agendaId = useId();
@@ -76,6 +90,7 @@ export default function ActivityAgenda({
         className="agenda-item"
         key={id}
         data-order-index={day ? index : undefined}
+        data-agenda-time={entry?.start?.slice(0, 16)}
       >
         <div className="agenda-time">
           {day ? (
@@ -96,6 +111,9 @@ export default function ActivityAgenda({
                 count={day.activityIds.length}
                 disabled={disabled}
                 onMove={(position) => onMove(id, day.date, position)}
+                onMoveToDay={(date, position, mealsBefore) =>
+                  onMove(id, date, position, mealsBefore)
+                }
               />
             )}
             <button
@@ -152,12 +170,37 @@ export default function ActivityAgenda({
     const evaluatedDay = assessment?.days.find(
       (item) => item.stayId === day.stayId && item.date === day.date,
     );
+    const positions = agendaMealPositions(plan, day, assessment);
     const meals: ReactNode[][] = Array.from(
       { length: day.activityIds.length + 1 },
       () => [],
     );
-    const routine = (name: string, time: string | null, detail: string) => (
-      <li className="agenda-item agenda-routine" key={name} aria-label={name}>
+    const routine = (
+      name: string,
+      time: string | null,
+      detail: string,
+      meal?: string,
+      timestamp?: string,
+    ) => (
+      <li
+        className="agenda-item agenda-routine"
+        key={name}
+        aria-label={name}
+        data-agenda-time={
+          timestamp ??
+          (time
+            ? `${
+                name === "Sleep" && settings.sleepStart <= settings.sleepEnd
+                  ? new Date(Date.parse(`${day.date}T12:00:00Z`) + 86_400_000)
+                      .toISOString()
+                      .slice(0, 10)
+                  : day.date
+              }T${time}`
+            : undefined)
+        }
+        data-order-meal={meal}
+        data-order-boundary={!meal ? name : undefined}
+      >
         <div className="agenda-time">
           <span>{time ?? "—"}</span>
         </div>
@@ -213,6 +256,7 @@ export default function ActivityAgenda({
           className="agenda-item agenda-travel"
           key={`travel-${from}-${to}`}
           aria-label={label}
+          data-agenda-time={leg?.departure?.slice(0, 16)}
         >
           <div className="agenda-time">
             <ArrowRight20Regular aria-hidden="true" />
@@ -233,7 +277,7 @@ export default function ActivityAgenda({
       ["breakfast", "Breakfast", settings.breakfastDuration],
       ["lunch", "Lunch", settings.lunchDuration],
       ["dinner", "Dinner", settings.dinnerDuration],
-    ]) {
+    ] as const) {
       const mealBreak = evaluatedDay?.breaks.find((item) => item.name === meal);
       const coveringActivities = day.activityIds.filter((id) =>
         plan.rules.some(
@@ -261,42 +305,41 @@ export default function ActivityAgenda({
         remaining > 0
           ? `${remaining} min${included ? " additional" : ""} · ${mealBreak?.start ? "Estimated" : "Time not set"}${included ? ` · ${included}` : ""}`
           : included || "No time reserved";
-      let slot = meal === "breakfast" ? 0 : day.activityIds.length;
-      if (mealBreak?.start) {
-        const nextActivity = day.activityIds.findIndex((id) => {
-          const start = evaluatedDay?.entries.find(
-            (entry) => entry.activityId === id,
-          )?.start;
-          return start && Date.parse(start) >= Date.parse(mealBreak.start!);
-        });
-        slot = nextActivity < 0 ? day.activityIds.length : nextActivity;
-      } else if (coveringActivities.length > 0) {
-        slot = day.activityIds.indexOf(coveringActivities[0]) + 1;
-      }
+      const slot = positions[meal];
       meals[slot].push(
-        routine(label, mealBreak?.start?.slice(11, 16) ?? null, detail),
+        routine(
+          label,
+          mealBreak?.start?.slice(11, 16) ?? null,
+          detail,
+          meal,
+          mealBreak?.start?.slice(0, 16),
+        ),
       );
     }
 
-    return [
-      routine("Wake up", settings.sleepEnd.slice(0, 5), "Start of day"),
-      ...day.activityIds.flatMap((id, index) => [
-        ...meals[index],
-        travelCard(index === 0 ? null : day.activityIds[index - 1], id),
-        activityItem(id, day, index),
-      ]),
-      ...(day.activityIds.length > 0
-        ? [travelCard(day.activityIds.at(-1)!, null)]
-        : []),
-      ...meals[day.activityIds.length],
-      routine(
-        "Sleep",
-        settings.sleepStart.slice(0, 5),
-        settings.sleepStart <= settings.sleepEnd
-          ? "Bedtime · Next day"
-          : "Bedtime",
-      ),
-    ];
+    return addDaylightDividers(
+      [
+        routine("Wake up", settings.sleepEnd.slice(0, 5), "Start of day"),
+        ...day.activityIds.flatMap((id, index) => [
+          ...meals[index],
+          travelCard(index === 0 ? null : day.activityIds[index - 1], id),
+          activityItem(id, day, index),
+        ]),
+        ...(day.activityIds.length > 0
+          ? [travelCard(day.activityIds.at(-1)!, null)]
+          : []),
+        ...meals[day.activityIds.length],
+        routine(
+          "Sleep",
+          settings.sleepStart.slice(0, 5),
+          settings.sleepStart <= settings.sleepEnd
+            ? "Bedtime · Next day"
+            : "Bedtime",
+        ),
+      ],
+      day.date,
+      location,
+    );
   }
 
   function freeTime(day: PlanDay) {
@@ -323,7 +366,7 @@ export default function ActivityAgenda({
     return (
       <span
         className={overrun > 0 ? "agenda-overrun" : undefined}
-        title="After activities, travel, meals, waiting, and reserved slack. Updates as you edit."
+        title="After activities, travel, meals, and reserved slack. Gaps between scheduled items count as free time. Updates as you edit."
       >
         {overrun > 0 ? "0" : hours} h free{estimated ? " (estimated)" : ""}
         {overrun > 0 && ` · ${Math.ceil(overrun)} min over capacity`}
@@ -332,7 +375,7 @@ export default function ActivityAgenda({
   }
 
   return (
-    <div className="activity-agenda">
+    <div className="activity-agenda" data-order-agenda>
       {plan.selectedActivityIds.length === 0 && (
         <section className="agenda-empty" aria-label="Empty agenda">
           <CalendarLtr24Regular aria-hidden="true" />
@@ -345,7 +388,11 @@ export default function ActivityAgenda({
         </section>
       )}
       {unscheduled.length > 0 && (
-        <section aria-label="To schedule" className="agenda-group">
+        <section
+          aria-label="To schedule"
+          className="agenda-group"
+          data-order-day=""
+        >
           <header className="agenda-day-heading">
             <h3>To schedule</h3>
             <span>
@@ -394,6 +441,7 @@ export default function ActivityAgenda({
           return (
             <section
               className="agenda-group"
+              data-order-day={day.date}
               aria-label={dateLabel(day.date)}
               key={`${day.stayId}-${day.date}`}
             >

@@ -514,15 +514,39 @@ Plan opens as an agenda. Its map shows only Planned activities (along with the s
 It starts empty until activities are marked
 **Planned** in Ideas. Every dated visit day appears, including days with no activities.
 Tap a day header to collapse or expand its activities and daily routines.
-Drag an activity's dotted handle to reorder it within its day, using a mouse or
-touch. The handle also supports Up/Down arrow keys; Escape cancels a drag. Use the
-Day selector to move between days, and Save changes to keep manual edits.
+Small sunrise and sunset dividers appear at their chronological positions for each
+visit date, including before wake-up. Times are calculated locally with
+[SunCalc](https://github.com/mourner/suncalc) from the destination coordinates and
+time zone, including daylight saving time. They are approximate reference markers
+and do not reserve time or affect dragging or capacity. Polar days/nights show a
+short daylight note instead; missing location or time-zone data omits the markers.
+Drag an activity's dotted handle to reorder it or move it between days, using a
+mouse or touch. Drop before or after meals and activities, or on a day header to append
+it to that day, including empty or collapsed days. The insertion line marks the
+chosen boundary. Single activities can also be dragged. Up/Down arrow keys move
+through meals and activities within a day; Escape cancels a drag.
+The Day selector provides a keyboard alternative for moving between days. Choose
+Save changes to keep manual edits. Meal positions are saved with the day, and the
+server recalculates activity start times from this order, durations, travel, opening
+hours, and fixed bookings. A drag
+does not create a fixed-time booking. For example, a lone three-hour activity
+dropped after a 07:00 breakfast lasting 30 minutes starts at 07:30 when travel and
+opening hours impose no delay.
 Compact travel cards between activities show the assessed transport method and
 duration, with provisional routes labeled estimated. Assessed stay connections
 appear at the start and end of the route; missing travel times remain unknown.
-The header shows free hours after activities, travel, meals, waiting, and reserved
-slack; provisional figures are labeled estimated. Edits automatically preview the
-current draft after a short typing pause, without saving it. The preview uses the
+Manual day ordering uses optional `mealPositions: { breakfast, lunch, dinner }`,
+where each value counts activities before that meal. Counts must be ordered and
+within the day's activity count. Omitting it retains automatic meal placement.
+Generated schedule proposals use automatic meal placement; applying a proposal
+replaces the manual order along with the activity schedule.
+The header shows free hours after activities, travel, meals, and reserved slack;
+provisional figures are labeled estimated. Gaps before meals, bookings, or opening
+hours remain free time. The assessment's `waitingDuration` describes those gaps
+and is already included in `slackDuration`; it is not an additional time cost.
+Actual waiting within a transport journey remains part of its travel duration.
+Edits automatically preview the current draft after a short typing pause, without
+saving it. The preview uses the
 same server evaluator with cached evidence, makes no external provider calls, and
 creates no saved assessment or background job. Outdated responses are discarded.
 Overview destination cards let you edit dates by tapping the date range, with delete
@@ -541,7 +565,7 @@ before the first or after the last activity. Breakfast precedes the first activi
 the last activity starts after dinner (19:00 by default, plus its meal allowance).
 Dining activities can satisfy meal allowances without double-counting. Fixed times
 that conflict remain visible and are reported rather than silently moved.
-Meals, sleep, waiting, and slack still count;
+Meals, sleep, travel, and reserved slack still count;
 unknown travel between activities remains an estimate. Choosing accommodation
 with **Stay** on Overview adds those connections to subsequent assessments and
 scheduling. It refreshes routing evidence and respects fixed

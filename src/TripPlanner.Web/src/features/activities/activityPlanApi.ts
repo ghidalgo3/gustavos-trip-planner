@@ -12,10 +12,18 @@ export type DailySettings = {
   airportDepartureBufferDuration: string;
   airportTransferDuration: string;
 };
+export type MealPositions = {
+  breakfast: number;
+  lunch: number;
+  dinner: number;
+};
+export const mealNames = ["breakfast", "lunch", "dinner"] as const;
+
 export type PlanDay = {
   stayId: string;
   date: string;
   activityIds: string[];
+  mealPositions?: MealPositions | null;
   settings: DailySettings | null;
   availableFrom: string | null;
   availableUntil: string | null;
@@ -302,23 +310,109 @@ export function chooseActivity(
         : plan.days.map((d) => ({
             ...d,
             activityIds: d.activityIds.filter((x) => x !== id),
+            ...(d.mealPositions
+              ? { mealPositions: removeFromMeals(d, id) }
+              : {}),
           })),
   };
 }
+// Meal positions count activities before each routine, so a drag records order,
+// while the server remains responsible for calculating actual start times.
+export function agendaMealPositions(
+  plan: ActivityPlan,
+  day: PlanDay,
+  assessment?: PlanAssessment,
+): MealPositions {
+  if (day.mealPositions) return day.mealPositions;
+  const evaluated = assessment?.days.find(
+    (d) => d.stayId === day.stayId && d.date === day.date,
+  );
+  const inferred = Object.fromEntries(
+    mealNames.map((meal) => {
+      const mealBreak = evaluated?.breaks.find((b) => b.name === meal);
+      if (mealBreak?.start) {
+        const next = day.activityIds.findIndex((id) => {
+          const start = evaluated?.entries.find(
+            (e) => e.activityId === id,
+          )?.start;
+          return start && Date.parse(start) >= Date.parse(mealBreak.start!);
+        });
+        return [meal, next < 0 ? day.activityIds.length : next];
+      }
+      const covering = day.activityIds.findIndex((id) =>
+        plan.rules.some((r) => r.activityId === id && r.coversMeal === meal),
+      );
+      return [
+        meal,
+        covering >= 0
+          ? covering + 1
+          : meal === "breakfast"
+            ? 0
+            : day.activityIds.length,
+      ];
+    }),
+  ) as MealPositions;
+  // A meal included in an activity has no assessed break. Keep its virtual
+  // routine in meal order so every displayed drop produces a valid timeline.
+  return {
+    breakfast: inferred.breakfast,
+    lunch: Math.max(inferred.breakfast, inferred.lunch),
+    dinner: Math.max(inferred.breakfast, inferred.lunch, inferred.dinner),
+  };
+}
+
+function removeFromMeals(day: PlanDay, id: string): MealPositions {
+  const index = day.activityIds.indexOf(id);
+  return Object.fromEntries(
+    mealNames.map((meal) => {
+      const position = day.mealPositions![meal];
+      return [meal, position - (index >= 0 && index < position ? 1 : 0)];
+    }),
+  ) as MealPositions;
+}
+
 export function moveActivity(
   plan: ActivityPlan,
   id: string,
   targetDate: string | null,
   index?: number,
+  mealsBefore?: number,
+  assessment?: PlanAssessment,
 ): ActivityPlan {
   const selected = chooseActivity(plan, id, "selected");
   return {
     ...selected,
-    days: selected.days.map((d) => {
+    days: selected.days.map((original) => {
+      const involved =
+        original.date === targetDate || original.activityIds.includes(id);
+      const d =
+        mealsBefore !== undefined && involved
+          ? {
+              ...original,
+              mealPositions: agendaMealPositions(plan, original, assessment),
+            }
+          : original;
       const ids = d.activityIds.filter((x) => x !== id);
-      if (d.date === targetDate)
-        ids.splice(Math.min(index ?? ids.length, ids.length), 0, id);
-      return { ...d, activityIds: ids };
+      const positions = d.mealPositions ? removeFromMeals(d, id) : null;
+      if (d.date === targetDate) {
+        const at = Math.max(0, Math.min(index ?? ids.length, ids.length));
+        ids.splice(at, 0, id);
+        if (positions) {
+          mealNames.forEach((meal, mealIndex) => {
+            const beforeMeal =
+              positions[meal] > at ||
+              (positions[meal] === at &&
+                mealsBefore !== undefined &&
+                mealIndex >= mealsBefore);
+            if (beforeMeal) positions[meal]++;
+          });
+        }
+      }
+      return {
+        ...d,
+        activityIds: ids,
+        ...(positions ? { mealPositions: positions } : {}),
+      };
     }),
   };
 }

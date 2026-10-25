@@ -113,3 +113,143 @@ test("disabled handles cannot change the plan", () => {
   fireEvent.keyDown(handle, { key: "ArrowDown" });
   expect(move).not.toHaveBeenCalled();
 });
+
+test.each([
+  ["empty day", 0, false],
+  ["before another activity", 0, true],
+  ["after another activity", 1, true],
+  ["collapsed day", 1, false],
+] as const)("moves a single activity to %s", (label, position, hasTarget) => {
+  const move = vi.fn();
+  render(
+    <div data-order-agenda>
+      <section data-order-day="2027-06-10">
+        <ol>
+          <li data-order-index={0}>
+            <ActivityOrderHandle
+              name="Museum"
+              index={0}
+              count={1}
+              disabled={false}
+              onMove={vi.fn()}
+              onMoveToDay={move}
+            />
+          </li>
+        </ol>
+      </section>
+      <section data-order-day="2027-06-15" data-testid="destination">
+        <h3 data-testid="heading">Next day</h3>
+        <ol hidden={label === "collapsed day"}>
+          {(hasTarget || label === "collapsed day") && (
+            <li data-order-index={0} data-testid="destination-card">
+              Garden
+            </li>
+          )}
+        </ol>
+      </section>
+    </div>,
+  );
+  const handle = screen.getByRole("button", { name: "Reorder Museum" });
+  expect(handle).toBeEnabled();
+  handle.setPointerCapture = vi.fn();
+  const hit = screen.getByTestId(hasTarget ? "destination-card" : "heading");
+  vi.spyOn(hit, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 100, 300, 100),
+  );
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: vi.fn(() => hit),
+  });
+  fireEvent.pointerDown(handle, { pointerId: 1, button: 0 });
+  fireEvent.pointerMove(handle, {
+    pointerId: 1,
+    clientX: 100,
+    clientY: position === 0 ? 110 : 190,
+  });
+  expect(move).not.toHaveBeenCalled();
+  fireEvent.pointerUp(handle, { pointerId: 1 });
+  expect(move).toHaveBeenCalledExactlyOnceWith("2027-06-15", position);
+  expect(screen.getByTestId("destination")).not.toHaveAttribute(
+    "data-reorder-target",
+  );
+});
+
+test.each([
+  ["before lunch", 110, 1],
+  ["after lunch", 190, 2],
+] as const)(
+  "moves the only activity %s without changing its activity index",
+  (_label, y, mealsBefore) => {
+    const move = vi.fn();
+    render(
+      <div data-order-agenda>
+        <section data-order-day="2027-06-10">
+          <ol>
+            <li data-order-meal="breakfast">Breakfast</li>
+            <li data-order-meal="lunch" data-testid="lunch">
+              Lunch
+            </li>
+            <li data-order-meal="dinner">Dinner</li>
+            <li data-order-index={0}>
+              <ActivityOrderHandle
+                name="Museum"
+                index={0}
+                count={1}
+                disabled={false}
+                onMove={vi.fn()}
+                onMoveToDay={move}
+              />
+            </li>
+          </ol>
+        </section>
+      </div>,
+    );
+    const handle = screen.getByRole("button", { name: "Reorder Museum" });
+    handle.setPointerCapture = vi.fn();
+    const lunch = screen.getByTestId("lunch");
+    vi.spyOn(lunch, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 100, 300, 100),
+    );
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => lunch),
+    });
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 100, clientY: y });
+    expect(lunch).toHaveAttribute(
+      "data-reorder-target",
+      mealsBefore === 1 ? "before" : "after",
+    );
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    expect(move).toHaveBeenCalledExactlyOnceWith("2027-06-10", 0, mealsBefore);
+  },
+);
+
+test("keyboard movement crosses meals for a single activity", () => {
+  const move = vi.fn();
+  render(
+    <div data-order-agenda>
+      <section data-order-day="2027-06-10">
+        <ol>
+          <li data-order-meal="breakfast">Breakfast</li>
+          <li data-order-meal="lunch">Lunch</li>
+          <li data-order-meal="dinner">Dinner</li>
+          <li data-order-index={0}>
+            <ActivityOrderHandle
+              name="Museum"
+              index={0}
+              count={1}
+              disabled={false}
+              onMove={vi.fn()}
+              onMoveToDay={move}
+            />
+          </li>
+        </ol>
+      </section>
+    </div>,
+  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Reorder Museum" }), {
+    key: "ArrowUp",
+  });
+  expect(move).toHaveBeenCalledExactlyOnceWith("2027-06-10", 0, 2);
+});

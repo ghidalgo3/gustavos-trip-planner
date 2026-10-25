@@ -171,6 +171,130 @@ public sealed class ActivityPlanningContextTests
         Assert.IsTrue(day.Entries[^1].Start >= day.Entries[0].End);
     }
 
+    [TestMethod]
+    [DataRow(0, 1, 1, 1, 7, 0)]
+    [DataRow(1, 0, 1, 1, 7, 30)]
+    [DataRow(2, 0, 0, 1, 13, 45)]
+    [DataRow(3, 0, 0, 0, 19, 45)]
+    public void ManualMealPositions_CalculateSingleActivityStart(
+        int mealsBefore,
+        int breakfast,
+        int lunch,
+        int dinner,
+        int hour,
+        int minute
+    )
+    {
+        var context = Context(TimeSpan.FromHours(3)) with
+        {
+            StayLocations = new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>(),
+        };
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days = [plan.Days[0] with { MealPositions = new(breakfast, lunch, dinner) }],
+        };
+        var result = context.Evaluate(plan, Now);
+        var day = result.Days.Single();
+        var entry = day.Entries.Single();
+        Assert.AreEqual(
+            new TimeOnly(hour, minute),
+            TimeOnly.FromDateTime(entry.Start!.Value.DateTime)
+        );
+        Assert.AreEqual(TimeSpan.FromHours(3), entry.End - entry.Start);
+        Assert.AreEqual(mealsBefore, day.Breaks.Count(b => b.End <= entry.Start));
+        Assert.IsFalse(plan.Rules.Any(r => r.FixedStart is not null));
+        Assert.AreEqual(TimeSpan.FromHours(11), day.SlackDuration);
+        Assert.AreEqual(TimeSpan.Zero, day.OverrunDuration);
+    }
+
+    [TestMethod]
+    public void ManualMealPositions_IncludeTravelAndOpeningHoursInCalculatedStart()
+    {
+        var context = Context(TimeSpan.FromHours(1));
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days = [plan.Days[0] with { MealPositions = new(0, 1, 1) }],
+            TransportOverrides = plan
+                .TransportOverrides.Select(t => t with { Duration = TimeSpan.FromMinutes(20) })
+                .ToArray(),
+            Rules = [plan.Rules[0] with { OpeningWindows = [new(Date, new(10, 0), new(17, 0))] }],
+        };
+        var day = context.Evaluate(plan, Now).Days.Single();
+        Assert.AreEqual(
+            new TimeOnly(10, 0),
+            TimeOnly.FromDateTime(day.Entries.Single().Start!.Value.DateTime)
+        );
+        Assert.AreEqual(TimeSpan.FromMinutes(40), day.TravelDuration);
+        Assert.IsTrue(day.Breaks.Single(b => b.Name == "lunch").Start >= day.Entries.Single().End);
+    }
+
+    [TestMethod]
+    public void FreeTime_IncludesMorningAndEveningGapsAroundMeals()
+    {
+        var context = Context(TimeSpan.FromHours(3));
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days = [plan.Days[0] with { MealPositions = new(0, 0, 1) }],
+            TransportOverrides = plan
+                .TransportOverrides.Select(t => t with { Duration = TimeSpan.FromMinutes(39) })
+                .ToArray(),
+        };
+        var day = context.Evaluate(plan, Now).Days.Single();
+        Assert.AreEqual(
+            new TimeOnly(14, 24),
+            TimeOnly.FromDateTime(day.Entries.Single().Start!.Value.DateTime)
+        );
+        Assert.AreEqual(
+            new TimeOnly(19, 0),
+            TimeOnly.FromDateTime(day.Breaks.Single(b => b.Name == "dinner").Start!.Value.DateTime)
+        );
+        Assert.AreEqual(TimeSpan.FromMinutes(387), day.WaitingDuration);
+        Assert.AreEqual(TimeSpan.FromMinutes(582), day.SlackDuration);
+        Assert.AreEqual(TimeSpan.FromMinutes(522), day.SlackDuration - day.RequiredSlackDuration);
+        Assert.AreEqual(TimeSpan.Zero, day.OverrunDuration);
+    }
+
+    [TestMethod]
+    [DataRow("meal")]
+    [DataRow("booking")]
+    [DataRow("opening")]
+    public void FreeTime_IncludesGapsBeforeScheduledItems(string gap)
+    {
+        var context = Context(TimeSpan.FromHours(1));
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days = [plan.Days[0] with { MealPositions = new(0, gap == "booking" ? 0 : 1, 1) }],
+            Rules =
+            [
+                plan.Rules[0] with
+                {
+                    FixedStart = gap == "booking" ? new TimeOnly(14, 0) : null,
+                    OpeningWindows = gap == "opening" ? [new(Date, new(14, 0), new(16, 0))] : [],
+                },
+            ],
+        };
+        var day = context.Evaluate(plan, Now).Days.Single();
+        Assert.IsTrue(day.WaitingDuration > TimeSpan.Zero);
+        Assert.AreEqual(TimeSpan.FromHours(13), day.SlackDuration);
+        Assert.AreEqual(TimeSpan.FromHours(12), day.SlackDuration - day.RequiredSlackDuration);
+        Assert.AreEqual(TimeSpan.Zero, day.OverrunDuration);
+    }
+
+    [TestMethod]
+    public void FreeTime_StillReportsActivityFinishingAfterBedtime()
+    {
+        var context = Context(TimeSpan.FromHours(4));
+        var plan = Plan(context);
+        plan = plan with { Days = [plan.Days[0] with { MealPositions = new(0, 0, 0) }] };
+        var day = context.Evaluate(plan, Now).Days.Single();
+        Assert.AreEqual(TimeSpan.FromHours(10), day.SlackDuration);
+        Assert.AreEqual(TimeSpan.FromMinutes(45), day.OverrunDuration);
+    }
+
     public static IEnumerable<object[]> CapacityCases =>
         [
             [TimeSpan.FromHours(13), TimeSpan.Zero],

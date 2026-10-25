@@ -52,4 +52,28 @@ public sealed class ActivityPlanRulesTests
         };
         Assert.IsTrue(ActivityPlanRules.Validate(duplicate, s).ContainsKey("days"));
     }
+
+    [TestMethod]
+    [DataRow(-1, 0, 0, false)]
+    [DataRow(1, 0, 1, false)]
+    [DataRow(0, 1, 2, false)]
+    [DataRow(0, 1, 1, true)]
+    public void ManualMealPositions_ValidateOrderAndActivityCount(
+        int breakfast,
+        int lunch,
+        int dinner,
+        bool valid
+    )
+    {
+        var context = Context(TimeSpan.FromHours(1));
+        var plan = Plan(context);
+        plan = plan with
+        {
+            Days = [plan.Days[0] with { MealPositions = new(breakfast, lunch, dinner) }],
+        };
+        Assert.AreEqual(
+            !valid,
+            ActivityPlanRules.Validate(plan, context).ContainsKey("mealPositions")
+        );
+    }
 }

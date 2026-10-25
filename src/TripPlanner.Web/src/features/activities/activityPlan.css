@@ -430,3 +430,32 @@
 .agenda-travel-card > span {
   color: var(--colorNeutralForeground2);
 }
+
+.agenda-daylight .agenda-time {
+  padding-top: 0;
+  justify-content: center;
+  color: var(--colorNeutralForeground3);
+  font-size: 0.75rem;
+}
+.agenda-daylight-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--colorNeutralForeground3);
+  font-size: 0.75rem;
+}
+.agenda-daylight-divider::before,
+.agenda-daylight-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--colorNeutralStroke2);
+}
+.agenda-daylight-divider svg {
+  flex-shrink: 0;
+}
+.agenda-daylight-note {
+  color: var(--colorNeutralForeground3);
+  font-size: 0.75rem;
+  text-align: center;
+}

@@ -8,6 +8,9 @@ type Drag = {
   list: Element | null;
   target?: HTMLElement;
   index: number;
+  destination?: HTMLElement;
+  mealsBefore?: number;
+  originalMealsBefore?: number;
   x: number;
   y: number;
   frame: number;
@@ -27,12 +30,18 @@ export default function ActivityOrderHandle({
   count,
   disabled,
   onMove,
+  onMoveToDay,
 }: {
   name: string;
   index: number;
   count: number;
   disabled: boolean;
   onMove: (index: number) => void;
+  onMoveToDay?: (
+    date: string | null,
+    index: number,
+    mealsBefore?: number,
+  ) => void;
 }) {
   const helpId = useId();
   const drag = useRef<Drag | undefined>(undefined);
@@ -47,13 +56,72 @@ export default function ActivityOrderHandle({
 
   function locate(current: Drag) {
     current.target?.removeAttribute("data-reorder-target");
-    const target = document
-      .elementFromPoint(current.x, current.y)
-      ?.closest<HTMLElement>("[data-order-index]");
+    const hit = document.elementFromPoint(current.x, current.y);
+    let target = hit?.closest<HTMLElement>(
+      "[data-order-index], [data-order-meal], [data-order-boundary]",
+    );
+    const destination = hit?.closest<HTMLElement>("[data-order-day]");
+    const source = current.card.closest("[data-order-day]");
+    const agenda = current.card.closest("[data-order-agenda]");
+    const acrossDays =
+      onMoveToDay &&
+      agenda &&
+      destination &&
+      destination.closest("[data-order-agenda]") === agenda;
     current.target = undefined;
+    current.destination = undefined;
+    current.mealsBefore = undefined;
     current.index = index;
+    if (acrossDays) {
+      if (target === current.card) return;
+      const sameDay = destination === source;
+      const rows = [
+        ...destination.querySelectorAll<HTMLElement>(
+          "[data-order-index], [data-order-meal], [data-order-boundary]",
+        ),
+      ];
+      // The space between rows belongs to the nearest timeline boundary.
+      if (!target && hit?.closest("ol") && rows.length) {
+        target = rows.reduce((nearest, row) => {
+          const distance = (element: HTMLElement) => {
+            const bounds = element.getBoundingClientRect();
+            return Math.abs(current.y - (bounds.top + bounds.bottom) / 2);
+          };
+          return distance(row) < distance(nearest) ? row : nearest;
+        });
+      }
+      if (target === current.card) return;
+      const bounds = target?.getBoundingClientRect();
+      const after =
+        target?.dataset.orderBoundary === "Wake up"
+          ? true
+          : target?.dataset.orderBoundary === "Sleep"
+            ? false
+            : bounds
+              ? current.y >= bounds.top + bounds.height / 2
+              : true;
+      const boundary = target
+        ? rows.indexOf(target) + (after ? 1 : 0)
+        : rows.length;
+      const preceding = rows.slice(0, boundary);
+      current.index = preceding.filter(
+        (row) =>
+          row.hasAttribute("data-order-index") &&
+          (!sameDay || row !== current.card),
+      ).length;
+      if (destination.querySelector("[data-order-meal]")) {
+        current.mealsBefore = preceding.filter((row) =>
+          row.hasAttribute("data-order-meal"),
+        ).length;
+      }
+      current.destination = destination;
+      current.target = target ?? destination;
+      current.target.dataset.reorderTarget = after ? "after" : "before";
+      return;
+    }
     if (
       !target ||
+      !target.hasAttribute("data-order-index") ||
       target.closest("ol") !== current.list ||
       target === current.card
     )
@@ -97,7 +165,23 @@ export default function ActivityOrderHandle({
     if (!current) return;
     drag.current = undefined;
     clearDrag(current);
-    if (!cancelled && !disabled && current.index !== index) {
+    const source = current.card.closest<HTMLElement>("[data-order-day]");
+    if (
+      !cancelled &&
+      !disabled &&
+      current.destination &&
+      onMoveToDay &&
+      (current.destination !== source ||
+        current.index !== index ||
+        current.mealsBefore !== current.originalMealsBefore)
+    ) {
+      const date = current.destination.dataset.orderDay || null;
+      if (current.mealsBefore === undefined) onMoveToDay(date, current.index);
+      else onMoveToDay(date, current.index, current.mealsBefore);
+      setAnnouncement(
+        `${name} moved to ${date ?? "To schedule"}, position ${current.index + 1}.`,
+      );
+    } else if (!cancelled && !disabled && current.index !== index) {
       onMove(current.index);
       setAnnouncement(
         `${name} moved to position ${current.index + 1} of ${count}.`,
@@ -112,10 +196,19 @@ export default function ActivityOrderHandle({
         className="activity-order-handle"
         aria-label={`Reorder ${name}`}
         aria-describedby={helpId}
-        title="Drag to reorder, or use the up and down arrow keys"
-        disabled={disabled || count < 2}
+        title={
+          onMoveToDay
+            ? "Drag between meals or activities, or to another day"
+            : "Drag to reorder, or use the up and down arrow keys"
+        }
+        disabled={disabled || (!onMoveToDay && count < 2)}
         onPointerDown={(event) => {
-          if (disabled || count < 2 || event.button !== 0 || drag.current)
+          if (
+            disabled ||
+            (!onMoveToDay && count < 2) ||
+            event.button !== 0 ||
+            drag.current
+          )
             return;
           const card =
             event.currentTarget.closest<HTMLElement>("[data-order-index]");
@@ -132,11 +225,23 @@ export default function ActivityOrderHandle({
             x: event.clientX,
             y: event.clientY,
             frame: 0,
+            originalMealsBefore: (() => {
+              const day = card.closest("[data-order-day]");
+              if (!day?.querySelector("[data-order-meal]")) return undefined;
+              const rows = [
+                ...day.querySelectorAll(
+                  "[data-order-index], [data-order-meal]",
+                ),
+              ];
+              return rows
+                .slice(0, rows.indexOf(card))
+                .filter((row) => row.hasAttribute("data-order-meal")).length;
+            })(),
           };
           drag.current = current;
           card.dataset.reorderDragging = "true";
           setAnnouncement(
-            `Moving ${name}. Release over another activity to reorder. Escape cancels.`,
+            `Moving ${name}. ${onMoveToDay ? "Release between meals or activities, or over a day, to move." : "Release over another activity to reorder."} Escape cancels.`,
           );
           scroll(current);
         }}
@@ -165,6 +270,30 @@ export default function ActivityOrderHandle({
           )
             return;
           event.preventDefault();
+          const card =
+            event.currentTarget.closest<HTMLElement>("[data-order-index]");
+          const day = card?.closest<HTMLElement>("[data-order-day]");
+          if (onMoveToDay && day?.querySelector("[data-order-meal]")) {
+            const rows = [
+              ...day.querySelectorAll("[data-order-index], [data-order-meal]"),
+            ];
+            const at = rows.indexOf(card!);
+            const up = event.key === "ArrowUp";
+            if ((up && at > 0) || (!up && at < rows.length - 1)) {
+              const preceding = rows.slice(0, at + (up ? -1 : 2));
+              const position = preceding.filter(
+                (row) => row.hasAttribute("data-order-index") && row !== card,
+              ).length;
+              const mealsBefore = preceding.filter((row) =>
+                row.hasAttribute("data-order-meal"),
+              ).length;
+              onMoveToDay(day.dataset.orderDay || null, position, mealsBefore);
+              setAnnouncement(
+                `${name} moved ${up ? "earlier" : "later"} in the day's agenda.`,
+              );
+            }
+            return;
+          }
           const target = Math.max(
             0,
             Math.min(count - 1, index + (event.key === "ArrowUp" ? -1 : 1)),
@@ -180,8 +309,11 @@ export default function ActivityOrderHandle({
         <ReOrderDotsVertical24Regular aria-hidden="true" />
       </button>
       <span id={helpId} className="visually-hidden">
-        Drag within this day to reorder. Use Up or Down to move by keyboard.
-        Escape cancels a drag.
+        {onMoveToDay
+          ? "Drag between meals or activities, or move between days, including empty or collapsed days. Use the Day selector to change days by keyboard."
+          : "Drag within this day to reorder."}{" "}
+        Use Up or Down to move through the agenda by keyboard. Escape cancels a
+        drag.
       </span>
       <span className="visually-hidden" role="status">
         {announcement}
