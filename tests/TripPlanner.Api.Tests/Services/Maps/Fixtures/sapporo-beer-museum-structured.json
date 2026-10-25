@@ -1,0 +1,350 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3669022,
+          43.0724223
+        ]
+      },
+      "bbox": [
+        141.35985219519597,
+        43.06855958242932,
+        141.37395220480403,
+        43.076285017570676
+      ],
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "geocodePoints": [
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Display"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3669022,
+                43.0724223
+              ]
+            }
+          },
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Route"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3669022,
+                43.0724223
+              ]
+            }
+          }
+        ],
+        "address": {
+          "addressLine": "9 Chome 1-1",
+          "streetName": "9 Chome 1",
+          "streetNumber": "1",
+          "postalCode": "065-0007",
+          "neighborhood": "Kita7johigashi",
+          "locality": "Sapporo",
+          "formattedAddress": "9 Chome 1-1, Kita7johigashi, Higashi-Ku, Sapporo, Hokkaido, 065-0007, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3672382,
+          43.0739915
+        ]
+      },
+      "bbox": [
+        141.36018801470303,
+        43.07012878242932,
+        141.37428838529698,
+        43.077854217570675
+      ],
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "geocodePoints": [
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Display"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3672382,
+                43.0739915
+              ]
+            }
+          },
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Route"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3672382,
+                43.0739915
+              ]
+            }
+          }
+        ],
+        "address": {
+          "addressLine": "9 Chome 1-1",
+          "streetName": "9 Chome 1",
+          "streetNumber": "1",
+          "postalCode": "065-0009",
+          "neighborhood": "Kita9johigashi",
+          "locality": "Sapporo",
+          "formattedAddress": "9 Chome 1-1, Kita9johigashi, Higashi-Ku, Sapporo, Hokkaido, 065-0009, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3636967,
+          43.0749441
+        ]
+      },
+      "bbox": [
+        141.35664640512573,
+        43.07108138242933,
+        141.37074699487425,
+        43.07880681757068
+      ],
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "geocodePoints": [
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Display"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3636967,
+                43.0749441
+              ]
+            }
+          },
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Route"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3636967,
+                43.0749441
+              ]
+            }
+          }
+        ],
+        "address": {
+          "addressLine": "7 Chome 1-1",
+          "streetName": "7 Chome 1",
+          "streetNumber": "1",
+          "postalCode": "065-0010",
+          "neighborhood": "Kita10johigashi",
+          "locality": "Sapporo",
+          "formattedAddress": "7 Chome 1-1, Kita10johigashi, Higashi-Ku, Sapporo, Hokkaido, 065-0010, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3631855,
+          43.0769216
+        ]
+      },
+      "bbox": [
+        141.35613497763737,
+        43.07305888242932,
+        141.3702360223626,
+        43.080784317570675
+      ],
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "geocodePoints": [
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Display"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3631855,
+                43.0769216
+              ]
+            }
+          },
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Route"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3631855,
+                43.0769216
+              ]
+            }
+          }
+        ],
+        "address": {
+          "addressLine": "7 Chome 1-1",
+          "streetName": "7 Chome 1",
+          "streetNumber": "1",
+          "postalCode": "065-0012",
+          "neighborhood": "Kita12johigashi",
+          "locality": "Sapporo",
+          "formattedAddress": "7 Chome 1-1, Kita12johigashi, Higashi-Ku, Sapporo, Hokkaido, 065-0012, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          141.3635885,
+          43.073697
+        ]
+      },
+      "bbox": [
+        141.3565383485782,
+        43.069834282429326,
+        141.37063865142179,
+        43.07755971757068
+      ],
+      "properties": {
+        "type": "Address",
+        "confidence": "Medium",
+        "matchCodes": [
+          "Ambiguous"
+        ],
+        "geocodePoints": [
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Display"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3635885,
+                43.073697
+              ]
+            }
+          },
+          {
+            "calculationMethod": "Rooftop",
+            "usageTypes": [
+              "Route"
+            ],
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                141.3635885,
+                43.073697
+              ]
+            }
+          }
+        ],
+        "address": {
+          "addressLine": "7 Chome 1-1",
+          "streetName": "7 Chome 1",
+          "streetNumber": "1",
+          "postalCode": "060-0909",
+          "neighborhood": "Kita9johigashi",
+          "locality": "Sapporo",
+          "formattedAddress": "7 Chome 1-1, Kita9johigashi, Higashi-Ku, Sapporo, Hokkaido, 060-0909, Japan",
+          "countryRegion": {
+            "name": "Japan",
+            "ISO": "JP"
+          },
+          "adminDistricts": [
+            {
+              "shortName": "Hokkaido"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

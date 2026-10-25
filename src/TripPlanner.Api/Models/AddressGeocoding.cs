@@ -19,4 +19,7 @@ public sealed record AddressLocationCandidate(
     string FormattedAddress,
     AddressMatchConfidence Confidence,
     bool Ambiguous
-);
+)
+{
+    public bool PostalCodeMismatch { get; init; }
+}

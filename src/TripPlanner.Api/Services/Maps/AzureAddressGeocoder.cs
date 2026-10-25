@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Spatial;
 using TripPlanner.Api.Models;
@@ -172,10 +173,17 @@ public sealed class AzureAddressGeocoder(
                 }
                 ambiguous = codes.EnumerateArray().Any(code => code.GetString() == "Ambiguous");
             }
+            string expectedPostalCode = NormalizePostalCode(postalCode);
+            string actualPostalCode = NormalizePostalCode(Text(address, "postalCode"));
+            bool postalMismatch =
+                expectedPostalCode.Length > 0 && expectedPostalCode != actualPostalCode;
             if (
-                !string.IsNullOrWhiteSpace(postalCode)
-                && NormalizePostalCode(postalCode)
-                    != NormalizePostalCode(Text(address, "postalCode"))
+                postalMismatch
+                && !IsIndividualPostalCodeAlternative(
+                    countryCode,
+                    expectedPostalCode,
+                    actualPostalCode
+                )
             )
             {
                 continue;
@@ -206,11 +214,14 @@ public sealed class AzureAddressGeocoder(
                     new(
                         point,
                         formatted,
-                        Text(properties, "confidence") == "High"
+                        !postalMismatch && Text(properties, "confidence") == "High"
                             ? AddressMatchConfidence.High
                             : AddressMatchConfidence.Medium,
-                        ambiguous
+                        ambiguous || postalMismatch
                     )
+                    {
+                        PostalCodeMismatch = postalMismatch,
+                    }
                 );
             }
         }
@@ -225,5 +236,26 @@ public sealed class AzureAddressGeocoder(
             : null;
 
     private static string NormalizePostalCode(string? value) =>
-        string.Concat((value ?? "").Where(char.IsLetterOrDigit)).ToUpperInvariant();
+        string.Concat((value ?? "").Normalize(NormalizationForm.FormKC).Where(char.IsLetterOrDigit))
+            .ToUpperInvariant();
+
+    // Japan Post reserves these ranges for individual delivery codes, including large
+    // organizations and PO boxes. They need not match a venue's geographic street postcode.
+    // Offer same-area street candidates for review; never auto-accept them as precise matches.
+    // https://www.post.japanpost.jp/service/search/zipcode/zipmanual/p04.html
+    private static bool IsIndividualPostalCodeAlternative(
+        string countryCode,
+        string expected,
+        string actual
+    ) =>
+        string.Equals(countryCode, "JP", StringComparison.OrdinalIgnoreCase)
+        && IsJapanesePostalCode(expected)
+        && IsJapanesePostalCode(actual)
+        && expected[3] == '8'
+        && expected[4] is >= '5' and <= '7'
+        && !(actual[3] == '8' && actual[4] is >= '5' and <= '7')
+        && expected.AsSpan(0, 3).SequenceEqual(actual.AsSpan(0, 3));
+
+    private static bool IsJapanesePostalCode(string value) =>
+        value.Length == 7 && value.All(c => c is >= '0' and <= '9');
 }

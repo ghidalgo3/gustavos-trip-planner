@@ -1649,43 +1649,116 @@ test.each(["duration", "cost", "dismiss"])(
   },
 );
 
-test("manually changing a researched duration clears its previous evidence", async () => {
-  const researched = {
-    ...activity,
-    properties: {
-      ...activity.properties,
-      durationEvidence: detailsSuggestion.duration.evidence,
-    },
-  };
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [researched],
-  });
-  vi.mocked(getActivity).mockResolvedValue({
-    activity: researched,
-    etag: '"7"',
-  });
-  show();
-  click(await screen.findByRole("button", { name: "Louvre" }));
-  click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
-  const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
-  expect(
-    within(drawer).queryByRole("button", {
-      name: "Research duration and cost",
-    }),
-  ).not.toBeInTheDocument();
-  expect(
-    within(drawer).getByRole("link", { name: "Duration source" }),
-  ).toBeVisible();
-  change(within(drawer).getByLabelText("Duration, minutes"), {
-    target: { value: "180" },
-  });
-  click(within(drawer).getByRole("button", { name: "Save activity" }));
-  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
-  expect(
-    vi.mocked(saveActivity).mock.calls[0][2].properties.durationEvidence,
-  ).toBeNull();
-});
+test.each([
+  [0.5, "PT30M", "30 min"],
+  [1.5, "PT90M", "1 hour 30 min"],
+  [12, "PT720M", "12 hours"],
+])(
+  "duration slider saves %s hours as an ISO duration",
+  async (hours, expected, text) => {
+    show();
+    const drawer = await add();
+    change(within(drawer).getByLabelText("Name"), {
+      target: { value: "Explore the museum" },
+    });
+    const slider = within(drawer).getByRole("slider", { name: "Duration" });
+    expect(slider).toHaveAttribute("min", "0.5");
+    expect(slider).toHaveAttribute("max", "12");
+    expect(slider).toHaveAttribute("step", "0.5");
+    if (hours === 0.5)
+      click(within(drawer).getByRole("button", { name: "Use 30 min" }));
+    else change(slider, { target: { value: String(hours) } });
+    expect(slider).toHaveAttribute("aria-valuetext", text);
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    expect(vi.mocked(saveActivity).mock.calls[0][2].properties.duration).toBe(
+      expected,
+    );
+  },
+);
+
+test.each([null, "PT45M", "PT13H"])(
+  "opening an activity keeps its existing duration %s until explicitly adjusted",
+  async (duration) => {
+    const existing = {
+      ...activity,
+      properties: { ...activity.properties, duration },
+    };
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [existing],
+    });
+    vi.mocked(getActivity).mockResolvedValue({
+      activity: existing,
+      etag: '"7"',
+    });
+    show();
+    click(await screen.findByRole("button", { name: "Louvre" }));
+    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    expect(
+      within(drawer).getByText(
+        duration === null
+          ? "Not set"
+          : duration === "PT45M"
+            ? "45 min"
+            : "13 hours",
+      ),
+    ).toBeVisible();
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    expect(vi.mocked(saveActivity).mock.calls[0][2].properties.duration).toBe(
+      duration,
+    );
+  },
+);
+
+test.each([3, null])(
+  "manually changing a researched duration to %s clears its previous evidence",
+  async (hours) => {
+    const researched = {
+      ...activity,
+      properties: {
+        ...activity.properties,
+        durationEvidence: detailsSuggestion.duration.evidence,
+      },
+    };
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [researched],
+    });
+    vi.mocked(getActivity).mockResolvedValue({
+      activity: researched,
+      etag: '"7"',
+    });
+    show();
+    click(await screen.findByRole("button", { name: "Louvre" }));
+    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    expect(
+      within(drawer).queryByRole("button", {
+        name: "Research duration and cost",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(drawer).getByRole("link", { name: "Duration source" }),
+    ).toBeVisible();
+    if (hours === null)
+      click(within(drawer).getByRole("button", { name: "Clear duration" }));
+    else
+      change(within(drawer).getByRole("slider", { name: "Duration" }), {
+        target: { value: String(hours) },
+      });
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    expect(
+      vi.mocked(saveActivity).mock.calls[0][2].properties.durationEvidence,
+    ).toBeNull();
+    expect(vi.mocked(saveActivity).mock.calls[0][2].properties.duration).toBe(
+      hours === null ? null : "PT180M",
+    );
+  },
+);
 
 test.each(["empty", "failure"])(
   "research %s keeps the editor values and shows a toast",
@@ -1717,7 +1790,9 @@ test.each(["empty", "failure"])(
     expect(
       (await screen.findByText(message)).closest(".fui-Toast"),
     ).not.toBeNull();
-    expect(within(drawer).getByLabelText("Duration, minutes")).toHaveValue(120);
+    expect(
+      within(drawer).getByRole("slider", { name: "Duration" }),
+    ).toHaveValue("2");
     expect(saveActivity).not.toHaveBeenCalled();
   },
 );

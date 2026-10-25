@@ -120,10 +120,12 @@ public sealed class VenueAddressLookup(IAddressGeocoder places, ILogger<VenueAdd
                 venue.Address,
                 venue.Source,
                 location.Geometry,
-                location.Confidence == AddressMatchConfidence.Medium
-                || location.Ambiguous
-                || locations.Count > 1
-                    ? "Possible address match. Check the map address and pin before saving."
+                location.PostalCodeMismatch
+                        ? "The venue and map postcodes differ. The venue may use an organization-specific mailing postcode. Check the street address and map pin before saving."
+                    : location.Confidence == AddressMatchConfidence.Medium
+                    || location.Ambiguous
+                    || locations.Count > 1
+                        ? "Possible address match. Check the map address and pin before saving."
                     : null
             )
             {

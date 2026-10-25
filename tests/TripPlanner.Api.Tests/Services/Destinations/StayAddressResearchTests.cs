@@ -121,7 +121,11 @@ public sealed class StayAddressResearchTests
     }
 
     [TestMethod]
-    public async Task AmbiguousStreetAddressesBecomeDistinctReviewableStayOptions()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AmbiguousStreetAddressesBecomeDistinctReviewableStayOptions(
+        bool postalMismatch
+    )
     {
         var venue = new VenueResearch();
         var candidates = new[]
@@ -131,13 +135,19 @@ public sealed class StayAddressResearchTests
                 "3-29-17 Shibuya, Tokyo",
                 AddressMatchConfidence.Medium,
                 true
-            ),
+            )
+            {
+                PostalCodeMismatch = postalMismatch,
+            },
             new AddressLocationCandidate(
                 new("Point", GeographyPoint.Create(35.656, 139.704)),
                 "3-29 Shibuya, Tokyo",
                 AddressMatchConfidence.Medium,
                 true
-            ),
+            )
+            {
+                PostalCodeMismatch = postalMismatch,
+            },
         };
         var results = await new StayAddressResearch(
             venue,
@@ -147,6 +157,14 @@ public sealed class StayAddressResearchTests
             )
         ).FindAsync("Hotel", Destination, default);
         Assert.HasCount(2, results);
+        if (postalMismatch)
+        {
+            Assert.IsTrue(
+                results.All(result =>
+                    result.Warning!.Contains("postcodes differ", StringComparison.Ordinal)
+                )
+            );
+        }
         CollectionAssert.AreEqual(
             candidates.Select(candidate => candidate.FormattedAddress).ToArray(),
             results.Select(result => result.MapAddress).ToArray()

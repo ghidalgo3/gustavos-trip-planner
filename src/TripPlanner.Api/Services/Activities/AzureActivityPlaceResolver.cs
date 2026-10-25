@@ -52,7 +52,9 @@ public sealed class AzureActivityPlaceResolver(
         );
         var precise = candidates
             .Where(candidate =>
-                candidate.Confidence == AddressMatchConfidence.High && !candidate.Ambiguous
+                candidate.Confidence == AddressMatchConfidence.High
+                && !candidate.Ambiguous
+                && !candidate.PostalCodeMismatch
             )
             .ToArray();
         // Activity jobs cannot accept a tentative location on the user's behalf.

@@ -3,10 +3,7 @@ import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton
 import { trackBehavior } from "../../telemetry/telemetry";
 import { findActivityLocations } from "./findActivityLocations";
 import { useActionToast } from "../../shared/hooks/useActionToast";
-import {
-  durationFromMinutes,
-  durationMinutes,
-} from "../../shared/time/durations";
+import { durationMinutes } from "../../shared/time/durations";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -62,6 +59,7 @@ import ActivityDetailsResearch, {
   ActivityDetailsEvidence,
 } from "./ActivityDetailsResearch";
 import ActivityLinksEditor from "./ActivityLinksEditor";
+import ActivityDurationSlider from "./ActivityDurationSlider";
 import { validActivityLink } from "./activityLinks";
 import ActivityMap from "../../maps/ActivityMap";
 import DailyActivityPlan from "./DailyActivityPlan";
@@ -1385,25 +1383,11 @@ export default function ActivityPlanning({
                   notify={notify}
                 />
                 <div className="activity-editor-grid">
-                  <label>
-                    Duration, minutes
-                    <Input
-                      type="number"
-                      min={1}
-                      value={
-                        durationMinutes(
-                          editor.value.properties.duration,
-                        )?.toString() ?? ""
-                      }
-                      onChange={(_, data) =>
-                        updateEditor({
-                          duration: data.value
-                            ? durationFromMinutes(Number(data.value))
-                            : null,
-                        })
-                      }
-                    />
-                  </label>
+                  <ActivityDurationSlider
+                    value={editor.value.properties.duration}
+                    disabled={busy}
+                    onChange={(duration) => updateEditor({ duration })}
+                  />
                   <label>
                     Cost amount
                     <Input

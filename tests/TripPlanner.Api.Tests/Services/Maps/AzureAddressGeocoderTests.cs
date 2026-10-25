@@ -22,6 +22,87 @@ public sealed class AzureAddressGeocoderTests
     );
 
     [TestMethod]
+    public async Task SapporoBeerMuseum_IndividualMailingPostcodeAllowsReviewableStreetCandidates()
+    {
+        using var handler = new Responses(
+            Fixture("sapporo-beer-museum-freeform"),
+            Fixture("sapporo-beer-museum-structured")
+        );
+        var candidates = await Geocoder(handler)
+            .FindAsync(
+                "〒065-8633 北海道札幌市東区北7条東9丁目1-1, Japan",
+                "Sapporo",
+                "JP",
+                default,
+                Center,
+                new("北7条東9丁目1-1", "札幌市東区", "北海道", "065-8633")
+            );
+        Assert.IsNotEmpty(candidates);
+        StringAssert.Contains(candidates[0].FormattedAddress, "Kita7johigashi");
+        StringAssert.Contains(candidates[0].FormattedAddress, "065-0007");
+        Assert.IsTrue(
+            candidates.All(candidate =>
+                candidate.PostalCodeMismatch
+                && candidate.Ambiguous
+                && candidate.Confidence == AddressMatchConfidence.Medium
+            )
+        );
+        Assert.IsFalse(
+            candidates.Any(candidate =>
+                candidate.FormattedAddress.Contains("060-", StringComparison.Ordinal)
+            )
+        );
+        Assert.HasCount(2, handler.Urls);
+    }
+
+    [TestMethod]
+    [DataRow("JP", "065-8633", "065-0007", true)]
+    [DataRow("JP", "０６５－８６３３", "065-0007", true)]
+    [DataRow("jp", "065-8501", "065-0007", true)]
+    [DataRow("JP", "065-8701", "065-0007", true)]
+    [DataRow("JP", "065-8633", "064-0007", false)]
+    [DataRow("JP", "065-8633", "065-8701", false)]
+    [DataRow("JP", "065-8633", "", false)]
+    [DataRow("JP", "065-0007", "065-0009", false)]
+    [DataRow("JP", "065-8901", "065-0007", false)]
+    [DataRow("US", "065-8633", "065-0007", false)]
+    public async Task PostcodeAlternatives_OnlyRelaxKnownJapaneseIndividualDeliveryRanges(
+        string country,
+        string expected,
+        string actual,
+        bool accepted
+    )
+    {
+        var response = JsonSerializer.SerializeToNode(
+            new { features = new[] { Feature("Address", "High", "Good", country, 141.3524) } }
+        )!;
+        response["features"]![0]!["properties"]!["address"]!["postalCode"] = actual;
+        using var handler = new Responses(response.ToJsonString());
+        var candidates = await Geocoder(handler)
+            .FindAsync(
+                "Address",
+                "Sapporo",
+                country,
+                default,
+                Center,
+                Components with
+                {
+                    PostalCode = expected,
+                }
+            );
+        Assert.AreEqual(accepted, candidates.Count == 1);
+        if (accepted)
+        {
+            Assert.IsTrue(candidates[0].PostalCodeMismatch);
+            Assert.IsTrue(
+                candidates[0].Ambiguous,
+                "A postcode alternative must never be auto-accepted by activity enrichment."
+            );
+            Assert.AreEqual(AddressMatchConfidence.Medium, candidates[0].Confidence);
+        }
+    }
+
+    [TestMethod]
     public async Task SapporoHotel_UsesStructuredFallbackAndPreservesAmbiguousAddressChoices()
     {
         using var handler = new Responses(Neighborhood(), Fixture());
@@ -182,10 +263,10 @@ public sealed class AzureAddressGeocoderTests
             geometry = new { type = "Point", coordinates = new[] { longitude, 43.0552182 } },
         };
 
-    private static string Fixture()
+    private static string Fixture(string name = "sapporo-structured")
     {
         using var stream = typeof(AzureAddressGeocoderTests).Assembly.GetManifestResourceStream(
-            "TripPlanner.Api.Tests.Services.Maps.Fixtures.sapporo-structured.json"
+            $"TripPlanner.Api.Tests.Services.Maps.Fixtures.{name}.json"
         )!;
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
