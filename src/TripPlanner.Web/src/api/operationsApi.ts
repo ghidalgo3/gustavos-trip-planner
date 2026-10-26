@@ -1,3 +1,4 @@
+import { refreshTripSnapshot } from "./tripSnapshot";
 import { apiBaseUrl, readTripError } from "./api";
 import type { PreparedSearch } from "../features/flights/planningApi";
 
@@ -170,7 +171,10 @@ export async function getOperation(
   );
   if (!response.ok)
     await readTripError(response, "checking the trip form fill");
-  return response.json();
+  const operation = (await response.json()) as TrackedOperation;
+  if (operation.status === "Completed" && operation.type === "activitySuggest")
+    await refreshTripSnapshot(signal).catch(() => undefined);
+  return operation;
 }
 
 export async function getFlightSearchResults(

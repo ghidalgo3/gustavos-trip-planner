@@ -54,7 +54,7 @@ public class PlanningEndpointTests
                 },
             ],
         };
-        var saved = await client.PutAsJsonAsync(path, document);
+        var saved = await client.PutResourceAsJsonAsync(path, document);
         Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
         var reloaded = await client.GetFromJsonAsync<PlanningDocument>(path);
         Assert.AreEqual("CDG", reloaded?.Destination?.Code);
@@ -64,7 +64,7 @@ public class PlanningEndpointTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}",
                     new UpdateTripRequest("Renamed", "New description")
                 )
@@ -88,7 +88,7 @@ public class PlanningEndpointTests
         Assert.AreEqual(HttpStatusCode.NotFound, (await otherClient.GetAsync(path)).StatusCode);
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await otherClient.PutAsJsonAsync(path, new PlanningDocument())).StatusCode
+            (await otherClient.PutResourceAsJsonAsync(path, new PlanningDocument())).StatusCode
         );
         using var anonymous = factory.CreateClient();
         Assert.AreEqual(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
@@ -115,12 +115,12 @@ public class PlanningEndpointTests
         };
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
-            (await client.PutAsJsonAsync(path, invalid)).StatusCode
+            (await client.PutResourceAsJsonAsync(path, invalid)).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     path,
                     new { schemaVersion = 1, constraints = (object?)null }
                 )
@@ -128,11 +128,11 @@ public class PlanningEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
-            (await client.PutAsJsonAsync(path, new { schemaVersion = 999 })).StatusCode
+            (await client.PutResourceAsJsonAsync(path, new { schemaVersion = 999 })).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync(path, new PlanningDocument())).StatusCode
+            (await client.PutResourceAsJsonAsync(path, new PlanningDocument())).StatusCode
         );
     }
 
@@ -160,7 +160,7 @@ public class PlanningEndpointTests
         };
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync(path, document)).StatusCode
+            (await client.PutResourceAsJsonAsync(path, document)).StatusCode
         );
         var response = await client.PostAsJsonAsync(
             $"/trips/{trip.Id}/flights:search",
@@ -174,7 +174,7 @@ public class PlanningEndpointTests
         string email = $"{Guid.NewGuid()}@example.com";
         client.DefaultRequestHeaders.Add("X-Test-Subject", email);
         client.DefaultRequestHeaders.Add("X-Test-Email", email);
-        var onboarded = await client.PutAsJsonAsync(
+        var onboarded = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Boston", -71, 42), [])
         );

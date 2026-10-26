@@ -1,3 +1,4 @@
+import { tripFetch } from "../../api/tripSnapshot";
 import { apiBaseUrl } from "../../api/api";
 
 export type DailySettings = {
@@ -253,7 +254,7 @@ export async function planningRequest<T>(
     signal?: AbortSignal;
   } = {},
 ): Promise<Versioned<T>> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await tripFetch(`${apiBaseUrl}${path}`, {
     credentials: "include",
     cache: "no-store",
     method: options.method ?? "GET",

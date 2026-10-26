@@ -26,6 +26,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
 {
     public InMemoryPlannerDb Database { get; } = new();
     public bool McpEnabled { get; set; }
+    public bool UseNativeAuthentication { get; set; }
     public IIgnavClient? FlightClient { get; set; }
     public ITripFormAssistant? FormAssistant { get; set; }
     public IActivityAssistant? ActivityAssistant { get; set; }
@@ -47,6 +48,15 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("ApplicationInsights:ConnectionString", "");
         builder.UseSetting("Mcp:Enabled", McpEnabled.ToString());
         builder.UseSetting("Mcp:Issuer", "https://localhost/");
+        if (UseNativeAuthentication)
+        {
+            builder.UseSetting("Mcp:NativeClients:0:ClientId", "tripplanner-mobile");
+            builder.UseSetting("Mcp:NativeClients:0:DisplayName", "TripPlanner mobile");
+            builder.UseSetting(
+                "Mcp:NativeClients:0:RedirectUris:0",
+                "com.example.tripplanner:/oauth/callback"
+            );
+        }
         builder.UseSetting("Planning:WorkerEnabled", "false");
         builder.UseSetting("ActivityPlanning:PublicBaseUrl", "https://localhost/");
         builder.UseSetting("ActivityPlanning:SolverSeconds", "3");
@@ -67,6 +77,8 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             }
             services.RemoveAll<IDatabaseMigrator>();
             services.RemoveAll<IPlannerDb>();
+            services.RemoveAll<ITripDataSession>();
+            services.AddSingleton<ITripDataSession>(new TestTripDataSession(Database));
             services.RemoveAll<IActivityLogStore>();
             services.AddSingleton<IActivityLogStore>(new InMemoryActivityLogStore(Database));
             if (McpEnabled)
@@ -154,8 +166,12 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 );
             services.PostConfigure<AuthenticationOptions>(options =>
             {
-                options.DefaultAuthenticateScheme = "Test";
-                options.DefaultChallengeScheme = "Test";
+                options.DefaultAuthenticateScheme = UseNativeAuthentication
+                    ? "TripPlannerClient"
+                    : "Test";
+                options.DefaultChallengeScheme = UseNativeAuthentication
+                    ? "TripPlannerClient"
+                    : "Test";
             });
         });
     }

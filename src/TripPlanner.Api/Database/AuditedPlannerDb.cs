@@ -37,6 +37,7 @@ public class AuditedPlannerDb : DispatchProxy
         [nameof(IPlannerDb.SaveStayLocationAsync)] = "Updated stay location",
         [nameof(IPlannerDb.SaveActivityAsync)] = "Saved activity",
         [nameof(IPlannerDb.DeleteActivityAsync)] = "Deleted activity",
+        [nameof(IPlannerDb.SaveTripTravelAsync)] = "Updated travel connections",
         [nameof(IPlannerDb.SetFlightChoicesAsync)] = "Updated flight choices",
         [nameof(IPlannerDb.SetSelectedFlightAsync)] = "Updated selected flights",
         [nameof(IPlannerDb.DeleteSelectedFlightAsync)] = "Removed selected flights",
@@ -142,6 +143,10 @@ public class AuditedPlannerDb : DispatchProxy
                     TransactionScopeAsyncFlowOption.Enabled
                 )
                 : null;
+        if (database is PostgresPlannerDb postgres && tripId != Guid.Empty)
+        {
+            await postgres.LockTripAsync(tripId, cancellationToken);
+        }
         var before =
             tripId == Guid.Empty
                 ? null
@@ -206,6 +211,10 @@ public class AuditedPlannerDb : DispatchProxy
                     ? context.User.GetPresenters().Contains(McpServiceExtensions.ClientId)
                             ? "ChatGPT"
                         : "MCP"
+                : context
+                    ?.Request.Headers.Authorization.ToString()
+                    .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true
+                    ? "API client"
                 : context is not null ? "Website"
                 : "Service";
             string? resourceId =

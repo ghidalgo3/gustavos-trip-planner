@@ -1,3 +1,7 @@
+import {
+  useExplicitResourceRefresh,
+  useTripResourceVersion,
+} from "../../api/tripSnapshot";
 import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
 import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
 import { trackBehavior } from "../../telemetry/telemetry";
@@ -147,6 +151,9 @@ export default function ActivityPlanning({
   onDestinationChange?: (destination: Destination | undefined) => void;
   active?: boolean;
 }) {
+  const snapshotVersion = useTripResourceVersion(
+    `/trips/${trip.id}/destinations`,
+  );
   const [query, setQuery] = useSearchParams();
   const [activityView, setActivityView] = useState("ideas");
   const [collapsedStates, setCollapsedStates] = useState<Set<string>>(
@@ -283,7 +290,7 @@ export default function ActivityPlanning({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [trip.id, active]);
+  }, [trip.id, active, snapshotVersion]);
 
   useEffect(() => {
     if (!cityId || !active) return;
@@ -301,7 +308,7 @@ export default function ActivityPlanning({
           );
       });
     return () => controller.abort();
-  }, [trip.id, cityId, active]);
+  }, [trip.id, cityId, active, snapshotVersion]);
 
   useEffect(() => {
     return () => {
@@ -397,6 +404,13 @@ export default function ActivityPlanning({
       );
     }
   }
+
+  useExplicitResourceRefresh(
+    `/trips/${trip.id}/destinations/${encodeURIComponent(destination?.id ?? "")}/activities/${editor?.value.id ?? ""}`,
+    async () => {
+      if (editor?.value.id) await openEdit(editor.value as Activity);
+    },
+  );
 
   async function findMissingLocations() {
     if (!destination || !canGenerate || busy || !missingLocations) return;

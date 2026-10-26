@@ -1,3 +1,4 @@
+import { clearTripSnapshotCache } from "../api/tripSnapshot";
 import ContentSkeleton from "../shared/components/ContentSkeleton";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -62,10 +63,33 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
     getCurrentUser(controller.signal)
-      .then(setUser)
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        if (!value.isAuthenticated) clearTripSnapshotCache();
+        try {
+          if (value.isAuthenticated)
+            sessionStorage.setItem(
+              "tripplanner.session.v1",
+              JSON.stringify(value),
+            );
+          else sessionStorage.removeItem("tripplanner.session.v1");
+        } catch {
+          /* Offline storage may be disabled. */
+        }
+        setUser(value);
+      })
       .catch(() => {
         if (!controller.signal.aborted) {
           setApiAvailable(false);
+          try {
+            const cached = sessionStorage.getItem("tripplanner.session.v1");
+            if (cached) {
+              const previous = JSON.parse(cached) as CurrentUser;
+              if (previous.isAuthenticated && previous.id) setUser(previous);
+            }
+          } catch {
+            /* The sign-in screen remains available without a cached session. */
+          }
         }
       });
     return () => controller.abort();
@@ -96,7 +120,7 @@ export default function App() {
                 <button type="button" onClick={() => void openProfile()}>
                   <Person24Regular /> Your profile
                 </button>
-                <a href={logoutUrl()}>
+                <a href={logoutUrl()} onClick={clearTripSnapshotCache}>
                   <SignOut24Regular /> Sign out
                 </a>
               </div>

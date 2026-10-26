@@ -23,7 +23,7 @@ public sealed class OperationEndpointTests
         client.DefaultRequestHeaders.Add("X-Test-Email", "ada@example.com");
         var user = (
             await (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     "/user/profile",
                     new UserProfile(new("Boston", -71, 42), [])
                 )
@@ -47,7 +47,10 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+                await client.PutResourceAsJsonAsync(
+                    $"/trips/{trip.Id}/flights/constraints",
+                    document
+                )
             ).StatusCode
         );
         var path = $"/trips/{trip.Id}/flights/search";
@@ -107,7 +110,7 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"{selectionPath}/{party.Id}",
                     new SelectFlightRequest(null, null)
                 )
@@ -116,13 +119,13 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"{selectionPath}/{party.Id}",
                     new SelectFlightRequest(evaluated[0].CacheKey, 99)
                 )
             ).StatusCode
         );
-        var firstSelection = await client.PutAsJsonAsync(
+        var firstSelection = await client.PutResourceAsJsonAsync(
             $"{selectionPath}/{party.Id}",
             new SelectFlightRequest(evaluated[0].CacheKey, 0)
         );
@@ -133,7 +136,7 @@ public sealed class OperationEndpointTests
                 .Itinerary.GetProperty("ignav_id")
                 .GetString()
         );
-        var replacement = await client.PutAsJsonAsync(
+        var replacement = await client.PutResourceAsJsonAsync(
             $"{selectionPath}/{party.Id}",
             new SelectFlightRequest(evaluated[0].CacheKey, 1)
         );
@@ -147,7 +150,7 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     purchasesPath,
                     new SetFlightPurchasesRequest(evaluated[0].CacheKey, 1, [true])
                 )
@@ -156,13 +159,13 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.Conflict,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     purchasesPath,
                     new SetFlightPurchasesRequest(evaluated[0].CacheKey, 0, [true, false])
                 )
             ).StatusCode
         );
-        var purchaseResponse = await client.PutAsJsonAsync(
+        var purchaseResponse = await client.PutResourceAsJsonAsync(
             purchasesPath,
             new SetFlightPurchasesRequest(evaluated[0].CacheKey, 1, [true, false])
         );
@@ -183,7 +186,7 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}/flights/constraints",
                     document with
                     {
@@ -199,7 +202,7 @@ public sealed class OperationEndpointTests
         Assert.AreEqual(
             HttpStatusCode.Conflict,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"{selectionPath}/{party.Id}",
                     new SelectFlightRequest(evaluated[0].CacheKey, 0)
                 )
@@ -211,11 +214,11 @@ public sealed class OperationEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await client.DeleteAsync($"{selectionPath}/{party.Id}")).StatusCode
+            (await client.DeleteResourceAsync($"{selectionPath}/{party.Id}")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await client.DeleteAsync($"{selectionPath}/{party.Id}")).StatusCode
+            (await client.DeleteResourceAsync($"{selectionPath}/{party.Id}")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
@@ -240,7 +243,7 @@ public sealed class OperationEndpointTests
         using var other = factory.CreateClient();
         other.DefaultRequestHeaders.Add("X-Test-Subject", "other");
         other.DefaultRequestHeaders.Add("X-Test-Email", "other@example.com");
-        await other.PutAsJsonAsync(
+        await other.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Seattle", -122, 47), [], "SEA")
         );

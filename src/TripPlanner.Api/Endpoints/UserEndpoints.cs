@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
@@ -25,6 +26,28 @@ public static class UserEndpoints
         ICurrentUser currentUser
     )
     {
+        // The anonymous browser bootstrap is public, but bearer credentials must
+        // still satisfy the REST audience/scope policy before exposing a profile.
+        if (
+            context
+                .Request.Headers.Authorization.ToString()
+                .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            var allowed = await context
+                .RequestServices.GetRequiredService<IAuthorizationService>()
+                .AuthorizeAsync(
+                    context.User,
+                    context,
+                    AuthenticationServiceExtensions.CurrentUserPolicy
+                );
+            if (!allowed.Succeeded)
+            {
+                return Results.StatusCode(
+                    context.User.Identity?.IsAuthenticated == true ? 403 : 401
+                );
+            }
+        }
         AuthenticatedUserProfile? profile = currentUser.Profile;
         if (profile is null)
         {

@@ -1,3 +1,4 @@
+import { useTripResourceVersion } from "../../api/tripSnapshot";
 import { SelectedFlightsSkeleton } from "./FlightSkeletons";
 import { useEffect, useState } from "react";
 import { Button, Card, Text, Title2, Title3 } from "@fluentui/react-components";
@@ -45,6 +46,7 @@ export default function PlansOverview({
   onFindFlights: () => void;
   readOnly?: boolean;
 }) {
+  const snapshotVersion = useTripResourceVersion(`/trips/${trip.id}/flights`);
   const [flights, setFlights] = useState<SelectedFlight[]>([]);
   const [parties, setParties] = useState<PlanningParty[]>([]);
   const [partySettings, setPartySettings] = useState<PartySettings[]>([]);
@@ -85,7 +87,7 @@ export default function PlansOverview({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [trip.id, userId]);
+  }, [trip.id, userId, snapshotVersion]);
 
   async function remove(partyId: string) {
     setBusyParty(partyId);

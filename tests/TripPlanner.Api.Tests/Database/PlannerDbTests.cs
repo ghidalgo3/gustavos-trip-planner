@@ -72,7 +72,7 @@ public sealed class PlannerDbTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(15L, reader.GetInt64(0));
+                Assert.AreEqual(18L, reader.GetInt64(0));
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));

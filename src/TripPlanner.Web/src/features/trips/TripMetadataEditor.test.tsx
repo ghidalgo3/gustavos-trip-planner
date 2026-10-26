@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import TripMetadataEditor from "./TripMetadataEditor";
-import { updateTrip, type Trip } from "../../api/api";
-vi.mock("../../api/api", () => ({ updateTrip: vi.fn() }));
+import { getTrip, updateTrip, type Trip } from "../../api/api";
+vi.mock("../../api/api", () => ({ updateTrip: vi.fn(), getTrip: vi.fn() }));
 beforeEach(() => vi.resetAllMocks());
 const trip: Trip = {
   id: "trip",
@@ -115,4 +115,31 @@ test("failed writes preserve the draft, disable controls while saving, and offer
     expect(screen.getByRole("status")).toHaveTextContent("Trip changes saved."),
   );
   expect(updateTrip).toHaveBeenCalledTimes(2);
+});
+
+test("conflicts preserve edits until explicit refresh and never replay them", async () => {
+  const { ResourceConflictError } = await import("../../api/tripSnapshot");
+  vi.mocked(updateTrip).mockRejectedValue(
+    new ResourceConflictError("Trip changed", 412),
+  );
+  vi.mocked(getTrip).mockResolvedValue({
+    ...trip,
+    name: "Another planner's name",
+  });
+  render(
+    <TripMetadataEditor
+      trip={trip}
+      userId="owner"
+      onSaved={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  const name = screen.getByRole("textbox", { name: "Trip name" });
+  fireEvent.change(name, { target: { value: "My unsaved name" } });
+  fireEvent.blur(name);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh trip" }));
+  await waitFor(() => expect(name).toHaveValue("Another planner's name"));
+  expect(screen.getByText("My unsaved name")).toBeInTheDocument();
+  expect(updateTrip).toHaveBeenCalledTimes(1);
+  expect(getTrip).toHaveBeenCalledWith("owner", "trip", undefined, true);
 });

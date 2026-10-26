@@ -1,3 +1,4 @@
+import { tripFetch } from "../../api/tripSnapshot";
 import { apiBaseUrl, tripResourceUrl, readTripError } from "../../api/api";
 
 export type SearchLocation = {
@@ -91,7 +92,7 @@ export async function proposeTripForm(
   input: string,
   constraints: PlanningDocument,
 ): Promise<import("../../api/operationsApi").TrackedOperation> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights:prompt`,
     {
       method: "POST",
@@ -110,7 +111,7 @@ export async function getTripFormProposal(
   operationId: string,
   signal?: AbortSignal,
 ): Promise<TripFormProposal> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/prompts/${encodeURIComponent(operationId)}`,
     { credentials: "include", cache: "no-store", signal },
   );
@@ -141,12 +142,12 @@ export async function getTripFlightPlanningData(
 ): Promise<TripFlightPlanningData> {
   const base = `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}`;
   const [constraintsResponse, partiesResponse] = await Promise.all([
-    fetch(`${base}/flights/constraints`, {
+    tripFetch(`${base}/flights/constraints`, {
       credentials: "include",
       signal,
       cache: "no-store",
     }),
-    fetch(`${base}/parties`, {
+    tripFetch(`${base}/parties`, {
       credentials: "include",
       signal,
       cache: "no-store",
@@ -166,7 +167,7 @@ export async function getTripParties(
   tripId: string,
   signal?: AbortSignal,
 ): Promise<PlanningParty[]> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/parties`,
     { credentials: "include", cache: "no-store", signal },
   );
@@ -178,7 +179,7 @@ export async function searchUsers(
   query: string,
   signal?: AbortSignal,
 ): Promise<UserSearchResult[]> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/users?query=${encodeURIComponent(query)}`,
     {
       credentials: "include",
@@ -198,7 +199,7 @@ export async function changePartyMember(
   role: "Traveller" | "Planner" = "Traveller",
 ): Promise<void> {
   const url = `${tripResourceUrl(userId, tripId)}/parties/${encodeURIComponent(partyId)}/members/${encodeURIComponent(memberId)}`;
-  const response = await fetch(url, {
+  const response = await tripFetch(url, {
     method: add ? "PUT" : "DELETE",
     credentials: "include",
     ...(add
@@ -219,7 +220,7 @@ export async function saveConstraints(
   tripId: string,
   document: PlanningDocument,
 ): Promise<PlanningDocument> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/flights/constraints`,
     {
       method: "PUT",
@@ -248,7 +249,7 @@ export async function searchAirports(
   const key = query.trim().toLowerCase();
   const cached = airportCache.get(key);
   if (cached) return cached;
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/airports?q=${encodeURIComponent(key)}`,
     { credentials: "include", signal },
   );

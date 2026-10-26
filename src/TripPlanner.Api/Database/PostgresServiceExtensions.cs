@@ -56,6 +56,7 @@ public static class PostgresServiceExtensions
         });
         builder.Services.AddSingleton<IDatabaseMigrator, DatabaseMigrator>();
         builder.Services.AddSingleton<PostgresPlannerDb>();
+        builder.Services.AddSingleton<ITripDataSession, PostgresTripDataSession>();
         builder.Services.AddSingleton<IActivityLogStore, PostgresActivityLogStore>();
         builder.Services.AddSingleton<IPlannerDb>(services =>
             AuditedPlannerDb.Create(

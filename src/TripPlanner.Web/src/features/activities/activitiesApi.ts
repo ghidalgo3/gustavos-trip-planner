@@ -1,3 +1,4 @@
+import { tripFetch } from "../../api/tripSnapshot";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { apiBaseUrl, readTripError } from "../../api/api";
 import { getOperation, type TrackedOperation } from "../../api/operationsApi";
@@ -111,7 +112,7 @@ export async function getDestinations(
   signal?: AbortSignal,
   includeInactive = false,
 ): Promise<DestinationCollection | null> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${collectionUrl(tripId)}${includeInactive ? "?includeInactive=true" : ""}`,
     { credentials: "include", signal, cache: "no-store" },
   );
@@ -132,7 +133,7 @@ export async function addDestination(
     constraints?: Record<string, unknown>;
   },
 ): Promise<Destination> {
-  const response = await fetch(collectionUrl(tripId), {
+  const response = await tripFetch(collectionUrl(tripId), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -162,7 +163,7 @@ export async function replaceDestinationPlace(
   destination: Destination,
   constraints: Record<string, unknown>,
 ): Promise<Destination> {
-  const response = await fetch(destinationUrl(tripId, destination.id), {
+  const response = await tripFetch(destinationUrl(tripId, destination.id), {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -187,7 +188,7 @@ export async function deleteDestination(
   tripId: string,
   cityId: string,
 ): Promise<void> {
-  const response = await fetch(destinationUrl(tripId, cityId), {
+  const response = await tripFetch(destinationUrl(tripId, cityId), {
     method: "DELETE",
     credentials: "include",
   });
@@ -199,7 +200,7 @@ export async function deleteDestinationStay(
   cityId: string,
   stayId: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, cityId)}/stays/${encodeURIComponent(stayId)}`,
     { method: "DELETE", credentials: "include" },
   );
@@ -213,7 +214,7 @@ export async function replaceDestinationStay(
   stayId: string,
   input: { arrivalDate: string | null; departureDate: string | null },
 ): Promise<Destination> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, cityId)}/stays/${encodeURIComponent(stayId)}`,
     {
       method: "PUT",
@@ -231,11 +232,14 @@ export async function getActivities(
   cityId: string,
   signal?: AbortSignal,
 ): Promise<ActivityCollection> {
-  const response = await fetch(`${destinationUrl(tripId, cityId)}/activities`, {
-    credentials: "include",
-    signal,
-    cache: "no-store",
-  });
+  const response = await tripFetch(
+    `${destinationUrl(tripId, cityId)}/activities`,
+    {
+      credentials: "include",
+      signal,
+      cache: "no-store",
+    },
+  );
   if (!response.ok) await readTripError(response, "loading activities");
   return response.json();
 }
@@ -246,7 +250,7 @@ export async function getActivity(
   id: string,
   signal?: AbortSignal,
 ): Promise<{ activity: Activity; etag: string }> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, cityId)}/activities/${encodeURIComponent(id)}`,
     { credentials: "include", cache: "no-store", signal },
   );
@@ -264,7 +268,7 @@ export async function researchActivityLocation(
   etag: string,
   signal?: AbortSignal,
 ): Promise<ActivityLocationSuggestion | null> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}/location-proposals`,
     {
       method: "POST",
@@ -287,7 +291,7 @@ export async function researchActivityDetails(
   id: string,
   etag: string,
 ): Promise<ActivityDetailsSuggestion | null> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}/details-proposals`,
     {
       method: "POST",
@@ -311,7 +315,7 @@ export async function saveActivity(
   signal?: AbortSignal,
 ): Promise<Activity> {
   const url = `${destinationUrl(tripId, destination.id)}/activities${activity.id ? `/${encodeURIComponent(activity.id)}` : ""}`;
-  const response = await fetch(url, {
+  const response = await tripFetch(url, {
     method: activity.id ? "PUT" : "POST",
     signal,
     credentials: "include",
@@ -332,7 +336,7 @@ export async function deleteActivity(
   id: string,
   etag: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}`,
     {
       method: "DELETE",
@@ -351,7 +355,7 @@ export async function suggestActivities(
   destination: Destination,
   input: string,
 ): Promise<TrackedOperation> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, destination.id)}:suggest`,
     {
       method: "POST",
@@ -380,7 +384,7 @@ export async function importActivityImages(
   form.set("destinationContext", destination.properties.contextVersion);
   form.set("input", input);
   files.forEach((file) => form.append("images", file));
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, destination.id)}:import`,
     { method: "POST", credentials: "include", body: form },
   );
@@ -393,7 +397,7 @@ export async function getSuggestionResult(
   cityId: string,
   operationId: string,
 ): Promise<SuggestionResult> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, cityId)}/suggestions/${encodeURIComponent(operationId)}`,
     { credentials: "include", cache: "no-store" },
   );
@@ -443,7 +447,7 @@ export async function researchActivityPlaces(
   query: string,
   signal?: AbortSignal,
 ): Promise<VenueAddressSuggestion[]> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, cityId)}/activities/place-proposals`,
     {
       method: "POST",
@@ -464,7 +468,7 @@ export async function researchStayAddress(
   query: string,
   signal?: AbortSignal,
 ): Promise<StayAddressSuggestion[]> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${destinationUrl(tripId, cityId)}/stay/address-proposals`,
     {
       method: "POST",
@@ -484,7 +488,7 @@ export async function saveStayLocation(
   stayId: string,
   feature: StayLocation | null,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/destinations/${encodeURIComponent(cityId)}/stays/${encodeURIComponent(stayId)}/location`,
     {
       method: feature ? "PUT" : "DELETE",

@@ -1,3 +1,4 @@
+import { clearTripSnapshotCache } from "../api/tripSnapshot";
 import { StrictMode } from "react";
 import {
   fireEvent,
@@ -12,6 +13,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
 
 beforeEach(() => {
+  clearTripSnapshotCache();
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
@@ -351,6 +353,53 @@ test.each([false, true])(
               },
             }),
           };
+        if (url.endsWith("/trips/trip-1/snapshot")) {
+          const resource = (href: string, data: unknown, status = 200) => ({
+            href,
+            etag: '"1"',
+            data,
+            status,
+            contentType: "application/json",
+          });
+          return new Response(
+            JSON.stringify({
+              "@type": "Trip",
+              "@id": "urn:uuid:trip-1",
+              schemaVersion: 1,
+              revision: "1",
+              name: trip.name,
+              resources: {
+                "/trips/trip-1": resource("/trips/trip-1", trip),
+                "/trips/trip-1/destinations": resource(
+                  "/trips/trip-1/destinations",
+                  { type: "FeatureCollection", features: [], route: [] },
+                ),
+                "/trips/trip-1/flights": resource(
+                  "/trips/trip-1/flights",
+                  [],
+                  204,
+                ),
+                "/trips/trip-1/flights/choices": resource(
+                  "/trips/trip-1/flights/choices",
+                  [],
+                ),
+                "/trips/trip-1/flights/constraints": resource(
+                  "/trips/trip-1/flights/constraints",
+                  {
+                    schemaVersion: 1,
+                    visits: [],
+                    parties: [],
+                    constraints: [],
+                  },
+                ),
+                "/trips/trip-1/parties": resource("/trips/trip-1/parties", [
+                  { id: "party-1", members: [{ id: userId, name: "Ada" }] },
+                ]),
+              },
+            }),
+            { headers: { ETag: '"snapshot-1"' } },
+          );
+        }
         if (url.endsWith(`/user/${userId}/trips/trip-1`))
           return { ok: true, json: async () => trip };
         if (url.endsWith("/trips/trip-1/destinations"))

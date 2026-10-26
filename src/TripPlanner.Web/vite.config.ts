@@ -7,6 +7,14 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      "^/trips/[^/]+/(snapshot|travel|travellers)(/|\\?|$)": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/schemas": {
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
+        changeOrigin: true,
+      },
       "/telemetry": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: true,

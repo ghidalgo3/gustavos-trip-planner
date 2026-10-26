@@ -27,6 +27,21 @@ public sealed record TripResponse(
 {
     public bool CanPlan { get; init; }
 
+    public string Etag =>
+        TripPlanner.Api.Services.Snapshots.TripSnapshotProjection.ETag(
+            new
+            {
+                Id,
+                OwnerUserId,
+                Name,
+                Description,
+                Constraints,
+                CreatedAt,
+                UpdatedAt,
+                CanPlan,
+            }
+        );
+
     public static TripResponse From(Models.Trip trip, bool canPlan) =>
         new(
             trip.Id,

@@ -1,3 +1,8 @@
+import {
+  tripFetch,
+  rememberResourceEtag,
+  ResourceConflictError,
+} from "./tripSnapshot";
 export type CurrentUser = {
   isAuthenticated: boolean;
   id?: string;
@@ -25,7 +30,7 @@ export type ActivityLogEntry = {
 export async function getMcpAccess(
   signal?: AbortSignal,
 ): Promise<{ enabled: boolean; connected: boolean }> {
-  const response = await fetch(`${apiBaseUrl}/user/mcp-access`, {
+  const response = await tripFetch(`${apiBaseUrl}/user/mcp-access`, {
     credentials: "include",
     signal,
   });
@@ -34,7 +39,7 @@ export async function getMcpAccess(
 }
 
 export async function revokeMcpAccess(): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/user/mcp-access`, {
+  const response = await tripFetch(`${apiBaseUrl}/user/mcp-access`, {
     method: "DELETE",
     credentials: "include",
   });
@@ -48,10 +53,13 @@ export async function getActivityLog(
   entries: ActivityLogEntry[];
   hasMore: boolean;
 }> {
-  const response = await fetch(`${apiBaseUrl}/user/activity-log?skip=${skip}`, {
-    credentials: "include",
-    signal,
-  });
+  const response = await tripFetch(
+    `${apiBaseUrl}/user/activity-log?skip=${skip}`,
+    {
+      credentials: "include",
+      signal,
+    },
+  );
   if (!response.ok) await readTripError(response, "loading the activity log");
   const page = await response.json();
   if (!Array.isArray(page.entries) || typeof page.hasMore !== "boolean")
@@ -144,6 +152,7 @@ export function formatCityLabel(label: string, countryCode?: string): string {
 }
 
 export type Trip = {
+  etag?: string;
   id: string;
   ownerUserId: string;
   canPlan?: boolean;
@@ -190,7 +199,7 @@ let cachedMapToken: MapToken | undefined;
 export async function getCurrentUser(
   signal?: AbortSignal,
 ): Promise<CurrentUser> {
-  const response = await fetch(`${apiBaseUrl}/user`, {
+  const response = await tripFetch(`${apiBaseUrl}/user`, {
     credentials: "include",
     signal,
   });
@@ -214,7 +223,7 @@ export async function getMapToken(
     return cachedMapToken;
   }
 
-  const response = await fetch(`${apiBaseUrl}/mapToken`, {
+  const response = await tripFetch(`${apiBaseUrl}/mapToken`, {
     credentials: "include",
     signal,
   });
@@ -237,7 +246,7 @@ async function mapsRequest<T = MapsFeatureCollection>(
   signal?: AbortSignal,
 ): Promise<T> {
   const mapToken = await getMapToken(signal);
-  const response = await fetch(
+  const response = await tripFetch(
     `${mapToken.endpoint}/${path}?${parameters.toString()}`,
     {
       headers: { Authorization: `jwt-sas ${mapToken.token}` },
@@ -403,7 +412,7 @@ export async function saveUserProfile(
   profile: UserProfile,
   signal?: AbortSignal,
 ): Promise<CurrentUser> {
-  const response = await fetch(`${apiBaseUrl}/user/profile`, {
+  const response = await tripFetch(`${apiBaseUrl}/user/profile`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -443,6 +452,8 @@ export async function readTripError(response: Response, action: string) {
   } catch {
     // Keep the status-based message when the response has no JSON body.
   }
+  if ([409, 412, 428].includes(response.status))
+    throw new ResourceConflictError(message, response.status);
   throw new Error(message);
 }
 
@@ -450,24 +461,29 @@ export async function listTrips(
   userId: string,
   signal?: AbortSignal,
 ): Promise<Trip[]> {
-  const response = await fetch(tripResourceUrl(userId), {
+  const response = await tripFetch(tripResourceUrl(userId), {
     credentials: "include",
     signal,
   });
   if (!response.ok) {
     await readTripError(response, "loading trips");
   }
-  return response.json() as Promise<Trip[]>;
+  const trips = (await response.json()) as Trip[];
+  for (const trip of trips)
+    if (trip.etag) rememberResourceEtag(`/trips/${trip.id}`, trip.etag);
+  return trips;
 }
 
 export async function getTrip(
   userId: string,
   tripId: string,
   signal?: AbortSignal,
+  refresh = false,
 ): Promise<Trip> {
-  const response = await fetch(tripResourceUrl(userId, tripId), {
+  const response = await tripFetch(tripResourceUrl(userId, tripId), {
     credentials: "include",
     signal,
+    ...(refresh ? { cache: "reload" as const } : {}),
   });
   if (!response.ok) await readTripError(response, "loading the trip");
   return response.json() as Promise<Trip>;
@@ -477,7 +493,7 @@ export async function createTrip(
   userId: string,
   input: TripInput,
 ): Promise<Trip> {
-  const response = await fetch(tripResourceUrl(userId), {
+  const response = await tripFetch(tripResourceUrl(userId), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -494,7 +510,7 @@ export async function updateTrip(
   tripId: string,
   input: TripInput,
 ): Promise<Trip> {
-  const response = await fetch(tripResourceUrl(userId, tripId), {
+  const response = await tripFetch(tripResourceUrl(userId, tripId), {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -510,7 +526,7 @@ export async function deleteTrip(
   userId: string,
   tripId: string,
 ): Promise<void> {
-  const response = await fetch(tripResourceUrl(userId, tripId), {
+  const response = await tripFetch(tripResourceUrl(userId, tripId), {
     method: "DELETE",
     credentials: "include",
   });

@@ -98,7 +98,7 @@ public sealed class MultiCityPlannerTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "route-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "route-owner@example.com");
-        var profileResponse = await client.PutAsJsonAsync(
+        var profileResponse = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
@@ -116,7 +116,7 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+            await client.PutResourceAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
         var path = $"/trips/{trip.Id}/flights/search";
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(path)).StatusCode);
@@ -152,7 +152,7 @@ public sealed class MultiCityPlannerTests
         }
         Assert.IsTrue(firstFareReady);
         var choicesPath = $"/trips/{trip.Id}/flights/choices/{party.Id}";
-        var choiceResponse = await client.PutAsJsonAsync(
+        var choiceResponse = await client.PutResourceAsJsonAsync(
             choicesPath,
             new SetFlightChoicesRequest([choiceKey])
         );
@@ -195,7 +195,7 @@ public sealed class MultiCityPlannerTests
         Assert.HasCount(1, fares);
         Assert.IsGreaterThan(0, fares[0].Response.GetProperty("itineraries").GetArrayLength());
         var selectionPath = $"/trips/{trip.Id}/flights";
-        var selection = await client.PutAsJsonAsync(
+        var selection = await client.PutResourceAsJsonAsync(
             $"{selectionPath}/{party.Id}",
             new SelectFlightRequest(fares[0].CacheKey, 0)
         );
@@ -212,7 +212,7 @@ public sealed class MultiCityPlannerTests
             .ToArray();
         decimal quote = saved.Itinerary.GetProperty("price").GetProperty("amount").GetDecimal();
         string currency = saved.Itinerary.GetProperty("price").GetProperty("currency").GetString()!;
-        var stableSelection = await client.PutAsJsonAsync(
+        var stableSelection = await client.PutResourceAsJsonAsync(
             $"{selectionPath}/{party.Id}",
             new SelectFlightRequest("older-composition", 999, legKeys, quote, currency)
         );
@@ -223,7 +223,7 @@ public sealed class MultiCityPlannerTests
         );
         var persisted = (await client.GetFromJsonAsync<SelectedFlight[]>(selectionPath))!.Single();
         Assert.AreEqual(saved.Itinerary.GetRawText(), persisted.Itinerary.GetRawText());
-        var changedQuote = await client.PutAsJsonAsync(
+        var changedQuote = await client.PutResourceAsJsonAsync(
             $"{selectionPath}/{party.Id}",
             new SelectFlightRequest("older-composition", 999, legKeys, quote + 1, currency)
         );
@@ -249,7 +249,7 @@ public sealed class MultiCityPlannerTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "saved-route-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "saved-route@example.com");
-        var profile = await client.PutAsJsonAsync(
+        var profile = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
@@ -267,7 +267,7 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+            await client.PutResourceAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
         var clock = new OperationFixture.TestClock();
         factory.Database.OperationClock = clock;
@@ -311,7 +311,10 @@ public sealed class MultiCityPlannerTests
         var partial = new string?[selectedIndex + 1];
         partial[selectedIndex] = keys[selectedIndex];
         var choicesUrl = $"/trips/{trip.Id}/flights/choices/{party.Id}";
-        var saved = await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest(partial));
+        var saved = await client.PutResourceAsJsonAsync(
+            choicesUrl,
+            new SetFlightChoicesRequest(partial)
+        );
         Assert.AreEqual(
             HttpStatusCode.OK,
             saved.StatusCode,
@@ -363,7 +366,7 @@ public sealed class MultiCityPlannerTests
         }
         // Saving the remaining legs can combine fresh results with the expired saved offer.
         (
-            await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest(keys))
+            await client.PutResourceAsJsonAsync(choicesUrl, new SetFlightChoicesRequest(keys))
         ).EnsureSuccessStatusCode();
         var automaticallySelected = (
             await client.GetFromJsonAsync<SelectedFlight[]>($"/trips/{trip.Id}/flights")
@@ -395,7 +398,7 @@ public sealed class MultiCityPlannerTests
         // No separate itinerary-save request is needed after choosing all legs.
         // Clearing the resource drops snapshots and makes every leg searchable again.
         (
-            await client.PutAsJsonAsync(choicesUrl, new SetFlightChoicesRequest([]))
+            await client.PutResourceAsJsonAsync(choicesUrl, new SetFlightChoicesRequest([]))
         ).EnsureSuccessStatusCode();
         Assert.HasCount(
             0,
@@ -424,7 +427,7 @@ public sealed class MultiCityPlannerTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "long-route-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "long-route@example.com");
-        var profile = await client.PutAsJsonAsync(
+        var profile = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
@@ -459,7 +462,7 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+            await client.PutResourceAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
         (
             await client.PostAsJsonAsync(
@@ -535,18 +538,18 @@ public sealed class MultiCityPlannerTests
             );
         }
         (
-            await client.PutAsJsonAsync(
+            await client.PutResourceAsJsonAsync(
                 $"/trips/{trip.Id}/flights/choices/{party.Id}",
                 new SetFlightChoicesRequest(keys)
             )
         ).EnsureSuccessStatusCode();
-        var savedResponse = await client.PutAsJsonAsync(
+        var savedResponse = await client.PutResourceAsJsonAsync(
             $"/trips/{trip.Id}/flights/{party.Id}",
             new SelectFlightRequest(result.CacheKey, 0, keys, 600, "USD")
         );
         savedResponse.EnsureSuccessStatusCode();
         var saved = (await savedResponse.Content.ReadFromJsonAsync<SelectedFlight>())!;
-        var purchased = await client.PutAsJsonAsync(
+        var purchased = await client.PutResourceAsJsonAsync(
             $"/trips/{trip.Id}/flights/{party.Id}/purchases",
             new SetFlightPurchasesRequest(
                 saved.CacheKey,
@@ -768,7 +771,7 @@ public sealed class MultiCityPlannerTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "metro-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "metro-owner@example.com");
-        var profile = await client.PutAsJsonAsync(
+        var profile = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
@@ -804,7 +807,7 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+            await client.PutResourceAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
         var preview = new MultiCityPlanner(_airports, TimeProvider.System).Build(
             document,
@@ -877,7 +880,7 @@ public sealed class MultiCityPlannerTests
         }
         Assert.IsTrue(firstFareReady);
         var key = BrowserLegKey(fareResponse.GetProperty("itineraries")[0].GetProperty("outbound"));
-        var response = await client.PutAsJsonAsync(
+        var response = await client.PutResourceAsJsonAsync(
             $"/trips/{trip.Id}/flights/choices/{party.Id}",
             new SetFlightChoicesRequest([key])
         );
@@ -1262,7 +1265,7 @@ public sealed class MultiCityPlannerTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "partial-booking-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "partial-booking@example.com");
-        var profile = await client.PutAsJsonAsync(
+        var profile = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
@@ -1280,7 +1283,7 @@ public sealed class MultiCityPlannerTests
             Parties = [new() { PartyId = party.Id, Origin = _airports.Resolve("ATL") }],
         };
         (
-            await client.PutAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
+            await client.PutResourceAsJsonAsync($"/trips/{trip.Id}/flights/constraints", document)
         ).EnsureSuccessStatusCode();
         var fares = Fares()
             .Select(fare =>
@@ -1323,7 +1326,7 @@ public sealed class MultiCityPlannerTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     path,
                     new SetFlightChoicesRequest(partial, ["open-jaw"])
                 )
@@ -1333,7 +1336,7 @@ public sealed class MultiCityPlannerTests
         {
             partial = [keys[0], null, null, keys[3]];
             (
-                await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial))
+                await client.PutResourceAsJsonAsync(path, new SetFlightChoicesRequest(partial))
             ).EnsureSuccessStatusCode();
         }
         var id = paired ? "open-jaw" : "fare-0";
@@ -1359,7 +1362,7 @@ public sealed class MultiCityPlannerTests
             await client.PostAsJsonAsync(path + "/bookingLinks", new BookingLinksRequest(id))
         ).EnsureSuccessStatusCode();
         CollectionAssert.AreEqual(new[] { id }, provider.Calls.ToArray());
-        var purchase = await client.PutAsJsonAsync(
+        var purchase = await client.PutResourceAsJsonAsync(
             path,
             new SetFlightChoicesRequest(partial, [id])
         );
@@ -1385,7 +1388,7 @@ public sealed class MultiCityPlannerTests
             Assert.AreEqual(
                 HttpStatusCode.BadRequest,
                 (
-                    await client.PutAsJsonAsync(
+                    await client.PutResourceAsJsonAsync(
                         path,
                         new SetFlightChoicesRequest(partial, [id, "fare-0"])
                     )
@@ -1402,7 +1405,7 @@ public sealed class MultiCityPlannerTests
                     $"/trips/{trip.Id}/flights/search"
                 )
             )!.Single();
-            var selectedResponse = await client.PutAsJsonAsync(
+            var selectedResponse = await client.PutResourceAsJsonAsync(
                 $"/trips/{trip.Id}/flights/{party.Id}",
                 new SelectFlightRequest(complete.CacheKey, 0)
             );
@@ -1410,7 +1413,7 @@ public sealed class MultiCityPlannerTests
             var selected = (await selectedResponse.Content.ReadFromJsonAsync<SelectedFlight>())!;
             CollectionAssert.AreEqual(new[] { true, false, false, true }, selected.PurchasedLegs);
             // Changing either half in Plans changes the whole booking and the partial-choice resource.
-            var changed = await client.PutAsJsonAsync(
+            var changed = await client.PutResourceAsJsonAsync(
                 $"/trips/{trip.Id}/flights/{party.Id}/purchases",
                 new SetFlightPurchasesRequest(
                     selected.CacheKey,
@@ -1429,7 +1432,7 @@ public sealed class MultiCityPlannerTests
                     .PurchasedOfferIds
             );
             (
-                await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(keys, [id]))
+                await client.PutResourceAsJsonAsync(path, new SetFlightChoicesRequest(keys, [id]))
             ).EnsureSuccessStatusCode();
             CollectionAssert.AreEqual(
                 new[] { true, false, false, true },
@@ -1438,16 +1441,18 @@ public sealed class MultiCityPlannerTests
                     .PurchasedLegs
             );
             (
-                await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial))
+                await client.PutResourceAsJsonAsync(path, new SetFlightChoicesRequest(partial))
             ).EnsureSuccessStatusCode();
         }
         // A purchase update cannot accidentally reselect flights from a stale tab.
         Assert.AreEqual(
             HttpStatusCode.Conflict,
-            (await client.PutAsJsonAsync(path, new SetFlightChoicesRequest([], [id]))).StatusCode
+            (
+                await client.PutResourceAsJsonAsync(path, new SetFlightChoicesRequest([], [id]))
+            ).StatusCode
         );
         (
-            await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial, []))
+            await client.PutResourceAsJsonAsync(path, new SetFlightChoicesRequest(partial, []))
         ).EnsureSuccessStatusCode();
         Assert.IsEmpty(
             (await factory.Database.GetFlightChoicesAsync(user.Id.Value, trip.Id))
@@ -1455,10 +1460,13 @@ public sealed class MultiCityPlannerTests
                 .PurchasedOfferIds
         );
         (
-            await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(partial, [id]))
+            await client.PutResourceAsJsonAsync(path, new SetFlightChoicesRequest(partial, [id]))
         ).EnsureSuccessStatusCode();
         (
-            await client.PutAsJsonAsync(path, new SetFlightChoicesRequest(paired ? [keys[0]] : []))
+            await client.PutResourceAsJsonAsync(
+                path,
+                new SetFlightChoicesRequest(paired ? [keys[0]] : [])
+            )
         ).EnsureSuccessStatusCode();
         Assert.IsEmpty(
             (await factory.Database.GetFlightChoicesAsync(user.Id.Value, trip.Id))

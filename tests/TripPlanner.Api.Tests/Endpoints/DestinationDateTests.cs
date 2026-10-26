@@ -22,7 +22,7 @@ public sealed class DestinationDateTests
         var (trip, user, place, _) = await ActivityPlanningFixture.Seed(factory, client);
         var first = (await factory.Database.GetDestinationVisitsAsync(user.Id, trip.Id)).Single();
         string path = $"/trips/{trip.Id}/destinations";
-        var initial = await client.PutAsJsonAsync(
+        var initial = await client.PutResourceAsJsonAsync(
             $"{path}/{place.CityId}/stays/{first.StayId}",
             new DestinationStayInput(new(2027, 6, 10), new(2027, 6, 15))
         );
@@ -60,7 +60,7 @@ public sealed class DestinationDateTests
         string editPath = $"{path}/{destination.Id}/stays/{visit.Id}";
         before = await client.GetStringAsync(path);
         beforeLog = await client.GetStringAsync("/user/activity-log");
-        rejected = await client.PutAsJsonAsync(
+        rejected = await client.PutResourceAsJsonAsync(
             editPath,
             new DestinationStayInput(new(2027, 6, 11), new(2027, 6, 20))
         );
@@ -70,7 +70,7 @@ public sealed class DestinationDateTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     editPath,
                     new DestinationStayInput(new(2027, 6, 16), new(2027, 6, 20))
                 )

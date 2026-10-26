@@ -125,6 +125,15 @@ public sealed class DestinationService(
         places = await Task.WhenAll(
             places.Select(place => ResolveTimeZoneAsync(place, cancellationToken))
         );
+        return Describe(places, visits, stayLocations);
+    }
+
+    public static DestinationSnapshot Describe(
+        IReadOnlyList<DestinationPlace> places,
+        IReadOnlyList<DestinationVisit> visits,
+        IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>> stayLocations
+    )
+    {
         var features = visits
             .GroupBy(v => v.CityId)
             .Select(group =>

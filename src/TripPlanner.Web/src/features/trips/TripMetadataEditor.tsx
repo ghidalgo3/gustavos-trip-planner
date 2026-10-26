@@ -1,3 +1,4 @@
+import { ResourceConflictError } from "../../api/tripSnapshot";
 import { useRef, useState } from "react";
 import {
   Button,
@@ -6,7 +7,7 @@ import {
   Text,
   Textarea,
 } from "@fluentui/react-components";
-import { updateTrip, type Trip, type TripInput } from "../../api/api";
+import { getTrip, updateTrip, type Trip, type TripInput } from "../../api/api";
 
 export default function TripMetadataEditor({
   trip,
@@ -29,6 +30,8 @@ export default function TripMetadataEditor({
   });
   const writing = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [previousDraft, setPreviousDraft] = useState<TripInput>();
   const [error, setError] = useState<string>();
   const [failedField, setFailedField] = useState<keyof TripInput>();
   const [status, setStatus] = useState(
@@ -43,7 +46,12 @@ export default function TripMetadataEditor({
   }
 
   async function save(field: keyof TripInput) {
-    if (writing.current || draft[field] === confirmed.current[field]) return;
+    if (
+      conflict ||
+      writing.current ||
+      draft[field] === confirmed.current[field]
+    )
+      return;
     if (field === "name" && (!draft.name.trim() || draft.name.length > 200)) {
       setError("Enter a trip name of up to 200 characters.");
       return;
@@ -72,6 +80,7 @@ export default function TripMetadataEditor({
           : "Other edits have not been saved yet.",
       );
     } catch (reason) {
+      if (reason instanceof ResourceConflictError) setConflict(true);
       setError(
         reason instanceof Error ? reason.message : "Could not update the trip.",
       );
@@ -82,6 +91,27 @@ export default function TripMetadataEditor({
       setBusy(false);
     }
   }
+  async function refresh() {
+    setBusy(true);
+    try {
+      const latest = await getTrip(userId, trip.id, undefined, true);
+      setPreviousDraft(draft);
+      confirmed.current = {
+        name: latest.name,
+        description: latest.description,
+      };
+      setDraft(confirmed.current);
+      setConflict(false);
+      setFailedField(undefined);
+      setError(undefined);
+      setStatus("Latest trip loaded. Previous edits have not been reapplied.");
+      onSaved(latest);
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="trip-form">
       <Field label="Trip name" required>
@@ -89,6 +119,7 @@ export default function TripMetadataEditor({
           value={draft.name}
           maxLength={200}
           disabled={busy}
+          readOnly={conflict}
           autoFocus
           onChange={(_, data) => edit("name", data.value)}
           onBlur={() => void save("name")}
@@ -99,6 +130,7 @@ export default function TripMetadataEditor({
           value={draft.description}
           maxLength={4000}
           disabled={busy}
+          readOnly={conflict}
           resize="vertical"
           onChange={(_, data) => edit("description", data.value)}
           onBlur={() => void save("description")}
@@ -106,8 +138,24 @@ export default function TripMetadataEditor({
       </Field>
       <Text role="status">{status}</Text>
       {error && <Text role="alert">{error}</Text>}
+      {previousDraft && (
+        <details>
+          <summary>Previous unsaved edits</summary>
+          <p>{previousDraft.name}</p>
+          <p>{previousDraft.description}</p>
+        </details>
+      )}
       <div className="trip-form-actions">
-        {failedField && (
+        {conflict && (
+          <Button
+            appearance="primary"
+            disabled={busy}
+            onClick={() => void refresh()}
+          >
+            Refresh trip
+          </Button>
+        )}
+        {failedField && !conflict && (
           <Button disabled={busy} onClick={() => void save(failedField)}>
             Retry trip changes
           </Button>

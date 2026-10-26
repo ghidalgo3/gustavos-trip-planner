@@ -23,15 +23,24 @@ public sealed class DestinationFlightPlanning(
 
     public async Task<PlanningDocument> GetAsync(Guid viewerId, Trip trip, CancellationToken token)
     {
-        var saved = PlanningDocument.FromJson(trip.FlightConstraints);
         var snapshot = await destinations.GetAsync(viewerId, trip, token);
-        if (snapshot.Collection.Features.Count == 0)
-        {
-            return saved; // Preserve the existing API contract for older flight-only trips.
-        }
-
         var owner = await database.GetUserAsync(trip.OwnerUserId, token);
         var parties = await database.GetPartiesAsync(viewerId, trip.Id, token);
+        return Describe(trip, snapshot, owner, parties);
+    }
+
+    public PlanningDocument Describe(
+        Trip trip,
+        DestinationSnapshot snapshot,
+        User? owner,
+        IReadOnlyList<Party> parties
+    )
+    {
+        var saved = PlanningDocument.FromJson(trip.FlightConstraints);
+        if (snapshot.Collection.Features.Count == 0)
+        {
+            return saved;
+        }
         var visits = snapshot
             .Collection.Features.SelectMany(city =>
                 city.Properties.Stays.Select(stay => new { City = city, Stay = stay })

@@ -8,6 +8,9 @@ namespace TripPlanner.Api.Database;
 
 public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPlannerDb
 {
+    internal Task LockTripAsync(Guid tripId, CancellationToken cancellationToken) =>
+        PostgresTripDataSession.LockAsync(dataSource, tripId, cancellationToken);
+
     private static async Task<NpgsqlTransaction?> BeginWriteTransactionAsync(
         NpgsqlConnection connection,
         CancellationToken cancellationToken

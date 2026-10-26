@@ -15,6 +15,14 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
     private readonly ConcurrentDictionary<Guid, Party> _parties = new();
     private readonly object _tripLock = new();
 
+    public T Capture<T>(Func<T> read)
+    {
+        lock (_tripLock)
+        {
+            return read();
+        }
+    }
+
     private bool CanViewTrip(Guid viewerUserId, Trip trip) =>
         trip.OwnerUserId == viewerUserId
         || _parties.Values.Any(p => p.TripId == trip.Id && p.UserIds.Contains(viewerUserId));

@@ -1,0 +1,473 @@
+import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
+
+export type SnapshotResource = {
+  href: string;
+  etag: string;
+  data: unknown;
+  status: number;
+  contentType: string;
+  contextVersion?: string | null;
+};
+export type TripSnapshot = {
+  "@type": "Trip";
+  "@id": string;
+  schemaVersion: 1;
+  name: string;
+  places?: { "@id": string; name: string; timeZone?: string }[];
+  revision: string;
+  resources: Record<string, SnapshotResource>;
+};
+type SnapshotState = {
+  userId: string;
+  tripId: string;
+  snapshot?: TripSnapshot;
+  etag?: string;
+  message?: string;
+  conflict?: string;
+  offline: boolean;
+  loading: boolean;
+};
+const empty: SnapshotState = {
+  userId: "",
+  tripId: "",
+  offline: false,
+  loading: false,
+};
+let state = empty;
+let baseUrl = "";
+let generation = 0;
+let explicitRefresh = { path: "", sequence: 0 };
+export class ResourceConflictError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+const listeners = new Set<() => void>();
+const versions = new Map<string, number>();
+const writes = new Map<string, Promise<unknown>>();
+const validators = new Map<string, string>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+const publish = (next: SnapshotState) => {
+  state = next;
+  listeners.forEach((listener) => listener());
+};
+const cacheKey = (userId: string, tripId: string) =>
+  `tripplanner.snapshot.v1:${userId}:${tripId}`;
+export const canonicalPath = (path: string) =>
+  path
+    .replace(/^\/user\/[^/]+\/trips(?=\/|$)/, "/trips")
+    .replace(/\/$/, "")
+    .replace(
+      /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi,
+      (id) => id.toLowerCase(),
+    );
+
+function validate(value: unknown, tripId: string): TripSnapshot {
+  if (!value || typeof value !== "object")
+    throw new Error("Invalid trip snapshot.");
+  const snapshot = value as TripSnapshot;
+  if (
+    snapshot.schemaVersion !== 1 ||
+    snapshot["@type"] !== "Trip" ||
+    snapshot["@id"] !== `urn:uuid:${tripId}` ||
+    !snapshot.resources ||
+    !snapshot.resources[`/trips/${tripId}`]
+  ) {
+    throw new Error("This trip snapshot format is unsupported.");
+  }
+  for (const [path, resource] of Object.entries(snapshot.resources)) {
+    if (path !== `/trips/${tripId}` && !path.startsWith(`/trips/${tripId}/`))
+      throw new Error("Invalid snapshot resource.");
+    if (
+      resource.href !== path ||
+      typeof resource.etag !== "string" ||
+      typeof resource.status !== "number"
+    )
+      throw new Error("Invalid snapshot resource metadata.");
+  }
+  return snapshot;
+}
+function changedResources(
+  previous: TripSnapshot | undefined,
+  next: TripSnapshot,
+) {
+  const paths = new Set([
+    ...Object.keys(previous?.resources ?? {}),
+    ...Object.keys(next.resources),
+  ]);
+  for (const path of paths) {
+    const oldResource = previous?.resources[path];
+    const newResource = next.resources[path];
+    if (
+      oldResource?.etag !== newResource?.etag ||
+      JSON.stringify(oldResource?.data) !== JSON.stringify(newResource?.data)
+    ) {
+      versions.set(path, (versions.get(path) ?? 0) + 1);
+      const segments = path.split("/");
+      while (segments.length > 3) {
+        segments.pop();
+        const parent = segments.join("/");
+        versions.set(parent, (versions.get(parent) ?? 0) + 1);
+      }
+    }
+    if (newResource) validators.set(path, newResource.etag);
+    else validators.delete(path);
+  }
+}
+
+export async function openTripSnapshot(
+  userId: string,
+  tripId: string,
+  apiBaseUrl: string,
+  signal?: AbortSignal,
+) {
+  baseUrl = apiBaseUrl;
+  if (state.userId !== userId || state.tripId !== tripId) {
+    validators.clear();
+    versions.clear();
+  }
+  ++generation;
+  let cached: { snapshot: TripSnapshot; etag?: string } | undefined =
+    state.userId === userId && state.tripId === tripId && state.snapshot
+      ? { snapshot: state.snapshot, etag: state.etag }
+      : undefined;
+  try {
+    const raw = localStorage.getItem(cacheKey(userId, tripId));
+    if (raw) {
+      const value = JSON.parse(raw) as { snapshot: unknown; etag?: string };
+      cached = { snapshot: validate(value.snapshot, tripId), etag: value.etag };
+    }
+  } catch {
+    /* Unavailable/corrupt storage must not prevent an online load. */
+  }
+  changedResources(
+    undefined,
+    cached?.snapshot ?? ({ resources: {} } as TripSnapshot),
+  );
+  publish({
+    userId,
+    tripId,
+    snapshot: cached?.snapshot,
+    etag: cached?.etag,
+    offline: !!cached,
+    loading: true,
+  });
+  return refreshTripSnapshot(signal);
+}
+
+export async function refreshTripSnapshot(
+  signal?: AbortSignal,
+): Promise<TripSnapshot | undefined> {
+  if (!state.tripId) return undefined;
+  const requestGeneration = ++generation;
+  const previous = state;
+  publish({ ...state, loading: true });
+  try {
+    const response = await fetch(
+      `${baseUrl}/trips/${encodeURIComponent(previous.tripId)}/snapshot`,
+      {
+        credentials: "include",
+        signal,
+        headers: {
+          Accept: "application/ld+json",
+          ...(previous.etag ? { "If-None-Match": previous.etag } : {}),
+        },
+      },
+    );
+    if (requestGeneration !== generation || signal?.aborted)
+      return state.snapshot;
+    if ([401, 403, 404].includes(response.status)) {
+      try {
+        localStorage.removeItem(cacheKey(previous.userId, previous.tripId));
+      } catch {
+        /* Storage may be disabled. */
+      }
+      publish({
+        ...previous,
+        snapshot: undefined,
+        etag: undefined,
+        loading: false,
+        offline: false,
+        message:
+          "This trip is no longer available. Sign in or return to your trips.",
+      });
+      throw new Error("This trip is no longer available.");
+    }
+    if (response.status === 304 && previous.snapshot) {
+      publish({
+        ...previous,
+        loading: false,
+        offline: false,
+        conflict: previous.conflict,
+        message: previous.conflict ? previous.message : undefined,
+      });
+      return previous.snapshot;
+    }
+    if (!response.ok) throw new Error("Unable to refresh the trip.");
+    const snapshot = validate(await response.json(), previous.tripId);
+    if (requestGeneration !== generation || signal?.aborted)
+      return state.snapshot;
+    changedResources(state.snapshot, snapshot);
+    const etag = response.headers.get("ETag") ?? undefined;
+    let message: string | undefined;
+    try {
+      localStorage.setItem(
+        cacheKey(previous.userId, previous.tripId),
+        JSON.stringify({ snapshot, etag }),
+      );
+    } catch {
+      message = "Trip loaded. Offline storage is unavailable on this device.";
+    }
+    publish({
+      ...previous,
+      snapshot,
+      etag,
+      loading: false,
+      offline: false,
+      conflict: previous.conflict,
+      message: previous.conflict ? previous.message : message,
+    });
+    return snapshot;
+  } catch (error) {
+    if (requestGeneration !== generation || signal?.aborted)
+      return state.snapshot;
+    if (!state.snapshot) {
+      publish({
+        ...state,
+        loading: false,
+        message:
+          error instanceof Error ? error.message : "Unable to load trip.",
+      });
+      throw error;
+    }
+    publish({
+      ...state,
+      loading: false,
+      offline: true,
+      message: "Showing the last saved trip. Refresh when connected.",
+    });
+    return state.snapshot;
+  }
+}
+
+export async function refreshConflictedResource() {
+  const path = state.conflict;
+  const result = await refreshTripSnapshot();
+  if (result && !state.offline) {
+    if (path)
+      explicitRefresh = { path, sequence: explicitRefresh.sequence + 1 };
+    publish({ ...state, conflict: undefined, message: undefined });
+  }
+  return result;
+}
+export function useExplicitResourceRefresh(
+  path: string,
+  refresh: () => void | Promise<void>,
+) {
+  const refreshEvent = useEffectEvent(refresh);
+  useEffect(() => {
+    let observed = explicitRefresh.sequence;
+    return subscribe(() => {
+      if (observed === explicitRefresh.sequence) return;
+      observed = explicitRefresh.sequence;
+      if (canonicalPath(explicitRefresh.path) === canonicalPath(path))
+        void Promise.resolve(refreshEvent()).catch(() => undefined);
+    });
+  }, [path]);
+}
+export function useTripSnapshotState() {
+  return useSyncExternalStore(subscribe, () => state);
+}
+export function useTripResourceVersion(path: string) {
+  return useSyncExternalStore(
+    subscribe,
+    () => versions.get(canonicalPath(path)) ?? 0,
+  );
+}
+export function clearTripSnapshotCache() {
+  ++generation;
+  try {
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith("tripplanner.snapshot.v1:"))
+        localStorage.removeItem(key);
+  } catch {
+    /* Storage may be disabled. */
+  }
+  try {
+    sessionStorage.removeItem("tripplanner.session.v1");
+  } catch {
+    /* Storage may be disabled. */
+  }
+  validators.clear();
+  versions.clear();
+  publish(empty);
+}
+export function rememberResourceEtag(path: string, etag: string) {
+  validators.set(canonicalPath(path), etag);
+}
+export function cachedTripResource<T>(path: string): T | undefined {
+  return state.snapshot?.resources[canonicalPath(path)]?.data as T | undefined;
+}
+
+// A transport adapter, shared by existing resource APIs. It never changes global fetch.
+export async function tripFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const url = new URL(
+    input instanceof Request ? input.url : String(input),
+    "http://tripplanner.local",
+  );
+  const key = canonicalPath(url.pathname) + url.search;
+  const method = (init.method ?? "GET").toUpperCase();
+  const tripId = /^\/trips\/([^/]+)/.exec(key)?.[1];
+  if (!tripId) return fetch(input, init);
+  const account = state.userId;
+  const active = tripId === state.tripId && !!state.snapshot;
+  const stillActive = () =>
+    active && state.tripId === tripId && state.userId === account;
+  if (
+    method === "GET" &&
+    active &&
+    init.cache !== "reload" &&
+    state.snapshot?.resources[key]
+  ) {
+    if (init.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const resource = state.snapshot.resources[key];
+    return new Response(
+      resource.status === 204 ? null : JSON.stringify(resource.data),
+      {
+        status: resource.status,
+        headers: {
+          "Content-Type": resource.contentType,
+          ETag: resource.etag,
+          ...(resource.contextVersion
+            ? {
+                "Planning-Context": resource.contextVersion,
+                "Destination-Context": resource.contextVersion,
+              }
+            : {}),
+        },
+      },
+    );
+  }
+  const headers = new Headers(init.headers);
+  const resourceKey = key.endsWith("/purchases") ? key.slice(0, -10) : key;
+  const mutation = !!tripId && ["PUT", "DELETE", "POST"].includes(method);
+  let addedValidator = false;
+  if (
+    ["PUT", "DELETE"].includes(method) &&
+    !headers.has("If-Match") &&
+    validators.has(resourceKey)
+  ) {
+    headers.set("If-Match", validators.get(resourceKey)!);
+    addedValidator = true;
+  }
+  if (
+    method === "PUT" &&
+    active &&
+    key.includes("/members/") &&
+    !validators.has(resourceKey) &&
+    !headers.has("If-Match")
+  ) {
+    headers.set("If-None-Match", "*");
+    addedValidator = true;
+  }
+  if (mutation && state.offline && active)
+    throw new Error("Connect to the internet before saving changes.");
+  const send = async () => {
+    if (mutation && active && !stillActive())
+      throw new Error(
+        "The trip session changed. Reopen the trip before saving.",
+      );
+    if (mutation && stillActive()) ++generation; // Invalidate GETs issued before this save.
+    let response: Response;
+    try {
+      response = await fetch(
+        input,
+        addedValidator ? { ...init, headers } : init,
+      );
+    } catch (reason) {
+      if (mutation && stillActive())
+        publish({
+          ...state,
+          offline: true,
+          conflict: resourceKey,
+          message:
+            "Connection lost while saving. Refresh to check whether the change was saved before trying again.",
+        });
+      throw reason;
+    }
+    const etag = response.headers?.get("ETag");
+    if (mutation && response.ok) {
+      if (etag) validators.set(resourceKey, etag);
+      else if (!active && response.clone) {
+        const saved = (await response
+          .clone()
+          .json()
+          .catch(() => null)) as { etag?: string } | null;
+        if (saved?.etag) validators.set(resourceKey, saved.etag);
+      }
+    }
+    if (method === "GET" && response.ok && etag) validators.set(key, etag);
+    if (
+      mutation &&
+      stillActive() &&
+      [409, 412, 428].includes(response.status)
+    ) {
+      // Some 409s are domain validation, not concurrency conflicts.
+      const problem = (await response
+        .clone()
+        .json()
+        .catch(() => ({}))) as { code?: string };
+      if (
+        response.status !== 409 ||
+        [
+          "planning_context_changed",
+          "destination_changed",
+          "resource_changed",
+        ].includes(problem.code ?? "")
+      )
+        publish({
+          ...state,
+          conflict: resourceKey,
+          message:
+            "This resource has changed. Refresh before editing it again.",
+        });
+    } else if (
+      mutation &&
+      stillActive() &&
+      response.ok &&
+      response.status !== 202 &&
+      !key.includes("/previews") &&
+      !key.includes("/bookingLinks") &&
+      !key.includes("-proposals")
+    ) {
+      const updated = await refreshTripSnapshot().catch(() => undefined);
+      if (!updated || state.offline)
+        publish({
+          ...state,
+          message: "Saved. Refresh the trip to load the latest changes.",
+        });
+    }
+    return response;
+  };
+  if (!mutation) return send();
+  // Capture the caller's precondition before queueing; never silently rebase its body.
+  const previous = writes.get(resourceKey) ?? Promise.resolve();
+  const pending = previous.catch(() => undefined).then(send);
+  writes.set(resourceKey, pending);
+  try {
+    return await pending;
+  } finally {
+    if (writes.get(resourceKey) === pending) writes.delete(resourceKey);
+  }
+}

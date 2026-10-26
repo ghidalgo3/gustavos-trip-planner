@@ -43,13 +43,13 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync(firstUrl, hotel)).StatusCode
+            (await client.PutResourceAsJsonAsync(firstUrl, hotel)).StatusCode
         );
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(secondUrl)).StatusCode);
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     secondUrl,
                     hotel with
                     {
@@ -80,7 +80,7 @@ public class ActivityEndpointTests
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"{destinationUrl}/stays/{Guid.NewGuid()}/location",
                     hotel
                 )
@@ -89,7 +89,7 @@ public class ActivityEndpointTests
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}/destinations/rome-it/stays/{second.StayId}/location",
                     hotel
                 )
@@ -103,7 +103,10 @@ public class ActivityEndpointTests
                 )
             ).StatusCode
         );
-        Assert.AreEqual(HttpStatusCode.NoContent, (await client.DeleteAsync(firstUrl)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteResourceAsync(firstUrl)).StatusCode
+        );
         Assert.AreEqual(
             "Second hotel",
             (await client.GetFromJsonAsync<GeoJsonFeature<StayLocationProperties>>(secondUrl))!
@@ -112,7 +115,7 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await client.DeleteAsync($"{destinationUrl}/stays/{second.StayId}")).StatusCode
+            (await client.DeleteResourceAsync($"{destinationUrl}/stays/{second.StayId}")).StatusCode
         );
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(secondUrl)).StatusCode);
         Assert.IsEmpty(await factory.Database.GetStayLocationsAsync(owner, trip.Id));
@@ -246,7 +249,7 @@ public class ActivityEndpointTests
             "A read-only REST or MCP read must not mutate the destination."
         );
         // A replacement that omits timezone must derive it, never clear it.
-        using var replacement = await client.PutAsJsonAsync(
+        using var replacement = await client.PutResourceAsJsonAsync(
             $"{path}/{destination.Id}",
             new ReplaceDestinationRequest(
                 "Feature",
@@ -307,7 +310,7 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync(locationUrl, request)).StatusCode
+            (await client.PutResourceAsJsonAsync(locationUrl, request)).StatusCode
         );
         var destination = (
             await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl)
@@ -327,7 +330,7 @@ public class ActivityEndpointTests
                 )
             )!.Features
         );
-        await client.PutAsJsonAsync(
+        await client.PutResourceAsJsonAsync(
             destinationUrl,
             new ReplaceDestinationRequest(
                 "Feature",
@@ -350,7 +353,7 @@ public class ActivityEndpointTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     locationUrl,
                     request with
                     {
@@ -364,7 +367,7 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await client.DeleteAsync(locationUrl)).StatusCode
+            (await client.DeleteResourceAsync(locationUrl)).StatusCode
         );
         Assert.IsNull(
             (await client.GetFromJsonAsync<GeoJsonFeature<DestinationProperties>>(destinationUrl))!
@@ -419,7 +422,7 @@ public class ActivityEndpointTests
                 JsonSerializer.SerializeToElement(new { accessible = true })
             )
         );
-        var updated = await client.PutAsJsonAsync(url, replacement);
+        var updated = await client.PutResourceAsJsonAsync(url, replacement);
         Assert.AreEqual(HttpStatusCode.OK, updated.StatusCode);
         Assert.AreEqual("application/geo+json", updated.Content.Headers.ContentType?.MediaType);
         var feature = (
@@ -438,12 +441,14 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
-            (await client.PutAsJsonAsync(url, replacement with { Id = "another-city" })).StatusCode
+            (
+                await client.PutResourceAsJsonAsync(url, replacement with { Id = "another-city" })
+            ).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"{collectionUrl}/missing",
                     replacement with
                     {
@@ -452,7 +457,10 @@ public class ActivityEndpointTests
                 )
             ).StatusCode
         );
-        Assert.AreEqual(HttpStatusCode.NoContent, (await client.DeleteAsync(url)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteResourceAsync(url)).StatusCode
+        );
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
         Assert.IsEmpty(
             (
@@ -522,7 +530,7 @@ public class ActivityEndpointTests
         );
         Assert.AreEqual(2.3522, collection.Features[0].Geometry!.Position.Longitude);
         var stay = collection.Features[0].Properties.Stays[0];
-        var updated = await client.PutAsJsonAsync(
+        var updated = await client.PutResourceAsJsonAsync(
             $"{url}/paris-fr/stays/{stay.Id}",
             new DestinationStayInput(new DateOnly(2027, 6, 11), new DateOnly(2027, 6, 14))
         );
@@ -691,7 +699,7 @@ public class ActivityEndpointTests
             (await client.SendAsync(stale)).StatusCode
         );
 
-        await client.DeleteAsync(
+        await client.DeleteResourceAsync(
             $"/trips/{trip.Id}/destinations/{destination.Id}/stays/{destination.Properties.Stays[0].Id}"
         );
         Assert.AreEqual(HttpStatusCode.OK, (await client.GetAsync(url)).StatusCode);
@@ -1115,7 +1123,7 @@ public class ActivityEndpointTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     "/user/profile",
                     new UserProfile(new("Boston", -71.0589, 42.3601), [])
                 )
@@ -1162,7 +1170,7 @@ public class ActivityEndpointTests
         client.DefaultRequestHeaders.Add("X-Test-Name", "Ada");
         client.DefaultRequestHeaders.Add("X-Test-Email", "activities@example.com");
         var user = (await client.GetFromJsonAsync<CurrentUserResponse>("/user"))!;
-        await client.PutAsJsonAsync(
+        await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Boston", -71.0589, 42.3601), [])
         );

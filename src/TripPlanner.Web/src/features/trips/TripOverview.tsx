@@ -1,3 +1,9 @@
+import TripTravelEditor, { type TravelPlan } from "./TripTravelEditor";
+import {
+  cachedTripResource,
+  useExplicitResourceRefresh,
+  useTripResourceVersion,
+} from "../../api/tripSnapshot";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
@@ -61,6 +67,7 @@ export default function TripOverview({
   readOnly: boolean;
   homeCity?: string | null;
 }) {
+  const snapshotVersion = useTripResourceVersion(`/trips/${trip.id}`);
   const [flightRetry, setFlightRetry] = useState(0);
   const [flightData, setFlightData] = useState<{
     flights?: SelectedFlight[];
@@ -103,6 +110,34 @@ export default function TripOverview({
   const [destinationToDelete, setDestinationToDelete] = useState<Destination>();
   const [deleting, setDeleting] = useState(false);
 
+  const [visitRefresh, setVisitRefresh] = useState(0);
+  async function reloadVisitEditors() {
+    const collection = await getDestinations(trip.id);
+    if (!collection) return;
+    setDestinations(collection);
+    const replace = (current: typeof editingVisit) => {
+      if (!current) return current;
+      const destination = collection.features.find(
+        (d) => d.id === current.destination.id,
+      );
+      const stay = destination?.properties.stays.find(
+        (v) => v.id === current.stay.id,
+      );
+      return destination && stay ? { destination, stay } : undefined;
+    };
+    setEditingVisit(replace);
+    setStayVisit(replace);
+    setVisitRefresh((value) => value + 1);
+  }
+  useExplicitResourceRefresh(
+    `/trips/${trip.id}/destinations/${encodeURIComponent(editingVisit?.destination.id ?? "")}/stays/${editingVisit?.stay.id ?? ""}`,
+    reloadVisitEditors,
+  );
+  useExplicitResourceRefresh(
+    `/trips/${trip.id}/destinations/${encodeURIComponent(stayVisit?.destination.id ?? "")}/stays/${stayVisit?.stay.id ?? ""}/location`,
+    reloadVisitEditors,
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     getDestinations(trip.id, controller.signal)
@@ -119,7 +154,7 @@ export default function TripOverview({
           );
       });
     return () => controller.abort();
-  }, [trip.id, retry]);
+  }, [trip.id, retry, snapshotVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -149,7 +184,7 @@ export default function TripOverview({
         );
     });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, summaryRetry]);
+  }, [trip.id, destinations?.features, summaryRetry, snapshotVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -175,7 +210,7 @@ export default function TripOverview({
       }
     });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, summaryRetry]);
+  }, [trip.id, destinations?.features, summaryRetry, snapshotVersion]);
 
   useEffect(() => {
     if (
@@ -197,7 +232,7 @@ export default function TripOverview({
         if (!controller.signal.aborted) setFlightData({ error: true });
       });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, flightRetry]);
+  }, [trip.id, destinations?.features, flightRetry, snapshotVersion]);
 
   function destinationAdded(destination: Destination) {
     setDestinations((current) => {
@@ -331,6 +366,22 @@ export default function TripOverview({
         </div>
       )}
       {toaster}
+      {destinations &&
+        cachedTripResource<TravelPlan>(`/trips/${trip.id}/travel`) && (
+          <TripTravelEditor
+            tripId={trip.id}
+            destinations={destinations}
+            readOnly={readOnly}
+            activities={Object.entries(activitySummaries).flatMap(
+              ([destinationId, summary]) =>
+                (summary.activities ?? []).map((a) => ({
+                  ...a,
+                  destinationId,
+                })),
+            )}
+            value={cachedTripResource<TravelPlan>(`/trips/${trip.id}/travel`)!}
+          />
+        )}
       {error ? (
         <div className="overview-load-error">
           <Text role="alert">{error}</Text>
@@ -529,7 +580,7 @@ export default function TripOverview({
       {!readOnly && stayVisit && (
         <StayLocationDrawer
           tripId={trip.id}
-          key={stayVisit.stay.id}
+          key={`${stayVisit.stay.id}:${visitRefresh}`}
           destination={stayVisit.destination}
           visit={stayVisit.stay}
           onClose={() => setStayVisit(undefined)}
@@ -545,7 +596,7 @@ export default function TripOverview({
         <AddDestinationDrawer
           key={
             editingVisit
-              ? `${editingVisit.stay.id}:${editingVisit.stay.arrivalDate}:${editingVisit.stay.departureDate}`
+              ? `${editingVisit.stay.id}:${editingVisit.stay.arrivalDate}:${editingVisit.stay.departureDate}:${visitRefresh}`
               : "dates"
           }
           tripId={trip.id}

@@ -1,3 +1,4 @@
+import { useExplicitResourceRefresh } from "../../api/tripSnapshot";
 import { PreferencesSkeleton } from "./ActivityPlanningSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useState } from "react";
@@ -18,6 +19,7 @@ export default function ActivityPreferencesEditor({
   readOnly?: boolean;
   onSaved?: () => void;
 }) {
+  useExplicitResourceRefresh(path, () => load());
   const [resource, setResource] = useState<Versioned<Preferences>>();
   const [text, setText] = useState("");
   const { notify, toaster } = useActionToast();

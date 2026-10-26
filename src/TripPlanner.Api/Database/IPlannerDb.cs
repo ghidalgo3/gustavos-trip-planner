@@ -8,6 +8,26 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb : IActivityPlanningDb
 {
+    Task<DateTimeOffset> GetTripSnapshotModifiedAtAsync(
+        Guid userId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<TripTravelPlan> GetTripTravelAsync(
+        Guid userId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<TripTravelPlan?> SaveTripTravelAsync(
+        Guid userId,
+        Guid tripId,
+        TripTravelConnection[] connections,
+        long expectedVersion,
+        long expectedContextRevision,
+        CancellationToken cancellationToken = default
+    );
+
     Task<IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>>> GetStayLocationsAsync(
         Guid userId,
         Guid tripId,

@@ -20,7 +20,7 @@ public sealed class ActivityLogTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}",
                     new UpdateTripRequest("Autumn trip", "New dates")
                 )
@@ -29,7 +29,7 @@ public sealed class ActivityLogTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}",
                     new UpdateTripRequest("", "Invalid")
                 )
@@ -37,11 +37,11 @@ public sealed class ActivityLogTests
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await client.DeleteAsync($"/trips/{trip.Id}")).StatusCode
+            (await client.DeleteResourceAsync($"/trips/{trip.Id}")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await client.DeleteAsync($"/trips/{trip.Id}")).StatusCode
+            (await client.DeleteResourceAsync($"/trips/{trip.Id}")).StatusCode
         );
         var response = await client.GetAsync("/user/activity-log");
         Assert.IsTrue(response.Headers.CacheControl!.NoStore);
@@ -90,7 +90,7 @@ public sealed class ActivityLogTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await planner.PutAsJsonAsync(
+                await planner.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}",
                     new UpdateTripRequest("Planner's update", "")
                 )
@@ -105,7 +105,7 @@ public sealed class ActivityLogTests
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await stranger.PutAsJsonAsync(
+                await stranger.PutResourceAsJsonAsync(
                     $"/trips/{trip.Id}",
                     new UpdateTripRequest("Attack", "")
                 )

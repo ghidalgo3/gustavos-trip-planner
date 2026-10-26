@@ -36,13 +36,15 @@ public class TripsEndpointTests
         var flightDocument = new PlanningDocument { AiPrompt = "Prefer morning flights" };
         Assert.AreEqual(
             HttpStatusCode.OK,
-            (await client.PutAsJsonAsync($"{url}/flights/constraints", flightDocument)).StatusCode
+            (
+                await client.PutResourceAsJsonAsync($"{url}/flights/constraints", flightDocument)
+            ).StatusCode
         );
         Assert.AreEqual(
             5000,
             (await client.GetFromJsonAsync<Trip>(url))!.Constraints.GetProperty("budget").GetInt32()
         );
-        var updated = await client.PutAsJsonAsync(
+        var updated = await client.PutResourceAsJsonAsync(
             url,
             new UpdateTripRequest(
                 "France",
@@ -61,9 +63,12 @@ public class TripsEndpointTests
                 await client.GetFromJsonAsync<PlanningDocument>($"{url}/flights/constraints")
             )!.AiPrompt
         );
-        await client.PutAsJsonAsync(url, new UpdateTripRequest("France", ""));
+        await client.PutResourceAsJsonAsync(url, new UpdateTripRequest("France", ""));
         Assert.IsEmpty((await client.GetFromJsonAsync<Trip>(url))!.Constraints.EnumerateObject());
-        Assert.AreEqual(HttpStatusCode.NoContent, (await client.DeleteAsync(url)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await client.DeleteResourceAsync(url)).StatusCode
+        );
         Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
     }
 
@@ -95,7 +100,7 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await client.PutAsJsonAsync(
+                await client.PutResourceAsJsonAsync(
                     $"/trips/{created.Id}",
                     new UpdateTripRequest("Trip", "", constraints)
                 )
@@ -123,9 +128,14 @@ public class TripsEndpointTests
         Assert.AreEqual(HttpStatusCode.NotFound, (await stranger.GetAsync(url)).StatusCode);
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await stranger.PutAsJsonAsync(url, new UpdateTripRequest("Changed", ""))).StatusCode
+            (
+                await stranger.PutResourceAsJsonAsync(url, new UpdateTripRequest("Changed", ""))
+            ).StatusCode
         );
-        Assert.AreEqual(HttpStatusCode.NotFound, (await stranger.DeleteAsync(url)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.NotFound,
+            (await stranger.DeleteResourceAsync(url)).StatusCode
+        );
         using var anonymous = factory.CreateClient();
         Assert.AreEqual(
             HttpStatusCode.Unauthorized,
@@ -170,7 +180,7 @@ public class TripsEndpointTests
         Trip? fetched = await client.GetFromJsonAsync<Trip>($"{collectionUrl}/{created.Id}");
         Assert.AreEqual(created.Id, fetched?.Id);
 
-        HttpResponseMessage updatedResponse = await client.PutAsJsonAsync(
+        HttpResponseMessage updatedResponse = await client.PutResourceAsJsonAsync(
             $"{collectionUrl}/{created.Id}",
             new UpdateTripRequest("Lisbon and Porto", "Train between the cities")
         );
@@ -179,7 +189,9 @@ public class TripsEndpointTests
         Assert.AreEqual("Lisbon and Porto", updated?.Name);
         Assert.AreEqual("Train between the cities", updated?.Description);
 
-        HttpResponseMessage deleted = await client.DeleteAsync($"{collectionUrl}/{created.Id}");
+        HttpResponseMessage deleted = await client.DeleteResourceAsync(
+            $"{collectionUrl}/{created.Id}"
+        );
         Assert.AreEqual(HttpStatusCode.NoContent, deleted.StatusCode);
         Assert.IsEmpty(factory.Database.Trips);
         Assert.IsEmpty(factory.Database.Parties);
@@ -246,7 +258,7 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await otherClient.PutAsJsonAsync(
+                await otherClient.PutResourceAsJsonAsync(
                     $"/user/{other.Id}/trips/{trip.Id}",
                     new UpdateTripRequest("Stolen", "")
                 )
@@ -254,7 +266,7 @@ public class TripsEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await otherClient.DeleteAsync($"/user/{other.Id}/trips/{trip.Id}")).StatusCode
+            (await otherClient.DeleteResourceAsync($"/user/{other.Id}/trips/{trip.Id}")).StatusCode
         );
         Assert.HasCount(1, factory.Database.Trips);
     }
@@ -311,7 +323,7 @@ public class TripsEndpointTests
         AddPrincipal(travelerClient, "traveler@example.com");
         CurrentUserResponse traveler = (
             await (
-                await travelerClient.PutAsJsonAsync(
+                await travelerClient.PutResourceAsJsonAsync(
                     "/user/profile",
                     new UserProfile(new("Seattle", -122.33, 47.61), [], "SEA")
                 )
@@ -329,15 +341,15 @@ public class TripsEndpointTests
 
         Assert.AreEqual(
             HttpStatusCode.Forbidden,
-            (await travelerClient.PutAsync(memberUrl, null)).StatusCode
+            (await travelerClient.PutResourceAsync(memberUrl, null)).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await ownerClient.PutAsync(memberUrl, null)).StatusCode
+            (await ownerClient.PutResourceAsync(memberUrl, null)).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await ownerClient.PutAsync(memberUrl, null)).StatusCode
+            (await ownerClient.PutResourceAsync(memberUrl, null)).StatusCode
         );
         CollectionAssert.AreEqual(
             new[] { owner.Id!.Value, traveler.Id!.Value },
@@ -379,12 +391,15 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.Forbidden,
             (
-                await travelerClient.PutAsJsonAsync($"{destinationsUrl}/paris-fr", replacement)
+                await travelerClient.PutResourceAsJsonAsync(
+                    $"{destinationsUrl}/paris-fr",
+                    replacement
+                )
             ).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.Forbidden,
-            (await travelerClient.DeleteAsync($"{destinationsUrl}/paris-fr")).StatusCode
+            (await travelerClient.DeleteResourceAsync($"{destinationsUrl}/paris-fr")).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.OK,
@@ -397,7 +412,7 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await travelerClient.PutAsJsonAsync(
+                await travelerClient.PutResourceAsJsonAsync(
                     sharedTripUrl,
                     new UpdateTripRequest("Changed by member", "")
                 )
@@ -405,7 +420,7 @@ public class TripsEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await travelerClient.DeleteAsync(sharedTripUrl)).StatusCode
+            (await travelerClient.DeleteResourceAsync(sharedTripUrl)).StatusCode
         );
 
         Assert.AreEqual(
@@ -414,12 +429,14 @@ public class TripsEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
-            (await ownerClient.PutAsJsonAsync(memberUrl, new { role = "Administrator" })).StatusCode
+            (
+                await ownerClient.PutResourceAsJsonAsync(memberUrl, new { role = "Administrator" })
+            ).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
             (
-                await ownerClient.PutAsJsonAsync(
+                await ownerClient.PutResourceAsJsonAsync(
                     memberUrl,
                     new PartyMemberRequest(PartyRole.Planner)
                 )
@@ -431,7 +448,10 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await travelerClient.PutAsJsonAsync($"{destinationsUrl}/paris-fr", replacement)
+                await travelerClient.PutResourceAsJsonAsync(
+                    $"{destinationsUrl}/paris-fr",
+                    replacement
+                )
             ).StatusCode
         );
         var plannerDestination = (
@@ -464,7 +484,7 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.OK,
             (
-                await travelerClient.PutAsJsonAsync(
+                await travelerClient.PutResourceAsJsonAsync(
                     sharedTripUrl,
                     new UpdateTripRequest(
                         "Planned together",
@@ -476,14 +496,14 @@ public class TripsEndpointTests
         );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await travelerClient.DeleteAsync(sharedTripUrl)).StatusCode
+            (await travelerClient.DeleteResourceAsync(sharedTripUrl)).StatusCode
         );
         string selfMemberUrl =
             $"/user/{traveler.Id}/trips/{trip.Id}/parties/{partyId}/members/{traveler.Id}";
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (
-                await travelerClient.PutAsJsonAsync(
+                await travelerClient.PutResourceAsJsonAsync(
                     selfMemberUrl,
                     new PartyMemberRequest(PartyRole.Planner)
                 )
@@ -492,7 +512,7 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.NoContent,
             (
-                await ownerClient.PutAsJsonAsync(
+                await ownerClient.PutResourceAsJsonAsync(
                     memberUrl,
                     new PartyMemberRequest(PartyRole.Traveller)
                 )
@@ -504,7 +524,10 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.Forbidden,
             (
-                await travelerClient.PutAsJsonAsync($"{destinationsUrl}/paris-fr", replacement)
+                await travelerClient.PutResourceAsJsonAsync(
+                    $"{destinationsUrl}/paris-fr",
+                    replacement
+                )
             ).StatusCode
         );
 
@@ -515,11 +538,11 @@ public class TripsEndpointTests
 
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await ownerClient.DeleteAsync(memberUrl)).StatusCode
+            (await ownerClient.DeleteResourceAsync(memberUrl)).StatusCode
         );
         Assert.AreEqual(
             HttpStatusCode.NoContent,
-            (await ownerClient.DeleteAsync(memberUrl)).StatusCode
+            (await ownerClient.DeleteResourceAsync(memberUrl)).StatusCode
         );
         CollectionAssert.AreEqual(
             new[] { owner.Id!.Value },
@@ -532,7 +555,7 @@ public class TripsEndpointTests
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (
-                await ownerClient.DeleteAsync(
+                await ownerClient.DeleteResourceAsync(
                     $"/user/{owner.Id}/trips/{trip.Id}/parties/{partyId}/members/{owner.Id}"
                 )
             ).StatusCode
@@ -541,7 +564,7 @@ public class TripsEndpointTests
 
     private static async Task<CurrentUserResponse> CompleteOnboardingAsync(HttpClient client)
     {
-        HttpResponseMessage response = await client.PutAsJsonAsync(
+        HttpResponseMessage response = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Boston, Massachusetts, United States", -71.0589, 42.3601), [])
         );

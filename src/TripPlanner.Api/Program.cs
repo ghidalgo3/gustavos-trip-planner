@@ -14,6 +14,7 @@ using TripPlanner.Api.Services.ActivityPlanning;
 using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Services.Snapshots;
 using TripPlanner.Api.Services.TripForms;
 using TripPlanner.Api.Telemetry;
 using TripPlanner.Api.Validation;
@@ -50,6 +51,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 builder.AddPostgres();
+builder.Services.AddScoped<TripSnapshotReader>();
+builder.Services.AddScoped<TripSnapshotProjection>();
 builder.Services.AddSingleton<AirportCatalog>();
 builder.Services.AddSingleton<DestinationService>();
 builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
@@ -106,6 +109,15 @@ builder.Services.AddCors(options =>
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials()
+            .WithExposedHeaders(
+                "ETag",
+                "Planning-Context",
+                "Destination-Context",
+                "Location",
+                "Retry-After",
+                "Link",
+                "WWW-Authenticate"
+            )
     )
 );
 
@@ -157,6 +169,7 @@ app.MapHealthChecks("/health");
 
 var api = app.MapGroup("");
 api.AddEndpointFilterFactory(ApiInputValidation.CreateFilter);
+api.AddEndpointFilter<TripResourceFilter>();
 
 // These routes remain here until a broader endpoint organization pattern emerges.
 api.MapAirportsEndpoints();
@@ -205,11 +218,14 @@ api.MapUserEndpoints();
 api.MapActivityLogEndpoints();
 api.MapMcpAccessEndpoints();
 api.MapTripsEndpoints();
+api.MapTripSnapshotEndpoints();
+api.MapTripTravelEndpoints();
 api.MapFlightPlanningEndpoints();
 api.MapSelectedFlightsEndpoints();
 api.MapDestinationsEndpoints();
 api.MapActivityEndpoints();
 api.MapPartyEndpoints();
+api.MapTravellersEndpoints();
 api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();
 api.MapActivityPlanEndpoints();

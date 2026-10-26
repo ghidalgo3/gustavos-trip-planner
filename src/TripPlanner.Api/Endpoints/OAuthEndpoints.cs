@@ -26,6 +26,23 @@ public static class OAuthEndpoints
     public static void MapOAuthEndpoints(this WebApplication app)
     {
         app.MapGet("/.well-known/oauth-protected-resource/mcp", ResourceMetadata);
+        app.MapGet(
+            "/.well-known/oauth-protected-resource/api",
+            (IOptions<McpOptions> options) =>
+                Results.Ok(
+                    new
+                    {
+                        resource = new Uri(new Uri(options.Value.Issuer!), "/api").AbsoluteUri,
+                        authorization_servers = new[] { options.Value.Issuer },
+                        scopes_supported = new[]
+                        {
+                            McpServiceExtensions.ReadScope,
+                            McpServiceExtensions.WriteScope,
+                        },
+                        bearer_methods_supported = new[] { "header" },
+                    }
+                )
+        );
         app.MapGet("/.well-known/oauth-protected-resource", ResourceMetadata);
         app.MapMethods("/oauth/authorize", ["GET", "POST"], Authorize);
         app.MapPost("/oauth/token", Exchange);
@@ -54,18 +71,28 @@ public static class OAuthEndpoints
     )
     {
         var request = context.GetOpenIddictServerRequest()!;
-        string resource = new Uri(new Uri(options.Value.Issuer!), "/mcp").AbsoluteUri;
+        bool native = options.Value.NativeClients.Any(c => c.ClientId == request.ClientId);
+        string resource = new Uri(
+            new Uri(options.Value.Issuer!),
+            native ? "/api" : "/mcp"
+        ).AbsoluteUri;
         if (!request.GetResources().SequenceEqual([resource]))
         {
             return Deny(
                 Errors.InvalidTarget,
-                "The requested resource must be this server's /mcp URL."
+                "The requested resource must match the registered client's API or MCP resource."
             );
         }
 
+        string clientName = native
+            ? options.Value.NativeClients.Single(c => c.ClientId == request.ClientId).DisplayName
+            : "ChatGPT";
         if (request.GetPromptValues().Contains(PromptValues.None))
         {
-            return Deny(Errors.ConsentRequired, "Explicit consent is required to connect ChatGPT.");
+            return Deny(
+                Errors.ConsentRequired,
+                "Explicit consent is required to connect this client."
+            );
         }
 
         var authentication = await context.AuthenticateAsync(
@@ -78,19 +105,20 @@ public static class OAuthEndpoints
         context.Response.Headers.ContentSecurityPolicy =
             "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
         string Encode(string value) => HtmlEncoder.Default.Encode(value);
+        string displayClient = Encode(clientName);
         if (profile is null)
         {
             string returnUri = context.Request.Path + context.Request.QueryString;
             string redirect = Uri.EscapeDataString(returnUri);
             return Html(
-                $"<h1>Connect TripPlanner to ChatGPT</h1><p>Sign in to your TripPlanner account to continue.</p><a href=\"/.auth/login/google?post_login_redirect_uri={redirect}\">Continue with Google</a><a href=\"/.auth/login/aad?post_login_redirect_uri={redirect}\">Continue with Microsoft</a>"
+                $"<h1>Connect TripPlanner to {displayClient}</h1><p>Sign in to your TripPlanner account to continue.</p><a href=\"/.auth/login/google?post_login_redirect_uri={redirect}\">Continue with Google</a><a href=\"/.auth/login/aad?post_login_redirect_uri={redirect}\">Continue with Microsoft</a>"
             );
         }
         User? user = await database.GetUserByEmailAsync(profile.Email, context.RequestAborted);
         if (user?.HomeCityLocation is null)
         {
             return Html(
-                "<h1>Complete your profile first</h1><p>Open TripPlanner, finish onboarding, then connect ChatGPT again.</p><a href=\"/\">Open TripPlanner</a>"
+                "<h1>Complete your profile first</h1><p>Open TripPlanner, finish onboarding, then connect your client again.</p><a href=\"/\">Open TripPlanner</a>"
             );
         }
 
@@ -108,7 +136,7 @@ public static class OAuthEndpoints
                     )
             );
             return Html(
-                $"<h1>Allow ChatGPT to access TripPlanner?</h1><p>Signed in as {Encode(user.DisplayName)} ({Encode(user.Email)}).</p><p>{permissions}</p><p>Changes will be attributed to you via ChatGPT in your Activity Log. Access lasts until revoked or expired.</p><form method=\"post\">{fields}<input type=\"hidden\" name=\"{Encode(token.FormFieldName)}\" value=\"{Encode(token.RequestToken!)}\"><button name=\"decision\" value=\"allow\">Allow access</button><button name=\"decision\" value=\"deny\">Cancel</button></form>"
+                $"<h1>Allow {displayClient} to access TripPlanner?</h1><p>Signed in as {Encode(user.DisplayName)} ({Encode(user.Email)}).</p><p>{permissions}</p><p>Changes will be attributed to you via {displayClient} in your Activity Log. Access lasts until revoked or expired.</p><form method=\"post\">{fields}<input type=\"hidden\" name=\"{Encode(token.FormFieldName)}\" value=\"{Encode(token.RequestToken!)}\"><button name=\"decision\" value=\"allow\">Allow access</button><button name=\"decision\" value=\"deny\">Cancel</button></form>"
             );
         }
         try
@@ -118,7 +146,7 @@ public static class OAuthEndpoints
         catch (AntiforgeryValidationException)
         {
             return Html(
-                "<h1>Consent session expired</h1><p>No new access was granted. Return to ChatGPT and start connecting TripPlanner again.</p>",
+                "<h1>Consent session expired</h1><p>No new access was granted. Return to your client and start connecting TripPlanner again.</p>",
                 StatusCodes.Status400BadRequest
             );
         }
@@ -147,6 +175,13 @@ public static class OAuthEndpoints
         OpenIddictServerEvents.ApplyAuthorizationResponseContext context
     )
     {
+        if (
+            context.Transaction.GetHttpRequest()?.HttpContext.GetOpenIddictServerRequest()?.ClientId
+            != McpServiceExtensions.ClientId
+        )
+        {
+            return;
+        }
         var http = context.Transaction.GetHttpRequest()?.HttpContext;
         // Only acknowledge a CSRF-validated user decision, never a protocol validation failure.
         // OpenIddict has already validated the callback and generated the code/error and state.
@@ -221,7 +256,11 @@ public static class OAuthEndpoints
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
         );
         var principal = authentication.Principal;
-        string resource = new Uri(new Uri(options.Value.Issuer!), "/mcp").AbsoluteUri;
+        bool native = options.Value.NativeClients.Any(c => c.ClientId == request.ClientId);
+        string resource = new Uri(
+            new Uri(options.Value.Issuer!),
+            native ? "/api" : "/mcp"
+        ).AbsoluteUri;
         if (
             principal is null
             || !Guid.TryParse(principal.GetClaim(Claims.Subject), out var id)
@@ -237,7 +276,10 @@ public static class OAuthEndpoints
             || !principal.GetResources().Contains(resource)
         )
         {
-            return Deny(Errors.InvalidTarget, "The token must be requested for this MCP resource.");
+            return Deny(
+                Errors.InvalidTarget,
+                "The token must be requested for its registered resource."
+            );
         }
 
         if (request.IsRefreshTokenGrantType() && request.Scope is not null)

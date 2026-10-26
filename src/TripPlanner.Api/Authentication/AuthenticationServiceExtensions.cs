@@ -6,7 +6,10 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
 using TripPlanner.Api.Authentication;
+using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
 
 namespace TripPlanner.Api.Authentication;
@@ -24,8 +27,9 @@ public static class AuthenticationServiceExtensions
             options.AddPolicy(
                 CurrentUserPolicy,
                 policy =>
-                    policy.RequireAssertion(context =>
+                    policy.RequireAssertion(async context =>
                         AuthenticatedUserProfile.FromPrincipal(context.User) is not null
+                        && await AllowsRestAccessAsync(context)
                     )
             )
         );
@@ -73,6 +77,17 @@ public static class AuthenticationServiceExtensions
                 cookie.Cookie.SameSite = SameSiteMode.Lax;
                 cookie.ExpireTimeSpan = TimeSpan.FromDays(30);
                 cookie.SlidingExpiration = true;
+                // REST callers receive status codes, never an HTML login redirect.
+                cookie.Events.OnRedirectToLogin = context =>
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return Task.CompletedTask;
+                };
+                cookie.Events.OnRedirectToAccessDenied = context =>
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return Task.CompletedTask;
+                };
                 cookie.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
                     ? CookieSecurePolicy.SameAsRequest
                     : CookieSecurePolicy.Always;
@@ -120,6 +135,49 @@ public static class AuthenticationServiceExtensions
             );
 
         return true;
+    }
+
+    private static async Task<bool> AllowsRestAccessAsync(AuthorizationHandlerContext context)
+    {
+        if (
+            context.Resource is not HttpContext http
+            || !http
+                .Request.Headers.Authorization.ToString()
+                .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return true;
+        }
+        var options = http.RequestServices.GetRequiredService<IOptions<McpOptions>>().Value;
+        if (!options.Enabled || !Uri.TryCreate(options.Issuer, UriKind.Absolute, out var issuer))
+        {
+            return false;
+        }
+        if (
+            !Guid.TryParse(
+                context.User.GetClaim(OpenIddictConstants.Claims.Subject),
+                out var subject
+            )
+            || await http
+                .RequestServices.GetRequiredService<TripPlanner.Api.Database.IPlannerDb>()
+                .GetUserAsync(subject, http.RequestAborted)
+                is not { } user
+            || !string.Equals(
+                user.Email,
+                AuthenticatedUserProfile.FromPrincipal(context.User)?.Email,
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            return false;
+        }
+        bool read =
+            HttpMethods.IsGet(http.Request.Method) || HttpMethods.IsHead(http.Request.Method);
+        return context.User.HasAudience(new Uri(issuer, "/api").AbsoluteUri)
+            && (
+                context.User.HasScope(McpServiceExtensions.WriteScope)
+                || read && context.User.HasScope(McpServiceExtensions.ReadScope)
+            );
     }
 
     private static Task AddGoogleProviderClaim(OAuthCreatingTicketContext context)

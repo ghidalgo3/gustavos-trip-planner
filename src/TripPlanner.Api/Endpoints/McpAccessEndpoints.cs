@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
+using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
 
 namespace TripPlanner.Api.Endpoints;
@@ -34,6 +35,15 @@ public static class McpAccessEndpoints
             if (user is not null)
             {
                 var tokens = context.RequestServices.GetRequiredService<IOpenIddictTokenManager>();
+                var applications =
+                    context.RequestServices.GetRequiredService<IOpenIddictApplicationManager>();
+                var application = await applications.FindByClientIdAsync(
+                    McpServiceExtensions.ClientId,
+                    context.RequestAborted
+                );
+                string? applicationId = application is null
+                    ? null
+                    : await applications.GetIdAsync(application, context.RequestAborted);
                 await foreach (
                     var token in tokens.FindBySubjectAsync(
                         user.Id.ToString("D"),
@@ -42,7 +52,10 @@ public static class McpAccessEndpoints
                 )
                 {
                     if (
-                        await tokens.HasStatusAsync(
+                        applicationId is not null
+                        && await tokens.GetApplicationIdAsync(token, context.RequestAborted)
+                            == applicationId
+                        && await tokens.HasStatusAsync(
                             token,
                             OpenIddictConstants.Statuses.Valid,
                             context.RequestAborted
@@ -82,12 +95,28 @@ public static class McpAccessEndpoints
         }
 
         string subject = user.Id.ToString("D");
-        await context
-            .RequestServices.GetRequiredService<IOpenIddictTokenManager>()
-            .RevokeBySubjectAsync(subject, context.RequestAborted);
-        await context
-            .RequestServices.GetRequiredService<IOpenIddictAuthorizationManager>()
-            .RevokeBySubjectAsync(subject, context.RequestAborted);
+        var applications =
+            context.RequestServices.GetRequiredService<IOpenIddictApplicationManager>();
+        var application = await applications.FindByClientIdAsync(
+            McpServiceExtensions.ClientId,
+            context.RequestAborted
+        );
+        if (application is not null)
+        {
+            string? applicationId = await applications.GetIdAsync(
+                application,
+                context.RequestAborted
+            );
+            if (applicationId is not null)
+            {
+                await context
+                    .RequestServices.GetRequiredService<IOpenIddictTokenManager>()
+                    .RevokeAsync(subject, applicationId, null, null, context.RequestAborted);
+                await context
+                    .RequestServices.GetRequiredService<IOpenIddictAuthorizationManager>()
+                    .RevokeAsync(subject, applicationId, null, null, context.RequestAborted);
+            }
+        }
         return Results.NoContent();
     }
 }

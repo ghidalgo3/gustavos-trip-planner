@@ -13,6 +13,7 @@ COPY src/TripPlanner.Api/TripPlanner.Api.csproj src/TripPlanner.Api/
 RUN dotnet restore src/TripPlanner.Api/TripPlanner.Api.csproj --source "$NUGET_SOURCE"
 
 COPY src/ src/
+COPY docs/schemas/ docs/schemas/
 RUN dotnet publish src/TripPlanner.Api/TripPlanner.Api.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

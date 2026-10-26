@@ -11,10 +11,28 @@ import { expect, test, vi } from "vitest";
 import TripPlanningPage from "./TripPlanningPage";
 
 vi.mock("../../api/api", () => ({
+  apiBaseUrl: "",
   getTrip: vi.fn().mockResolvedValue({
     id: "trip",
     name: "Test trip",
     ownerUserId: "owner",
+  }),
+}));
+vi.mock("../../api/tripSnapshot", () => ({
+  openTripSnapshot: vi.fn().mockResolvedValue(undefined),
+  refreshConflictedResource: vi.fn().mockResolvedValue(undefined),
+  useTripSnapshotState: () => ({
+    userId: "owner",
+    tripId: "trip",
+    offline: false,
+    loading: false,
+    snapshot: {
+      resources: {
+        "/trips/trip": {
+          data: { id: "trip", name: "Test trip", ownerUserId: "owner" },
+        },
+      },
+    },
   }),
 }));
 vi.mock("./TripOverview", () => ({

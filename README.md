@@ -22,6 +22,33 @@ Starter architecture for a React single-page application and a C# API deployed t
 
 Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
 
+[Milestone 5](docs/milestone_5.md) implements complete compressed trip snapshots,
+conditional REST updates, offline reading, and OAuth support for native clients.
+PostgreSQL remains authoritative. `GET /trips/{tripId}/snapshot` returns a
+versioned Schema.org Trip with a JSCalendar Group, shared entities and stable
+references, plus resource URLs/ETags for editing. The published JSON Schema is
+available at `/schemas/trip-snapshot-v1.json`. Use `Accept-Encoding: gzip` and
+`If-None-Match` for efficient downloads; a snapshot ETag validates that exact
+encoded representation and must not be used as an edit precondition.
+
+The web app reads trip views from its account-scoped snapshot cache, saves through
+resource REST APIs, and reloads the snapshot after successful mutations. A stale
+write returns `412`; missing edit preconditions return `428`. The UI retains the
+draft and offers Refresh; it does not replay stale writes. Cached trips remain
+readable offline, with editing disabled. The production service worker caches the
+public app shell; authenticated snapshots are cached separately and cleared on
+sign-out or an online access denial. Other tabs/devices do not receive live pushes.
+
+`GET/PUT /trips/{tripId}/travel` reads/replaces general travel connections, using
+its own `If-Match` validator. Connections can link activities, visits, or shared
+places and support walk, bike, car, taxi, bus, train, transit and flight. An
+unscheduled or unresolved journey is a Task; a resolved journey becomes an Event
+with the same UID. Local departure intentions retain their IANA zone; durations
+are elapsed ISO 8601 values. Existing routing evidence is included; this milestone
+does not add new rail, cycling, or transit routing/booking providers. Migrations
+`0016`–`0018` add the travel document, reference cleanup and stable modification
+timestamps. No database reset is required.
+
 Frontend code under `src/TripPlanner.Web/src` is grouped by responsibility:
 
 - `features/activities`, `features/flights`, `features/trips`, `features/party`, and
@@ -495,6 +522,37 @@ ChatGPT testing, use a publicly reachable HTTPS host/tunnel and register its log
 callbacks with Google/Microsoft; a production ChatGPT client cannot reach localhost.
 Vite proxies `/mcp`, `/oauth`, and `/.well-known` to the API.
 
+Native clients use the same issuer with public client registrations in
+`Mcp:NativeClients` (the shared OAuth issuer must be enabled with `Mcp:Enabled`).
+For example:
+
+```json
+{
+  "Mcp": {
+    "Enabled": true,
+    "Issuer": "https://your-tripplanner-host/",
+    "NativeClients": [{
+      "ClientId": "tripplanner-ios",
+      "DisplayName": "TripPlanner iOS",
+      "RedirectUris": ["com.example.tripplanner:/oauth/callback"]
+    }]
+  }
+}
+```
+
+Use the system authentication browser and authorization code flow with PKCE S256,
+`state`, an exact registered callback, and `resource=https://your-tripplanner-host/api`.
+Request `tripplanner.read` and, when needed, `tripplanner.write offline_access`.
+Exchange/refresh at `/oauth/token` with the public `client_id` and no client secret;
+keep refresh tokens in the platform's secure credential store. Send the access
+token in `Authorization: Bearer ...` for REST requests. Cookies, an Origin header,
+and browser CORS behavior are not part of this contract. REST authentication
+failures return `401/403` instead of HTML login redirects. API and MCP token
+audiences are separate. OAuth server metadata is at `/.well-known/oauth-authorization-server` and API resource metadata
+at `/.well-known/oauth-protected-resource/api`. Native clients should persist the
+last successful snapshot per account/trip and follow the same explicit conflict
+refresh protocol as the web app. Offline writes are not queued.
+
 **Profile → Activity Log** shows new successful trip mutations, newest first, with
 the authorizing user, client/source, trip name, resource, action, and timestamp.
 Website changes, ChatGPT changes, and activities saved by the background assistant
@@ -901,9 +959,14 @@ plugin's tool definitions so it receives the updated schemas.
 | GET | `/mapToken` | Issue an authenticated two-hour Azure Maps SAS limited to 50 requests per second |
 | GET, POST | `/trips` | List visible trips or create a trip with name, description, and optional constraints |
 | GET, PUT, DELETE | `/trips/{tripId}` | Read, replace, or delete a trip |
+| GET | `/trips/{tripId}/snapshot` | Complete versioned trip JSON-LD with gzip negotiation, conditional reads, and resource validators; MCP: `get_trip_snapshot` |
+| GET | `/schemas/trip-snapshot-v1.json` | Published JSON Schema for the snapshot format |
+| GET, PUT | `/trips/{tripId}/travel` | Read or conditionally replace all travel connections; MCP: `get_trip_travel`, `replace_trip_travel` |
+| GET | `/trips/{tripId}/travellers` | Read travellers and roles for the single-party trip |
+| GET, PUT, DELETE | `/trips/{tripId}/travellers/{memberId}` | Read membership or conditionally replace/remove it as the owner; actor inferred from authentication |
 | GET, POST | `/trips/{tripId}/destinations` | Read destination FeatureCollection or add a destination Feature and initial stay |
 | GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}` | Read or replace the place Feature; delete the destination and its stays, activities, and jobs |
-| PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` | Replace stay dates or remove one visit |
+| GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` | Replace stay dates or remove one visit |
 | GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/stays/{stayId}/location` | Read, replace or remove one visit's accommodation |
 | GET, POST | `/trips/{tripId}/destinations/{destinationCity}/activities` | Read activity FeatureCollection or create an activity Feature |
 | GET, PUT, DELETE | `/trips/{tripId}/destinations/{destinationCity}/activities/{activityId}` | Read, replace, or delete an activity Feature |
@@ -922,11 +985,11 @@ plugin's tool definitions so it receives the updated schemas.
 | POST | `/trips/{tripId}/flights/search/{cacheKey}/bookingLinks` | Read airline booking options for one cached fare |
 | POST | `/trips/{tripId}/flights/choices/{partyId}/bookingLinks` | Request airline links for a whole retained booking among the selected flights |
 | GET | `/trips/{tripId}/flights` | Read selected trip flights; 204 until a flight has been selected |
-| PUT | `/trips/{tripId}/flights/{partyId}` | Select or replace a fare by cache key and itinerary index |
+| GET, PUT | `/trips/{tripId}/flights/{partyId}` | Select or replace a fare by cache key and itinerary index |
 | DELETE | `/trips/{tripId}/flights/{partyId}` | Deselect a party's flight |
 | PUT | `/trips/{tripId}/flights/{partyId}/purchases` | Save purchase status for the selected flight's legs |
 | GET | `/trips/{tripId}/flights/choices` | Read in-progress route choices |
-| PUT | `/trips/{tripId}/flights/choices/{partyId}` | Save in-progress route choices by cache key |
+| GET, PUT | `/trips/{tripId}/flights/choices/{partyId}` | Save in-progress route choices by cache key |
 | GET, PUT | `/user/activity-preferences` | Private interests and optional defaults; replacement requires If-Match |
 | GET, PUT | `/trips/{tripId}/activity-preferences` | Shared trip preferences |
 | GET, PUT | `/trips/{tripId}/destinations/{destinationCity}/activity-preferences` | Shared destination preferences |

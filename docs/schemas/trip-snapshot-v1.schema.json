@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghidalgo3.github.io/gustavos-trip-planner/schemas/trip-snapshot-v1.schema.json",
+  "title": "TripPlanner complete trip snapshot, version 1",
+  "type": "object",
+  "required": ["@context", "@type", "@id", "schemaVersion", "name", "description", "revision", "tripOrigin", "owner", "itinerary", "places", "people", "travellers", "services", "flights", "reservations", "plan", "planning", "resources"],
+  "properties": {
+    "@context": { "type": "object" },
+    "@type": { "const": "Trip" },
+    "@id": { "type": "string", "format": "uri" },
+    "schemaVersion": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "revision": { "type": "string", "minLength": 1 },
+    "tripOrigin": { "$ref": "#/$defs/reference" },
+    "owner": { "$ref": "#/$defs/reference" },
+    "itinerary": {
+      "type": "object", "required": ["@type", "itemListElement"],
+      "properties": {
+        "@type": { "const": "ItemList" },
+        "itemListElement": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["@id", "@type", "position", "item"],
+            "properties": {
+              "@id": { "type": "string", "format": "uri" },
+              "@type": { "const": "ListItem" },
+              "position": { "type": "integer", "minimum": 1 },
+              "item": { "$ref": "#/$defs/reference" },
+              "tp:arrivalDate": { "type": ["string", "null"], "format": "date" },
+              "tp:departureDate": { "type": ["string", "null"], "format": "date" },
+              "tp:accommodation": { "oneOf": [{ "$ref": "#/$defs/reference" }, { "type": "null" }] }
+            }
+          }
+        }
+      }
+    },
+    "places": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
+    "people": { "type": "array", "items": { "allOf": [{ "$ref": "#/$defs/entity" }, { "properties": { "@type": { "const": "Person" } } }] } },
+    "travellers": {
+      "type": "array", "items": {
+        "type": "object", "required": ["person", "role"],
+        "properties": { "person": { "$ref": "#/$defs/reference" }, "role": { "enum": ["Planner", "Traveller"] } }
+      }
+    },
+    "services": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
+    "flights": {
+      "type": "array", "items": {
+        "type": "object", "required": ["@id", "flight", "destination", "originVisit", "destinationVisit", "unassigned"],
+        "properties": {
+          "@id": { "type": "string", "format": "uri" },
+          "flight": { "$ref": "#/$defs/reference" },
+          "destination": { "$ref": "#/$defs/optionalReference" },
+          "originVisit": { "$ref": "#/$defs/optionalReference" },
+          "destinationVisit": { "$ref": "#/$defs/optionalReference" },
+          "reservation": { "$ref": "#/$defs/reference" },
+          "unassigned": { "type": "boolean" }
+        }
+      }
+    },
+    "reservations": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
+    "plan": {
+      "type": "object", "required": ["@type", "uid", "updated", "entries"],
+      "properties": {
+        "@type": { "const": "Group" },
+        "uid": { "type": "string", "format": "uuid" },
+        "updated": { "$ref": "#/$defs/utcDateTime" },
+        "title": { "type": "string" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/calendarEntry" } }
+      }
+    },
+    "planning": { "type": "object", "required": ["trip", "destinations", "days", "defaultsVersion"] },
+    "resources": { "type": "object", "additionalProperties": { "$ref": "#/$defs/resource" } }
+  },
+  "$defs": {
+    "reference": { "type": "object", "required": ["@id"], "properties": { "@id": { "type": "string", "format": "uri" } }, "additionalProperties": false },
+    "optionalReference": { "oneOf": [{ "$ref": "#/$defs/reference" }, { "type": "null" }] },
+    "entity": { "type": "object", "required": ["@id", "@type"], "properties": { "@id": { "type": "string", "format": "uri" }, "@type": { "type": "string", "minLength": 1 } } },
+    "utcDateTime": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "elapsedDuration": { "type": "string", "pattern": "^PT(?:(?:[0-9]+H)(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]*[1-9])?S)?|(?:[0-9]+M)(?:[0-9]+(?:\\.[0-9]*[1-9])?S)?|[0-9]+(?:\\.[0-9]*[1-9])?S)$" },
+    "calendarEntry": {
+      "type": "object", "required": ["@type", "uid", "updated", "title", "ghidalgo3.github.io:kind"],
+      "properties": {
+        "@type": { "enum": ["Task", "Event"] },
+        "uid": { "type": "string", "format": "uuid" },
+        "updated": { "$ref": "#/$defs/utcDateTime" },
+        "title": { "type": "string" },
+        "start": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?$" },
+        "timeZone": { "type": "string", "minLength": 1 },
+        "duration": { "$ref": "#/$defs/elapsedDuration" },
+        "estimatedDuration": { "allOf": [{ "$ref": "#/$defs/elapsedDuration" }, { "not": { "const": "PT0S" } }] },
+        "ghidalgo3.github.io:kind": { "enum": ["activity", "travel"] },
+        "ghidalgo3.github.io:planningState": { "enum": ["Proposed", "Planned", "Rejected"] },
+        "ghidalgo3.github.io:mode": { "enum": [null, "walk", "bike", "car", "taxi", "bus", "train", "transit", "flight"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "@type": { "const": "Event" } } }, "then": { "required": ["start", "timeZone", "duration"], "not": { "required": ["estimatedDuration"] } } },
+        { "if": { "properties": { "@type": { "const": "Task" } } }, "then": { "not": { "required": ["duration"] } } }
+      ]
+    },
+    "resource": {
+      "type": "object", "required": ["href", "etag", "data", "status", "contentType"],
+      "properties": {
+        "href": { "type": "string", "pattern": "^/trips/" },
+        "etag": { "type": "string", "pattern": "^\"[^\"]+\"$" },
+        "data": true,
+        "status": { "enum": [200, 204, 404] },
+        "contentType": { "type": "string" },
+        "contextVersion": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

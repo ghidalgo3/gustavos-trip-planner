@@ -103,7 +103,10 @@ public sealed class ActivityPlanEndpointTests
         client.DefaultRequestHeaders.Remove("X-Test-Email");
         client.DefaultRequestHeaders.Add("X-Test-Email", "other-preview@example.com");
         await client.GetAsync("/user");
-        await client.PutAsJsonAsync("/user/profile", new UserProfile(new("Boston", -71, 42), []));
+        await client.PutResourceAsJsonAsync(
+            "/user/profile",
+            new UserProfile(new("Boston", -71, 42), [])
+        );
         Assert.AreEqual(
             HttpStatusCode.NotFound,
             (

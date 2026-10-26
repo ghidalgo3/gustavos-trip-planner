@@ -1,3 +1,4 @@
+import { useExplicitResourceRefresh } from "../../api/tripSnapshot";
 import { DailyPlanSkeleton } from "./ActivityPlanningSkeletons";
 import ActivityOrderHandle from "./ActivityOrderHandle";
 import type { ActivityRouteSelection } from "./activityRouteApi";
@@ -254,6 +255,14 @@ export default function DailyActivityPlan({
   onPlanChange?: () => void;
 }) {
   const path = activityPlanPath(tripId, destinationId);
+  useExplicitResourceRefresh(path, async () => {
+    try {
+      await reload();
+      setError("");
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  });
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [plan, setPlan] = useState<ActivityPlan>();
   const invalidateRoute = useEffectEvent(() => onPlanChange?.());

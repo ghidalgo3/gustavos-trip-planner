@@ -103,8 +103,17 @@ internal static class EndpointAuthorization
         AuthenticatedUserProfile profile
     )
     {
-        User? user = await database.GetUserByEmailAsync(profile.Email, context.RequestAborted);
-        if (user is null)
+        bool bearer = context
+            .Request.Headers.Authorization.ToString()
+            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+        User? user =
+            bearer && Guid.TryParse(context.User.FindFirst("sub")?.Value, out var subject)
+                ? await database.GetUserAsync(subject, context.RequestAborted)
+                : await database.GetUserByEmailAsync(profile.Email, context.RequestAborted);
+        if (
+            user is null
+            || !string.Equals(user.Email, profile.Email, StringComparison.OrdinalIgnoreCase)
+        )
         {
             return (null, Results.StatusCode(StatusCodes.Status403Forbidden));
         }

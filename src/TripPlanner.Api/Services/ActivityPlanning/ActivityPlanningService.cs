@@ -111,7 +111,10 @@ public sealed class ActivityPlanningService(
         throw new ActivityPlanningChangedException();
     }
 
-    public ActivityPlanResponse Response(ActivityPlanningContext planningContext)
+    public ActivityPlanResponse Response(
+        ActivityPlanningContext planningContext,
+        DateTimeOffset? evaluatedAt = null
+    )
     {
         var plan = planningContext.SavedPlan?.Plan ?? ActivityPlanRules.Initial(planningContext);
         if (string.IsNullOrWhiteSpace(plan.TimeZone))
@@ -125,7 +128,7 @@ public sealed class ActivityPlanningService(
             plan,
             planningContext.SavedPlan?.Version ?? 0,
             ContextVersion(planningContext),
-            planningContext.Evaluate(plan, clock.GetUtcNow()),
+            planningContext.Evaluate(plan, evaluatedAt ?? clock.GetUtcNow()),
             planningContext.SavedPlan?.Assessment,
             planningContext.SavedPlan is { } saved
                 && saved.InputRevision != planningContext.InputRevision,

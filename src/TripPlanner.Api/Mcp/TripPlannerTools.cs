@@ -29,6 +29,34 @@ public sealed class TripPlannerTools(
     IActivityPlaceResearch activityPlaceResearch
 )
 {
+    [McpServerTool(
+        Name = "get_trip_snapshot",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false
+    )]
+    [McpMeta(
+        "securitySchemes",
+        JsonValue = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]"
+    )]
+    [Description(
+        "Read the complete shared trip snapshot in one call, including stable places/people, visits, activities and travel calendar, selected flights and resource edit validators. Private profiles, credentials and transient searches are excluded."
+    )]
+    public Task<CallToolResult> GetTripSnapshot(Guid tripId) =>
+        adapter.ExecuteAsync(
+            false,
+            context =>
+                TripSnapshotEndpoints.GetSnapshot(
+                    tripId,
+                    context,
+                    database,
+                    currentUser,
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotReader>(),
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotProjection>()
+                )
+        );
+
     private const string ReadSecurity = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]";
     private const string WriteSecurity =
         "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.write\"]}]";
@@ -624,6 +652,54 @@ public sealed class TripPlannerTools(
                 ),
             contextVersion,
             etag
+        );
+
+    [McpServerTool(
+        Name = "get_trip_travel",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false
+    )]
+    [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
+    [Description(
+        "Read planned journeys between activities, visits and home, and their resource ETag. Unknown routing durations remain unknown."
+    )]
+    public Task<CallToolResult> GetTripTravel(Guid tripId) =>
+        Execute(
+            false,
+            context => TripTravelEndpoints.GetTravel(tripId, context, database, currentUser)
+        );
+
+    [McpServerTool(
+        Name = "replace_trip_travel",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
+        OpenWorld = false
+    )]
+    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
+    [Description(
+        "Replace the complete travel connection collection after user approval. Preserve unrelated connections and stable IDs. Read current travel first and supply its ETag; reread on conflict. Supports walking, bicycle, car, taxi, bus, train, transit and flight, including unscheduled tasks and manual elapsed allowances. Does not book travel or call a routing provider."
+    )]
+    public Task<CallToolResult> ReplaceTripTravel(
+        Guid tripId,
+        TripTravelRequest request,
+        [Required, StringLength(40), RegularExpression("""^"travel-[0-9]{1,19}"$""")] string etag
+    ) =>
+        Execute(
+            true,
+            context =>
+                TripTravelEndpoints.ReplaceTravel(
+                    tripId,
+                    request,
+                    context,
+                    database,
+                    currentUser,
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotReader>(),
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotProjection>()
+                ),
+            etag: etag
         );
 
     private Task<CallToolResult> Execute(

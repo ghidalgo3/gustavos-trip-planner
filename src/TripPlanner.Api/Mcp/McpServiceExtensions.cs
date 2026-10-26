@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore;
@@ -101,6 +102,49 @@ public static class McpServiceExtensions
             );
         }
 
+        foreach (var client in configuration.NativeClients)
+        {
+            if (
+                string.IsNullOrWhiteSpace(client.ClientId)
+                || client.ClientId == ClientId
+                || client.RedirectUris.Length == 0
+                || configuration.NativeClients.Count(c => c.ClientId == client.ClientId) != 1
+                || client.RedirectUris.Any(value =>
+                    !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+                    || uri.Fragment.Length > 0
+                    || uri.Scheme is "javascript" or "data" or "file"
+                    || uri.Scheme == "http"
+                        && !(builder.Environment.IsDevelopment() && uri.IsLoopback)
+                )
+            )
+            {
+                throw new InvalidOperationException(
+                    "Native OAuth clients require unique IDs and exact HTTPS, private-scheme, or development loopback callback URIs."
+                );
+            }
+        }
+
+        builder
+            .Services.AddAuthentication(auth =>
+            {
+                auth.DefaultAuthenticateScheme = "TripPlannerClient";
+                auth.DefaultChallengeScheme = "TripPlannerClient";
+                auth.DefaultForbidScheme = "TripPlannerClient";
+            })
+            .AddPolicyScheme(
+                "TripPlannerClient",
+                "Cookie or native bearer",
+                options =>
+                {
+                    options.ForwardDefaultSelector = context =>
+                        context
+                            .Request.Headers.Authorization.ToString()
+                            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                            ? OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme
+                            : CookieAuthenticationDefaults.AuthenticationScheme;
+                }
+            );
+
         builder.Services.AddAntiforgery();
         builder.Services.AddDbContext<OAuthDbContext>(
             (services, options) =>
@@ -123,7 +167,10 @@ public static class McpServiceExtensions
                 options.AllowAuthorizationCodeFlow().AllowRefreshTokenFlow();
                 options.RequireProofKeyForCodeExchange();
                 options.RegisterScopes(ReadScope, WriteScope, Scopes.OfflineAccess);
-                options.RegisterResources(new Uri(issuer, "/mcp").AbsoluteUri);
+                options.RegisterResources(
+                    new Uri(issuer, "/mcp").AbsoluteUri,
+                    new Uri(issuer, "/api").AbsoluteUri
+                );
                 options.Configure(configuration =>
                 {
                     configuration.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain);
@@ -182,7 +229,10 @@ public static class McpServiceExtensions
             .AddValidation(options =>
             {
                 options.UseLocalServer();
-                options.AddAudiences(new Uri(issuer, "/mcp").AbsoluteUri);
+                options.AddAudiences(
+                    new Uri(issuer, "/mcp").AbsoluteUri,
+                    new Uri(issuer, "/api").AbsoluteUri
+                );
                 options.EnableTokenEntryValidation();
                 options.UseAspNetCore();
             });
@@ -196,7 +246,11 @@ public static class McpServiceExtensions
                         )
                         .RequireAuthenticatedUser()
                         .RequireAssertion(context =>
-                            context.User.HasScope(ReadScope) || context.User.HasScope(WriteScope)
+                            context.User.HasAudience(new Uri(issuer, "/mcp").AbsoluteUri)
+                            && (
+                                context.User.HasScope(ReadScope)
+                                || context.User.HasScope(WriteScope)
+                            )
                         )
             )
         );
@@ -274,6 +328,43 @@ public static class McpServiceExtensions
         else
         {
             await manager.UpdateAsync(existing, descriptor);
+        }
+        foreach (var client in options.NativeClients)
+        {
+            var native = new OpenIddictApplicationDescriptor
+            {
+                ClientId = client.ClientId,
+                ClientType = ClientTypes.Public,
+                ConsentType = ConsentTypes.Explicit,
+                DisplayName = client.DisplayName,
+                Permissions =
+                {
+                    Permissions.Endpoints.Authorization,
+                    Permissions.Endpoints.Token,
+                    Permissions.Endpoints.Revocation,
+                    Permissions.GrantTypes.AuthorizationCode,
+                    Permissions.GrantTypes.RefreshToken,
+                    Permissions.ResponseTypes.Code,
+                    Permissions.Prefixes.Scope + ReadScope,
+                    Permissions.Prefixes.Scope + WriteScope,
+                    Permissions.Prefixes.Resource
+                        + new Uri(new Uri(options.Issuer!), "/api").AbsoluteUri,
+                },
+                Requirements = { Requirements.Features.ProofKeyForCodeExchange },
+            };
+            foreach (var redirect in client.RedirectUris)
+            {
+                native.RedirectUris.Add(new Uri(redirect));
+            }
+            var registered = await manager.FindByClientIdAsync(client.ClientId);
+            if (registered is null)
+            {
+                await manager.CreateAsync(native);
+            }
+            else
+            {
+                await manager.UpdateAsync(registered, native);
+            }
         }
     }
 }

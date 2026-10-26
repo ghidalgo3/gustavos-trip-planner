@@ -3074,3 +3074,54 @@ main:has(.trip-workspace-activities) > .topbar {
 .activity-route-skeleton span:last-child {
   width: 65%;
 }
+
+.snapshot-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+  background: var(--colorNeutralBackground2);
+}
+
+.trip-travel {
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+}
+.trip-travel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.travel-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 8px;
+}
+.travel-editor-fields label {
+  display: grid;
+  gap: 6px;
+}
+.travel-editor-fields input,
+.travel-editor-fields select {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px;
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.travel-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

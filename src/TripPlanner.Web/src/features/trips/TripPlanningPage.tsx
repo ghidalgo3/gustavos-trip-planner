@@ -2,7 +2,7 @@ import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
 import { ActivityWorkspaceSkeleton } from "../activities/ActivityPlanningSkeletons";
 import { FlightPlanningSkeleton } from "../flights/FlightSkeletons";
 import PartySkeleton from "../party/PartySkeleton";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Button, Text, Title1 } from "@fluentui/react-components";
 import { NavLink, useNavigate, useParams } from "react-router";
 import {
@@ -11,7 +11,12 @@ import {
   Map24Regular,
   People24Regular,
 } from "@fluentui/react-icons";
-import { getTrip, type Trip } from "../../api/api";
+import { apiBaseUrl, type Trip } from "../../api/api";
+import {
+  openTripSnapshot,
+  refreshConflictedResource,
+  useTripSnapshotState,
+} from "../../api/tripSnapshot";
 import ActivityPlanningTab from "../activities/ActivityPlanningTab";
 import TripPlanning from "../flights/TripPlanning";
 import PlansOverview from "../flights/PlansOverview";
@@ -37,31 +42,26 @@ export default function TripPlanningPage({
         : section === "flights"
           ? "flights"
           : "overview";
-  const [loaded, setLoaded] = useState<{
-    tripId: string;
-    trip?: Trip;
-    error?: string;
-  }>();
-
+  const snapshotState = useTripSnapshotState();
   useEffect(() => {
     if (!tripId) return;
     const controller = new AbortController();
-    getTrip(userId, tripId, controller.signal)
-      .then((trip) => {
-        if (!controller.signal.aborted) setLoaded({ tripId, trip });
-      })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted)
-          setLoaded({
-            tripId,
-            error:
-              reason instanceof Error ? reason.message : "Unable to load trip.",
-          });
-      });
+    void openTripSnapshot(userId, tripId, apiBaseUrl, controller.signal).catch(
+      () => undefined,
+    );
     return () => controller.abort();
   }, [userId, tripId]);
-
-  const current = loaded?.tripId === tripId ? loaded : undefined;
+  const current =
+    snapshotState.tripId === tripId && snapshotState.userId === userId
+      ? {
+          trip: snapshotState.snapshot?.resources[`/trips/${tripId}`]?.data as
+            Trip | undefined,
+          error:
+            !snapshotState.snapshot && !snapshotState.loading
+              ? snapshotState.message
+              : undefined,
+        }
+      : undefined;
   if (current?.error)
     return (
       <section className="planning-page">
@@ -84,12 +84,30 @@ export default function TripPlanningPage({
       </TripPageSkeleton>
     );
   const trip = current.trip;
-  const readOnly = trip.ownerUserId !== userId && !trip.canPlan;
+  const readOnly =
+    snapshotState.offline || (trip.ownerUserId !== userId && !trip.canPlan);
 
   return (
     <div
       className={`trip-workspace trip-workspace-overview${activeTab === "activities" ? " trip-workspace-activities" : ""}`}
     >
+      {(snapshotState.message || snapshotState.conflict) && (
+        <div
+          className="snapshot-status"
+          role={snapshotState.conflict ? "alert" : "status"}
+        >
+          <Text>{snapshotState.message}</Text>
+          <Button
+            appearance="primary"
+            disabled={snapshotState.loading}
+            onClick={() =>
+              void refreshConflictedResource().catch(() => undefined)
+            }
+          >
+            {snapshotState.loading ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
+      )}
       <header className="trip-page-header">
         <div className="trip-page-title">
           <Title1 as="h1">{trip.name}</Title1>
@@ -151,7 +169,7 @@ export default function TripPlanningPage({
             <TripParties
               tripId={trip.id}
               userId={userId}
-              readOnly={trip.ownerUserId !== userId}
+              readOnly={readOnly || trip.ownerUserId !== userId}
             />
           ) : activeTab === "overview" ? (
             <TripOverview

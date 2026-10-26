@@ -25,7 +25,7 @@ public class DestinationFlightPlanningTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "insert-stop-owner");
         client.DefaultRequestHeaders.Add("X-Test-Email", "insert-stop@example.com");
-        var profile = await client.PutAsJsonAsync(
+        var profile = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
         );
@@ -211,7 +211,7 @@ public class DestinationFlightPlanningTests
             5,
             (await factory.Database.GetFlightChoicesAsync(owner.Id.Value, trip.Id)).Single().LegKeys
         );
-        var saved = await client.PutAsJsonAsync(
+        var saved = await client.PutResourceAsJsonAsync(
             $"{choicesUrl}/{party.Id}",
             new SetFlightChoicesRequest(restored.LegKeys, restored.PurchasedOfferIds)
         );
@@ -256,7 +256,10 @@ public class DestinationFlightPlanningTests
             searched.Any(request => request.SearchKind == "oneWay" && request.Destination == "ATL")
         );
         (
-            await client.PutAsJsonAsync($"{choicesUrl}/{party.Id}", new SetFlightChoicesRequest([]))
+            await client.PutResourceAsJsonAsync(
+                $"{choicesUrl}/{party.Id}",
+                new SetFlightChoicesRequest([])
+            )
         ).EnsureSuccessStatusCode();
         var cleared = (
             await factory.Database.GetFlightChoicesAsync(owner.Id.Value, trip.Id)
@@ -328,7 +331,7 @@ public class DestinationFlightPlanningTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Test-Subject", "destination-flights");
         client.DefaultRequestHeaders.Add("X-Test-Email", "planner@example.com");
-        var profile = await client.PutAsJsonAsync(
+        var profile = await client.PutResourceAsJsonAsync(
             "/user/profile",
             new UserProfile(new("Boston", -71.06, 42.36), [], "BOS")
         );
@@ -419,7 +422,7 @@ public class DestinationFlightPlanningTests
                 && query.Body.DepartureDate <= new DateOnly(2030, 6, 20).AddDays(flex)
             )
         );
-        var dates = await client.PutAsJsonAsync(
+        var dates = await client.PutResourceAsJsonAsync(
             $"{collection}/{paris.Id}/stays/{document.Visits[0].Id}",
             new { arrivalDate = "2030-06-09", departureDate = "2030-06-13" }
         );

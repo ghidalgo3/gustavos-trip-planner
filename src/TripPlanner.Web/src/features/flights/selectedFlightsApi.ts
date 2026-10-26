@@ -1,3 +1,4 @@
+import { tripFetch } from "../../api/tripSnapshot";
 import { apiBaseUrl, readTripError } from "../../api/api";
 import type {
   FareItinerary,
@@ -39,7 +40,7 @@ export async function getChoiceBookingLinks(
   partyId: string,
   ignavId: string,
 ): Promise<unknown> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${flightChoicesUrl(tripId)}/${encodeURIComponent(partyId)}/bookingLinks`,
     {
       method: "POST",
@@ -61,7 +62,7 @@ export async function getFlightChoices(
   tripId: string,
   signal?: AbortSignal,
 ): Promise<FlightChoiceProgress[]> {
-  const response = await fetch(flightChoicesUrl(tripId), {
+  const response = await tripFetch(flightChoicesUrl(tripId), {
     credentials: "include",
     signal,
     cache: "no-store",
@@ -76,7 +77,7 @@ export async function setFlightChoices(
   legKeys: (string | null)[],
   purchasedOfferIds?: string[],
 ): Promise<FlightChoiceProgress> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${flightChoicesUrl(tripId)}/${encodeURIComponent(partyId)}`,
     {
       method: "PUT",
@@ -97,7 +98,7 @@ export async function getSelectedFlights(
   tripId: string,
   signal?: AbortSignal,
 ): Promise<SelectedFlight[]> {
-  const response = await fetch(selectedFlightsUrl(tripId), {
+  const response = await tripFetch(selectedFlightsUrl(tripId), {
     credentials: "include",
     signal,
     cache: "no-store",
@@ -114,7 +115,7 @@ export async function selectFlight(
   itineraryIndex: number,
   itinerary?: FareItinerary,
 ): Promise<SelectedFlight> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${selectedFlightsUrl(tripId)}/${encodeURIComponent(partyId)}`,
     {
       method: "PUT",
@@ -141,7 +142,7 @@ export async function deselectFlight(
   tripId: string,
   partyId: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${selectedFlightsUrl(tripId)}/${encodeURIComponent(partyId)}`,
     { method: "DELETE", credentials: "include" },
   );
@@ -155,7 +156,7 @@ export async function setFlightPurchases(
   itineraryIndex: number,
   purchasedLegs: boolean[],
 ): Promise<SelectedFlight> {
-  const response = await fetch(
+  const response = await tripFetch(
     `${selectedFlightsUrl(tripId)}/${encodeURIComponent(partyId)}/purchases`,
     {
       method: "PUT",
