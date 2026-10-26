@@ -34,6 +34,7 @@ public sealed record FlightChoiceBookingDto(
 public sealed record FlightChoiceProgressDto(Guid PartyId, string?[] LegKeys, string[] NextOrigins)
 {
     public FlightChoiceLegDto[] Flights { get; init; } = [];
+    public JsonElement[] UnmatchedFlights { get; init; } = [];
     public string[] PurchasedOfferIds { get; init; } = [];
     public FlightChoiceBookingDto[] Bookings { get; init; } = [];
 }

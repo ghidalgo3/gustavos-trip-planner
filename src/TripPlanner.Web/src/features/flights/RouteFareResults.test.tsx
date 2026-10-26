@@ -15,6 +15,56 @@ import type { FareItinerary, FareSearchResult } from "../../api/operationsApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
+test("displaced saved flights remain reviewable and clearing them requires confirmation", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(null, { status: 204 })),
+  );
+  const onChange = vi.fn(async () => true);
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <RouteFareResults
+        tripId="trip"
+        results={[]}
+        parties={[]}
+        showGrid
+        visits={[
+          {
+            id: "new-stop",
+            location: { code: "ICN", label: "Seoul", timeZone: "Asia/Seoul" },
+            nights: null,
+            presentFrom: null,
+            presentThrough: null,
+            afterVisitIds: [],
+          },
+        ]}
+        savedChoices={{ party: [] }}
+        choiceProgress={{
+          party: {
+            partyId: "party",
+            legKeys: [],
+            nextOrigins: [],
+            flights: [],
+            unmatchedFlights: [outbound],
+          },
+        }}
+        onChangeChoices={onChange}
+      />
+    </FluentProvider>,
+  );
+  expect(
+    screen.getByText("Review saved flights after changing stops"),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/AA 100 · KL 111/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Choose flight/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Clear selections" }));
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Deselect flights" }),
+  );
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith("party", []));
+});
+
 const outbound = {
   carrier: "American Airlines",
   duration_minutes: 600,

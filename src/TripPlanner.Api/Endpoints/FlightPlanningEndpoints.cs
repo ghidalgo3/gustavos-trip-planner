@@ -132,11 +132,8 @@ public static class FlightPlanningEndpoints
         }
 
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
-        var preview = planner.Build(
-            await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted),
-            parties,
-            context.RequestAborted
-        );
+        var document = await flightPlanning.GetAsync(user!.Id, trip, context.RequestAborted);
+        var preview = planner.Build(document, parties, context.RequestAborted);
         if (!preview.Ready)
         {
             return Results.BadRequest(
@@ -150,7 +147,7 @@ public static class FlightPlanningEndpoints
 
         preview = SavedFlightChoices.RemainingSearches(
             preview,
-            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+            await flightPlanning.GetChoicesAsync(user.Id, trip, document, context.RequestAborted)
         );
         try
         {
@@ -217,7 +214,12 @@ public static class FlightPlanningEndpoints
             preview,
             context.RequestAborted
         );
-        var choices = await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted);
+        var choices = await flightPlanning.GetChoicesAsync(
+            user.Id,
+            trip,
+            document,
+            context.RequestAborted
+        );
         if (document.Visits.Length > 0)
         {
             results = SavedFlightChoices.Restore(results, choices, preview);
@@ -305,7 +307,12 @@ public static class FlightPlanningEndpoints
             preview,
             context.RequestAborted
         );
-        var choices = await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted);
+        var choices = await flightPlanning.GetChoicesAsync(
+            user.Id,
+            trip,
+            document,
+            context.RequestAborted
+        );
         if (document.Visits.Length > 0)
         {
             fares = SavedFlightChoices.Restore(fares, choices, preview);

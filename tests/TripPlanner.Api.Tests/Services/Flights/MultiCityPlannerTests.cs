@@ -51,6 +51,47 @@ public sealed class MultiCityPlannerTests
     private Party Party => new(_party, Guid.NewGuid(), [_owner]);
 
     [TestMethod]
+    public void InsertingAStopKeepsThePurchasedOutboundReturnBundleTogether()
+    {
+        var document = Wedding();
+        var fares = Fares();
+        var outbound = FlightChoiceRoute.FlightKey(
+            fares[0].Response.GetProperty("itineraries")[0].GetProperty("outbound")
+        );
+        var inbound = FlightChoiceRoute.FlightKey(
+            fares[3].Response.GetProperty("itineraries")[0].GetProperty("outbound")
+        );
+        var choice = new FlightChoiceProgress(_party, [outbound, null, null, inbound], [])
+        {
+            SavedFares = SavedFlightChoices.Capture(_party, [outbound, inbound], fares),
+            PurchasedOfferIds = ["open-jaw"],
+            LegRoutes = SavedFlightChoices.Bind(document, [outbound, null, null, inbound]),
+        };
+        var changed = document with
+        {
+            Visits =
+            [
+                .. document.Visits[..2],
+                new PlannedVisit
+                {
+                    Id = Guid.NewGuid(),
+                    Location = _airports.Resolve("HIJ"),
+                    Nights = 1,
+                },
+                document.Visits[2],
+            ],
+        };
+        var reconciled = SavedFlightChoices.Reconcile(choice, changed, _airports);
+        var booking = new RouteFareComposer(_airports)
+            .ChoiceBookings(changed, Party, reconciled)
+            .Single(booking => booking.IgnavId == "open-jaw");
+        CollectionAssert.AreEqual(new[] { 0, 4 }, booking.LegIndexes);
+        CollectionAssert.Contains(reconciled.PurchasedOfferIds, "open-jaw");
+        Assert.AreEqual(inbound, reconciled.LegKeys[4]);
+        Assert.IsEmpty(reconciled.UnmatchedLegKeys);
+    }
+
+    [TestMethod]
     public async Task RouteSearch_QueuesCachesReturnsAndPersistsCompleteItinerary()
     {
         await using var factory = new TestApplicationFactory();

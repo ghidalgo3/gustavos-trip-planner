@@ -1045,6 +1045,8 @@ public sealed class PlannerDbTests
             trip.Id,
             new(party.Id, [null, "selected-flight"], ["CDG"])
             {
+                LegRoutes = [new("selected-flight", Guid.NewGuid(), Guid.NewGuid())],
+                UnmatchedLegKeys = ["displaced-flight"],
                 PurchasedOfferIds = ["retained-offer"],
                 SavedFares =
                 [
@@ -1063,6 +1065,8 @@ public sealed class PlannerDbTests
         );
         CollectionAssert.Contains(saved.NextOrigins, "CDG");
         var restoredChoice = (await db.GetFlightChoicesAsync(user.Id, trip.Id)).Single();
+        CollectionAssert.AreEqual(saved.LegRoutes, restoredChoice.LegRoutes);
+        CollectionAssert.AreEqual(saved.UnmatchedLegKeys, restoredChoice.UnmatchedLegKeys);
         CollectionAssert.AreEqual(new[] { "retained-offer" }, restoredChoice.PurchasedOfferIds);
         CollectionAssert.AreEqual(
             new string?[] { null, "selected-flight" },

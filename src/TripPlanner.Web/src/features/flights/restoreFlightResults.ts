@@ -8,13 +8,20 @@ import type {
 export function restoredFlightKeys(
   choices: Record<string, (string | null)[]>,
   selected: SelectedFlight[],
+  legCount?: number,
 ): Record<string, (string | null)[]> {
   return {
     ...Object.fromEntries(
-      selected.map((flight) => [
-        flight.partyId,
-        (flight.itinerary.legs ?? []).map(legKey),
-      ]),
+      selected
+        .filter(
+          (flight) =>
+            legCount === undefined ||
+            flight.itinerary.legs?.length === legCount,
+        )
+        .map((flight) => [
+          flight.partyId,
+          (flight.itinerary.legs ?? []).map(legKey),
+        ]),
     ),
     ...choices,
   };
@@ -43,7 +50,8 @@ export function restoreFlightResults(
         legIndex < legCount &&
         chosen[legIndex] === legKey(leg),
     );
-    if (flights.length === 0) continue;
+    if (flights.length === 0 && !choices[partyId]?.unmatchedFlights?.length)
+      continue;
     const result = restored.get(partyId) ?? {
       partyId,
       savedOnly: true,

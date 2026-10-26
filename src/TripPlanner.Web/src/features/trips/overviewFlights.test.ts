@@ -125,3 +125,20 @@ test("partial choices merge across parties without duplicating shared flights or
   ).toEqual([inbound, outbound]);
   expect(selectedLegs([], [{ ...choice, legKeys: [] }])).toEqual([]);
 });
+
+test("reconciled empty choices do not resurrect an older complete itinerary", () => {
+  const selected = [
+    { partyId: "party", itinerary: { legs: [outbound, inbound] } },
+  ] as Parameters<typeof selectedLegs>[0];
+  expect(
+    selectedLegs(selected, [
+      {
+        partyId: "party",
+        legKeys: [],
+        nextOrigins: [],
+        flights: [],
+        unmatchedFlights: [outbound, inbound],
+      },
+    ]),
+  ).toEqual([]);
+});

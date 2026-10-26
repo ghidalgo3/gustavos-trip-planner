@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
@@ -11,6 +12,260 @@ namespace TripPlanner.Api.Tests.Services.Flights;
 [TestClass]
 public class DestinationFlightPlanningTests
 {
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task AddingDestinationRemapsSavedReturnAndKeepsItsBooking(
+        bool stableIds,
+        bool displaced
+    )
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Subject", "insert-stop-owner");
+        client.DefaultRequestHeaders.Add("X-Test-Email", "insert-stop@example.com");
+        var profile = await client.PutAsJsonAsync(
+            "/user/profile",
+            new UserProfile(new("Atlanta", -84.388, 33.749), [], "ATL")
+        );
+        profile.EnsureSuccessStatusCode();
+        var owner = (await profile.Content.ReadFromJsonAsync<CurrentUserResponse>())!;
+        var created = await client.PostAsJsonAsync(
+            $"/user/{owner.Id}/trips",
+            new CreateTripRequest("Insert stop", "")
+        );
+        created.EnsureSuccessStatusCode();
+        var trip = (await created.Content.ReadFromJsonAsync<Trip>())!;
+        var party = factory.Database.Parties.Single();
+        async Task Add(
+            string name,
+            string country,
+            double longitude,
+            double latitude,
+            string arrival,
+            string departure
+        )
+        {
+            var response = await client.PostAsJsonAsync(
+                $"/trips/{trip.Id}/destinations",
+                new
+                {
+                    type = "Feature",
+                    geometry = new GeoJsonPoint(
+                        "Point",
+                        GeographyPoint.Create(latitude, longitude)
+                    ),
+                    properties = new
+                    {
+                        name,
+                        countryCode = country,
+                        arrivalDate = arrival,
+                        departureDate = departure,
+                        constraints = new
+                        {
+                            arrivalFlexibilityDays = 0,
+                            departureFlexibilityDays = 0,
+                        },
+                    },
+                }
+            );
+            response.EnsureSuccessStatusCode();
+        }
+        await Add("Tokyo", "JP", 139.69, 35.69, "2030-12-25", "2030-12-30");
+        await Add("Seoul", "KR", 126.98, 37.57, "2030-12-30", "2031-01-03");
+        await Add("Sapporo", "JP", 141.35, 43.06, "2031-01-03", "2031-01-06");
+        await Add("Tokyo", "JP", 139.69, 35.69, "2031-01-07", "2031-01-12");
+        var document = (
+            await client.GetFromJsonAsync<PlanningDocument>($"/trips/{trip.Id}/flights/constraints")
+        )!;
+        var airports = new AirportCatalog();
+        var plan = new MultiCityPlanner(airports, TimeProvider.System).Build(
+            document,
+            [party],
+            default
+        );
+        Assert.IsTrue(plan.Ready, string.Join("; ", plan.Issues.Select(issue => issue.Message)));
+        var flights = new[]
+        {
+            (
+                Index: 0,
+                Origin: "ATL",
+                Destination: "HND",
+                Departure: "2030-12-24",
+                Arrival: "2030-12-25"
+            ),
+            (
+                Index: 1,
+                Origin: "NRT",
+                Destination: "ICN",
+                Departure: "2030-12-30",
+                Arrival: "2030-12-30"
+            ),
+            (
+                Index: 2,
+                Origin: "ICN",
+                Destination: "CTS",
+                Departure: "2031-01-03",
+                Arrival: "2031-01-03"
+            ),
+            (
+                Index: 4,
+                Origin: "HND",
+                Destination: "ATL",
+                Departure: "2031-01-12",
+                Arrival: "2031-01-12"
+            ),
+        };
+        if (displaced)
+        {
+            flights = [.. flights, (3, "CTS", "HND", "2031-01-06", "2031-01-07")];
+        }
+        var fares = flights
+            .Select(flight =>
+            {
+                var request = plan
+                    .Parties.Single()
+                    .Requests.First(request =>
+                        request.Body.SearchKind == "oneWay"
+                        && request.LegIndexes.Contains(flight.Index)
+                    );
+                return new FareSearchResult(
+                    party.Id,
+                    request.CacheKey,
+                    request.Body,
+                    JsonSerializer.SerializeToElement(
+                        new
+                        {
+                            itineraries = new[]
+                            {
+                                new
+                                {
+                                    ignav_id = $"saved-{flight.Index}",
+                                    price = new
+                                    {
+                                        amount = 200,
+                                        currency = "USD",
+                                        status = "verified",
+                                    },
+                                    outbound = new
+                                    {
+                                        segments = new[]
+                                        {
+                                            new
+                                            {
+                                                departure_airport = flight.Origin,
+                                                arrival_airport = flight.Destination,
+                                                departure_time_local = flight.Departure
+                                                    + "T09:00:00",
+                                                arrival_time_local = flight.Arrival + "T15:00:00",
+                                                marketing_carrier_code = "DL",
+                                                flight_number = flight.Index.ToString(),
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        }
+                    ),
+                    DateTimeOffset.UtcNow.AddHours(-2),
+                    DateTimeOffset.UtcNow.AddHours(-1)
+                );
+            })
+            .ToArray();
+        var keys = new string?[5];
+        for (int index = 0; index < flights.Length; index++)
+        {
+            keys[flights[index].Index] = FlightChoiceRoute.FlightKey(
+                fares[index].Response.GetProperty("itineraries")[0].GetProperty("outbound")
+            );
+        }
+        await factory.Database.SetFlightChoicesAsync(
+            owner.Id!.Value,
+            trip.Id,
+            new(party.Id, keys, [])
+            {
+                SavedFares = fares,
+                LegRoutes = stableIds ? SavedFlightChoices.Bind(document, keys) : null,
+                PurchasedOfferIds = displaced ? ["saved-3", "saved-4"] : ["saved-4"],
+            }
+        );
+        await Add("Hiroshima", "JP", 132.46, 34.39, "2031-01-06", "2031-01-07");
+        var choicesUrl = $"/trips/{trip.Id}/flights/choices";
+        var restored = (
+            await client.GetFromJsonAsync<FlightChoiceProgressDto[]>(choicesUrl)
+        )!.Single();
+        CollectionAssert.AreEqual(
+            new string?[] { keys[0], keys[1], keys[2], null, null, keys[4] },
+            restored.LegKeys
+        );
+        Assert.AreEqual(5, restored.Flights.Last().LegIndex);
+        CollectionAssert.AreEqual(
+            new[] { 5 },
+            restored.Bookings.Single(booking => booking.IgnavId == "saved-4").LegIndexes
+        );
+        CollectionAssert.Contains(restored.PurchasedOfferIds, "saved-4");
+        Assert.HasCount(displaced ? 1 : 0, restored.UnmatchedFlights);
+        // Reading and restoring never rewrites production choices.
+        Assert.HasCount(
+            5,
+            (await factory.Database.GetFlightChoicesAsync(owner.Id.Value, trip.Id)).Single().LegKeys
+        );
+        var saved = await client.PutAsJsonAsync(
+            $"{choicesUrl}/{party.Id}",
+            new SetFlightChoicesRequest(restored.LegKeys, restored.PurchasedOfferIds)
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            saved.StatusCode,
+            await saved.Content.ReadAsStringAsync()
+        );
+        var stored = (
+            await factory.Database.GetFlightChoicesAsync(owner.Id.Value, trip.Id)
+        ).Single();
+        Assert.HasCount(displaced ? 5 : 4, stored.LegRoutes!);
+        Assert.HasCount(displaced ? 1 : 0, stored.UnmatchedLegKeys);
+        if (displaced)
+        {
+            CollectionAssert.Contains(stored.PurchasedOfferIds, "saved-3");
+            Assert.HasCount(5, stored.SavedFares);
+            var reloaded = (
+                await client.GetFromJsonAsync<FlightChoiceProgressDto[]>(choicesUrl)
+            )!.Single();
+            Assert.HasCount(1, reloaded.UnmatchedFlights);
+        }
+        CollectionAssert.Contains(stored.PurchasedOfferIds, "saved-4");
+        var search = await client.PostAsJsonAsync(
+            $"/trips/{trip.Id}/flights:search",
+            new StartFlightSearchRequest(Guid.NewGuid())
+        );
+        search.EnsureSuccessStatusCode();
+        var searched = new List<IgnavFareRequest>();
+        while (await factory.Database.ClaimFareWorkAsync(TimeSpan.FromMinutes(2)) is { } work)
+        {
+            searched.Add(work.Request);
+            await factory.Database.CompleteFareWorkAsync(
+                work,
+                JsonSerializer.SerializeToElement(new { itineraries = Array.Empty<object>() }),
+                DateTimeOffset.UtcNow,
+                null
+            );
+        }
+        Assert.IsNotEmpty(searched);
+        Assert.IsFalse(
+            searched.Any(request => request.SearchKind == "oneWay" && request.Destination == "ATL")
+        );
+        (
+            await client.PutAsJsonAsync($"{choicesUrl}/{party.Id}", new SetFlightChoicesRequest([]))
+        ).EnsureSuccessStatusCode();
+        var cleared = (
+            await factory.Database.GetFlightChoicesAsync(owner.Id.Value, trip.Id)
+        ).Single();
+        Assert.IsEmpty(cleared.SavedFares);
+        Assert.IsEmpty(cleared.PurchasedOfferIds);
+        Assert.IsEmpty(cleared.UnmatchedLegKeys);
+    }
+
     [TestMethod]
     [DataRow(6, 0, true)]
     [DataRow(12, 0, true)]

@@ -11,7 +11,7 @@ export function selectedLegs(
   choices: FlightChoiceProgress[] = [],
 ): FareLeg[] {
   const partial = choices.filter((choice) => choice.legKeys.some(Boolean));
-  const parties = new Set(partial.map((choice) => choice.partyId));
+  const parties = new Set(choices.map((choice) => choice.partyId));
   const legs = [
     ...partial.flatMap((choice) =>
       (choice.flights ?? [])

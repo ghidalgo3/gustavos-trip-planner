@@ -6,6 +6,175 @@ namespace TripPlanner.Api.Services.Flights;
 
 public static class SavedFlightChoices
 {
+    public static FlightChoiceLegRoute[] Bind(
+        PlanningDocument document,
+        IReadOnlyList<string?> keys
+    ) =>
+        keys.Select((key, index) => (key, index))
+            .Where(item => item.key is not null && item.index <= document.Visits.Length)
+            .Select(item => new FlightChoiceLegRoute(
+                item.key!,
+                item.index == 0 ? null : document.Visits[item.index - 1].Id,
+                item.index == document.Visits.Length ? null : document.Visits[item.index].Id
+            ))
+            .ToArray();
+
+    // Reconcile on read without modifying storage. Older choices have no visit IDs;
+    // only an unambiguous match of retained search endpoints and flight dates is safe.
+    public static FlightChoiceProgress Reconcile(
+        FlightChoiceProgress choice,
+        PlanningDocument document,
+        AirportCatalog airports
+    )
+    {
+        if (document.Visits.Length == 0)
+        {
+            return choice;
+        }
+        var allKeys = choice
+            .LegKeys.OfType<string>()
+            .Concat(choice.UnmatchedLegKeys)
+            .Distinct()
+            .ToArray();
+        var legs = SelectedLegs(choice with { LegKeys = allKeys })
+            .ToDictionary(item => FlightChoiceRoute.FlightKey(item.Leg)!, item => item.Leg);
+        var home = document
+            .Parties.FirstOrDefault(party => party.PartyId == choice.PartyId)
+            ?.Origin;
+        var bindings = choice.LegRoutes ?? [];
+        var candidates = allKeys
+            .Select(key =>
+            {
+                var binding = bindings.FirstOrDefault(item => item.Key == key);
+                var indexes = Enumerable
+                    .Range(0, document.Visits.Length + 1)
+                    .Where(index =>
+                    {
+                        if (
+                            binding is not null
+                            && (
+                                binding.OriginVisitId
+                                    != (index == 0 ? null : (Guid?)document.Visits[index - 1].Id)
+                                || binding.DestinationVisitId
+                                    != (
+                                        index == document.Visits.Length
+                                            ? null
+                                            : (Guid?)document.Visits[index].Id
+                                    )
+                            )
+                        )
+                        {
+                            return false;
+                        }
+                        var origin = index == 0 ? home : document.Visits[index - 1].Location;
+                        var destination =
+                            index == document.Visits.Length
+                                ? home
+                                : document.Visits[index].Location;
+                        if (
+                            origin is null
+                            || destination is null
+                            || !legs.TryGetValue(key, out var leg)
+                        )
+                        {
+                            return false;
+                        }
+                        return FlightChoiceRoute
+                                .SearchEdges(key, choice.PartyId, choice.SavedFares)
+                                .Any(edge =>
+                                    FlightChoiceRoute.Matches(origin, edge.Origin, airports)
+                                    && FlightChoiceRoute.Matches(
+                                        destination,
+                                        edge.Destination,
+                                        airports
+                                    )
+                                )
+                            && (
+                                index == 0
+                                || FitsDate(
+                                    leg,
+                                    document.Visits[index - 1],
+                                    document,
+                                    arrival: false
+                                )
+                            )
+                            && (
+                                index == document.Visits.Length
+                                || FitsDate(leg, document.Visits[index], document, arrival: true)
+                            );
+                    })
+                    .ToArray();
+                return (Key: key, Index: indexes.Length == 1 ? (int?)indexes[0] : null);
+            })
+            .ToArray();
+        var keys = new string?[document.Visits.Length + 1];
+        foreach (
+            var group in candidates
+                .Where(item => item.Index is not null)
+                .GroupBy(item => item.Index!.Value)
+        )
+        {
+            if (group.Count() == 1)
+            {
+                keys[group.Key] = group.Single().Key;
+            }
+        }
+        keys = keys.Reverse().SkipWhile(key => key is null).Reverse().ToArray();
+        var unmatched = allKeys.Except(keys.OfType<string>()).ToArray();
+        return choice with
+        {
+            LegKeys = keys,
+            LegRoutes = Bind(document, keys)
+                .Concat(bindings.Where(binding => unmatched.Contains(binding.Key)))
+                .ToArray(),
+            UnmatchedLegKeys = unmatched,
+            NextOrigins =
+                FlightChoiceRoute.NextOrigins(
+                    document,
+                    choice.PartyId,
+                    keys,
+                    choice.SavedFares,
+                    airports
+                ) ?? [],
+        };
+    }
+
+    public static JsonElement[] UnmatchedFlights(FlightChoiceProgress choice) =>
+        SelectedLegs(choice with { LegKeys = choice.UnmatchedLegKeys })
+            .Select(item => item.Leg)
+            .ToArray();
+
+    private static bool FitsDate(
+        JsonElement leg,
+        PlannedVisit visit,
+        PlanningDocument document,
+        bool arrival
+    )
+    {
+        var target = arrival ? visit.PresentFrom : visit.PresentThrough;
+        if (target is null)
+        {
+            return true;
+        }
+        var segments = leg.GetProperty("segments");
+        var segment = segments[arrival ? segments.GetArrayLength() - 1 : 0];
+        var name = arrival ? "arrival_time_local" : "departure_time_local";
+        if (
+            !segment.TryGetProperty(name, out var value)
+            || value.ValueKind != JsonValueKind.String
+            || value.GetString() is not { Length: >= 10 } text
+            || !DateOnly.TryParseExact(text[..10], "yyyy-MM-dd", out var date)
+        )
+        {
+            return false;
+        }
+        var flexibility = arrival ? visit.ArrivalFlexibilityDays : visit.DepartureFlexibilityDays;
+        var difference = date.DayNumber - target.Value.DayNumber;
+        return flexibility is { } days ? Math.Abs(difference) <= days
+            : arrival ? difference <= 0 && difference >= -document.SearchLimits.FlexibilityDays
+            : difference >= 0 && difference <= document.SearchLimits.FlexibilityDays;
+    }
+
     public static FlightChoiceLegDto[] SelectedLegs(FlightChoiceProgress choice)
     {
         var legs = choice

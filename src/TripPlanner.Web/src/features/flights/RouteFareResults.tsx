@@ -40,6 +40,7 @@ import FlightInformation from "./FlightInformation";
 import FlightLegTabs from "./FlightLegTabs";
 import {
   airportLabel,
+  flightNumbers,
   legKey,
   legRoute,
   sameItineraryFlights,
@@ -222,8 +223,10 @@ export default function RouteFareResults({
   const [error, setError] = useState<string>();
   const effectiveChoices = useMemo(
     () =>
-      showGrid ? restoredFlightKeys(savedChoices, selected) : savedChoices,
-    [showGrid, savedChoices, selected],
+      showGrid
+        ? restoredFlightKeys(savedChoices, selected, visits.length + 1)
+        : savedChoices,
+    [showGrid, savedChoices, selected, visits.length],
   );
   const displayResults = useMemo(
     () =>
@@ -480,9 +483,12 @@ function RoutePartyResults({
     }
   }
   async function changeChosen(keys: (string | null)[]) {
+    const previous = keys.some(Boolean)
+      ? chosen
+      : [...chosen, ...(progress?.unmatchedFlights ?? []).map(legKey)];
     if (
-      chosen.some((key, index) => key && key !== keys[index]) &&
-      !(await confirm(chosen, keys))
+      previous.some((key, index) => key && key !== keys[index]) &&
+      !(await confirm(previous, keys))
     )
       return false;
     setChoiceError(undefined);
@@ -587,6 +593,26 @@ function RoutePartyResults({
     >
       {dialog}
       <Title3 as="h3">{partyName}</Title3>
+      {showGrid && Boolean(progress?.unmatchedFlights?.length) && (
+        <div className="flight-retained-review" role="status">
+          <Text weight="semibold">
+            Review saved flights after changing stops
+          </Text>
+          <Text>
+            These flights no longer fit the current stops or dates. They are
+            retained here and excluded from your current route. Clearing
+            selections removes them from this trip; it does not cancel tickets.
+          </Text>
+          <ul>
+            {progress!.unmatchedFlights!.map((leg) => (
+              <li key={legKey(leg)}>
+                {flightNumbers(leg)} · {legRoute(leg)} ·{" "}
+                {leg.segments[0]?.departure_time_local?.slice(0, 10)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {showGrid ? (
         <FlightRouteGrid
           result={result}
@@ -596,6 +622,7 @@ function RoutePartyResults({
           searching={searching}
           chosen={chosen}
           busy={choiceBusy || busy}
+          retainedFlightCount={progress?.unmatchedFlights?.length ?? 0}
           onChoose={(keys) => void changeChosen(keys)}
           preferredAirlines={preferredAirlines}
           renderCardActions={(node, isSelected, fares) => (

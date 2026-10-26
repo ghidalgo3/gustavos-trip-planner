@@ -67,6 +67,7 @@ export default function FlightRouteGrid({
   onFilterChange,
   preferredAirlines,
   renderCardActions,
+  retainedFlightCount = 0,
 }: {
   result?: FlightRouteResult;
   visits: PlannedVisit[];
@@ -83,6 +84,7 @@ export default function FlightRouteGrid({
     selected: boolean,
     fares: ReadonlyMap<string, FlightFare>,
   ) => ReactNode;
+  retainedFlightCount?: number;
 }) {
   const graph = useMemo(
     () => buildFlightGraph(result, visits.length + 1, preferredAirlines),
@@ -337,7 +339,9 @@ export default function FlightRouteGrid({
             {selectedCount} of {graph.columns.length} flights selected
           </Text>
           <Button
-            disabled={busy || selectedCount === 0}
+            disabled={
+              busy || (selectedCount === 0 && retainedFlightCount === 0)
+            }
             onClick={() => onChoose([])}
           >
             Clear selections

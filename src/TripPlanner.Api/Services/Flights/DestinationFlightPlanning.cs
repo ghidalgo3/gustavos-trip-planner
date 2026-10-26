@@ -11,6 +11,16 @@ public sealed class DestinationFlightPlanning(
     AirportCatalog airports
 )
 {
+    public async Task<IReadOnlyList<FlightChoiceProgress>> GetChoicesAsync(
+        Guid viewerId,
+        Trip trip,
+        PlanningDocument document,
+        CancellationToken token
+    ) =>
+        (await database.GetFlightChoicesAsync(viewerId, trip.Id, token))
+            .Select(choice => SavedFlightChoices.Reconcile(choice, document, airports))
+            .ToArray();
+
     public async Task<PlanningDocument> GetAsync(Guid viewerId, Trip trip, CancellationToken token)
     {
         var saved = PlanningDocument.FromJson(trip.FlightConstraints);

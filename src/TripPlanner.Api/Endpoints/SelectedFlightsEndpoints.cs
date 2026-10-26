@@ -58,14 +58,20 @@ public static class SelectedFlightsEndpoints
         var document = await flightPlanning.GetAsync(user.Id, trip, context.RequestAborted);
         var parties = await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted);
         return Results.Ok(
-            (await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)).Select(
-                choice =>
-                    ChoiceDto(
-                        choice,
-                        document,
-                        parties.FirstOrDefault(p => p.Id == choice.PartyId),
-                        routes
-                    )
+            (
+                await flightPlanning.GetChoicesAsync(
+                    user.Id,
+                    trip,
+                    document,
+                    context.RequestAborted
+                )
+            ).Select(choice =>
+                ChoiceDto(
+                    choice,
+                    document,
+                    parties.FirstOrDefault(p => p.Id == choice.PartyId),
+                    routes
+                )
             )
         );
     }
@@ -121,9 +127,13 @@ public static class SelectedFlightsEndpoints
         }
 
         keys = keys.Reverse().SkipWhile(key => key is null).Reverse().ToArray();
-        var previous = (
-            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
-        ).FirstOrDefault(choice => choice.PartyId == partyId);
+        var currentChoices = await flightPlanning.GetChoicesAsync(
+            user.Id,
+            trip,
+            document,
+            context.RequestAborted
+        );
+        var previous = currentChoices.FirstOrDefault(choice => choice.PartyId == partyId);
         if (request.PurchasedOfferIds is not null && !(previous?.LegKeys ?? []).SequenceEqual(keys))
         {
             return Results.Conflict(
@@ -148,11 +158,7 @@ public static class SelectedFlightsEndpoints
                     preview,
                     context.RequestAborted
                 ) ?? [];
-            fares = SavedFlightChoices.Restore(
-                fares,
-                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted),
-                preview
-            );
+            fares = SavedFlightChoices.Restore(fares, currentChoices, preview);
         }
         var nextOrigins = FlightChoiceRoute.NextOrigins(document, partyId, keys, fares, airports);
         if (nextOrigins is null)
@@ -165,20 +171,51 @@ public static class SelectedFlightsEndpoints
             );
         }
 
+        var unmatched =
+            keys.Length == 0
+                ? []
+                : (previous?.UnmatchedLegKeys ?? []).Except(keys.OfType<string>()).ToArray();
         var choice = new FlightChoiceProgress(partyId, keys, nextOrigins)
         {
-            SavedFares = SavedFlightChoices.Capture(partyId, keys, fares),
+            LegRoutes = SavedFlightChoices
+                .Bind(document, keys)
+                .Concat((previous?.LegRoutes ?? []).Where(route => unmatched.Contains(route.Key)))
+                .ToArray(),
+            UnmatchedLegKeys = unmatched,
+            SavedFares = SavedFlightChoices.Capture(
+                partyId,
+                keys.Concat(unmatched).ToArray(),
+                fares
+                    .Concat(previous?.SavedFares ?? [])
+                    .DistinctBy(fare => (fare.PartyId, fare.CacheKey, fare.Response.GetRawText()))
+                    .ToArray()
+            ),
         };
         var bookings = routes.ChoiceBookings(
             document,
             parties.Single(p => p.Id == partyId),
             choice
         );
-        var purchased =
+        var previousBookings = previous is null
+            ? []
+            : routes.ChoiceBookings(document, parties.Single(p => p.Id == partyId), previous);
+        var retainedPurchases =
+            keys.Length == 0 || previous?.UnmatchedLegKeys.Length is not > 0
+                ? []
+                : previous
+                    .PurchasedOfferIds.Where(id =>
+                        !previousBookings.Any(booking => booking.IgnavId == id)
+                        && !bookings.Any(booking => booking.IgnavId == id)
+                    )
+                    .ToArray();
+        var purchased = (
             request.PurchasedOfferIds
             ?? (previous?.PurchasedOfferIds ?? [])
                 .Where(id => bookings.Any(booking => booking.IgnavId == id))
-                .ToArray();
+                .ToArray()
+        )
+            .Except(retainedPurchases)
+            .ToArray();
         if (
             purchased.Any(id => !bookings.Any(booking => booking.IgnavId == id))
             || bookings
@@ -200,7 +237,7 @@ public static class SelectedFlightsEndpoints
             tripId,
             choice with
             {
-                PurchasedOfferIds = purchased.Distinct().ToArray(),
+                PurchasedOfferIds = purchased.Concat(retainedPurchases).Distinct().ToArray(),
             },
             context.RequestAborted
         );
@@ -295,6 +332,7 @@ public static class SelectedFlightsEndpoints
         new(choice.PartyId, choice.LegKeys, choice.NextOrigins)
         {
             Flights = SavedFlightChoices.SelectedLegs(choice),
+            UnmatchedFlights = SavedFlightChoices.UnmatchedFlights(choice),
             PurchasedOfferIds = choice.PurchasedOfferIds,
             Bookings = party is null ? [] : routes.ChoiceBookings(document, party, choice),
         };
@@ -328,14 +366,14 @@ public static class SelectedFlightsEndpoints
         var party = (
             await database.GetPartiesAsync(user.Id, tripId, context.RequestAborted)
         ).FirstOrDefault(p => p.Id == partyId);
+        var document = await flightPlanning.GetAsync(user.Id, trip, context.RequestAborted);
         var choice = (
-            await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+            await flightPlanning.GetChoicesAsync(user.Id, trip, document, context.RequestAborted)
         ).FirstOrDefault(c => c.PartyId == partyId);
         if (party is null || choice is null)
         {
             return Results.NotFound();
         }
-        var document = await flightPlanning.GetAsync(user.Id, trip, context.RequestAborted);
         if (
             !routes
                 .ChoiceBookings(document, party, choice)
@@ -455,7 +493,12 @@ public static class SelectedFlightsEndpoints
             preview,
             context.RequestAborted
         );
-        var choices = await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted);
+        var choices = await flightPlanning.GetChoicesAsync(
+            user.Id,
+            trip,
+            document,
+            context.RequestAborted
+        );
         if (document.Visits.Length > 0)
         {
             fares = SavedFlightChoices.Restore(fares, choices, preview);
@@ -613,6 +656,7 @@ public static class SelectedFlightsEndpoints
         SetFlightPurchasesRequest request,
         HttpContext context,
         IPlannerDb database,
+        DestinationFlightPlanning flightPlanning,
         ICurrentUser currentUser
     )
     {
@@ -626,7 +670,8 @@ public static class SelectedFlightsEndpoints
             return error;
         }
 
-        if (await database.GetTripAsync(user!.Id, tripId, context.RequestAborted) is null)
+        var trip = await database.GetTripAsync(user!.Id, tripId, context.RequestAborted);
+        if (trip is null)
         {
             return Results.NotFound();
         }
@@ -700,8 +745,14 @@ public static class SelectedFlightsEndpoints
                     }
                 }
             }
+            var document = await flightPlanning.GetAsync(user.Id, trip, context.RequestAborted);
             var choice = (
-                await database.GetFlightChoicesAsync(user.Id, tripId, context.RequestAborted)
+                await flightPlanning.GetChoicesAsync(
+                    user.Id,
+                    trip,
+                    document,
+                    context.RequestAborted
+                )
             ).FirstOrDefault(choice => choice.PartyId == partyId);
             if (
                 choice is not null

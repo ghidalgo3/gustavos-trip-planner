@@ -2566,6 +2566,14 @@ main:has(.trip-workspace-activities) > .topbar {
 .flight-grid-card-top {
   align-items: flex-start;
 }
+.flight-retained-review {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--colorPaletteYellowBorder1);
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorPaletteYellowBackground1);
+}
 .flight-grid-airline {
   min-width: 0;
   display: flex;

@@ -22,6 +22,7 @@ export type FlightChoiceProgress = {
   legKeys: (string | null)[];
   nextOrigins: string[];
   flights?: { legIndex: number; leg: FareLeg }[];
+  unmatchedFlights?: FareLeg[];
   purchasedOfferIds?: string[];
   bookings?: FlightChoiceBooking[];
 };

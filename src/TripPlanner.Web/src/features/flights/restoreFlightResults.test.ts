@@ -76,3 +76,54 @@ test("an explicitly cleared choice cannot resurrect a previous complete itinerar
   expect(keys).toEqual({ party: [] });
   expect(restoreFlightResults([], {}, selected, keys, 2)).toEqual([]);
 });
+
+test("an old complete route cannot flash in the wrong columns while reconciled choices load", () => {
+  const selected = [
+    { partyId: "party", itinerary: { legs: [leg("outbound"), leg("return")] } },
+  ] as SelectedFlight[];
+  expect(restoredFlightKeys({}, selected, 3)).toEqual({});
+  const reconciled = {
+    party: [legKey(leg("outbound")), null, legKey(leg("return"))],
+  };
+  expect(restoredFlightKeys(reconciled, selected, 3)).toEqual(reconciled);
+});
+
+test("restores a remapped return under the new return column without inventing connections", () => {
+  const home = leg("return");
+  const keys = [null, null, null, null, null, legKey(home)];
+  const restored = restoreFlightResults(
+    [],
+    {
+      party: {
+        partyId: "party",
+        legKeys: keys,
+        nextOrigins: [],
+        flights: [{ legIndex: 5, leg: home }],
+      },
+    },
+    [],
+    { party: keys },
+    6,
+  )[0];
+  expect(restored.response.flights).toEqual([
+    { legIndex: 5, leg: home, bookingLegCount: 1 },
+  ]);
+  expect(restored.response.itineraries).toEqual([]);
+  expect(restored.response.flightConnections).toBeUndefined();
+});
+
+test("retains a review view when none of the saved flights fit the changed route", () => {
+  const choices = {
+    party: {
+      partyId: "party",
+      legKeys: [],
+      nextOrigins: [],
+      flights: [],
+      unmatchedFlights: [leg("old")],
+    },
+  };
+  const restored = restoreFlightResults([], choices, [], { party: [] }, 3);
+  expect(restored).toHaveLength(1);
+  expect(restored[0].savedOnly).toBe(true);
+  expect(restored[0].response.flights).toEqual([]);
+});

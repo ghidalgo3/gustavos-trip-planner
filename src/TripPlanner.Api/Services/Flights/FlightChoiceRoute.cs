@@ -6,7 +6,7 @@ namespace TripPlanner.Api.Services.Flights;
 
 public static class FlightChoiceRoute
 {
-    private sealed record SearchEdge(string Origin, string Destination);
+    internal sealed record SearchEdge(string Origin, string Destination);
 
     private static readonly JsonSerializerOptions FlightKeyJson = new()
     {
@@ -95,7 +95,7 @@ public static class FlightChoiceRoute
         return validOrder ? next.Order(StringComparer.OrdinalIgnoreCase).ToArray() : null;
     }
 
-    private static bool Matches(
+    internal static bool Matches(
         SearchLocation location,
         string queryCode,
         AirportCatalog airports
@@ -107,7 +107,7 @@ public static class FlightChoiceRoute
             StringComparison.OrdinalIgnoreCase
         );
 
-    private static IEnumerable<SearchEdge> SearchEdges(
+    internal static IEnumerable<SearchEdge> SearchEdges(
         string key,
         Guid partyId,
         IReadOnlyList<FareSearchResult> fares
