@@ -26,6 +26,7 @@ type ContentProps = {
   hasCompletePath?: boolean;
   searching: boolean;
   busy: boolean;
+  readOnly?: boolean;
   cities: AirportCities;
 };
 type Props = ContentProps & {
@@ -51,7 +52,7 @@ const FlightGridCard = memo(function FlightGridCard({
   onFocus,
   ...content
 }: Props) {
-  const { node, busy, selected } = content;
+  const { node, busy, selected, readOnly } = content;
   const first = node.leg.segments[0];
   const last = node.leg.segments.at(-1)!;
   const ref = useCallback(
@@ -65,6 +66,7 @@ const FlightGridCard = memo(function FlightGridCard({
       role="group"
       onClick={(event) => {
         if (
+          readOnly ||
           busy ||
           (event.target as HTMLElement).closest(
             "details, .flight-grid-booking-actions",
@@ -114,6 +116,7 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
   hasCompletePath,
   searching,
   busy,
+  readOnly = false,
   cities,
 }: ContentProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -124,7 +127,7 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
       <button
         type="button"
         className="flight-grid-select"
-        disabled={busy}
+        disabled={busy || readOnly}
         aria-pressed={Boolean(selected)}
         aria-label={`Choose flight ${flightNumbers(node.leg)}, ${first.departure_airport} to ${last.arrival_airport}, ${first.departure_time_local}`}
       />

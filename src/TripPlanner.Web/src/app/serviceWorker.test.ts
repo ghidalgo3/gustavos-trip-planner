@@ -15,7 +15,10 @@ function worker() {
     keys: vi.fn().mockResolvedValue([]),
     delete: vi.fn(),
   };
-  const caches = { open: vi.fn().mockResolvedValue(cache), match: vi.fn() };
+  const caches = {
+    open: vi.fn().mockResolvedValue(cache),
+    match: vi.fn().mockResolvedValue(undefined),
+  };
   const fetch = vi.fn();
   runInNewContext(readFileSync("public/sw.js", "utf8"), {
     self: {
@@ -73,12 +76,23 @@ test("a failed asset download preserves the previous offline shell", async () =>
       }),
     )
     .mockRejectedValueOnce(new Error("offline"));
+  app.caches.match.mockResolvedValue(new Response("previous complete shell"));
   const event = app.navigate("/");
-  await event.respondWith.mock.calls[0][0];
-  await expect(event.waitUntil.mock.calls[0][0]).rejects.toThrow("offline");
+  const response = (await event.respondWith.mock.calls[0][0]) as Response;
+  expect(await response.text()).toBe("previous complete shell");
+  await event.waitUntil.mock.calls[0][0];
   expect(app.cache.put).not.toHaveBeenCalledWith(
     "/index.html",
     expect.anything(),
   );
   expect(app.cache.delete).not.toHaveBeenCalled();
+});
+
+test("a cached app launch does not wait for a stalled network", async () => {
+  const app = worker();
+  app.fetch.mockImplementation(() => new Promise(() => {}));
+  app.caches.match.mockResolvedValue(new Response("ready offline"));
+  const event = app.navigate("/");
+  const response = (await event.respondWith.mock.calls[0][0]) as Response;
+  expect(await response.text()).toBe("ready offline");
 });

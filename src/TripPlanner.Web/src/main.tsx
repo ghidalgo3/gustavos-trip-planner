@@ -6,7 +6,13 @@ import ColorSchemeProvider from "./app/ColorSchemeProvider";
 import "./styles.css";
 import { initializeTelemetry } from "./telemetry/telemetry";
 
-await initializeTelemetry();
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  void navigator.serviceWorker
+    .register("/sw.js", { updateViaCache: "none" })
+    .catch(() => undefined);
+}
+// Telemetry must not delay rendering or offline startup.
+void initializeTelemetry();
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ColorSchemeProvider>
@@ -16,7 +22,3 @@ createRoot(document.getElementById("root")!).render(
     </ColorSchemeProvider>
   </StrictMode>,
 );
-
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-}

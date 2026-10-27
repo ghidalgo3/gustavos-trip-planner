@@ -1,8 +1,10 @@
+import { useTripResourceVersion } from "../../api/tripSnapshot";
 import { BookingOptionsSkeleton } from "./FlightSkeletons";
 import FlightPriceStatus from "./FlightPriceStatus";
 import {
   restoreFlightResults,
   restoredFlightKeys,
+  selectedFlightLegs,
 } from "./restoreFlightResults";
 import { useFlightChoiceConfirmation } from "./useFlightChoiceConfirmation";
 import { partialFlightBookings } from "./flightChoiceBookings";
@@ -91,6 +93,7 @@ export function JourneyLegs({
   purchasedLegs,
   onPurchaseChange,
   purchaseBusy = false,
+  readOnly = false,
   cheapestRoute = false,
   preferredAirlines = [],
   renderBooking,
@@ -102,6 +105,7 @@ export function JourneyLegs({
   purchasedLegs?: boolean[];
   onPurchaseChange?: (index: number, purchased: boolean) => void;
   purchaseBusy?: boolean;
+  readOnly?: boolean;
   cheapestRoute?: boolean;
   preferredAirlines?: string[];
   renderBooking?: (index: number) => ReactNode;
@@ -164,10 +168,12 @@ export function JourneyLegs({
               }
               onPurchasedChange={
                 onPurchaseChange
-                  ? (value) => onPurchaseChange(index, value)
+                  ? (value) => {
+                      if (!readOnly) onPurchaseChange(index, value);
+                    }
                   : undefined
               }
-              purchaseBusy={purchaseBusy}
+              purchaseBusy={purchaseBusy || readOnly}
               actions={
                 renderBooking
                   ? renderBooking(index)
@@ -177,6 +183,7 @@ export function JourneyLegs({
                         cacheKey={booking.cacheKey}
                         itinerary={booking.itinerary}
                         legIndex={index}
+                        disabled={readOnly}
                       />
                     )
               }
@@ -200,6 +207,7 @@ export default function RouteFareResults({
   returnDate,
   showGrid = false,
   searching = false,
+  readOnly = false,
 }: {
   tripId: string;
   results: FareSearchResult[];
@@ -216,7 +224,9 @@ export default function RouteFareResults({
   returnDate?: string | null;
   showGrid?: boolean;
   searching?: boolean;
+  readOnly?: boolean;
 }) {
+  const selectedVersion = useTripResourceVersion(`/trips/${tripId}/flights`);
   const [selected, setSelected] = useState<SelectedFlight[]>([]);
   const selectionMutation = useRef(0);
   const [busyParty, setBusyParty] = useState<string>();
@@ -270,9 +280,10 @@ export default function RouteFareResults({
         if (!controller.signal.aborted) setError(String(reason));
       });
     return () => controller.abort();
-  }, [tripId]);
+  }, [tripId, selectedVersion]);
 
   async function choose(result: FlightRouteResult, index: number | null) {
+    if (readOnly) return false;
     selectionMutation.current += 1;
     setBusyParty(result.partyId);
     setError(undefined);
@@ -311,11 +322,12 @@ export default function RouteFareResults({
     legIndex: number,
     purchased: boolean,
   ) {
+    if (readOnly) return;
     const current = selected.find(
       (flight) => flight.partyId === result.partyId,
     );
     if (!current) return;
-    const count = current.itinerary.legs?.length ?? 0;
+    const count = selectedFlightLegs(current).length;
     const statuses = Array.from(
       { length: count },
       (_, index) => current.purchasedLegs?.[index] ?? false,
@@ -374,6 +386,7 @@ export default function RouteFareResults({
                 cities={cities}
                 searching={searching}
                 chosen={[]}
+                readOnly={readOnly}
                 busy={false}
                 onChoose={() => {}}
                 preferredAirlines={[]}
@@ -388,6 +401,7 @@ export default function RouteFareResults({
           visits={visits}
           returnDate={returnDate}
           showGrid={showGrid}
+          readOnly={readOnly}
           searching={searching}
           savedChoices={effectiveChoices[result.partyId] ?? emptyChoices}
           progress={choiceProgress[result.partyId]}
@@ -435,6 +449,7 @@ function RoutePartyResults({
   busy,
   onChoose,
   onPurchaseChange,
+  readOnly = false,
 }: {
   tripId: string;
   result: FlightRouteResult;
@@ -456,15 +471,16 @@ function RoutePartyResults({
   busy: boolean;
   onChoose: (index: number | null) => Promise<boolean>;
   onPurchaseChange: (index: number, purchased: boolean) => Promise<void>;
+  readOnly?: boolean;
 }) {
   const [localChosen, setLocalChosen] =
     useState<(string | null)[]>(savedChoices);
-  const chosen = onChangeChoices ? savedChoices : localChosen;
+  const chosen = readOnly || onChangeChoices ? savedChoices : localChosen;
   const { confirm, dialog } = useFlightChoiceConfirmation();
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [choiceError, setChoiceError] = useState<string>();
   async function changePurchases(ids: string[]) {
-    if (!onChangeChoices) return;
+    if (readOnly || !onChangeChoices) return;
     setChoiceBusy(true);
     setChoiceError(undefined);
     try {
@@ -483,6 +499,7 @@ function RoutePartyResults({
     }
   }
   async function changeChosen(keys: (string | null)[]) {
+    if (readOnly) return false;
     const previous = keys.some(Boolean)
       ? chosen
       : [...chosen, ...(progress?.unmatchedFlights ?? []).map(legKey)];
@@ -515,6 +532,7 @@ function RoutePartyResults({
     }
   }
   async function restartChoices() {
+    if (readOnly) return;
     if (!(await confirm(chosen, []))) return;
     setChoiceBusy(true);
     setChoiceError(undefined);
@@ -621,6 +639,7 @@ function RoutePartyResults({
           cities={cities}
           searching={searching}
           chosen={chosen}
+          readOnly={readOnly}
           busy={choiceBusy || busy}
           retainedFlightCount={progress?.unmatchedFlights?.length ?? 0}
           onChoose={(keys) => void changeChosen(keys)}
@@ -637,6 +656,7 @@ function RoutePartyResults({
               partyId={result.partyId}
               progress={progress}
               savedItinerary={selected}
+              readOnly={readOnly}
               busy={choiceBusy || busy}
               onPurchase={onChangeChoices ? changePurchases : undefined}
               onSavedPurchase={onPurchaseChange}
@@ -650,7 +670,7 @@ function RoutePartyResults({
           step={step}
           label={partyName}
           routes={tabRoutes}
-          busy={choiceBusy}
+          busy={choiceBusy || readOnly}
           onRevisit={(index) => void changeChosen(chosen.slice(0, index))}
         />
       )}
@@ -731,12 +751,13 @@ function RoutePartyResults({
                 : undefined
             }
             purchaseBusy={busy}
+            readOnly={readOnly}
             cheapestRoute={best.index === cheapestRoute?.index}
           />
           <div className="route-result-actions">
             <Button
               appearance="primary"
-              disabled={busy || bestIsSelected}
+              disabled={readOnly || busy || bestIsSelected}
               onClick={() => void onChoose(best.index)}
             >
               {bestIsSelected
@@ -744,7 +765,7 @@ function RoutePartyResults({
                 : "Save complete itinerary"}
             </Button>
             <Button
-              disabled={busy || choiceBusy}
+              disabled={readOnly || busy || choiceBusy}
               onClick={() => void restartChoices()}
             >
               {selected ? "Deselect itinerary" : "Start over"}
@@ -785,7 +806,7 @@ function RoutePartyResults({
           <>
             <Button
               appearance="primary"
-              disabled={choiceBusy}
+              disabled={readOnly || choiceBusy}
               onClick={() => {
                 const keys = [...chosen];
                 keys[step] = choice.key;
@@ -799,6 +820,7 @@ function RoutePartyResults({
               cacheKey={result.cacheKey}
               itinerary={candidate}
               legIndex={step}
+              disabled={readOnly}
             />
           </>
         }
@@ -818,6 +840,7 @@ function GridFlightBookingActions({
   progress,
   savedItinerary,
   busy,
+  readOnly = false,
   onPurchase,
   onSavedPurchase,
 }: {
@@ -831,6 +854,7 @@ function GridFlightBookingActions({
   progress?: FlightChoiceProgress;
   savedItinerary?: SelectedFlight;
   busy: boolean;
+  readOnly?: boolean;
   onPurchase?: (ids: string[]) => Promise<void>;
   onSavedPurchase: (index: number, purchased: boolean) => Promise<void>;
 }) {
@@ -855,7 +879,9 @@ function GridFlightBookingActions({
       ? partialFlightBookings(progress, chosen, currency).get(index)
       : undefined);
   // Older complete itineraries still own their booking/purchase state until choices are saved.
-  const savedLeg = savedItinerary?.itinerary.legs?.[index];
+  const savedLeg = savedItinerary
+    ? selectedFlightLegs(savedItinerary)[index]
+    : undefined;
   if (
     !booking &&
     !progress &&
@@ -872,12 +898,12 @@ function GridFlightBookingActions({
           itinerary={savedItinerary.itinerary}
           legIndex={index}
           buttonLabel="Booking Link"
-          disabled={busy}
+          disabled={busy || readOnly}
         />
         <Switch
           label="Booked"
           checked={savedItinerary.purchasedLegs?.[index] ?? false}
-          disabled={busy}
+          disabled={busy || readOnly}
           onChange={(_, data) => void onSavedPurchase(index, data.checked)}
         />
       </div>
@@ -892,6 +918,7 @@ function GridFlightBookingActions({
       booking={booking}
       progress={progress}
       busy={busy}
+      readOnly={readOnly}
       onPurchase={onPurchase}
       bundled={(quote?.legIndexes.length ?? node.bookingLegCount) > 1}
       isSelected={isSelected}
@@ -906,6 +933,7 @@ function ChoiceBookingActions({
   booking,
   progress,
   busy,
+  readOnly = false,
   onPurchase,
   bundled,
   isSelected = true,
@@ -916,6 +944,7 @@ function ChoiceBookingActions({
   booking?: FlightChoiceBooking;
   progress?: FlightChoiceProgress;
   busy: boolean;
+  readOnly?: boolean;
   onPurchase?: (ids: string[]) => Promise<void>;
   bundled?: boolean;
   isSelected?: boolean;
@@ -934,7 +963,7 @@ function ChoiceBookingActions({
           loadLinks={(id) => getChoiceBookingLinks(tripId, partyId, id)}
           wholeBooking
           buttonLabel="Booking Link"
-          disabled={busy}
+          disabled={busy || readOnly}
         />
       ) : (
         <>
@@ -967,9 +996,9 @@ function ChoiceBookingActions({
         <Switch
           label="Booked"
           checked={purchased}
-          disabled={busy || !booking || !onPurchase}
+          disabled={readOnly || busy || !booking || !onPurchase}
           onChange={(_, data) => {
-            if (!booking || !onPurchase) return;
+            if (readOnly || !booking || !onPurchase) return;
             const ids = (progress?.purchasedOfferIds ?? []).filter(
               (id) => id !== booking.ignavId,
             );

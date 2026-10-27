@@ -1,7 +1,14 @@
+import { HttpResponseError } from "./httpErrors";
+import {
+  forgetOfflineTrip,
+  rememberTrip,
+  rememberTripCatalog,
+} from "./offlineCache";
 import {
   tripFetch,
   rememberResourceEtag,
   ResourceConflictError,
+  pruneTripSnapshotCache,
 } from "./tripSnapshot";
 export type CurrentUser = {
   isAuthenticated: boolean;
@@ -201,11 +208,15 @@ export async function getCurrentUser(
 ): Promise<CurrentUser> {
   const response = await tripFetch(`${apiBaseUrl}/user`, {
     credentials: "include",
+    cache: "no-store",
     signal,
   });
 
   if (!response.ok) {
-    throw new Error(`The API returned ${response.status}.`);
+    throw new HttpResponseError(
+      `The API returned ${response.status}.`,
+      response.status,
+    );
   }
 
   return response.json() as Promise<CurrentUser>;
@@ -454,7 +465,7 @@ export async function readTripError(response: Response, action: string) {
   }
   if ([409, 412, 428].includes(response.status))
     throw new ResourceConflictError(message, response.status);
-  throw new Error(message);
+  throw new HttpResponseError(message, response.status);
 }
 
 export async function listTrips(
@@ -463,12 +474,15 @@ export async function listTrips(
 ): Promise<Trip[]> {
   const response = await tripFetch(tripResourceUrl(userId), {
     credentials: "include",
+    cache: "no-store",
     signal,
   });
   if (!response.ok) {
     await readTripError(response, "loading trips");
   }
   const trips = (await response.json()) as Trip[];
+  rememberTripCatalog(userId, trips);
+  pruneTripSnapshotCache(userId, new Set(trips.map((trip) => trip.id)));
   for (const trip of trips)
     if (trip.etag) rememberResourceEtag(`/trips/${trip.id}`, trip.etag);
   return trips;
@@ -502,7 +516,9 @@ export async function createTrip(
   if (!response.ok) {
     await readTripError(response, "creating the trip");
   }
-  return response.json() as Promise<Trip>;
+  const trip = (await response.json()) as Trip;
+  rememberTrip(userId, trip);
+  return trip;
 }
 
 export async function updateTrip(
@@ -519,7 +535,9 @@ export async function updateTrip(
   if (!response.ok) {
     await readTripError(response, "updating the trip");
   }
-  return response.json() as Promise<Trip>;
+  const trip = (await response.json()) as Trip;
+  rememberTrip(userId, trip);
+  return trip;
 }
 
 export async function deleteTrip(
@@ -533,6 +551,7 @@ export async function deleteTrip(
   if (!response.ok) {
     await readTripError(response, "deleting the trip");
   }
+  forgetOfflineTrip(userId, tripId);
 }
 
 export function loginUrl(provider: "google" | "aad"): string {

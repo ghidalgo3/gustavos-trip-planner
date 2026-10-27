@@ -1,0 +1,215 @@
+{
+  "trip": {
+    "id": "22222222-2222-2222-2222-222222222222",
+    "ownerUserId": "11111111-1111-1111-1111-111111111111",
+    "canPlan": true,
+    "name": "Tokyo offline trip",
+    "description": "Downloaded before disconnecting",
+    "constraints": {},
+    "createdAt": "2030-01-01T00:00:00Z",
+    "updatedAt": "2030-01-01T00:00:00Z"
+  },
+  "user": {
+    "isAuthenticated": true,
+    "completedOnboarding": true,
+    "id": "11111111-1111-1111-1111-111111111111",
+    "name": "Offline Traveller",
+    "profile": {
+      "homeCity": {
+        "name": "Boston",
+        "longitude": -71,
+        "latitude": 42
+      },
+      "preferredAirlines": []
+    }
+  },
+  "airportPlaces": [
+    {
+      "@id": "urn:tripplanner:22222222-2222-2222-2222-222222222222:place:airport%3ABOS",
+      "@type": "Airport",
+      "iataCode": "BOS",
+      "name": "Logan",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Boston"
+      }
+    },
+    {
+      "@id": "urn:tripplanner:22222222-2222-2222-2222-222222222222:place:airport%3ANRT",
+      "@type": "Airport",
+      "iataCode": "NRT",
+      "name": "Narita",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Tokyo"
+      }
+    }
+  ],
+  "flightChoices": [
+    {
+      "partyId": "33333333-3333-3333-3333-333333333333",
+      "legKeys": [
+        "[[\"BOS\",\"NRT\",\"2030-04-01T18:00:00\",\"2030-04-02T20:00:00\",\"JL\",\"8\"]]",
+        null
+      ],
+      "nextOrigins": [],
+      "flights": [
+        {
+          "legIndex": 0,
+          "leg": {
+            "duration_minutes": 780,
+            "segments": [
+              {
+                "departure_airport": "BOS",
+                "arrival_airport": "NRT",
+                "departure_time_local": "2030-04-01T18:00:00",
+                "arrival_time_local": "2030-04-02T20:00:00",
+                "marketing_carrier_code": "JL",
+                "flight_number": "8",
+                "duration_minutes": 780
+              }
+            ]
+          }
+        }
+      ],
+      "purchasedOfferIds": ["booked-flight"],
+      "bookings": [
+        {
+          "ignavId": "booked-flight",
+          "legIndexes": [0],
+          "legKeys": [
+            "[[\"BOS\",\"NRT\",\"2030-04-01T18:00:00\",\"2030-04-02T20:00:00\",\"JL\",\"8\"]]"
+          ],
+          "price": {
+            "amount": 700,
+            "currency": "USD",
+            "status": "verified"
+          }
+        }
+      ]
+    }
+  ],
+  "legacyFlight": {
+    "tripId": "22222222-2222-2222-2222-222222222222",
+    "partyId": "33333333-3333-3333-3333-333333333333",
+    "cacheKey": "saved-legacy-fare",
+    "itineraryIndex": 0,
+    "request": {
+      "origin": "BOS",
+      "destination": "NRT",
+      "departure_date": "2030-04-01",
+      "return_date": "2030-04-10",
+      "adults": 1
+    },
+    "itinerary": {
+      "legs": [
+        {
+          "duration_minutes": 780,
+          "segments": [
+            {
+              "departure_airport": "BOS",
+              "arrival_airport": "NRT",
+              "departure_time_local": "2030-04-01T18:00:00",
+              "arrival_time_local": "2030-04-02T20:00:00",
+              "marketing_carrier_code": "JL",
+              "flight_number": "8",
+              "duration_minutes": 780
+            }
+          ]
+        },
+        {
+          "duration_minutes": 720,
+          "segments": [
+            {
+              "departure_airport": "NRT",
+              "arrival_airport": "BOS",
+              "departure_time_local": "2030-04-10T18:00:00",
+              "arrival_time_local": "2030-04-10T17:00:00",
+              "marketing_carrier_code": "JL",
+              "flight_number": "7",
+              "duration_minutes": 720
+            }
+          ]
+        }
+      ],
+      "price": {
+        "amount": 700,
+        "currency": "USD",
+        "status": "verified"
+      }
+    },
+    "selectedAt": "2030-01-01T12:00:00Z",
+    "purchasedLegs": [true, false]
+  },
+  "parties": [
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "members": [
+        {
+          "id": "11111111-1111-1111-1111-111111111111",
+          "name": "Offline Traveller",
+          "homeCity": "Boston",
+          "role": "Planner"
+        }
+      ]
+    }
+  ],
+  "flightConstraints": {
+    "schemaVersion": 1,
+    "parties": [
+      {
+        "partyId": "33333333-3333-3333-3333-333333333333",
+        "preferredAirlines": ["JL"],
+        "cabin": "economy",
+        "market": "US",
+        "maxStops": null,
+        "maxJourneyHours": 48,
+        "origin": null
+      }
+    ],
+    "visits": [
+      {
+        "id": "44444444-4444-4444-4444-444444444444",
+        "location": {
+          "code": "TYO",
+          "label": "Tokyo",
+          "timeZone": "Asia/Tokyo",
+          "airportCodes": ["NRT", "HND"]
+        },
+        "nights": 8,
+        "presentFrom": "2030-04-02",
+        "presentThrough": "2030-04-10",
+        "afterVisitIds": []
+      }
+    ],
+    "constraints": []
+  },
+  "destination": {
+    "type": "Feature",
+    "id": "tokyo-jp",
+    "geometry": {
+      "type": "Point",
+      "coordinates": [139.76, 35.68]
+    },
+    "properties": {
+      "name": "Tokyo",
+      "countryCode": "JP",
+      "timeZone": "Asia/Tokyo",
+      "contextVersion": "1",
+      "arrivalDate": "2030-04-02",
+      "departureDate": "2030-04-10",
+      "isActive": true,
+      "stays": [
+        {
+          "id": "44444444-4444-4444-4444-444444444444",
+          "order": 0,
+          "arrivalDate": "2030-04-02",
+          "departureDate": "2030-04-10",
+          "arrivalAt": "09:00:00",
+          "departureAt": "18:00:00",
+          "stayLocation": null
+        }
+      ]
+    }
+  }
+}

@@ -367,8 +367,14 @@ from accommodation selection or a user-reported flight purchase flag; the latter
 is marked explicitly in its projected reservation.
 
 The web shell uses a production-only service worker, and trip snapshots use a
-separate account-scoped local cache. Offline availability on a device requires a
-previous successful online load. Offline edits and background synchronization are
+separate account-scoped local cache. The last confirmed display identity and trip
+list are also persisted, so a fresh installed-app launch can recover without
+`sessionStorage` or a network call. The cached identity grants local read-only
+access, never server authorization. Downloaded trips are marked Available offline;
+listing a trip alone does not download its full snapshot. Offline availability on
+a device requires a previous successful online load in that app. Reconnection
+revalidates the real session before editing is enabled; explicit authentication
+rejection and sign-out clear cached identity, catalogs and snapshots. Offline edits and background synchronization are
 outside this milestone. Refresh discards the conflicted editor's draft only when
 the user requests it; metadata editing additionally retains the old text for
 comparison. Unknown response fields are not a complete-resource PUT contract;
@@ -379,3 +385,15 @@ or its accommodation, preserving repeated visits and deletion behavior. `placeId
 addresses home or an airport. A connection referencing a selected service retains
 its canonical service definition (without offers), so deselecting the flight does
 not leave that journey with a dangling service or airport reference.
+
+The offline Flights view reads saved per-leg choices as well as legacy complete
+itineraries. Current per-leg choices take precedence, including an explicit empty
+selection; displaced saved legs remain visible for review. Airport Places carry
+`address.addressLocality` (the same metropolitan city used in airport lookups),
+so labels and overview flight matching work directly from the snapshot.
+
+Offline flights use the same destination grid and flight cards as online. Read-only
+interactions (sorting, filtering, scrolling and details) remain available, while
+search, flight changes, booking links and purchase updates are disabled. A cold
+offline launch restores saved selections; unsaved search results are not part of
+the snapshot. Going offline with results already loaded retains them in the grid.

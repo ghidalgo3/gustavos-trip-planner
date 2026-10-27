@@ -615,6 +615,11 @@ public sealed class TripSnapshotProjection(
                     "Airport"
                 );
                 places[placeId]["iataCode"] = code;
+                places[placeId]["address"] = new JsonObject
+                {
+                    ["@type"] = "PostalAddress",
+                    ["addressLocality"] = airports.CityName(code),
+                };
             }
         }
 
@@ -709,6 +714,11 @@ public sealed class TripSnapshotProjection(
                             "Airport"
                         );
                         places[airportId]["iataCode"] = code;
+                        places[airportId]["address"] = new JsonObject
+                        {
+                            ["@type"] = "PostalAddress",
+                            ["addressLocality"] = airports.CityName(code),
+                        };
                         service[direction + "Airport"] = Reference(airportId);
                         var time = Text(direction + "_time_local");
                         var utc = Text(direction + "_time_utc");

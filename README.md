@@ -39,6 +39,44 @@ readable offline, with editing disabled. The production service worker caches th
 public app shell; authenticated snapshots are cached separately and cleared on
 sign-out or an online access denial. Other tabs/devices do not receive live pushes.
 
+Offline launch also persists the last confirmed display identity and the trip list
+in account-scoped local storage; it does not persist authentication credentials.
+The installed app can reopen at its home screen without a network connection and
+open previously downloaded trips marked **Available offline**. Trips that have
+only appeared in the list need to be opened online once to download their snapshot.
+Saved flights include selected individual legs before the route is complete,
+purchase status, and displaced selections that need review. Airport cities are
+included in the snapshot, so viewing flights and matching them to destination
+visits does not require an airport lookup. Offline flights use the same destination
+grid as online, with saved selections and booking status. Sorting, filtering,
+scrolling, and flight details remain available; search, selection changes, booking
+links, and purchase updates are disabled. Offline mode never starts a fare search.
+Editing and profile settings remain disabled until the session is verified online.
+An explicit signed-out response or `401/403` from the session endpoint clears the
+private offline cache. The public shell starts from its cache immediately and
+refreshes in the background; failed asset downloads preserve the previous shell.
+
+On iPhone, open the installed home-screen app while connected, sign in there, and
+open each trip you want to keep offline. Then return to the trip list, close the
+app, enable airplane mode, and relaunch the same icon. You should see the remembered
+account, the saved trip list, and **Available offline** on downloaded trips. Maps,
+searches, AI features and edits require connectivity. Clearing website data or
+browser storage eviction removes offline availability. The service worker is only
+registered by production builds, so `scripts/server` alone does not test it.
+
+Run the production browser regression (WebKit and Chromium, including closing the
+browser process and reopening offline) with:
+
+```zsh
+cd src/TripPlanner.Web
+corepack pnpm exec playwright install webkit chromium
+corepack pnpm run test:offline
+```
+
+The test serves production assets and deterministic local API fixtures; it does not
+contact a real account or database.
+
+
 `GET/PUT /trips/{tripId}/travel` reads/replaces general travel connections, using
 its own `If-Match` validator. Connections can link activities, visits, or shared
 places and support walk, bike, car, taxi, bus, train, transit and flight. An

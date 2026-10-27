@@ -1,3 +1,11 @@
+import {
+  clearOfflineCache,
+  forgetOfflineTrip,
+  rememberTrip,
+  snapshotKey,
+  offlineStorageKeys,
+} from "./offlineCache";
+import type { Trip } from "./api";
 import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
 
 export type SnapshotResource = {
@@ -13,7 +21,13 @@ export type TripSnapshot = {
   "@id": string;
   schemaVersion: 1;
   name: string;
-  places?: { "@id": string; name: string; timeZone?: string }[];
+  places?: {
+    "@id": string;
+    name: string;
+    timeZone?: string;
+    iataCode?: string;
+    address?: { addressLocality?: string };
+  }[];
   revision: string;
   resources: Record<string, SnapshotResource>;
 };
@@ -59,8 +73,7 @@ const publish = (next: SnapshotState) => {
   state = next;
   listeners.forEach((listener) => listener());
 };
-const cacheKey = (userId: string, tripId: string) =>
-  `tripplanner.snapshot.v1:${userId}:${tripId}`;
+const cacheKey = snapshotKey;
 export const canonicalPath = (path: string) =>
   path
     .replace(/^\/user\/[^/]+\/trips(?=\/|$)/, "/trips")
@@ -171,6 +184,7 @@ export async function refreshTripSnapshot(
   const previous = state;
   publish({ ...state, loading: true });
   try {
+    if (navigator.onLine === false) throw new TypeError("Offline");
     const response = await fetch(
       `${baseUrl}/trips/${encodeURIComponent(previous.tripId)}/snapshot`,
       {
@@ -186,7 +200,7 @@ export async function refreshTripSnapshot(
       return state.snapshot;
     if ([401, 403, 404].includes(response.status)) {
       try {
-        localStorage.removeItem(cacheKey(previous.userId, previous.tripId));
+        forgetOfflineTrip(previous.userId, previous.tripId);
       } catch {
         /* Storage may be disabled. */
       }
@@ -216,6 +230,10 @@ export async function refreshTripSnapshot(
     if (requestGeneration !== generation || signal?.aborted)
       return state.snapshot;
     changedResources(state.snapshot, snapshot);
+    rememberTrip(
+      previous.userId,
+      snapshot.resources[`/trips/${previous.tripId}`].data as Trip,
+    );
     const etag = response.headers.get("ETag") ?? undefined;
     let message: string | undefined;
     try {
@@ -244,7 +262,12 @@ export async function refreshTripSnapshot(
         ...state,
         loading: false,
         message:
-          error instanceof Error ? error.message : "Unable to load trip.",
+          state.message ??
+          (navigator.onLine === false || error instanceof TypeError
+            ? "This trip has not been saved for offline use. Connect to the internet and open it once to download it."
+            : error instanceof Error
+              ? error.message
+              : "Unable to load trip."),
       });
       throw error;
     }
@@ -292,20 +315,29 @@ export function useTripResourceVersion(path: string) {
     () => versions.get(canonicalPath(path)) ?? 0,
   );
 }
-export function clearTripSnapshotCache() {
-  ++generation;
+export function pruneTripSnapshotCache(
+  userId: string,
+  tripIds: ReadonlySet<string>,
+) {
   try {
-    for (const key of Object.keys(localStorage))
-      if (key.startsWith("tripplanner.snapshot.v1:"))
+    const prefix = `tripplanner.snapshot.v1:${userId}:`;
+    for (const key of offlineStorageKeys())
+      if (key.startsWith(prefix) && !tripIds.has(key.slice(prefix.length)))
         localStorage.removeItem(key);
   } catch {
-    /* Storage may be disabled. */
+    /* Storage may be unavailable. */
   }
-  try {
-    sessionStorage.removeItem("tripplanner.session.v1");
-  } catch {
-    /* Storage may be disabled. */
+  if (state.userId === userId && state.tripId && !tripIds.has(state.tripId)) {
+    ++generation;
+    validators.clear();
+    versions.clear();
+    publish(empty);
   }
+}
+
+export function clearTripSnapshotCache() {
+  ++generation;
+  clearOfflineCache();
   validators.clear();
   versions.clear();
   publish(empty);

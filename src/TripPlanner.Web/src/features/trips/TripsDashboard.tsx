@@ -1,6 +1,9 @@
+import { hasOfflineTrip, readTripCatalog } from "../../api/offlineCache";
+import { isAccessDenied } from "../../api/httpErrors";
+import { clearTripSnapshotCache } from "../../api/tripSnapshot";
 import { TripsSkeleton } from "./TripSkeletons";
 import TripMetadataEditor from "./TripMetadataEditor";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   Button,
@@ -28,11 +31,19 @@ import {
 } from "../../api/api";
 import { trackBehavior } from "../../telemetry/telemetry";
 
-type Props = { user: CurrentUser & { id: string } };
+type Props = {
+  user: CurrentUser & { id: string };
+  offline?: boolean;
+  onSessionExpired?: () => void;
+};
 
 const emptyInput: TripInput = { name: "", description: "" };
 
-export default function TripsDashboard({ user }: Props) {
+export default function TripsDashboard({
+  user,
+  offline = false,
+  onSessionExpired,
+}: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [trips, setTrips] = useState<Trip[]>();
   const showCreate = searchParams.get("create") === "1";
@@ -41,22 +52,48 @@ export default function TripsDashboard({ user }: Props) {
   const [busyId, setBusyId] = useState<string>();
   const [error, setError] = useState<string>();
   const [tripToDelete, setTripToDelete] = useState<Trip>();
+  const [disconnected, setDisconnected] = useState(offline);
+  const [retry, setRetry] = useState(0);
+  const readOnly = offline || disconnected;
+  const sessionExpired = useEffectEvent(() => onSessionExpired?.());
 
   useEffect(() => {
     const controller = new AbortController();
-    listTrips(user.id, controller.signal)
-      .then(setTrips)
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(errorMessage(reason));
+    async function load() {
+      try {
+        if (offline || navigator.onLine === false)
+          throw new TypeError("Offline");
+        const latest = await listTrips(user.id, controller.signal);
+        if (controller.signal.aborted) return;
+        setTrips(latest);
+        setDisconnected(false);
+        setError(undefined);
+      } catch (reason) {
+        if (controller.signal.aborted) return;
+        if (isAccessDenied(reason)) {
+          clearTripSnapshotCache();
+          setTrips([]);
+          setError("Sign in again to load your trips.");
+          sessionExpired();
+        } else {
+          const saved = readTripCatalog(user.id);
+          setTrips(saved ?? []);
+          setError(
+            saved
+              ? undefined
+              : "No trip list is saved on this device. Connect to the internet to load your trips.",
+          );
         }
-      });
+        setDisconnected(true);
+      }
+    }
+    void load();
     return () => controller.abort();
-  }, [user.id]);
+  }, [user.id, offline, retry]);
 
   async function submitCreate(event: FormEvent) {
     event.preventDefault();
-    if (!createInput.name.trim()) return;
+    if (readOnly || !createInput.name.trim()) return;
     trackBehavior("trip_creation_submitted");
     setBusyId("new");
     setError(undefined);
@@ -75,11 +112,13 @@ export default function TripsDashboard({ user }: Props) {
   }
 
   function startEditing(trip: Trip) {
+    if (readOnly) return;
     setSearchParams({ edit: trip.id });
     setError(undefined);
   }
 
   async function removeTrip(trip: Trip) {
+    if (readOnly) return;
     setBusyId(trip.id);
     setError(undefined);
     try {
@@ -107,6 +146,7 @@ export default function TripsDashboard({ user }: Props) {
         </div>
         <Button
           appearance="primary"
+          disabled={readOnly}
           size="large"
           icon={<Add24Regular />}
           onClick={() => {
@@ -117,9 +157,20 @@ export default function TripsDashboard({ user }: Props) {
         </Button>
       </div>
 
+      {readOnly && (
+        <div className="snapshot-status" role="status">
+          <Text>
+            Showing your saved trip list. Trips marked “Available offline” can
+            be opened without a connection.
+          </Text>
+          <Button onClick={() => setRetry((value) => value + 1)}>
+            Refresh trips
+          </Button>
+        </div>
+      )}
       {error && !tripToDelete && <Text role="alert">{error}</Text>}
 
-      {showCreate && (
+      {showCreate && !readOnly && (
         <Card className="trip-editor">
           <Title3 as="h2">Create a trip</Title3>
           <TripForm
@@ -139,7 +190,7 @@ export default function TripsDashboard({ user }: Props) {
 
       {!trips ? (
         <TripsSkeleton />
-      ) : trips.length === 0 && !showCreate ? (
+      ) : trips.length === 0 && !showCreate && !readOnly ? (
         <Card className="empty-trips" appearance="filled-alternative">
           <Title3 as="h2">No trips yet</Title3>
           <Text>Create one when you’re ready to start planning.</Text>
@@ -148,7 +199,9 @@ export default function TripsDashboard({ user }: Props) {
         <div className="trip-grid">
           {trips.map((trip) => (
             <Card key={trip.id} className="trip-card">
-              {editingId === trip.id && trip.ownerUserId === user.id ? (
+              {!readOnly &&
+              editingId === trip.id &&
+              trip.ownerUserId === user.id ? (
                 <TripMetadataEditor
                   key={trip.id}
                   trip={trip}
@@ -164,11 +217,22 @@ export default function TripsDashboard({ user }: Props) {
                 />
               ) : (
                 <>
-                  <Link
-                    className="trip-card-link"
-                    to={`/trips/${encodeURIComponent(trip.id)}`}
-                    aria-label={`Open trip: ${trip.name}`}
-                  />
+                  {(!readOnly || hasOfflineTrip(user.id, trip.id)) && (
+                    <Link
+                      className="trip-card-link"
+                      to={`/trips/${encodeURIComponent(trip.id)}`}
+                      aria-label={`Open trip: ${trip.name}`}
+                    />
+                  )}
+                  {hasOfflineTrip(user.id, trip.id) ? (
+                    <Text size={200}>Available offline</Text>
+                  ) : (
+                    readOnly && (
+                      <Text size={200}>
+                        Connect and open this trip once to save it offline.
+                      </Text>
+                    )
+                  )}
                   <div className="trip-card-heading">
                     <CardHeader
                       header={<Title3 as="h2">{trip.name}</Title3>}
@@ -184,7 +248,7 @@ export default function TripsDashboard({ user }: Props) {
                         ) : undefined
                       }
                     />
-                    {trip.ownerUserId === user.id && (
+                    {!readOnly && trip.ownerUserId === user.id && (
                       <details className="trip-card-menu">
                         <summary
                           role="button"
@@ -238,7 +302,7 @@ export default function TripsDashboard({ user }: Props) {
           ))}
         </div>
       )}
-      {tripToDelete && (
+      {tripToDelete && !readOnly && (
         <DeleteTripDialog
           trip={tripToDelete}
           busy={busyId === tripToDelete.id}

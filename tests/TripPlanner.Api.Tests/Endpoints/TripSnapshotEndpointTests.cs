@@ -335,6 +335,20 @@ public sealed class TripSnapshotEndpointTests
             "Flight",
             first.GetProperty("services")[0].GetProperty("@type").GetString()
         );
+        foreach (var (code, city) in new[] { ("BOS", "Boston"), ("CDG", "Paris") })
+        {
+            var airport = first
+                .GetProperty("places")
+                .EnumerateArray()
+                .Single(place =>
+                    place.TryGetProperty("iataCode", out var iata) && iata.GetString() == code
+                );
+            Assert.AreEqual(
+                city,
+                airport.GetProperty("address").GetProperty("addressLocality").GetString(),
+                "Airport cities must be available without another network call."
+            );
+        }
         await factory.Database.SetSelectedFlightAsync(
             user.Id,
             selected with

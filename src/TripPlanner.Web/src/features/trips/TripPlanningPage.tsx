@@ -19,7 +19,6 @@ import {
 } from "../../api/tripSnapshot";
 import ActivityPlanningTab from "../activities/ActivityPlanningTab";
 import TripPlanning from "../flights/TripPlanning";
-import PlansOverview from "../flights/PlansOverview";
 import TripOverview from "./TripOverview";
 import TripParties from "../party/TripParties";
 
@@ -27,10 +26,12 @@ export default function TripPlanningPage({
   userId,
   homeCity,
   featureFlags,
+  offline = false,
 }: {
   userId: string;
   homeCity?: string | null;
   featureFlags: string[];
+  offline?: boolean;
 }) {
   const { tripId, "*": section } = useParams();
   const navigate = useNavigate();
@@ -50,7 +51,7 @@ export default function TripPlanningPage({
       () => undefined,
     );
     return () => controller.abort();
-  }, [userId, tripId]);
+  }, [userId, tripId, offline]);
   const current =
     snapshotState.tripId === tripId && snapshotState.userId === userId
       ? {
@@ -85,7 +86,9 @@ export default function TripPlanningPage({
     );
   const trip = current.trip;
   const readOnly =
-    snapshotState.offline || (trip.ownerUserId !== userId && !trip.canPlan);
+    offline ||
+    snapshotState.offline ||
+    (trip.ownerUserId !== userId && !trip.canPlan);
 
   return (
     <div
@@ -111,7 +114,13 @@ export default function TripPlanningPage({
       <header className="trip-page-header">
         <div className="trip-page-title">
           <Title1 as="h1">{trip.name}</Title1>
-          {readOnly && <Text size={200}>Shared with you · View only</Text>}
+          {readOnly && (
+            <Text size={200}>
+              {offline || snapshotState.offline
+                ? "Offline · View only"
+                : "Shared with you · View only"}
+            </Text>
+          )}
         </div>
         <nav className="trip-navigation" aria-label="Trip sections">
           <NavLink
@@ -152,19 +161,11 @@ export default function TripPlanningPage({
       <div className="trip-page-body">
         <div className="planning-page trip-page-content">
           {activeTab === "flights" ? (
-            readOnly ? (
-              <PlansOverview
-                trip={trip}
-                userId={userId}
-                readOnly
-                onFindFlights={() => {}}
-              />
-            ) : (
-              <TripPlanning
-                trip={trip}
-                onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
-              />
-            )
+            <TripPlanning
+              trip={trip}
+              readOnly={readOnly}
+              onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
+            />
           ) : activeTab === "party" ? (
             <TripParties
               tripId={trip.id}

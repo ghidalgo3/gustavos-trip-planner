@@ -1,9 +1,19 @@
+import type { FareLeg } from "../../api/operationsApi";
 import type { FlightRouteResult } from "./flightRouteGraph";
 import { legKey } from "./flightFormatting";
 import type {
   FlightChoiceProgress,
   SelectedFlight,
 } from "./selectedFlightsApi";
+
+export function selectedFlightLegs(flight: SelectedFlight): FareLeg[] {
+  return (
+    flight.itinerary.legs ??
+    [flight.itinerary.outbound, flight.itinerary.inbound].filter(
+      (leg): leg is FareLeg => Boolean(leg),
+    )
+  );
+}
 
 export function restoredFlightKeys(
   choices: Record<string, (string | null)[]>,
@@ -16,11 +26,11 @@ export function restoredFlightKeys(
         .filter(
           (flight) =>
             legCount === undefined ||
-            flight.itinerary.legs?.length === legCount,
+            selectedFlightLegs(flight).length === legCount,
         )
         .map((flight) => [
           flight.partyId,
-          (flight.itinerary.legs ?? []).map(legKey),
+          selectedFlightLegs(flight).map(legKey),
         ]),
     ),
     ...choices,
@@ -40,7 +50,7 @@ export function restoreFlightResults(
     // An explicitly cleared choice takes precedence over an older complete itinerary.
     const saved =
       choices[partyId]?.flights ??
-      (selection?.itinerary.legs ?? []).map((leg, legIndex) => ({
+      (selection ? selectedFlightLegs(selection) : []).map((leg, legIndex) => ({
         leg,
         legIndex,
       }));

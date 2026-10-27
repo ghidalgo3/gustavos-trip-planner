@@ -1,3 +1,4 @@
+import { useTripSnapshotState } from "../../api/tripSnapshot";
 import { useEffect, useState } from "react";
 import { apiBaseUrl } from "../../api/api";
 import type { AirportCities } from "./flightFormatting";
@@ -17,10 +18,20 @@ export function flightAirportCodes(legs: FareLeg[]): string[] {
 }
 
 export function useAirportCities(codes: string[]): AirportCities {
-  const key = [...new Set(codes)].sort().join(",");
+  const snapshot = useTripSnapshotState();
+  const saved: AirportCities = Object.fromEntries(
+    (snapshot.snapshot?.places ?? [])
+      .filter((place) => place.iataCode && place.address?.addressLocality)
+      .map((place) => [place.iataCode!, place.address!.addressLocality!]),
+  );
+  const key = [...new Set(codes)]
+    .filter((code) => !saved[code])
+    .sort()
+    .join(",");
+  const disconnected = snapshot.offline || navigator.onLine === false;
   const [value, setValue] = useState<{ key: string; cities: AirportCities }>();
   useEffect(() => {
-    if (!key) return;
+    if (!key || disconnected) return;
     const controller = new AbortController();
     const requested = key.split(",");
     const batches: string[][] = [];
@@ -46,6 +57,6 @@ export function useAirportCities(codes: string[]): AirportCities {
         if (!controller.signal.aborted) setValue({ key, cities: {} });
       });
     return () => controller.abort();
-  }, [key]);
-  return value?.key === key ? value.cities : {};
+  }, [key, disconnected]);
+  return { ...(value?.key === key ? value.cities : {}), ...saved };
 }

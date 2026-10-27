@@ -61,9 +61,10 @@ vi.mock("../activities/ActivityPlanning", () => ({
   },
 }));
 vi.mock("../flights/TripPlanning", () => ({
-  default: () => <section aria-label="Flight planning" />,
+  default: ({ readOnly }: { readOnly: boolean }) => (
+    <section aria-label="Flight planning" data-read-only={String(readOnly)} />
+  ),
 }));
-vi.mock("../flights/PlansOverview", () => ({ default: () => null }));
 vi.mock("../party/TripParties", () => ({
   default: () => <section aria-label="Trip party" />,
 }));
@@ -112,5 +113,30 @@ test.each(["Activities", "Plan activities"])(
         expect(screen.getByText("tokyo-jp")).toBeVisible();
       }
     }
+  },
+);
+
+test.each([false, true])(
+  "preserves the flight planning screen when offline is %s",
+  async (offline) => {
+    render(
+      <MemoryRouter initialEntries={["/trips/trip/flights"]}>
+        <Routes>
+          <Route
+            path="/trips/:tripId/*"
+            element={
+              <TripPlanningPage
+                userId="owner"
+                featureFlags={[]}
+                offline={offline}
+              />
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByRole("region", { name: "Flight planning" }),
+    ).toHaveAttribute("data-read-only", String(offline));
   },
 );

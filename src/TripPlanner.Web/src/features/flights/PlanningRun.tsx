@@ -1,3 +1,4 @@
+import { useTripResourceVersion } from "../../api/tripSnapshot";
 import type { PlannedVisit } from "./planningApi";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +43,7 @@ export default function PlanningRun({
   visits = [],
   returnDate,
   disabled,
+  readOnly = false,
   hasUnsavedChanges,
   savedVersion,
   onBeforeSearch,
@@ -57,11 +59,15 @@ export default function PlanningRun({
   visits?: PlannedVisit[];
   returnDate?: string | null;
   disabled: boolean;
+  readOnly?: boolean;
   hasUnsavedChanges: boolean;
   savedVersion: number;
   onBeforeSearch: () => Promise<void>;
   onReviewRequirements: (constraintId?: string) => void;
 }) {
+  const choicesVersion = useTripResourceVersion(
+    `/trips/${tripId}/flights/choices`,
+  );
   const showGrid = multiCity && visits.length > 0;
   const [operation, setOperation] = useState<TrackedOperation>();
   const [results, setResults] = useState<FareSearchResult[]>([]);
@@ -102,13 +108,14 @@ export default function PlanningRun({
           );
       });
     return () => controller.abort();
-  }, [tripId, multiCity]);
+  }, [tripId, multiCity, readOnly, choicesVersion]);
 
   async function saveFlightChoices(
     partyId: string,
     legKeys: (string | null)[],
     purchasedOfferIds?: string[],
   ): Promise<boolean> {
+    if (readOnly) return false;
     choiceMutation.current += 1;
     const previous = flightChoices[partyId];
     setFlightChoicesState((current) => ({
@@ -162,6 +169,7 @@ export default function PlanningRun({
   }
 
   useEffect(() => {
+    if (readOnly) return;
     const controller = new AbortController();
     let timer: number;
     let loadedResults = "";
@@ -219,9 +227,10 @@ export default function PlanningRun({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [tripId, refresh, savedVersion]);
+  }, [tripId, refresh, savedVersion, readOnly]);
 
   async function plan() {
+    if (readOnly) return;
     trackBehavior("flight_search_started");
     setStarting(true);
     setError(undefined);
@@ -257,13 +266,15 @@ export default function PlanningRun({
         <Button
           appearance="primary"
           onClick={plan}
-          disabled={disabled || starting || active}
+          disabled={readOnly || disabled || starting || active}
         >
-          {starting
-            ? "Starting…"
-            : active
-              ? "Searching flights…"
-              : "Find flights"}
+          {readOnly
+            ? "Find flights"
+            : starting
+              ? "Starting…"
+              : active
+                ? "Searching flights…"
+                : "Find flights"}
         </Button>
       </div>
       <Text>
@@ -303,22 +314,24 @@ export default function PlanningRun({
           </Button>
         </div>
       )}
-      {pollError && issues.length === 0 && (
+      {pollError && !readOnly && issues.length === 0 && (
         <Text>{pollError} Checking again shortly.</Text>
       )}
       {operation && issues.length === 0 && (
         <>
           <Text role="status">
-            {active
-              ? "Searching flights"
-              : operation.status === "Failed"
-                ? "Search finished with errors"
-                : "Search complete"}
+            {readOnly
+              ? "Last saved search status"
+              : active
+                ? "Searching flights"
+                : operation.status === "Failed"
+                  ? "Search finished with errors"
+                  : "Search complete"}
             {` · ${operation.progress.completedItems} of ${operation.progress.items} searches completed`}
             {operation.progress.failedItems > 0 &&
               ` · ${operation.progress.failedItems} failed`}
           </Text>
-          {active && (
+          {active && !readOnly && (
             <ProgressBar
               aria-label="Flight search progress"
               max={operation.progress.items || 1}
@@ -351,7 +364,8 @@ export default function PlanningRun({
               visits={visits}
               returnDate={returnDate}
               showGrid={showGrid}
-              searching={Boolean(active || starting)}
+              searching={!readOnly && Boolean(active || starting)}
+              readOnly={readOnly}
               parties={parties}
               partySettings={partySettings}
               savedChoices={Object.fromEntries(
@@ -360,7 +374,7 @@ export default function PlanningRun({
                   choice.legKeys,
                 ]),
               )}
-              onChangeChoices={saveFlightChoices}
+              onChangeChoices={readOnly ? undefined : saveFlightChoices}
               choiceProgress={flightChoices}
             />
           ) : multiCity ? (

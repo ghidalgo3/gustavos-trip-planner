@@ -857,7 +857,7 @@ test.each([true, false])(
         evaluations: [],
       },
     ]);
-    render(
+    const page = (readOnly = false) => (
       <FluentProvider theme={webLightTheme}>
         <MemoryRouter>
           <PlanningRun
@@ -866,6 +866,7 @@ test.each([true, false])(
             partySettings={[partySettings]}
             constraints={[]}
             multiCity
+            readOnly={readOnly}
             visitCount={1}
             visits={[
               {
@@ -888,8 +889,9 @@ test.each([true, false])(
             onReviewRequirements={reviewRequirements}
           />
         </MemoryRouter>
-      </FluentProvider>,
+      </FluentProvider>
     );
+    const view = render(page());
     await screen.findByText("Prices last retrieved", { exact: false });
     expect(
       screen.getByRole("region", {
@@ -910,5 +912,17 @@ test.each([true, false])(
     expect(
       screen.getByLabelText("Loading flights for return home"),
     ).toBeVisible();
+    const flight = screen.getByRole("button", { name: /^Choose flight/ });
+    const polls = vi.mocked(getOperations).mock.calls.length;
+    const searches = vi.mocked(getFlightSearchResults).mock.calls.length;
+    view.rerender(page(true));
+    expect(screen.getByRole("button", { name: /^Choose flight/ })).toBe(flight);
+    expect(flight).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Find flights" })).toBeDisabled();
+    expect(
+      screen.queryByLabelText("Loading flights for return home"),
+    ).toBeNull();
+    expect(getOperations).toHaveBeenCalledTimes(polls);
+    expect(getFlightSearchResults).toHaveBeenCalledTimes(searches);
   },
 );

@@ -13,9 +13,11 @@ import PlanningRun from "./PlanningRun";
 export default function TripPlanning({
   trip,
   onBack,
+  readOnly = false,
 }: {
   trip: Trip;
   onBack: () => void;
+  readOnly?: boolean;
 }) {
   const snapshotVersion = useTripResourceVersion(`/trips/${trip.id}/flights`);
   const [data, setData] = useState<TripFlightPlanningData>();
@@ -74,7 +76,8 @@ export default function TripPlanning({
           visitCount={data.document.visits?.length ?? 0}
           visits={data.document.visits ?? []}
           returnDate={data.document.travelDates?.endDate}
-          disabled={false}
+          readOnly={readOnly}
+          disabled={readOnly}
           hasUnsavedChanges={false}
           savedVersion={0}
           onBeforeSearch={async () => {}}

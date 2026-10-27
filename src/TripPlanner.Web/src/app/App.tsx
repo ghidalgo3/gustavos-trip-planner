@@ -1,6 +1,8 @@
+import { readOfflineUser, rememberOfflineUser } from "../api/offlineCache";
+import { HttpResponseError, isAccessDenied } from "../api/httpErrors";
 import { clearTripSnapshotCache } from "../api/tripSnapshot";
 import ContentSkeleton from "../shared/components/ContentSkeleton";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Link,
   Navigate,
@@ -11,6 +13,7 @@ import {
 } from "react-router";
 import {
   Avatar,
+  Button,
   Card,
   CardHeader,
   LargeTitle,
@@ -47,14 +50,27 @@ export default function App() {
   const location = useLocation();
   const [user, setUser] = useState<CurrentUser>();
   const [apiAvailable, setApiAvailable] = useState(true);
+  const [offline, setOffline] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   const userMenu = useRef<HTMLDetailsElement>(null);
   const profile = user?.profile ?? emptyProfile;
 
+  const acceptUser = useCallback((value: CurrentUser) => {
+    const previous = readOfflineUser();
+    if (!value.isAuthenticated || (previous && previous.id !== value.id))
+      clearTripSnapshotCache();
+    if (value.isAuthenticated) rememberOfflineUser(value);
+    setUser(value);
+    setOffline(false);
+    setApiAvailable(true);
+  }, []);
+
   async function openProfile() {
+    if (offline) return;
     try {
-      setUser(await getCurrentUser());
+      acceptUser(await getCurrentUser());
     } catch {
-      // The route can still render the current session and let the user retry.
+      /* Retry on the profile route. */
     }
     userMenu.current?.removeAttribute("open");
     navigate("/profile");
@@ -62,37 +78,52 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    getCurrentUser(controller.signal)
-      .then((value) => {
-        if (controller.signal.aborted) return;
-        if (!value.isAuthenticated) clearTripSnapshotCache();
-        try {
-          if (value.isAuthenticated)
-            sessionStorage.setItem(
-              "tripplanner.session.v1",
-              JSON.stringify(value),
-            );
-          else sessionStorage.removeItem("tripplanner.session.v1");
-        } catch {
-          /* Offline storage may be disabled. */
+    let cancelled = false;
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    async function restoreSession() {
+      try {
+        if (navigator.onLine === false) throw new TypeError("Offline");
+        const value = await getCurrentUser(controller.signal);
+        if (!cancelled) acceptUser(value);
+      } catch (reason) {
+        if (cancelled) return;
+        if (isAccessDenied(reason)) {
+          acceptUser({
+            isAuthenticated: false,
+            completedOnboarding: false,
+            profile: emptyProfile,
+          });
+          return;
         }
-        setUser(value);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setApiAvailable(false);
-          try {
-            const cached = sessionStorage.getItem("tripplanner.session.v1");
-            if (cached) {
-              const previous = JSON.parse(cached) as CurrentUser;
-              if (previous.isAuthenticated && previous.id) setUser(previous);
-            }
-          } catch {
-            /* The sign-in screen remains available without a cached session. */
+        setApiAvailable(false);
+        // A cached identity permits local reading only. An explicit rejection
+        // from the API must never be treated as a disconnected session.
+        if (!(reason instanceof HttpResponseError) || reason.status >= 500) {
+          const previous = readOfflineUser();
+          if (previous) {
+            setUser(previous);
+            setOffline(true);
           }
         }
-      });
-    return () => controller.abort();
+      }
+    }
+    void restoreSession().finally(() => window.clearTimeout(timeout));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [acceptUser, refresh]);
+
+  useEffect(() => {
+    const reconnect = () => setRefresh((value) => value + 1);
+    const disconnect = () => setOffline(true);
+    window.addEventListener("online", reconnect);
+    window.addEventListener("offline", disconnect);
+    return () => {
+      window.removeEventListener("online", reconnect);
+      window.removeEventListener("offline", disconnect);
+    };
   }, []);
 
   return (
@@ -117,7 +148,11 @@ export default function App() {
                 <span>{user.name ?? user.email ?? "Traveler"}</span>
               </summary>
               <div className="user-menu-panel">
-                <button type="button" onClick={() => void openProfile()}>
+                <button
+                  type="button"
+                  disabled={offline}
+                  onClick={() => void openProfile()}
+                >
                   <Person24Regular /> Your profile
                 </button>
                 <a href={logoutUrl()} onClick={clearTripSnapshotCache}>
@@ -129,19 +164,44 @@ export default function App() {
         )}
       </header>
 
+      {offline && user?.isAuthenticated && (
+        <div className="snapshot-status" role="status">
+          <Text>
+            Offline · Viewing saved trips. Connect to refresh; editing is
+            disabled.
+          </Text>
+          <Button onClick={() => setRefresh((value) => value + 1)}>
+            Refresh connection
+          </Button>
+        </div>
+      )}
       {user?.isAuthenticated &&
       user.id &&
       (user.completedOnboarding || location.pathname === "/profile") ? (
         <Routes>
           <Route
             path="/"
-            element={<TripsDashboard user={{ ...user, id: user.id }} />}
+            element={
+              <TripsDashboard
+                key={user.id}
+                user={{ ...user, id: user.id }}
+                offline={offline}
+                onSessionExpired={() =>
+                  acceptUser({
+                    isAuthenticated: false,
+                    completedOnboarding: false,
+                    profile: emptyProfile,
+                  })
+                }
+              />
+            }
           />
           <Route
             path="/trips/:tripId/*"
             element={
               <TripPlanningPage
                 userId={user.id}
+                offline={offline}
                 homeCity={profile.homeCity?.name ?? null}
                 featureFlags={user.featureFlags ?? []}
               />
@@ -150,7 +210,14 @@ export default function App() {
           <Route
             path="/profile"
             element={
-              <ProfilePage user={{ ...user, profile }} onSaved={setUser} />
+              offline ? (
+                <section className="planning-page">
+                  <Text>Connect to the internet to manage your profile.</Text>
+                  <Button onClick={() => navigate("/")}>Back to trips</Button>
+                </section>
+              ) : (
+                <ProfilePage user={{ ...user, profile }} onSaved={acceptUser} />
+              )
             }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -168,8 +235,8 @@ export default function App() {
 
             {!apiAvailable ? (
               <Text role="alert">
-                The API is not available yet. Start the local containers and
-                refresh.
+                No saved account is available on this device. Open this app
+                online and sign in first.
               </Text>
             ) : !user ? (
               <ContentSkeleton label="Checking your session">
@@ -185,7 +252,7 @@ export default function App() {
                   We’ll use your home city as the starting point when planning
                   trips.
                 </Text>
-                <HomeCityPicker onSaved={setUser} />
+                <HomeCityPicker onSaved={acceptUser} />
               </div>
             ) : (
               <div className="auth-actions" aria-label="Sign in options">

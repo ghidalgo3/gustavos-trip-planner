@@ -68,6 +68,7 @@ export default function FlightRouteGrid({
   preferredAirlines,
   renderCardActions,
   retainedFlightCount = 0,
+  readOnly = false,
 }: {
   result?: FlightRouteResult;
   visits: PlannedVisit[];
@@ -85,6 +86,7 @@ export default function FlightRouteGrid({
     fares: ReadonlyMap<string, FlightFare>,
   ) => ReactNode;
   retainedFlightCount?: number;
+  readOnly?: boolean;
 }) {
   const graph = useMemo(
     () => buildFlightGraph(result, visits.length + 1, preferredAirlines),
@@ -198,6 +200,7 @@ export default function FlightRouteGrid({
   }, [graph]);
   const toggleFlight = useCallback(
     (index: number, key: string) => {
+      if (readOnly) return;
       const keys = Array.from(
         { length: graph.columns.length },
         (_, column) => chosen[column] ?? null,
@@ -205,7 +208,7 @@ export default function FlightRouteGrid({
       keys[index] = keys[index] === key ? null : key;
       onChoose(keys.some(Boolean) ? keys : []);
     },
-    [chosen, graph.columns.length, onChoose],
+    [chosen, graph.columns.length, onChoose, readOnly],
   );
   function resetFilters() {
     setLimit(undefined);
@@ -340,9 +343,13 @@ export default function FlightRouteGrid({
           </Text>
           <Button
             disabled={
-              busy || (selectedCount === 0 && retainedFlightCount === 0)
+              readOnly ||
+              busy ||
+              (selectedCount === 0 && retainedFlightCount === 0)
             }
-            onClick={() => onChoose([])}
+            onClick={() => {
+              if (!readOnly) onChoose([]);
+            }}
           >
             Clear selections
           </Button>
@@ -517,19 +524,21 @@ export default function FlightRouteGrid({
             searching ? "flight-grid-live is-searching" : "flight-grid-live"
           }
         />
-        {result?.savedOnly && !searching
-          ? "Your saved flights are shown. Find flights to load more options."
-          : available.nodes.size === 0 && restrict
-            ? "No complete trips match these selections and filters. Clear a selection or adjust the filters."
-            : active
-              ? highlighted.nodes.size > 0
-                ? `Complete paths through this flight · ${highlighted.nodes.size - 1} connected flights`
+        {readOnly
+          ? "Viewing saved flights. Connect to search, change selections, or update bookings."
+          : result?.savedOnly && !searching
+            ? "Your saved flights are shown. Find flights to load more options."
+            : available.nodes.size === 0 && restrict
+              ? "No complete trips match these selections and filters. Clear a selection or adjust the filters."
+              : active
+                ? highlighted.nodes.size > 0
+                  ? `Complete paths through this flight · ${highlighted.nodes.size - 1} connected flights`
+                  : searching
+                    ? "Waiting for a compatible complete path…"
+                    : "No complete path matches this flight and your filters."
                 : searching
-                  ? "Waiting for a compatible complete path…"
-                  : "No complete path matches this flight and your filters."
-              : searching
-                ? "Flights appear as searches finish. Choose a flight in any column."
-                : "Choose flights, open booking links, and mark booked flights on their cards."}
+                  ? "Flights appear as searches finish. Choose a flight in any column."
+                  : "Choose flights, open booking links, and mark booked flights on their cards."}
       </div>
       <div
         className="flight-grid-scroll"
@@ -586,11 +595,13 @@ export default function FlightRouteGrid({
                 </header>
                 {nodes.length === 0 && !searching && (
                   <div className="flight-grid-empty">
-                    {result?.savedOnly
-                      ? "No flight selected. Find flights to see options."
-                      : restrict
-                        ? "No matching flights. Adjust your selections or filters."
-                        : "No flights found for this leg."}
+                    {readOnly
+                      ? "No saved flight for this leg. Connect to find options."
+                      : result?.savedOnly
+                        ? "No flight selected. Find flights to see options."
+                        : restrict
+                          ? "No matching flights. Adjust your selections or filters."
+                          : "No flights found for this leg."}
                   </div>
                 )}
                 {nodes.map((node) => {
@@ -631,6 +642,7 @@ export default function FlightRouteGrid({
                       hasCompletePath={available.nodes.has(node.id)}
                       searching={searching}
                       busy={busy}
+                      readOnly={readOnly}
                       cities={cities}
                       register={registerCard}
                       onChoose={toggleFlight}
