@@ -100,7 +100,8 @@ internal static class EndpointAuthorization
     public static async Task<(User? User, IResult? Error)> AuthorizeCurrentUserAsync(
         HttpContext context,
         IPlannerDb database,
-        AuthenticatedUserProfile profile
+        AuthenticatedUserProfile profile,
+        bool requireOnboarding = true
     )
     {
         bool bearer = context
@@ -118,7 +119,7 @@ internal static class EndpointAuthorization
             return (null, Results.StatusCode(StatusCodes.Status403Forbidden));
         }
 
-        if (user.HomeCityLocation is null)
+        if (requireOnboarding && user.HomeCityLocation is null)
         {
             return (
                 null,

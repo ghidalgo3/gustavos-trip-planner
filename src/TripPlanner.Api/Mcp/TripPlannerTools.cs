@@ -47,7 +47,7 @@ public sealed class TripPlannerTools(
         adapter.ExecuteAsync(
             false,
             context =>
-                TripSnapshotEndpoints.GetSnapshot(
+                TripImportExport.GetSnapshot(
                     tripId,
                     context,
                     database,

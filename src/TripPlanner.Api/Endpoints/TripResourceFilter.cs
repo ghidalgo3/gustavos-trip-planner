@@ -39,7 +39,8 @@ public sealed class TripResourceFilter(
         var (user, error) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
             context,
             database,
-            currentUser.Profile!
+            currentUser.Profile!,
+            requireOnboarding: false
         );
         if (error is not null)
         {
@@ -98,7 +99,7 @@ public sealed class TripResourceFilter(
                 tripId,
                 async () =>
                 {
-                    var data = await reader.ReadDataAsync(user!.Id, tripId, context.RequestAborted);
+                    var data = await reader.ReadAsync(user!.Id, tripId, context.RequestAborted);
                     if (data is null)
                     {
                         return Results.NotFound();

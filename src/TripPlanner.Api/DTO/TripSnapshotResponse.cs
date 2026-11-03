@@ -17,7 +17,7 @@ public sealed record SnapshotResource(
 public sealed record TripSnapshotResponse(
     [property: JsonPropertyName("@context"), Required] JsonObject Context,
     [property: JsonPropertyName("@id"), Required] string Id,
-    [property: Required] string Name,
+    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
     string Description,
     [property: Required] string Revision,
     [property: Required] JsonObject TripOrigin,
@@ -34,9 +34,12 @@ public sealed record TripSnapshotResponse(
     [property: Required] IReadOnlyDictionary<string, SnapshotResource> Resources
 )
 {
-    [JsonPropertyName("@type"), AllowedValues("Trip")]
-    public string Type => "Trip";
+    [JsonPropertyName("@type"), JsonRequired, AllowedValues("Trip")]
+    public string Type { get; init; } = "Trip";
 
-    [Range(1, 1)]
-    public int SchemaVersion => 1;
+    [JsonRequired, Range(1, 1)]
+    public int SchemaVersion { get; init; } = 1;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extensions { get; init; } = [];
 }

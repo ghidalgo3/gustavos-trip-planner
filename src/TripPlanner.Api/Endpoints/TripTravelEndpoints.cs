@@ -64,7 +64,7 @@ public static class TripTravelEndpoints
         {
             return error;
         }
-        var data = await reader.ReadDataAsync(user!.Id, tripId, context.RequestAborted);
+        var data = await reader.ReadAsync(user!.Id, tripId, context.RequestAborted);
         if (data is null)
         {
             return Results.NotFound();

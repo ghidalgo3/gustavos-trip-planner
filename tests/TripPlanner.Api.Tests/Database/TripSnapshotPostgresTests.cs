@@ -18,6 +18,53 @@ namespace TripPlanner.Api.Tests.Database;
 public sealed class TripSnapshotPostgresTests
 {
     [TestMethod]
+    public async Task MigrationMakesLegacyIdeasReadableInSnapshots()
+    {
+        await WithDatabase(
+            async (source, db) =>
+            {
+                var owner = await db.GetOrCreateUserAsync(
+                    new("google", "legacy-idea@example.com", "Owner")
+                );
+                var trip = await db.CreateTripAsync(owner.Id, "Legacy trip", "");
+                var place = await db.SaveDestinationPlaceAsync(
+                    owner.Id,
+                    new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
+                );
+                await using (
+                    var seed = source.CreateCommand(
+                        """
+                        WITH pending AS (DELETE FROM schema_migrations WHERE version = 20)
+                        INSERT INTO activities(id, trip_id, city_id, properties)
+                        VALUES (gen_random_uuid(), $1, $2, '{"name":"Museum","description":"","state":"idea"}');
+                        """
+                    )
+                )
+                {
+                    seed.Parameters.AddWithValue(trip.Id);
+                    seed.Parameters.AddWithValue(place.CityId);
+                    await seed.ExecuteNonQueryAsync();
+                }
+
+                await new DatabaseMigrator(
+                    source,
+                    NullLogger<DatabaseMigrator>.Instance
+                ).MigrateAsync();
+
+                var snapshot = await db.ReadTripSnapshotAsync(
+                    owner.Id,
+                    trip.Id,
+                    CancellationToken.None
+                );
+                Assert.IsNotNull(snapshot);
+                var activity = snapshot.Activities.Single();
+                Assert.AreEqual("Museum", activity.Properties.Name);
+                Assert.AreEqual(ActivityState.Proposed, activity.Properties.State);
+            }
+        );
+    }
+
+    [TestMethod]
     public async Task SnapshotReadsOneDatabaseVersionAcrossAConcurrentMultirowCommit()
     {
         await WithDatabase(
@@ -80,7 +127,7 @@ public sealed class TripSnapshotPostgresTests
                 Assert.AreEqual(("Before", "Before", "Before"), captured);
                 Assert.IsNull(Transaction.Current);
                 Assert.AreEqual("After", (await db.GetVisibleTripAsync(user.Id, trip.Id))!.Name);
-                var snapshot = await new TripSnapshotReader(db, session).ReadAsync(
+                var snapshot = await new TripSnapshotReader(db).ReadAsync(
                     user.Id,
                     trip.Id,
                     CancellationToken.None
@@ -199,10 +246,140 @@ public sealed class TripSnapshotPostgresTests
                     "train",
                     (await db.GetTripTravelAsync(user.Id, trip.Id)).Connections.Single().Mode
                 );
+                var snapshot = await db.ReadTripSnapshotAsync(
+                    user.Id,
+                    trip.Id,
+                    CancellationToken.None
+                );
+                Assert.IsNotNull(snapshot);
+                var capturedConnection = snapshot.Travel.Connections.Single();
+                Assert.AreEqual(connection.Id, capturedConnection.Id);
+                Assert.AreEqual(connection.Mode, capturedConnection.Mode);
+                Assert.AreEqual(connection.To, capturedConnection.To);
+                Assert.AreEqual(visit.StayId, snapshot.Visits.Single().StayId);
+                Assert.AreEqual(saved.Version, snapshot.Travel.Version);
+                Assert.IsNull(
+                    await db.ReadTripSnapshotAsync(Guid.NewGuid(), trip.Id, CancellationToken.None)
+                );
                 await db.DeleteDestinationVisitAsync(user.Id, trip.Id, place.CityId, visit.StayId);
                 var after = await db.GetTripTravelAsync(user.Id, trip.Id);
                 Assert.IsEmpty(after.Connections);
                 Assert.AreEqual(saved.Version + 1, after.Version);
+            }
+        );
+    }
+
+    [TestMethod]
+    public async Task LocalImportRetriesAreAtomicScopedAndSurviveTripDeletion()
+    {
+        await WithDatabase(
+            async (source, db) =>
+            {
+                var owner = await db.GetOrCreateUserAsync(
+                    new("google", "import@example.com", "Owner")
+                );
+                var other = await db.GetOrCreateUserAsync(
+                    new("google", "other@example.com", "Other")
+                );
+                var store = new PostgresTripImportStore(source);
+                var request = TripSnapshotFixture.Create(
+                    1,
+                    Guid.NewGuid(),
+                    "Device trip",
+                    "Keep me",
+                    System.Text.Json.JsonSerializer.SerializeToElement(new { budget = 500 })
+                );
+                var transfer = Guid.NewGuid();
+                var results = await Task.WhenAll(
+                    Enumerable
+                        .Range(0, 8)
+                        .Select(_ =>
+                            store.ImportAsync(owner.Id, transfer, request, CancellationToken.None)
+                        )
+                );
+                Assert.AreEqual(1, results.Count(result => result.Status == 201));
+                Assert.AreEqual(7, results.Count(result => result.Status == 200));
+                Assert.IsTrue(
+                    results.All(result =>
+                        result.Trip!.Id == Guid.Parse(request.Id["urn:uuid:".Length..])
+                    )
+                );
+                Assert.HasCount(1, await db.GetTripsAsync(owner.Id));
+                Assert.HasCount(
+                    1,
+                    await db.GetPartiesAsync(owner.Id, Guid.Parse(request.Id["urn:uuid:".Length..]))
+                );
+                Assert.AreEqual(
+                    404,
+                    (await store.GetAsync(other.Id, transfer, CancellationToken.None)).Status
+                );
+                Assert.AreEqual(
+                    409,
+                    (
+                        await store.ImportAsync(
+                            other.Id,
+                            Guid.NewGuid(),
+                            request,
+                            CancellationToken.None
+                        )
+                    ).Status
+                );
+                Assert.AreEqual(
+                    409,
+                    (
+                        await store.ImportAsync(
+                            owner.Id,
+                            transfer,
+                            request with
+                            {
+                                Name = "Different payload",
+                            },
+                            CancellationToken.None
+                        )
+                    ).Status
+                );
+                await db.DeleteTripAsync(owner.Id, Guid.Parse(request.Id["urn:uuid:".Length..]));
+                Assert.AreEqual(
+                    410,
+                    (
+                        await store.ImportAsync(owner.Id, transfer, request, CancellationToken.None)
+                    ).Status
+                );
+                Assert.AreEqual(
+                    410,
+                    (await store.GetAsync(owner.Id, transfer, CancellationToken.None)).Status
+                );
+                Assert.IsEmpty(await db.GetTripsAsync(owner.Id));
+            }
+        );
+    }
+
+    [TestMethod]
+    public async Task InvalidLocalImportLeavesNoReceiptOrTrip()
+    {
+        await WithDatabase(
+            async (source, db) =>
+            {
+                var owner = await db.GetOrCreateUserAsync(
+                    new("google", "invalid-import@example.com", "Owner")
+                );
+                var store = new PostgresTripImportStore(source);
+                var request = TripSnapshotFixture.Create(
+                    1,
+                    Guid.NewGuid(),
+                    new string('x', 201),
+                    "",
+                    System.Text.Json.JsonSerializer.SerializeToElement(new { })
+                );
+                var transfer = Guid.NewGuid();
+                await Assert.ThrowsAsync<PostgresException>(() =>
+                    store.ImportAsync(owner.Id, transfer, request, CancellationToken.None)
+                );
+                Assert.IsEmpty(await db.GetTripsAsync(owner.Id));
+                Assert.AreEqual(
+                    404,
+                    (await store.GetAsync(owner.Id, transfer, CancellationToken.None)).Status
+                );
             }
         );
     }

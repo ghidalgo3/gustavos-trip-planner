@@ -206,7 +206,7 @@ public static class TripsEndpoints
         );
         return trip is null
             ? Results.NotFound()
-            : Results.Ok(TripResponse.From(trip, canPlan: true));
+            : Results.Ok(await DescribeTripAsync(trip, user.Id, database, context.RequestAborted));
     }
 
     internal static async Task<IResult> DeleteTrip(
@@ -238,12 +238,21 @@ public static class TripsEndpoints
         Guid userId,
         IPlannerDb database,
         CancellationToken cancellationToken
-    ) =>
-        TripResponse.From(
+    )
+    {
+        var visits = await database.GetDestinationVisitsAsync(userId, trip.Id, cancellationToken);
+        var first = visits.MinBy(visit => visit.Order);
+        var last = visits.MaxBy(visit => visit.Order);
+        return TripResponse.From(
             trip,
             canPlan: trip.OwnerUserId == userId
                 || await database.GetTripAsync(userId, trip.Id, cancellationToken) is not null
-        );
+        ) with
+        {
+            StartDate = first?.ArrivalDate ?? first?.DepartureDate,
+            EndDate = last?.DepartureDate ?? last?.ArrivalDate,
+        };
+    }
 
     private static async Task<(User? User, IResult? Error)> AuthorizeOwnerAsync(
         Guid? userId,
@@ -257,7 +266,8 @@ public static class TripsEndpoints
             return await EndpointAuthorization.AuthorizeCurrentUserAsync(
                 context,
                 database,
-                profile
+                profile,
+                requireOnboarding: false
             );
         }
 

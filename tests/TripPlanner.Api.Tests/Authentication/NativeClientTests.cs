@@ -50,6 +50,10 @@ public sealed class NativeClientTests
         var html = await consent.Content.ReadAsStringAsync();
         Assert.AreEqual(HttpStatusCode.OK, consent.StatusCode, html);
         StringAssert.Contains(html, "Allow TripPlanner mobile");
+        StringAssert.Contains(
+            consent.Headers.GetValues("Content-Security-Policy").Single(),
+            "form-action 'self' com.example.tripplanner:;"
+        );
         var fields = Regex
             .Matches(html, "<input[^>]*name=\"([^\"]+)\" value=\"([^\"]*)\"")
             .ToDictionary(
@@ -67,6 +71,7 @@ public sealed class NativeClientTests
             await accepted.Content.ReadAsStringAsync()
         );
         var returned = QueryHelpers.ParseQuery(accepted.Headers.Location!.Query);
+        Assert.AreEqual(callback, accepted.Headers.Location.GetLeftPart(UriPartial.Path));
         Assert.AreEqual("native-state", returned["state"].ToString());
         using var native = McpEndpointTests.CreateClient(factory);
         using var tokenResponse = await native.PostAsync(

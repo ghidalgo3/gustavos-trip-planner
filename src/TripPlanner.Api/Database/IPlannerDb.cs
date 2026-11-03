@@ -8,6 +8,12 @@ namespace TripPlanner.Api.Database;
 
 public interface IPlannerDb : IActivityPlanningDb
 {
+    Task<TripSnapshotData?> ReadTripSnapshotAsync(
+        Guid userId,
+        Guid tripId,
+        CancellationToken cancellationToken
+    );
+
     Task<DateTimeOffset> GetTripSnapshotModifiedAtAsync(
         Guid userId,
         Guid tripId,

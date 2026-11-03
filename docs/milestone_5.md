@@ -11,8 +11,31 @@ new clients can consume its canonical entities and calendar directly.
 PostgreSQL remains authoritative. A snapshot is a complete, authorized read model
 delivered in one HTTP request as compressed JSON and cached locally for offline
 reading. Clients continue editing complete REST resources with conditional writes.
-The snapshot is not a replacement database, a whole-trip PUT contract, an event
-log, or an offline write queue. CRDTs are outside this milestone.
+The snapshot is not a replacement database, an existing-trip replacement contract,
+an event log, or an offline write queue. CRDTs are outside this milestone.
+
+### Native import/export
+
+`TripImportExport.cs` owns both `GET /trips/{tripId}/snapshot` (export) and
+`PUT /trips/{tripId}/snapshot` (create-only import). Import uses the same version 1
+snapshot document and DTO, not a separate import wire schema. The URI and root
+`@id` must identify the same trip. The authenticated account becomes its owner;
+imported owner references, roles, revisions, and resource ETags never confer access.
+Successful import returns confirmed trip metadata and a Location pointing to the
+export endpoint; clients download the canonical snapshot before completing promotion.
+
+The initial native implementation imports name, description, and
+`planning.trip.constraints`, with an empty itinerary/calendar and one self traveler.
+Other canonical content and unsupported settings are rejected before any writes,
+not silently dropped. This is not yet a general round-trip importer for populated
+exported trips. Existing resource editing remains the way to modify cloud trips.
+
+The trip ID doubles as the retry key. An internal `trip_imports` receipt is committed
+atomically with the trip and owner party. Identical retries return the existing trip;
+different payloads/identity collisions return 409. Receipts survive deletion, so
+replaying a deleted import returns 410. There is no separate `/trip-imports` route
+or background import processor. Import is a native storage transition and is not
+exposed as an MCP tool; the existing snapshot read tool continues to use this module.
 
 The top-level object is Schema.org `Trip`. Its `itinerary` is an ordered `ItemList`
 of destination visits. Each visit is a `ListItem` whose `item` references a `Place`.

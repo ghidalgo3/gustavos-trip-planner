@@ -218,7 +218,7 @@ api.MapUserEndpoints();
 api.MapActivityLogEndpoints();
 api.MapMcpAccessEndpoints();
 api.MapTripsEndpoints();
-api.MapTripSnapshotEndpoints();
+api.MapTripImportExport();
 api.MapTripTravelEndpoints();
 api.MapFlightPlanningEndpoints();
 api.MapSelectedFlightsEndpoints();

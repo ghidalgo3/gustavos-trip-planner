@@ -102,8 +102,19 @@ public static class OAuthEndpoints
             ? AuthenticatedUserProfile.FromPrincipal(principal)
             : null;
         context.Response.Headers.CacheControl = "no-store";
+        string formAction = "'self'";
+        if (
+            native
+            && Uri.TryCreate(request.RedirectUri, UriKind.Absolute, out var callback)
+            && callback.Scheme is not ("http" or "https")
+        )
+        {
+            // WebKit can apply form-action to the consent POST's redirect.
+            // OpenIddict has already validated the redirect URI for this client.
+            formAction += $" {callback.Scheme}:";
+        }
         context.Response.Headers.ContentSecurityPolicy =
-            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+            $"default-src 'none'; style-src 'unsafe-inline'; form-action {formAction}; frame-ancestors 'none'; base-uri 'none'";
         string Encode(string value) => HtmlEncoder.Default.Encode(value);
         string displayClient = Encode(clientName);
         if (profile is null)

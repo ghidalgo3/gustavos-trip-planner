@@ -92,6 +92,9 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     Mcp__Issuer: 'https://${webApp.properties.defaultHostName}/'
     Mcp__Certificate: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=mcp-signing-certificate)'
     Mcp__RedirectUris__0: mcpRedirectUri
+    Mcp__NativeClients__0__ClientId: 'tripplanner-ios'
+    Mcp__NativeClients__0__DisplayName: 'TripPlanner iOS'
+    Mcp__NativeClients__0__RedirectUris__0: 'tripplanner://oauth/callback'
   }
 }
 

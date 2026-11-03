@@ -28,6 +28,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 ## Conventions
 
+- UI elements should be self-explanatory and not require descriptive text to explain to the user what they do or how they work.
 - C# code must always use curly braces for blocks, even single statement blocks.
 - Wire dates, clock times, timestamps, and elapsed durations must use ISO 8601 (`YYYY-MM-DD`, `HH:mm:ss`, offset timestamps, and durations such as `PT1H30M`). Keep C# values typed as `DateOnly`, `TimeOnly`, `DateTimeOffset`, and `TimeSpan`.
 - The API is RESTful, meaning that routes should modify entire _resources_ at a time, instead of having hundreds of APIs to modify each invidual property of a persisted object.
@@ -45,7 +46,13 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
 - All C# REST APIs must declare property validation attributes to consume in MCP tool definitions and OpenAPI document generation.
 
-## UI Practices
+## Cross platform instructions
+
+- Whenever the server introduces a new route or modifies the requests/responses of a route, all clients must be updated to support this change.
+
+## Web UI Practices
+
+These do not apply to iOS.
 
 - Mobile UI is the primary design target. Design for small screens.
 - The offline GUI should not substantially change from the online GUI; it should preserve the same screens, layouts, navigation, and components while preventing edits. Keep read-only interactions such as filtering, sorting, scrolling, and viewing details available, and disable actions that require a network connection.
@@ -71,3 +78,11 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 
 - When relevant, evaluate all new REST APIs for inclusion in the MCP server tool list.
 - Do not make MCP tools that leak things like map tokens or proxy access to Azure APIs.
+
+## iOS Instructions
+
+Follow all Apple UI Guidelines for iOS 27+.
+
+- All view files should have a preview for XCode development
+- The preview of a view should include a side bar with options to set view state, like loading default view data.
+- When view prototypes are requested, put each prototype into its own file for quick rendering.

@@ -12,6 +12,47 @@ namespace TripPlanner.Api.Tests.Endpoints;
 public class TripsEndpointTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ListTrips_UsesItineraryBoundaryDates(bool hasDestinations)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "ada@example.com");
+        var userId = (await CompleteOnboardingAsync(client)).Id!.Value;
+        var trip = await factory.Database.CreateTripAsync(userId, "Europe", "");
+        var start = new DateOnly(2027, 5, 4);
+        var end = new DateOnly(2027, 5, 12);
+        if (hasDestinations)
+        {
+            await factory.Database.SaveDestinationPlaceAsync(
+                userId,
+                new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
+            );
+            await factory.Database.SaveDestinationPlaceAsync(
+                userId,
+                new(trip.Id, "rome-it", "Rome", "IT", "Europe/Rome", 12.49, 41.9)
+            );
+            Assert.IsNotNull(
+                await factory.Database.AddDestinationVisitAsync(
+                    userId,
+                    new(trip.Id, "paris-fr", Guid.NewGuid(), 0, start, start.AddDays(2))
+                )
+            );
+            Assert.IsNotNull(
+                await factory.Database.AddDestinationVisitAsync(
+                    userId,
+                    new(trip.Id, "rome-it", Guid.NewGuid(), 1, end.AddDays(-3), end)
+                )
+            );
+        }
+
+        var listed = (await client.GetFromJsonAsync<TripResponse[]>("/trips"))!.Single();
+        Assert.AreEqual(hasDestinations ? start : (DateOnly?)null, listed.StartDate);
+        Assert.AreEqual(hasDestinations ? end : (DateOnly?)null, listed.EndDate);
+    }
+
+    [TestMethod]
     public async Task CanonicalCrud_ReplacesTripConstraintsIndependentlyOfFlightPlanning()
     {
         await using var factory = new TestApplicationFactory();

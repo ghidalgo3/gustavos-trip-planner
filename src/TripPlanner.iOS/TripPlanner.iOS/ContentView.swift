@@ -1,17 +1,13 @@
 import SwiftUI
-import Playgrounds
 
 struct ContentView: View {
+    let model: AppModel
+
     var body: some View {
-        Text("Hello, world!")
-            .padding()
+        AppRootView(model: model)
     }
 }
 
-#Preview {
-    ContentView()
-}
-
-#Playground {
-    _ = 1 + 2
+#Preview("Application") {
+    TripPreview { ContentView(model: $0) }
 }

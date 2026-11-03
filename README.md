@@ -8,6 +8,7 @@ Starter architecture for a React single-page application and a C# API deployed t
 | --- | --- |
 | `src/TripPlanner.Web` | React 19 + React Router + Vite + TypeScript + Fluent UI web app |
 | `src/TripPlanner.Api` | .NET 10 minimal API |
+| `src/TripPlanner.iOS` | SwiftUI iPhone/iPad storyboard prototype for milestone 6, phase 1 |
 | `tests/TripPlanner.Api.Tests` | Unit and integration tests grouped by production namespace; [reading guide](tests/TripPlanner.Api.Tests/README.md) |
 | `infra/main.bicep` | Azure resource definitions used by `scripts/buildout` |
 | `infra/release.bicep` | Runtime and authentication configuration used by `scripts/release` |
@@ -30,6 +31,8 @@ references, plus resource URLs/ETags for editing. The published JSON Schema is
 available at `/schemas/trip-snapshot-v1.json`. Use `Accept-Encoding: gzip` and
 `If-None-Match` for efficient downloads; a snapshot ETag validates that exact
 encoded representation and must not be used as an edit precondition.
+PostgreSQL gathers the snapshot inputs in one query. The API applies the
+JSON-LD projection and resource validators to that result.
 
 The web app reads trip views from its account-scoped snapshot cache, saves through
 resource REST APIs, and reloads the snapshot after successful mutations. A stale
@@ -152,6 +155,53 @@ for how the planner chooses and checks suggestions.
 Page, map, picker, and list loading states use Fluent UI skeletons that mirror the incoming content: agenda timelines, destination cards with flight separators, compact search options, stay names and addresses, traveller rows, and form controls. Feature-specific skeletons live beside their views; the shared wrapper handles loading announcements and simple map/text placeholders without a generic card fallback. Existing content remains visible during short saves, with disabled controls and status text. Spinners are reserved for long-running operations such as AI activity generation and image extraction.
 
 The browser favicon is a 48×48 PNG under 10 KB at `src/TripPlanner.Web/public/icons/trip-planner-icon.png`. Its full-resolution source and generation prompt live in `docs/design/`, outside the deployed web assets.
+
+## iOS application (milestone 6)
+
+Open `src/TripPlanner.iOS/TripPlanner.iOS.xcodeproj` in Xcode, select the
+`TripPlanner.iOS` scheme and an iPhone simulator, and Run (Cmd-R). The existing
+project targets iOS 27.0 or later; the prototype uses the installed Xcode toolchain
+and has no external packages. A simulator build does not require a signing team.
+
+The app opens on **Trips** without requiring sign-in. Trip names, descriptions,
+and dates are persisted locally with SwiftData. Sign-in enables cloud trip access
+and an explicit, one-way move to cloud storage. Cloud edits use cached content,
+optimistic saves, ETags, and a durable pending-write journal; cloud trips are
+read-only offline. Selecting a cloud trip shows destinations from its server
+snapshot, with cached data available offline. Online planners can add an
+Apple Maps city, change an existing destination city, and edit stay dates. City
+replacement preserves the destination ID and planning constraints, keeping its
+activities and visits attached. Dates and city changes use separate resource
+updates with the ETags captured in the editing snapshot. Save closes the editor
+immediately and displays the pending draft while the request continues, including
+after navigation. Success commits a refreshed server snapshot; failure asks the
+user to refresh destinations before editing again. Pending writes prevent another
+destination write to that trip until completion. Shared services are owned by
+`AppDependencies`: `AppModel` handles session and trip-level state, while a typed
+`ResourceStore` owns optimistic drafts and pending operations across navigation.
+`DestinationsModel` handles destination loading, MapKit search, and save requests.
+The resource store is reset at sign-out, cancelling pending work and ignoring late
+responses from the previous session. Local destination edits are stored on the
+current device. Apple Maps search requires connectivity.
+
+Cloud promotion uses `PUT /trips/{tripId}/snapshot` with the same version-1
+snapshot document used by GET export. Imports currently accept metadata-only
+trips and reject unsupported itinerary content. An internal import receipt makes
+retries safe; there is no separate `/trip-imports` route.
+
+This is a SwiftUI storyboard, rather than an Interface Builder `.storyboard`
+file. Open `ContentView.swift` or a file under `TripPlanner.iOS/Storyboard`, show
+the Xcode Canvas (**Editor → Canvas**), and select one of its named `#Preview`
+scenes. The storyboard remains available for design review. See
+[milestone 6’s screen map and review guide](docs/milestone_6.md) for the design
+decisions, walkthrough, and phase 2 boundary.
+
+```zsh
+xcodebuild -project src/TripPlanner.iOS/TripPlanner.iOS.xcodeproj \
+  -scheme TripPlanner.iOS -configuration Debug -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/tripplanner-ios-build CODE_SIGNING_ALLOWED=NO build
+```
 
 ## Local development
 
@@ -562,7 +612,8 @@ Vite proxies `/mcp`, `/oauth`, and `/.well-known` to the API.
 
 Native clients use the same issuer with public client registrations in
 `Mcp:NativeClients` (the shared OAuth issuer must be enabled with `Mcp:Enabled`).
-For example:
+`infra/release.bicep` registers `tripplanner-ios` (display name `TripPlanner iOS`)
+with the exact callback `tripplanner:/oauth/callback` on each release. For example:
 
 ```json
 {
@@ -572,7 +623,7 @@ For example:
     "NativeClients": [{
       "ClientId": "tripplanner-ios",
       "DisplayName": "TripPlanner iOS",
-      "RedirectUris": ["com.example.tripplanner:/oauth/callback"]
+      "RedirectUris": ["tripplanner:/oauth/callback"]
     }]
   }
 }

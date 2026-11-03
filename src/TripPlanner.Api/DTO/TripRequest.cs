@@ -26,6 +26,8 @@ public sealed record TripResponse(
 )
 {
     public bool CanPlan { get; init; }
+    public DateOnly? StartDate { get; init; }
+    public DateOnly? EndDate { get; init; }
 
     public string Etag =>
         TripPlanner.Api.Services.Snapshots.TripSnapshotProjection.ETag(

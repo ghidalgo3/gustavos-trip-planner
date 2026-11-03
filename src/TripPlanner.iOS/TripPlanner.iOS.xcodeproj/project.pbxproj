@@ -6,8 +6,36 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		EC964D573097909C00F8131C /* milestone_6.md in Resources */ = {isa = PBXBuildFile; fileRef = EC964D553097909C00F8131C /* milestone_6.md */; };
+		EC964D583097909C00F8131C /* later_milestones.md in Resources */ = {isa = PBXBuildFile; fileRef = EC964D503097909C00F8131C /* later_milestones.md */; };
+		EC964D593097909C00F8131C /* web-icon-prompt.txt in Resources */ = {isa = PBXBuildFile; fileRef = EC964D493097909C00F8131C /* web-icon-prompt.txt */; };
+		EC964D5A3097909C00F8131C /* overture-sapporo-stream.geojson in Resources */ = {isa = PBXBuildFile; fileRef = EC964D4C3097909C00F8131C /* overture-sapporo-stream.geojson */; };
+		EC964D5B3097909C00F8131C /* milestone_1.md in Resources */ = {isa = PBXBuildFile; fileRef = EC964D513097909C00F8131C /* milestone_1.md */; };
+		EC964D5C3097909C00F8131C /* milestone_5.md in Resources */ = {isa = PBXBuildFile; fileRef = EC964D543097909C00F8131C /* milestone_5.md */; };
+		EC964D5D3097909C00F8131C /* trip-planner-icon-source.png in Resources */ = {isa = PBXBuildFile; fileRef = EC964D483097909C00F8131C /* trip-planner-icon-source.png */; };
+		EC964D5E3097909C00F8131C /* milestone_2.md in Resources */ = {isa = PBXBuildFile; fileRef = EC964D523097909C00F8131C /* milestone_2.md */; };
+		EC964D5F3097909C00F8131C /* azure-sapporo-stream.json in Resources */ = {isa = PBXBuildFile; fileRef = EC964D4B3097909C00F8131C /* azure-sapporo-stream.json */; };
+		EC964D603097909C00F8131C /* trip-snapshot-v1.schema.json in Resources */ = {isa = PBXBuildFile; fileRef = EC964D4E3097909C00F8131C /* trip-snapshot-v1.schema.json */; };
+		EC964D613097909C00F8131C /* milestone_3.md in Resources */ = {isa = PBXBuildFile; fileRef = EC964D533097909C00F8131C /* milestone_3.md */; };
+		ECDFB505309958E800F3DDC3 /* ios-local-to-cloud.md in Resources */ = {isa = PBXBuildFile; fileRef = ECDFB504309958E800F3DDC3 /* ios-local-to-cloud.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* TripPlanner.iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TripPlanner.iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EC964D483097909C00F8131C /* trip-planner-icon-source.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "trip-planner-icon-source.png"; sourceTree = "<group>"; };
+		EC964D493097909C00F8131C /* web-icon-prompt.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "web-icon-prompt.txt"; sourceTree = "<group>"; };
+		EC964D4B3097909C00F8131C /* azure-sapporo-stream.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "azure-sapporo-stream.json"; sourceTree = "<group>"; };
+		EC964D4C3097909C00F8131C /* overture-sapporo-stream.geojson */ = {isa = PBXFileReference; lastKnownFileType = text; path = "overture-sapporo-stream.geojson"; sourceTree = "<group>"; };
+		EC964D4E3097909C00F8131C /* trip-snapshot-v1.schema.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "trip-snapshot-v1.schema.json"; sourceTree = "<group>"; };
+		EC964D503097909C00F8131C /* later_milestones.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = later_milestones.md; sourceTree = "<group>"; };
+		EC964D513097909C00F8131C /* milestone_1.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = milestone_1.md; sourceTree = "<group>"; };
+		EC964D523097909C00F8131C /* milestone_2.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = milestone_2.md; sourceTree = "<group>"; };
+		EC964D533097909C00F8131C /* milestone_3.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = milestone_3.md; sourceTree = "<group>"; };
+		EC964D543097909C00F8131C /* milestone_5.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = milestone_5.md; sourceTree = "<group>"; };
+		EC964D553097909C00F8131C /* milestone_6.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = milestone_6.md; sourceTree = "<group>"; };
+		EC964D8A3097D39400F8131C /* TripPlanner-iOS-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripPlanner-iOS-Info.plist"; sourceTree = "<group>"; };
+		ECDFB504309958E800F3DDC3 /* ios-local-to-cloud.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "ios-local-to-cloud.md"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -30,6 +58,8 @@
 		000000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				EC964D8A3097D39400F8131C /* TripPlanner-iOS-Info.plist */,
+				EC964D563097909C00F8131C /* docs */,
 				000000000000000000000010 /* TripPlanner.iOS */,
 				000000000000000000000020 /* Products */,
 			);
@@ -42,6 +72,50 @@
 			);
 			name = Products;
 			sourceTree = "<group>";
+		};
+		EC964D4A3097909C00F8131C /* design */ = {
+			isa = PBXGroup;
+			children = (
+				EC964D483097909C00F8131C /* trip-planner-icon-source.png */,
+				EC964D493097909C00F8131C /* web-icon-prompt.txt */,
+			);
+			path = design;
+			sourceTree = "<group>";
+		};
+		EC964D4D3097909C00F8131C /* research */ = {
+			isa = PBXGroup;
+			children = (
+				EC964D4B3097909C00F8131C /* azure-sapporo-stream.json */,
+				EC964D4C3097909C00F8131C /* overture-sapporo-stream.geojson */,
+			);
+			path = research;
+			sourceTree = "<group>";
+		};
+		EC964D4F3097909C00F8131C /* schemas */ = {
+			isa = PBXGroup;
+			children = (
+				EC964D4E3097909C00F8131C /* trip-snapshot-v1.schema.json */,
+			);
+			path = schemas;
+			sourceTree = "<group>";
+		};
+		EC964D563097909C00F8131C /* docs */ = {
+			isa = PBXGroup;
+			children = (
+				EC964D4A3097909C00F8131C /* design */,
+				EC964D4D3097909C00F8131C /* research */,
+				EC964D4F3097909C00F8131C /* schemas */,
+				EC964D503097909C00F8131C /* later_milestones.md */,
+				EC964D513097909C00F8131C /* milestone_1.md */,
+				EC964D523097909C00F8131C /* milestone_2.md */,
+				EC964D533097909C00F8131C /* milestone_3.md */,
+				EC964D543097909C00F8131C /* milestone_5.md */,
+				EC964D553097909C00F8131C /* milestone_6.md */,
+				ECDFB504309958E800F3DDC3 /* ios-local-to-cloud.md */,
+			);
+			name = docs;
+			path = "/Users/gustavo/code/gustavos-trip-planner/docs";
+			sourceTree = "<absolute>";
 		};
 /* End PBXGroup section */
 
@@ -72,7 +146,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2700;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					000000000000000100000000 = {
 						CreatedOnToolsVersion = 26.3;
@@ -102,6 +176,18 @@
 		000000000000000140000000 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				EC964D573097909C00F8131C /* milestone_6.md in Resources */,
+				EC964D583097909C00F8131C /* later_milestones.md in Resources */,
+				EC964D593097909C00F8131C /* web-icon-prompt.txt in Resources */,
+				EC964D5A3097909C00F8131C /* overture-sapporo-stream.geojson in Resources */,
+				EC964D5B3097909C00F8131C /* milestone_1.md in Resources */,
+				EC964D5C3097909C00F8131C /* milestone_5.md in Resources */,
+				EC964D5D3097909C00F8131C /* trip-planner-icon-source.png in Resources */,
+				EC964D5E3097909C00F8131C /* milestone_2.md in Resources */,
+				EC964D5F3097909C00F8131C /* azure-sapporo-stream.json in Resources */,
+				ECDFB505309958E800F3DDC3 /* ios-local-to-cloud.md in Resources */,
+				EC964D603097909C00F8131C /* trip-snapshot-v1.schema.json in Resources */,
+				EC964D613097909C00F8131C /* milestone_3.md in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */
@@ -151,6 +237,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = N2N8N4DLDT;
 				DRIVERKIT_DEPLOYMENT_TARGET = 27.0;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -221,6 +308,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = N2N8N4DLDT;
 				DRIVERKIT_DEPLOYMENT_TARGET = 27.0;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -256,12 +344,18 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "TripPlanner-iOS-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Trip Planner";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -269,18 +363,18 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.gustavohidalgopersonalteam.TripPlanneriOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -293,12 +387,18 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "TripPlanner-iOS-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Trip Planner";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -306,18 +406,18 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.gustavohidalgopersonalteam.TripPlanneriOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
