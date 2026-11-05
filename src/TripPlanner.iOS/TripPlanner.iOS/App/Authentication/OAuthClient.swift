@@ -143,7 +143,7 @@ struct OAuthClient: Sendable {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = parameters.formEncodedData
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSessionTripTransport().data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             if let http = response as? HTTPURLResponse {
                 Self.signInLog.error("Token endpoint returned HTTP \(http.statusCode)")

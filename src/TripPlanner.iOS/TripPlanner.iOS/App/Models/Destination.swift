@@ -1,9 +1,15 @@
 import Foundation
 
+struct RouteCoordinate: Codable, Equatable, Hashable {
+    let latitude: Double
+    let longitude: Double
+}
+
 struct Destination: Codable, Equatable, Identifiable {
     let title: String
     let subtitle: String
 
+    var coordinate: RouteCoordinate? = nil
     var arrival: String? = nil
     var departure: String? = nil
     var cityID: String? = nil

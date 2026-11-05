@@ -1,6 +1,9 @@
 import Foundation
 import MapKit
 import Observation
+#if DEBUG
+import OSLog
+#endif
 
 @MainActor
 @Observable
@@ -8,7 +11,18 @@ final class DestinationsModel {
     private let model: AppModel
     private let api: any DestinationServing
     private let trip: Trip
-    let saveState: ResourceState<[Destination], Destination>
+    struct Itinerary {
+        var destinations: [Destination]
+        let flights: [SavedTripFlight]
+        let home: Destination?
+    }
+
+    enum Change {
+        case save(Destination)
+        case remove(Destination)
+    }
+
+    let saveState: ResourceState<Itinerary, Change>
     var loadFailed = false
     var loading = false
 
@@ -17,20 +31,62 @@ final class DestinationsModel {
         self.trip = trip
         self.api = api
         saveState = resources.state(for: ResourceKey(path: "/trips/\(trip.id)/destinations")) { values, draft in
+            guard case .save(let destination) = draft else { return values }
             var updated = values
-            if let stayID = draft.stayID, let index = updated.firstIndex(where: { $0.stayID == stayID }) {
-                updated[index] = draft
+            if let stayID = destination.stayID,
+               let index = updated.destinations.firstIndex(where: { $0.stayID == stayID }) {
+                updated.destinations[index] = destination
             } else {
-                updated.append(draft)
+                updated.destinations.append(destination)
             }
             return updated
         }
     }
 
     func submit(_ destination: Destination, completion: MKLocalSearchCompletion?) {
-        saveState.submit(destination) {
+        saveState.submit(.save(destination)) {
             try await self.saveToServer(destination, completion: completion)
             return try await self.fetchDestinations(allowCached: false)
+        }
+    }
+
+    func remove(_ destination: Destination) throws {
+        try requireEditingPermission()
+        guard let cityID = destination.cityID, !loading, !loadFailed,
+              !saveState.isSaving, !saveState.needsRefresh,
+              saveState.confirmed?.destinations.contains(destination) == true else {
+            throw APIError.server(status: 409, message: "Refresh destinations before removing this city.")
+        }
+        saveState.submit(.remove(destination)) {
+            do {
+                try self.requireEditingPermission()
+                try await self.api.deleteDestination(
+                    tripID: self.trip.id, cityID: cityID, version: destination.cityVersion
+                )
+                let itinerary = try await self.fetchDestinations(allowCached: false)
+                guard !itinerary.destinations.contains(where: { $0.cityID == cityID }) else {
+                    throw APIError.server(status: 409, message: "The destination is still in the trip.")
+                }
+                return itinerary
+            } catch {
+                #if DEBUG
+                let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TripPlanner", category: "HTTP")
+                switch error {
+                case APIError.server(let status, let message):
+                    log.error("Destination removal could not be confirmed: HTTP \(status) \(message ?? "", privacy: .private)")
+                case let DecodingError.typeMismatch(_, context),
+                     let DecodingError.valueNotFound(_, context),
+                     let DecodingError.keyNotFound(_, context),
+                     let DecodingError.dataCorrupted(context):
+                    let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+                    log.error("Destination removal refresh could not decode the snapshot at \(path, privacy: .public)")
+                default:
+                    let failure = error as NSError
+                    log.error("Destination removal could not be confirmed: \(failure.domain, privacy: .public) \(failure.code)")
+                }
+                #endif
+                throw error
+            }
         }
     }
 
@@ -44,8 +100,16 @@ final class DestinationsModel {
         if !trip.canPlan { return "You do not have permission to edit this trip." }
         if !model.isCloudAvailable { return "Connect to the cloud to edit destinations." }
         if model.pendingWrite(for: trip) != nil { return "Finish syncing this trip to edit destinations." }
-        if saveState.needsRefresh { return "Could not save \(saveState.draft?.title ?? "destination"). Refresh this destination before editing again." }
-        if saveState.isSaving { return "Saving \(saveState.draft?.title ?? "destination")…" }
+        if let draft = saveState.draft {
+            switch draft {
+            case .save(let destination):
+                if saveState.needsRefresh { return "Could not save \(destination.title). Refresh destinations before editing again." }
+                if saveState.isSaving { return "Saving \(destination.title)…" }
+            case .remove(let destination):
+                if saveState.needsRefresh { return "Could not confirm removal of \(destination.title). Refresh destinations before trying again." }
+                if saveState.isSaving { return "Removing \(destination.title)…" }
+            }
+        }
         if loadFailed { return "Refresh destinations before editing." }
         if loading { return "Refreshing destinations…" }
         return nil
@@ -65,29 +129,28 @@ final class DestinationsModel {
         }
     }
 
-    private func fetchDestinations(allowCached: Bool) async throws -> [Destination] {
+    private func fetchDestinations(allowCached: Bool) async throws -> Itinerary {
         let data = try await model.tripDocument(for: trip, allowCached: allowCached)
         let snapshot = try JSONDecoder().decode(TripSnapshotDestinations.self, from: data)
         try Task.checkCancellation()
-        return snapshot.destinations.map {
+        let destinations = snapshot.destinations.map {
             let prefix = "urn:tripplanner:\(trip.id.uuidString.lowercased()):place:"
             let encodedCity = $0.placeID.flatMap { id in
                 id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : nil
             }
             let cityID = encodedCity?.removingPercentEncoding
-            let stayID = $0.stayID.flatMap { id in
-                id.hasPrefix("urn:uuid:") ? UUID(uuidString: String(id.dropFirst(9))) : nil
-            }
+            let stayID = TripSnapshotDestinations.stayID($0.stayID)
             let path = encodedCity.map { "/trips/\(trip.id.uuidString.lowercased())/destinations/\($0)" }
             let cityVersion = path.flatMap { snapshot.resources?[$0] }
             let stayVersion = path.flatMap { path in
                 stayID.flatMap { snapshot.resources?["\(path)/stays/\($0.uuidString.lowercased())"] }
             }
             return Destination(
-                title: $0.name, subtitle: "", arrival: $0.arrival, departure: $0.departure,
+                title: $0.name, subtitle: "", coordinate: $0.coordinate, arrival: $0.arrival, departure: $0.departure,
                 cityID: cityID, stayID: stayID, cityVersion: cityVersion, stayVersion: stayVersion
             )
         }
+        return Itinerary(destinations: destinations, flights: snapshot.selectedFlights, home: snapshot.home)
     }
 
     @MainActor

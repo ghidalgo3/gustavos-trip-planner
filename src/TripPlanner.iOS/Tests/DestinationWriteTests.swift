@@ -60,6 +60,28 @@ struct DestinationWriteTests {
         }
         #expect(transport.requests.map(\.httpMethod) == ["PUT"])
     }
+
+    @Test(arguments: [204, 404])
+    func removesTheCityUsingTheDestinationResource(status: Int) async throws {
+        let transport = DestinationTransport()
+        transport.writeStatus = status
+        let api = TripPlannerAPI(tokenStore: DestinationTokens(), transport: transport)
+        _ = try api.restoreSession()
+        let tripID = UUID()
+
+        try await api.deleteDestination(
+            tripID: tripID, cityID: "tokyo",
+            version: ResourceVersion(etag: "\"editing-version\"", data: transport.feature)
+        )
+
+        let request = try #require(transport.requests.first)
+        #expect(transport.requests.count == 1)
+        #expect(request.httpMethod == "DELETE")
+        #expect(request.url?.path == "/trips/\(tripID.uuidString.lowercased())/destinations/tokyo")
+        #expect(request.httpBody == nil)
+        #expect(request.value(forHTTPHeaderField: "If-Match") == "\"editing-version\"")
+    }
+
 }
 
 @MainActor

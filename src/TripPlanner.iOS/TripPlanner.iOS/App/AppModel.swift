@@ -14,7 +14,7 @@ final class AppModel {
     private var generation = 0
     private var mutationRevision = 0
     private var started = false
-    private var hasNetworkPath = true
+    private(set) var hasNetworkPath = true
 
     private(set) var phase = Phase.launching
     private(set) var currentUser: CurrentUser?

@@ -2,13 +2,20 @@ import Foundation
 
 @MainActor
 protocol DestinationServing {
+    func deleteDestination(tripID: UUID, cityID: String, version: ResourceVersion?) async throws
     func createDestination(tripID: UUID, request: DestinationCreateRequest) async throws
     func updateDestination(tripID: UUID, cityID: String, request: DestinationUpdateRequest, version: ResourceVersion?) async throws
     func updateDestinationStay(tripID: UUID, cityID: String, stayID: UUID, request: DestinationStayRequest, version: ResourceVersion?) async throws
 }
 
 @MainActor
-protocol TripPlannerServing: DestinationServing {
+protocol TransferFlightServing {
+    func searchTransferFlights(tripID: UUID, from origin: UUID?, to destination: UUID?) async throws -> [[TransferFlight.Segment]]
+    func airportCoordinate(code: String) async throws -> RouteCoordinate?
+}
+
+@MainActor
+protocol TripPlannerServing: DestinationServing, TransferFlightServing {
     func restoreSession() throws -> Bool
     func makeAuthorizationAttempt(provider: IdentityProvider) throws -> AuthorizationAttempt
     func finishAuthorization(callbackURL: URL, attempt: AuthorizationAttempt) async throws
@@ -22,7 +29,15 @@ protocol TripPlannerServing: DestinationServing {
     func signOut() throws
 }
 
+extension TransferFlightServing {
+    func searchTransferFlights(tripID: UUID, from origin: UUID?, to destination: UUID?) async throws -> [[TransferFlight.Segment]] {
+        throw APIError.invalidResponse
+    }
+    func airportCoordinate(code: String) async throws -> RouteCoordinate? { nil }
+}
+
 extension DestinationServing {
+    func deleteDestination(tripID: UUID, cityID: String, version: ResourceVersion?) async throws { throw APIError.invalidResponse }
     func createDestination(tripID: UUID, request: DestinationCreateRequest) async throws { throw APIError.invalidResponse }
     func updateDestination(tripID: UUID, cityID: String, request: DestinationUpdateRequest, version: ResourceVersion?) async throws { throw APIError.invalidResponse }
     func updateDestinationStay(tripID: UUID, cityID: String, stayID: UUID, request: DestinationStayRequest, version: ResourceVersion?) async throws { throw APIError.invalidResponse }
@@ -111,26 +126,93 @@ final class TripPlannerAPI: TripPlannerServing {
         try await writeDestination(tripID: tripID, cityID: cityID, stayID: stayID, body: request, version: version)
     }
 
+    func searchTransferFlights(tripID: UUID, from origin: UUID?, to destination: UUID?) async throws -> [[TransferFlight.Segment]] {
+        let path = "trips/\(tripID.uuidString.lowercased())/flights"
+        let planning: TransferFlightPlanning = try await send(path: "\(path)/constraints")
+        guard let index = planning.legIndex(from: origin, to: destination) else {
+            throw APIError.server(status: 409, message: "Refresh the trip before searching for this leg.")
+        }
+
+        try Task.checkCancellation()
+        var operation: FlightSearchOperation = try await send(
+            path: "\(path):search", method: "POST", body: FlightSearchRequest(requestId: UUID())
+        )
+        let pollDeadline = ContinuousClock.now + .seconds(300)
+        while ["pending", "inprogress"].contains(operation.status.lowercased()) {
+            guard ContinuousClock.now < pollDeadline else {
+                throw APIError.server(status: 504, message: "The flight search is taking longer than expected.")
+            }
+            try await Task.sleep(for: .seconds(2))
+            operation = try await send(path: "operations/\(operation.id.uuidString.lowercased())")
+        }
+        guard operation.status.lowercased() == "completed" else {
+            throw APIError.server(status: 503, message: "The flight search could not finish. Try again.")
+        }
+
+        let results: [FlightSearchResponse]
+        do {
+            results = try await send(path: "\(path)/search")
+        } catch APIError.server(status: 404, message: _) {
+            return []
+        }
+        let current: TransferFlightPlanning = try await send(path: "\(path)/constraints")
+        guard current == planning else {
+            throw APIError.server(status: 409, message: "The itinerary changed. Refresh the trip and search again.")
+        }
+        var seen = Set<[TransferFlight.Segment]>()
+        return results.flatMap { $0.response.flights ?? [] }.compactMap { flight in
+            let segments = flight.leg.segments
+            guard flight.legIndex == index, !segments.isEmpty, seen.insert(segments).inserted else { return nil }
+            return segments
+        }
+    }
+
+    func airportCoordinate(code: String) async throws -> RouteCoordinate? {
+        var query = URLComponents()
+        query.queryItems = [URLQueryItem(name: "q", value: code)]
+        let airports: [TransferAirport] = try await send(path: "airports?\(query.percentEncodedQuery ?? "")")
+        return airports.first { $0.code == code }.map {
+            RouteCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+        }
+    }
+
+    func deleteDestination(tripID: UUID, cityID: String, version: ResourceVersion?) async throws {
+        guard let version, !version.etag.isEmpty else {
+            throw APIError.server(status: 428, message: "Refresh this destination before removing it.")
+        }
+        let path = try destinationPath(tripID: tripID, cityID: cityID)
+        do {
+            _ = try await responseData(path: path, method: "DELETE", etag: version.etag)
+        } catch APIError.server(status: 404, message: _) {
+            // A refresh confirms the server state if another client already removed the city.
+        }
+    }
+
+    private func destinationPath(tripID: UUID, cityID: String) throws -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/%")
+        guard let city = cityID.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw APIError.invalidResponse
+        }
+        return "trips/\(tripID.uuidString.lowercased())/destinations/\(city)"
+    }
+
     private func writeDestination(tripID: UUID, cityID: String?, stayID: UUID?, body: any Encodable, version: ResourceVersion? = nil) async throws {
         let path = "trips/\(tripID.uuidString.lowercased())/destinations"
         if let cityID {
             guard let version, !version.etag.isEmpty else {
                 throw APIError.server(status: 428, message: "Refresh this destination before editing it.")
             }
-            var allowed = CharacterSet.urlPathAllowed
-            allowed.remove(charactersIn: "/%")
-            guard let city = cityID.addingPercentEncoding(withAllowedCharacters: allowed) else {
-                throw APIError.invalidResponse
-            }
+            let cityPath = try destinationPath(tripID: tripID, cityID: cityID)
             if let stayID {
-                let resourcePath = "\(path)/\(city)/stays/\(stayID.uuidString.lowercased())"
+                let resourcePath = "\(cityPath)/stays/\(stayID.uuidString.lowercased())"
                 _ = try await responseData(
                     path: resourcePath, method: "PUT", body: body,
                     etag: version.etag
                 )
             } else {
                 _ = try await responseData(
-                    path: "\(path)/\(city)", method: "PUT", body: body,
+                    path: cityPath, method: "PUT", body: body,
                     etag: version.etag
                 )
             }
@@ -258,6 +340,24 @@ final class TripPlannerAPI: TripPlannerServing {
         }
         return data
     }
+}
+
+private struct FlightSearchRequest: Encodable { let requestId: UUID }
+
+private struct FlightSearchOperation: Decodable {
+    let id: UUID
+    let status: String
+}
+
+private struct FlightSearchResponse: Decodable {
+    struct Options: Decodable { let flights: [TransferFlight]? }
+    let response: Options
+}
+
+private struct TransferAirport: Decodable {
+    let code: String
+    let latitude: Double
+    let longitude: Double
 }
 
 private struct EmptyResponse: Decodable {}

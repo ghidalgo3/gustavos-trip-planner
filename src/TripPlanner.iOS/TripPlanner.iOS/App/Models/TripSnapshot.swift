@@ -64,12 +64,13 @@ extension PendingTripWrite {
 
 /// Destination visits reference the places catalog by JSON-LD identifier.
 struct TripSnapshotDestinations: Decodable {
-    struct Destination: Equatable {
+    struct DestinationVisit: Equatable {
         let name: String
         let arrival: String?
         let departure: String?
         var placeID: String? = nil
         var stayID: String? = nil
+        var coordinate: RouteCoordinate? = nil
     }
 
     private struct Reference: Decodable {
@@ -83,10 +84,12 @@ struct TripSnapshotDestinations: Decodable {
     private struct Place: Decodable {
         let id: String
         let name: String
+        let geo: RouteCoordinate?
+        let iataCode: String?
 
         enum CodingKeys: String, CodingKey {
             case id = "@id"
-            case name
+            case name, geo, iataCode
         }
     }
 
@@ -116,27 +119,99 @@ struct TripSnapshotDestinations: Decodable {
         let destinations: [Settings]
     }
 
+    private struct FlightService: Decodable {
+        let id: String
+        let flightNumber: String?
+        let departureAirport: Reference?
+        let arrivalAirport: Reference?
+        let departureTime: String?
+        let departureLocalTime: String?
+        let arrivalLocalTime: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id = "@id"
+            case flightNumber, departureAirport, arrivalAirport, departureTime
+            case departureLocalTime = "tp:departureLocalTime"
+            case arrivalLocalTime = "tp:arrivalLocalTime"
+        }
+    }
+
+    private struct FlightSelection: Decodable {
+        let id: String
+        let flight: Reference
+        let originVisit: Reference?
+        let destinationVisit: Reference?
+        let reservation: Reference?
+        let unassigned: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id = "@id"
+            case flight, originVisit, destinationVisit, reservation, unassigned
+        }
+    }
+
+    private let services: [FlightService]?
+    private let flights: [FlightSelection]?
+
+    var selectedFlights: [SavedTripFlight] {
+        let airports = Dictionary(places.map { ($0.id, $0.iataCode ?? $0.name) },
+                                  uniquingKeysWith: { first, _ in first })
+        let byID = Dictionary((services ?? []).map { ($0.id, $0) },
+                              uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        return (flights ?? []).sorted {
+            let lhs = byID[$0.flight.id]
+            let rhs = byID[$1.flight.id]
+            return (lhs?.departureTime ?? lhs?.departureLocalTime ?? "", $0.id)
+                < (rhs?.departureTime ?? rhs?.departureLocalTime ?? "", $1.id)
+        }.compactMap { selection -> SavedTripFlight? in
+            guard let service = byID[selection.flight.id],
+                  let from = service.departureAirport.flatMap({ airports[$0.id] }),
+                  let to = service.arrivalAirport.flatMap({ airports[$0.id] }),
+                  seen.insert(selection.id).inserted else { return nil }
+            return SavedTripFlight(
+                id: selection.id, flightNumber: service.flightNumber ?? "",
+                departureAirport: from, arrivalAirport: to,
+                departureTime: service.departureLocalTime ?? "", arrivalTime: service.arrivalLocalTime ?? "",
+                originStay: Self.stayID(selection.originVisit?.id),
+                destinationStay: Self.stayID(selection.destinationVisit?.id),
+                unassigned: selection.unassigned ?? false, purchased: selection.reservation != nil
+            )
+        }
+    }
+
+    static func stayID(_ value: String?) -> UUID? {
+        guard let value, value.hasPrefix("urn:uuid:") else { return nil }
+        return UUID(uuidString: String(value.dropFirst(9)))
+    }
+
+    private let tripOrigin: Reference?
     private let places: [Place]
+
+    var home: Destination? {
+        guard let origin = tripOrigin, let place = places.first(where: { $0.id == origin.id }) else { return nil }
+        return Destination(title: place.name, subtitle: "", coordinate: place.geo)
+    }
     private let itinerary: Itinerary
     private let planning: Planning
     let resources: [String: ResourceVersion]?
 
-    var destinations: [Destination] {
-        let names = Dictionary(places.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    var destinations: [DestinationVisit] {
+        let placesByID = Dictionary(places.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let visits = itinerary.itemListElement
         let visited = Set(visits.map { $0.item.id })
         let scheduled = visits.compactMap { visit in
-            names[visit.item.id].map {
-                Destination(
-                    name: $0, arrival: visit.arrival, departure: visit.departure,
-                    placeID: visit.id == nil ? nil : visit.item.id, stayID: visit.id
+            placesByID[visit.item.id].map {
+                DestinationVisit(
+                    name: $0.name, arrival: visit.arrival, departure: visit.departure,
+                    placeID: visit.id == nil ? nil : visit.item.id, stayID: visit.id, coordinate: $0.geo
                 )
             }
         }
-        let unscheduled = planning.destinations.compactMap { settings -> Destination? in
+        let unscheduled = planning.destinations.compactMap { settings -> DestinationVisit? in
             let id = settings.destination.id
-            guard !visited.contains(id), let name = names[id] else { return nil }
-            return Destination(name: name, arrival: nil, departure: nil)
+            guard !visited.contains(id), let place = placesByID[id] else { return nil }
+            return DestinationVisit(name: place.name, arrival: nil, departure: nil, placeID: id, coordinate: place.geo)
         }
         return scheduled + unscheduled
     }
