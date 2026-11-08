@@ -145,7 +145,6 @@ public static class TripDocumentProjection
 
         var activities = new List<JsonObject>();
         var destinationPreferences = new List<JsonObject>();
-        var days = new List<JsonObject>();
         foreach (var feature in cities)
         {
             var city = Text(feature!["id"]);
@@ -170,18 +169,19 @@ public static class TripDocumentProjection
                 value["rule"] = Clone(
                     plan["rules"]!.AsArray().FirstOrDefault(r => Text(r?["activityId"]) == id)
                 );
+                var assignedDay = plan["days"]!
+                    .AsArray()
+                    .FirstOrDefault(day =>
+                        day!["activityIds"]!.AsArray().Any(activityId => Text(activityId) == id)
+                    );
+                if (assignedDay is not null)
+                {
+                    value["visitId"] = Clone(assignedDay["stayId"]);
+                }
                 AddValidator(value, path + "/activities/" + id);
                 activities.Add(value);
             }
-            foreach (var day in plan["days"]!.AsArray())
-            {
-                var value = Copy(day!);
-                value["destinationId"] = city;
-                days.Add(value);
-            }
-            foreach (
-                var name in new[] { "selectedActivityIds", "excludedActivityIds", "rules", "days" }
-            )
+            foreach (var name in new[] { "selectedActivityIds", "excludedActivityIds", "rules" })
             {
                 plan.Remove(name);
             }
@@ -207,7 +207,6 @@ public static class TripDocumentProjection
             legs.Add(leg);
         }
         var choices = Resource("/flights/choices")!.AsArray();
-        var journeys = new List<JsonObject>();
         var flightChoices = new List<JsonObject>();
         foreach (var choice in choices)
         {
@@ -215,12 +214,12 @@ public static class TripDocumentProjection
             var group = Text(input["partyId"]);
             input["groupId"] = group;
             input.Remove("partyId");
+            var journeys = new List<JsonObject>();
             foreach (var flight in input["flights"]!.AsArray())
             {
                 journeys.Add(
                     new JsonObject
                     {
-                        ["groupId"] = group,
                         ["legIndex"] = Clone(flight!["legIndex"]),
                         ["details"] = Clone(flight["leg"]),
                     }
@@ -228,15 +227,9 @@ public static class TripDocumentProjection
             }
             foreach (var flight in input["unmatchedFlights"]!.AsArray())
             {
-                journeys.Add(
-                    new JsonObject
-                    {
-                        ["groupId"] = group,
-                        ["legIndex"] = null,
-                        ["details"] = Clone(flight),
-                    }
-                );
+                journeys.Add(new JsonObject { ["legIndex"] = null, ["details"] = Clone(flight) });
             }
+            input["journeys"] = Array(journeys);
             input.Remove("flights");
             input.Remove("unmatchedFlights");
             flightChoices.Add(input);
@@ -261,9 +254,19 @@ public static class TripDocumentProjection
             );
             AddValidator(value, $"/flights/choices/{Text(p!["id"])}", "flightChoices");
             AddValidator(value, $"/flights/{Text(p!["id"])}", "booking");
+            value["booking"] = Resource($"/flights/{Text(p!["id"])}");
             value.Remove("members");
             return value;
         });
+        var calendar = TripCalendarProjection.Project(
+            data.Trip.Id,
+            places,
+            visits,
+            activities,
+            legs,
+            schedule
+        );
+        AddValidator(calendar, "/travel", "connections");
         return new TripDocument(
             Guid.Parse(tripId),
             data.Trip.Name,
@@ -274,24 +277,7 @@ public static class TripDocumentProjection
             TripResourceProjection.LocalId(data.Trip.Id, "place", "home"),
             people,
             places,
-            activities.ToArray(),
-            WithValidator(
-                new JsonObject
-                {
-                    ["legs"] = Array(legs),
-                    ["journeys"] = Array(journeys),
-                    // Older saved provider bookings are retained for fare display and editing.
-                    ["bookings"] = Resource("/flights"),
-                },
-                "/travel",
-                "connections"
-            ),
-            new JsonObject
-            {
-                ["visits"] = Array(visits),
-                ["days"] = Array(days),
-                ["schedule"] = schedule.DeepClone(),
-            },
+            calendar,
             new JsonObject
             {
                 ["constraints"] = Clone(trip["constraints"]),

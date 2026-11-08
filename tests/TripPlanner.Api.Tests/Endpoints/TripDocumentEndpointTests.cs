@@ -59,40 +59,40 @@ public sealed class TripDocumentEndpointTests
         }
         Assert.HasCount(2, document.People);
         Assert.AreEqual(1, document.People.Count(p => p["isOwner"]!.GetValue<bool>()));
-        Assert.HasCount(5, document.Itinerary["visits"]!.AsArray());
-        Assert.AreEqual(
-            5,
-            document.Transportation["legs"]!
-                .AsArray()
-                .Count(l => l!["kind"]!.GetValue<string>() == "flight")
-        );
-        Assert.IsNotEmpty(document.Activities);
-        var placeIds = document.Places.Select(p => p["id"]!.GetValue<string>()).ToHashSet();
-        var itemIds = document
-            .Activities.Select(a => a["id"]!.GetValue<string>())
-            .Concat(
-                document.Transportation["legs"]!.AsArray().Select(l => l!["id"]!.GetValue<string>())
-            )
-            .ToHashSet();
-        foreach (var activity in document.Activities.Where(a => a["placeId"] is not null))
+        var items = document.Itinerary["items"]!.AsArray().OfType<JsonObject>().ToArray();
+        Assert.AreEqual(5, items.Count(item => item["kind"]!.GetValue<string>() == "visit"));
+        Assert.AreEqual(4, items.Count(item => item["kind"]!.GetValue<string>() == "lodging"));
+        Assert.AreEqual(5, items.Count(item => item["kind"]!.GetValue<string>() == "flight"));
+        Assert.AreEqual(76, items.Count(item => item["kind"]!.GetValue<string>() == "activity"));
+        var ids = items.Select(item => item["id"]!.GetValue<string>()).ToHashSet();
+        Assert.HasCount(items.Length, ids);
+        var places = document.Places.Select(place => place["id"]!.GetValue<string>()).ToHashSet();
+        foreach (var item in items)
         {
-            Assert.Contains(activity["placeId"]!.GetValue<string>(), placeIds);
-        }
-        foreach (var item in document.Itinerary["schedule"]!.AsArray())
-        {
-            Assert.Contains(item!["id"]!.GetValue<string>(), itemIds);
+            if (item["placeId"] is not null)
+            {
+                Assert.Contains(item["placeId"]!.GetValue<string>(), places);
+            }
+            if (item["visitId"] is not null)
+            {
+                Assert.Contains(item["visitId"]!.GetValue<string>(), ids);
+            }
+            Assert.Contains(item["type"]!.GetValue<string>(), new[] { "event", "task" });
+            if (item["type"]!.GetValue<string>() == "event")
+            {
+                Assert.IsNotNull(item["start"]);
+            }
+            if (item["kind"]!.GetValue<string>() is "lodging" or "visit")
+            {
+                Assert.IsFalse(item["busy"]!.GetValue<bool>());
+            }
         }
         Assert.DoesNotContain("\"", document.Etag!);
-        Assert.IsFalse(json.ContainsKey("sync"));
-        foreach (var visit in document.Itinerary["visits"]!.AsArray())
+        foreach (var removed in new[] { "activities", "transportation", "sync" })
         {
-            Assert.DoesNotContain("\"", visit!["etag"]!.GetValue<string>());
-            Assert.DoesNotContain("\"", visit["accommodationEtag"]!.GetValue<string>());
+            Assert.IsFalse(json.ContainsKey(removed));
         }
-        foreach (var activity in document.Activities)
-        {
-            Assert.DoesNotContain("\"", activity["etag"]!.GetValue<string>());
-        }
+        Assert.HasCount(3, document.Itinerary);
     }
 
     [TestMethod]
@@ -164,9 +164,7 @@ public sealed class TripDocumentEndpointTests
                     ["location"] = null,
                 },
             ],
-            [],
-            JsonNode.Parse("{\"legs\":[],\"journeys\":[],\"bookings\":[]}")!.AsObject(),
-            JsonNode.Parse("{\"visits\":[],\"days\":[],\"schedule\":[]}")!.AsObject(),
+            JsonNode.Parse("{\"items\":[]}")!.AsObject(),
             JsonNode
                 .Parse(
                     "{\"constraints\":{\"budget\":500},\"activities\":{\"instructions\":\"\",\"defaults\":null},\"destinations\":[],\"groups\":[],\"flightChoices\":[]}"
@@ -188,13 +186,15 @@ public sealed class TripDocumentEndpointTests
         switch (change)
         {
             case "activities":
-                document = document with { Activities = [new JsonObject()] };
+                document.Itinerary["items"]!
+                    .AsArray()
+                    .Add(new JsonObject { ["kind"] = "activity" });
                 break;
             case "transportation":
-                document.Transportation["legs"]!.AsArray().Add(new JsonObject());
+                document.Itinerary["items"]!.AsArray().Add(new JsonObject());
                 break;
             case "itinerary":
-                document.Itinerary["visits"]!.AsArray().Add(new JsonObject());
+                document.Itinerary["items"]!.AsArray().Add(new JsonObject());
                 break;
             case "settings":
                 document.Preferences["activities"]!["instructions"] = "Must preserve this";
@@ -220,8 +220,8 @@ public sealed class TripDocumentEndpointTests
         var document = LocalDocument(Guid.NewGuid());
         document.People[0]["etag"] = "person-1";
         document.Preferences["activities"]!["etag"] = "preferences-1";
-        document.Transportation["connectionsEtag"] = "connections-1";
-        document.Transportation["connectionsVersion"] = 1;
+        document.Itinerary["connectionsEtag"] = "connections-1";
+        document.Itinerary["connectionsVersion"] = 1;
         Assert.IsNull(TripDocumentEndpoints.ValidateImport(document.Id, document));
         Assert.IsNotNull(
             document.Preferences["activities"]!["etag"],

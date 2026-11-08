@@ -17,8 +17,6 @@ public sealed record TripDocument(
     [property: Required] string OriginPlaceId,
     [property: Required] JsonObject[] People,
     [property: Required] JsonObject[] Places,
-    [property: Required] JsonObject[] Activities,
-    [property: Required] JsonObject Transportation,
     [property: Required] JsonObject Itinerary,
     [property: Required] JsonObject Preferences
 )

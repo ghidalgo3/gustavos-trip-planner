@@ -24,8 +24,10 @@ Starter architecture for a React single-page application and a C# API deployed t
 Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
 
 The [trip document](docs/trip_document.md) is the portable, versioned trip model.
-`GET /trips/{tripId}/document` returns people with roles and ownership, activities,
-transportation, an ordered itinerary, and editable preferences. Calculated
+`GET /trips/{tripId}/document` returns people with roles and ownership, shared places,
+an itinerary calendar, and editable preferences. Calendar items contain complete
+activity, transportation, city-visit, and lodging details with their own timing;
+unscheduled items are tasks and scheduled items are events. Calculated
 assessments and flight-planning views are fetched through their APIs and cached
 separately for offline viewing after being loaded. Optional bare ETag tokens and context versions are direct properties of their entities,
 with named collection validators on their owning sections. Clients add the required ETag quotes when building HTTP headers. API routes remain in client

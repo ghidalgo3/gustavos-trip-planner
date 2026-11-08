@@ -44,7 +44,16 @@ async function offlineFlights(choices: unknown[], bookings: unknown[] = []) {
     updatedAt: "",
   };
   const prefix = "/trips/trip";
-  const groups = [{ id: "party", personIds: ["owner"] }];
+  const groups = [
+    {
+      id: "party",
+      personIds: ["owner"],
+      booking:
+        (bookings as Record<string, unknown>[]).find(
+          (b) => b.partyId === "party",
+        ) ?? null,
+    },
+  ];
   const progress = choices as {
     partyId: string;
     flights?: { legIndex: number; leg: Record<string, unknown> }[];
@@ -79,18 +88,20 @@ async function offlineFlights(choices: unknown[], bookings: unknown[] = []) {
       },
     ],
     itinerary: {
-      visits: [
+      items: [
         {
           id: "visit",
+          kind: "visit",
+          type: "event",
+          name: "Tokyo",
+          busy: false,
+          placeId: "tokyo",
           order: 0,
           destinationId: "tokyo",
-          arrivalDate: "2030-04-02",
-          departureDate: "2030-04-10",
-          accommodationPlaceId: null,
+          start: "2030-04-02",
+          end: "2030-04-10",
         },
       ],
-      days: [],
-      schedule: [],
     },
     preferences: {
       constraints: {},
@@ -111,24 +122,21 @@ async function offlineFlights(choices: unknown[], bookings: unknown[] = []) {
               !["partyId", "flights", "unmatchedFlights"].includes(key),
           ),
           ["groupId", c.partyId],
+          [
+            "journeys",
+            [
+              ...(c.flights ?? []).map((f) => ({
+                legIndex: f.legIndex,
+                details: f.leg,
+              })),
+              ...(c.unmatchedFlights ?? []).map((f) => ({
+                legIndex: null,
+                details: f,
+              })),
+            ],
+          ],
         ]),
       ),
-    },
-    transportation: {
-      legs: [],
-      journeys: progress.flatMap((c) => [
-        ...(c.flights ?? []).map((f) => ({
-          groupId: c.partyId,
-          legIndex: f.legIndex,
-          details: f.leg,
-        })),
-        ...(c.unmatchedFlights ?? []).map((f) => ({
-          groupId: c.partyId,
-          legIndex: null,
-          details: f,
-        })),
-      ]),
-      bookings: bookings as Record<string, unknown>[],
     },
   });
   const planning = {

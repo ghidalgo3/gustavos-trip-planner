@@ -63,7 +63,7 @@ export function tripDocumentValidators(
   for (const p of d.people) add(`/travellers/${p.id}`, p);
   add("/activity-preferences", d.preferences.activities);
   add("/flights/constraints", d.preferences, "flightPlanning");
-  add("/travel", d.transportation, "connections");
+  add("/travel", d.itinerary, "connections");
   for (const g of list(d.preferences.groups)) {
     add(`/flights/choices/${g.id}`, g, "flightChoices");
     add(`/flights/${g.id}`, g, "booking");
@@ -77,15 +77,19 @@ export function tripDocumentValidators(
       etag: p.activitiesEtag,
       contextVersion: p.contextVersion,
     });
-    for (const v of d.itinerary.visits.filter(
-      (v) => v.destinationId === p.destinationId,
-    )) {
+    for (const v of d.itinerary.items
+      .filter((item) => item.kind === "visit")
+      .filter((v) => v.destinationId === p.destinationId)) {
       add(`${path}/stays/${v.id}`, v);
-      add(`${path}/stays/${v.id}/location`, v, "accommodation");
+      const lodging = d.itinerary.items.find(
+        (item) => item.kind === "lodging" && item.visitId === v.id,
+      );
+      if (lodging) add(`${path}/stays/${v.id}/location`, lodging);
+      else add(`${path}/stays/${v.id}/location`, v, "accommodation");
     }
-    for (const a of d.activities.filter(
-      (a) => a.destinationId === p.destinationId,
-    ))
+    for (const a of d.itinerary.items
+      .filter((item) => item.kind === "activity")
+      .filter((a) => a.destinationId === p.destinationId))
       add(`${path}/activities/${a.id}`, a);
     const preferences = list(d.preferences.destinations).find(
       (v) => v.destinationId === p.destinationId,
@@ -107,18 +111,10 @@ export type TripDocument = {
   originPlaceId: string;
   people: ObjectValue[];
   places: ObjectValue[];
-  activities: ObjectValue[];
-  transportation: {
-    legs: ObjectValue[];
-    journeys: ObjectValue[];
-    bookings: ObjectValue[];
+  itinerary: {
+    items: ObjectValue[];
     connectionsEtag?: string;
     connectionsVersion?: number;
-  };
-  itinerary: {
-    visits: ObjectValue[];
-    days: ObjectValue[];
-    schedule: ObjectValue[];
   };
   preferences: ObjectValue;
   etag?: string;
@@ -136,16 +132,33 @@ export function validateTripDocument(
     typeof d.name !== "string" ||
     !Array.isArray(d.people) ||
     !Array.isArray(d.places) ||
-    !Array.isArray(d.activities) ||
-    !Array.isArray(object(d.transportation).legs) ||
-    !Array.isArray(object(d.transportation).journeys) ||
-    !Array.isArray(object(d.transportation).bookings) ||
-    !Array.isArray(object(d.itinerary).visits) ||
-    !Array.isArray(object(d.itinerary).days) ||
-    !Array.isArray(object(d.itinerary).schedule) ||
+    !Array.isArray(object(d.itinerary).items) ||
     !d.preferences
   )
     throw new Error("This trip document format is unsupported.");
+  const ids = new Set<string>();
+  for (const item of list(object(d.itinerary).items)) {
+    if (
+      !["event", "task"].includes(text(item.type)) ||
+      ![
+        "visit",
+        "lodging",
+        "activity",
+        "flight",
+        "connection",
+        "transfer",
+      ].includes(text(item.kind)) ||
+      typeof item.id !== "string" ||
+      typeof item.name !== "string" ||
+      typeof item.busy !== "boolean" ||
+      (item.type === "event" && typeof item.start !== "string") ||
+      (item.type === "task" && item.busy !== false)
+    )
+      throw new Error("Invalid trip calendar item.");
+    if (ids.has(text(item.id)))
+      throw new Error("Duplicate trip calendar item.");
+    ids.add(text(item.id));
+  }
   const fail = () => {
     throw new Error("Invalid trip document edit validator.");
   };
@@ -180,9 +193,8 @@ export function validateTripDocument(
     d,
     ...list(d.people),
     ...list(d.places),
-    ...list(d.activities),
-    ...list(object(d.itinerary).visits),
-    object(d.transportation),
+    ...list(object(d.itinerary).items),
+    object(d.itinerary),
     object(d.preferences),
     object(d.preferences).activities,
     ...list(object(d.preferences).groups),
@@ -227,7 +239,9 @@ export function hydrateTripDocument(document: TripDocument): TripView {
     };
   };
   const owner = d.people.find((p) => p.isOwner);
-  const dates = d.itinerary.visits;
+  const dates = d.itinerary.items
+    .filter((item) => item.kind === "visit")
+    .sort((a, b) => Number(a.order) - Number(b.order));
   add("", {
     id: d.id,
     name: d.name,
@@ -248,7 +262,7 @@ export function hydrateTripDocument(document: TripDocument): TripView {
     role: p.isOwner ? "Planner" : p.role,
   });
   const groups = list(d.preferences.groups).map((g) => ({
-    ...without(g, ["personIds"]),
+    ...without(g, ["personIds", "booking"]),
     id: text(g.id),
     members: (g.personIds as string[])
       .map((id) => d.people.find((p) => p.id === id))
@@ -270,20 +284,24 @@ export function hydrateTripDocument(document: TripDocument): TripView {
           : null,
       );
   add("/activity-preferences", without(object(d.preferences.activities), []));
-  add("/flights", d.transportation.bookings);
+  add(
+    "/flights",
+    list(d.preferences.groups).flatMap((g) => (g.booking ? [g.booking] : [])),
+  );
   for (const g of groups)
     add(
       `/flights/${g.id}`,
-      d.transportation.bookings.find((b) => b.partyId === g.id) ?? null,
+      list(d.preferences.groups).find((source) => source.id === g.id)
+        ?.booking ?? null,
     );
   const choices = list(d.preferences.flightChoices).map((choice) => ({
-    ...without(choice, ["groupId"]),
+    ...without(choice, ["groupId", "journeys"]),
     partyId: choice.groupId,
-    flights: d.transportation.journeys
-      .filter((j) => j.groupId === choice.groupId && j.legIndex !== null)
+    flights: list(choice.journeys)
+      .filter((j) => j.legIndex !== null)
       .map((j) => ({ legIndex: j.legIndex, leg: j.details })),
-    unmatchedFlights: d.transportation.journeys
-      .filter((j) => j.groupId === choice.groupId && j.legIndex === null)
+    unmatchedFlights: list(choice.journeys)
+      .filter((j) => j.legIndex === null)
       .map((j) => j.details),
   }));
   add("/flights/choices", choices);
@@ -301,9 +319,11 @@ export function hydrateTripDocument(document: TripDocument): TripView {
       },
     );
   add("/travel", {
-    connections: d.transportation.legs
+    connections: d.itinerary.items
       .filter((l) => l.kind === "connection")
-      .map((l) => without(l, ["kind"])),
+      .map((l) =>
+        without(l, ["kind", "type", "busy", "start", "end", "duration"]),
+      ),
     version: metadata[prefix + "/travel"]?.version ?? 0,
   });
   const destinationPreferences = list(d.preferences.destinations);
@@ -319,13 +339,17 @@ export function hydrateTripDocument(document: TripDocument): TripView {
       const cityVisits = dates
         .filter((v) => v.destinationId === p.destinationId)
         .map((v): ObjectValue => {
-          const stay = d.places.find(
-            (place) => place.id === v.accommodationPlaceId,
+          const lodging = d.itinerary.items.find(
+            (item) => item.kind === "lodging" && item.visitId === v.id,
           );
+          const stay = d.places.find((place) => place.id === lodging?.placeId);
           return {
-            ...without(v, ["destinationId", "accommodationPlaceId"]),
-            arrivalAt: v.arrivalDate ?? "",
-            departureAt: v.departureDate ?? "",
+            id: v.id,
+            order: v.order,
+            arrivalDate: v.start ?? null,
+            departureDate: v.end ?? null,
+            arrivalAt: v.start ?? "",
+            departureAt: v.end ?? "",
             stayLocation: stay
               ? {
                   type: "Feature",
@@ -362,21 +386,33 @@ export function hydrateTripDocument(document: TripDocument): TripView {
         add(`${path}/stays/${visit.id}`, visit);
         add(`${path}/stays/${visit.id}/location`, visit.stayLocation);
       }
-      const activities = d.activities.filter(
-        (a) => a.destinationId === p.destinationId,
-      );
+      const activities = d.itinerary.items
+        .filter((item) => item.kind === "activity")
+        .filter((a) => a.destinationId === p.destinationId);
       const activityFeatures = activities.map((a) => ({
         type: "Feature",
         id: a.id,
         geometry:
           d.places.find((place) => place.id === a.placeId)?.location ?? null,
-        properties: without(a, [
-          "id",
-          "destinationId",
-          "placeId",
-          "selection",
-          "rule",
-        ]),
+        properties: {
+          ...without(a, [
+            "id",
+            "destinationId",
+            "placeId",
+            "selection",
+            "rule",
+            "visitId",
+            "kind",
+            "type",
+            "busy",
+            "start",
+            "end",
+            "timeZone",
+            "duration",
+            "estimatedDuration",
+          ]),
+          duration: a.estimatedDuration,
+        },
       }));
       add(path + "/activities", {
         type: "FeatureCollection",

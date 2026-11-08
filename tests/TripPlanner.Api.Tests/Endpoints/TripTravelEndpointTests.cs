@@ -65,16 +65,28 @@ public sealed class TripTravelEndpointTests
         {
             var readView = await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/document");
             return readView
-                .GetProperty("transportation")
-                .GetProperty("legs")
+                .GetProperty("itinerary")
+                .GetProperty("items")
                 .EnumerateArray()
                 .Single(e => e.GetProperty("id").GetString() == connection.Id.ToString());
         }
         var task = await Entry();
         Assert.AreEqual("connection", task.GetProperty("kind").GetString());
+        Assert.AreEqual("task", task.GetProperty("type").GetString());
         Assert.IsFalse(task.TryGetProperty("start", out _));
         Assert.AreEqual("2030-04-01", task.GetProperty("departureDate").GetString());
         Assert.AreEqual("America/New_York", task.GetProperty("timeZone").GetString());
+        connection = connection with { DepartureTime = new(9, 0) };
+        using var startOnly = await client.PutResourceAsJsonAsync(
+            path,
+            new TripTravelRequest([connection]),
+            TripResourceProjection.JsonOptions
+        );
+        Assert.AreEqual(HttpStatusCode.OK, startOnly.StatusCode);
+        var eventWithoutEnd = await Entry();
+        Assert.AreEqual("event", eventWithoutEnd.GetProperty("type").GetString());
+        Assert.AreEqual("2030-04-01T13:00:00Z", eventWithoutEnd.GetProperty("start").GetString());
+        Assert.IsFalse(eventWithoutEnd.TryGetProperty("duration", out _));
         connection = connection with
         {
             DepartureDate = new(2030, 4, 1),
@@ -95,11 +107,12 @@ public sealed class TripTravelEndpointTests
         var document = await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/document");
         var calendarEvent = document
             .GetProperty("itinerary")
-            .GetProperty("schedule")
+            .GetProperty("items")
             .EnumerateArray()
             .Single(e => e.GetProperty("id").GetString() == connection.Id.ToString());
-        Assert.AreEqual("transportation", calendarEvent.GetProperty("kind").GetString());
-        Assert.AreEqual("2030-04-01T09:00:00", calendarEvent.GetProperty("start").GetString());
+        Assert.AreEqual("event", calendarEvent.GetProperty("type").GetString());
+        Assert.AreEqual("connection", calendarEvent.GetProperty("kind").GetString());
+        Assert.AreEqual("2030-04-01T13:00:00Z", calendarEvent.GetProperty("start").GetString());
         Assert.AreEqual(
             "PT26H",
             calendarEvent.GetProperty("duration").GetString(),

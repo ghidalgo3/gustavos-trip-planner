@@ -41,7 +41,7 @@ public sealed class TripPlannerTools(
         JsonValue = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]"
     )]
     [Description(
-        "Read the portable trip document in one call: people with roles and ownership, activities, transportation, itinerary, preferences, and optional edit validators without cached REST response bodies. Private profiles, credentials and transient searches are excluded."
+        "Read the portable trip document in one call: people, shared places, an itinerary calendar of events and tasks with activity, transportation and lodging details, planning preferences, and optional edit validators without cached REST response bodies. Private profiles, credentials and transient searches are excluded."
     )]
     public Task<CallToolResult> GetTripDocument(Guid tripId) =>
         adapter.ExecuteAsync(

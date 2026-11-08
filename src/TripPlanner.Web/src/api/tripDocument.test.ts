@@ -74,9 +74,15 @@ test.each([
   if (change === "identity") value.id = "another-trip";
   if (change === "version") value.schemaVersion = 2;
   if (change === "route-metadata") value.href = `/trips/${after.id}`;
-  if (change === "embedded-body") value.activities[0].data = {};
+  if (change === "embedded-body")
+    value.itinerary.items.find(
+      (item: Record<string, unknown>) => item.kind === "activity",
+    ).data = {};
   if (change === "quoted-validator") value.etag = '"already-quoted"';
-  if (change === "weak-validator") value.itinerary.visits[0].etag = 'W/"1"';
+  if (change === "weak-validator")
+    value.itinerary.items.find(
+      (item: Record<string, unknown>) => item.kind === "visit",
+    ).etag = 'W/"1"';
   expect(() => validateTripDocument(value, after.id)).toThrow();
 });
 
@@ -287,8 +293,15 @@ test("entity validators supply edit headers without storing API addresses", () =
     );
   }
   const prefix = `/trips/${after.id}`;
-  const visit = after.itinerary.visits[0];
-  const activity = after.activities[0];
+  const lodging = after.itinerary.items.find(
+    (item: Record<string, unknown>) => item.kind === "lodging",
+  );
+  const visit = after.itinerary.items.find(
+    (item: Record<string, unknown>) => item.id === lodging.visitId,
+  );
+  const activity = after.itinerary.items.find(
+    (item: Record<string, unknown>) => item.kind === "activity",
+  );
   const city = after.places.find(
     (p: Record<string, unknown>) => p.destinationId === visit.destinationId,
   );
@@ -302,7 +315,7 @@ test("entity validators supply edit headers without storing API addresses", () =
     validators[
       `${prefix}/destinations/${visit.destinationId}/stays/${visit.id}/location`
     ],
-  ).toEqual({ etag: `"${visit.accommodationEtag}"` });
+  ).toEqual({ etag: `"${lodging.etag}"` });
   expect(
     validators[
       `${prefix}/destinations/${activity.destinationId}/activities/${activity.id}`
@@ -315,9 +328,60 @@ test("entity validators supply edit headers without storing API addresses", () =
     etag: `"${city.etag}"`,
   });
   expect(validators[`${prefix}/travel`]).toEqual({
-    etag: `"${after.transportation.connectionsEtag}"`,
-    version: after.transportation.connectionsVersion,
+    etag: `"${after.itinerary.connectionsEtag}"`,
+    version: after.itinerary.connectionsVersion,
   });
   expect(JSON.stringify(after)).not.toContain("/trips/");
   expect(after.sync).toBeUndefined();
+});
+
+test.each(["missing-start", "busy-task", "duplicate-id"])(
+  "calendar invariant %s is enforced",
+  (change) => {
+    const value = structuredClone(after);
+    const item = value.itinerary.items.find(
+      (item: Record<string, unknown>) => item.kind === "activity",
+    );
+    if (change === "missing-start") {
+      item.type = "event";
+      delete item.start;
+    }
+    if (change === "busy-task") {
+      item.type = "task";
+      item.busy = true;
+    }
+    if (change === "duplicate-id")
+      value.itinerary.items.push(structuredClone(item));
+    expect(() => validateTripDocument(value, value.id)).toThrow();
+  },
+);
+
+test("calendar items retain hotel stays and unscheduled activity details", () => {
+  const value = validateTripDocument(after, after.id);
+  expect(value).not.toHaveProperty("activities");
+  expect(value).not.toHaveProperty("transportation");
+  expect(Object.keys(value.itinerary).sort()).toEqual([
+    "connectionsEtag",
+    "connectionsVersion",
+    "items",
+  ]);
+  const lodging = value.itinerary.items.filter(
+    (item) => item.kind === "lodging",
+  );
+  expect(lodging).toHaveLength(4);
+  expect(
+    lodging.every((item) => !item.busy && item.visitId && item.placeId),
+  ).toBe(true);
+  const activities = value.itinerary.items.filter(
+    (item) => item.kind === "activity",
+  );
+  expect(activities).toHaveLength(76);
+  expect(
+    activities
+      .filter((item) => item.type === "task")
+      .every(
+        (item) =>
+          Object.hasOwn(item, "estimatedDuration") && item.name && !item.start,
+      ),
+  ).toBe(true);
 });

@@ -293,24 +293,30 @@ public sealed class TripResourceProjection(
             .ToUniversalTime();
         var schedule = new List<JsonObject>();
         var transportation = new List<JsonObject>();
-        void Schedule(string id, string kind, DateTimeOffset start, TimeSpan duration, string? zone)
+        void Schedule(
+            string id,
+            string kind,
+            DateTimeOffset start,
+            TimeSpan? duration,
+            string? zone
+        )
         {
-            if (zone is null || !TimeZoneInfo.TryFindSystemTimeZoneById(zone, out var timeZone))
+            if (zone is null || !TimeZoneInfo.TryFindSystemTimeZoneById(zone, out _))
             {
                 return;
             }
-            schedule.Add(
-                new JsonObject
-                {
-                    ["id"] = id,
-                    ["kind"] = kind,
-                    ["start"] = TimeZoneInfo
-                        .ConvertTime(start, timeZone)
-                        .ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture),
-                    ["timeZone"] = zone,
-                    ["duration"] = ElapsedDuration(duration),
-                }
-            );
+            var timing = new JsonObject
+            {
+                ["id"] = id,
+                ["kind"] = kind,
+                ["start"] = UtcDateTimeOffsetConverter.Format(start),
+                ["timeZone"] = zone,
+            };
+            if (duration is { } elapsed)
+            {
+                timing["duration"] = ElapsedDuration(elapsed);
+            }
+            schedule.Add(timing);
         }
         foreach (var place in data.Destinations)
         {
@@ -678,8 +684,7 @@ public sealed class TripResourceProjection(
         {
             var duration = connection.DurationOverride ?? connection.Estimate?.Duration;
             if (
-                duration is not null
-                && connection.DepartureDate is { } date
+                connection.DepartureDate is { } date
                 && connection.DepartureTime is { } time
                 && connection.TimeZone is { } zoneId
                 && TimeZoneInfo.TryFindSystemTimeZoneById(zoneId, out var zone)
@@ -692,7 +697,7 @@ public sealed class TripResourceProjection(
                         connection.Id.ToString("D"),
                         "transportation",
                         new DateTimeOffset(local, zone.GetUtcOffset(local)),
-                        duration.Value,
+                        duration,
                         zoneId
                     );
                 }

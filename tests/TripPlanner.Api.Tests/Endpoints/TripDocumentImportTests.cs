@@ -79,13 +79,17 @@ public sealed class TripDocumentImportTests
         switch (change)
         {
             case "visits":
-                document.Itinerary["visits"]!.AsArray().Add(new JsonObject());
+                document.Itinerary["items"]!.AsArray().Add(new JsonObject());
                 break;
             case "activities":
-                document = document with { Activities = [new JsonObject()] };
+                document.Itinerary["items"]!
+                    .AsArray()
+                    .Add(new JsonObject { ["kind"] = "activity" });
                 break;
             case "bookings":
-                document.Transportation["bookings"]!.AsArray().Add(new JsonObject());
+                document.Preferences["groups"]!
+                    .AsArray()
+                    .Add(new JsonObject { ["booking"] = new JsonObject() });
                 break;
             case "version":
                 document = document with { SchemaVersion = 2 };

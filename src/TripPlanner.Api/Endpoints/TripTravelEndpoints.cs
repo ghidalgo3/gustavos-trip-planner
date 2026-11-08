@@ -75,15 +75,10 @@ public static class TripTravelEndpoints
         }
         var view = projection.Project(data);
         var document = view.Document;
-        var reservedCalendarIds = document.Transportation["legs"]!
+        var reservedCalendarIds = document.Itinerary["items"]!
             .AsArray()
-            .Where(leg => leg!["kind"]!.GetValue<string>() != "connection")
-            .Select(leg => Guid.Parse(leg!["id"]!.GetValue<string>()))
-            .Concat(
-                document.Activities.Select(activity =>
-                    Guid.Parse(activity["id"]!.GetValue<string>())
-                )
-            )
+            .Where(item => item!["kind"]!.GetValue<string>() != "connection")
+            .Select(item => Guid.Parse(item!["id"]!.GetValue<string>()))
             .ToHashSet();
         var placeIds = document.Places.Select(p => p["id"]!.GetValue<string>()).ToHashSet();
         var serviceIds = view.Services.Keys.ToHashSet();

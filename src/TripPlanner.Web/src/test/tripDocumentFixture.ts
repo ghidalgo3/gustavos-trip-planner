@@ -24,9 +24,7 @@ export function tripDocumentFixture(
       },
     ],
     places: [{ id: "home", name: "Home", type: "Place", location: null }],
-    activities: [],
-    transportation: { legs: [], journeys: [], bookings: [] },
-    itinerary: { visits: [], days: [], schedule: [] },
+    itinerary: { items: [] },
     preferences: {
       constraints: trip.constraints ?? {},
       activities: { instructions: "", defaults: null },

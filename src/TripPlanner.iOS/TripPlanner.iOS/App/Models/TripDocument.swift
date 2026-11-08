@@ -20,9 +20,7 @@ extension PendingTripWrite {
             "places": .array([.object([
                 "id": .string(homeID), "type": .string("Place"), "name": .string("Home"), "location": .null
             ])]),
-            "activities": .array([]),
-            "transportation": .object(["legs": .array([]), "journeys": .array([]), "bookings": .array([])]),
-            "itinerary": .object(["visits": .array([]), "days": .array([]), "schedule": .array([])]),
+            "itinerary": .object(["items": .array([])]),
             "preferences": .object([
                 "constraints": draft.constraints,
                 "activities": .object(["instructions": .string(""), "defaults": .null]),
@@ -56,11 +54,13 @@ struct TripDocumentDestinations: Decodable {
         let document = try JSONValue(from: decoder)
         guard let tripID = document["id"].stringValue else { throw APIError.invalidResponse }
         guard document["schemaVersion"] == .number(1), UUID(uuidString: tripID) != nil,
-              case .object = document["itinerary"], case .object = document["transportation"] else {
+              case .array = document["itinerary"]["items"] else {
             throw APIError.invalidResponse
         }
         let places = document["places"].arrayValue
-        let visits = document["itinerary"]["visits"].arrayValue
+        let items = document["itinerary"]["items"].arrayValue
+        let visits = items.filter { $0["kind"] == .string("visit") }
+            .enumerated().sorted { ($0.element["order"].numberValue ?? Double($0.offset)) < ($1.element["order"].numberValue ?? Double($1.offset)) }.map(\.element)
         let preferences = document["preferences"]["destinations"].arrayValue
         func place(_ id: String?) -> JSONValue? {
             places.first { $0["id"].stringValue == id && id != nil }
@@ -77,8 +77,8 @@ struct TripDocumentDestinations: Decodable {
         let visited = Set(visits.compactMap { $0["destinationId"].stringValue })
         destinations = visits.compactMap { visit in
             guard let p = cityPlace(visit["destinationId"]), let name = p["name"].stringValue else { return nil }
-            return DestinationVisit(name: name, arrival: visit["arrivalDate"].stringValue,
-                                    departure: visit["departureDate"].stringValue,
+            return DestinationVisit(name: name, arrival: visit["start"].stringValue,
+                                    departure: visit["end"].stringValue,
                                     placeID: p["id"].stringValue,
                                     stayID: visit["id"].stringValue.map { "urn:uuid:" + $0 }, coordinate: coordinate(p))
         } + preferences.compactMap { preference in
@@ -90,10 +90,10 @@ struct TripDocumentDestinations: Decodable {
         home = place(document["originPlaceId"].stringValue).flatMap { p in
             p["name"].stringValue.map { Destination(title: $0, subtitle: "", coordinate: coordinate(p)) }
         }
-        selectedFlights = document["transportation"]["legs"].arrayValue
+        selectedFlights = items
             .filter { $0["kind"] == .string("flight") }
-            .sorted { ($0["departureTime"].stringValue ?? "", $0["id"].stringValue ?? "")
-                < ($1["departureTime"].stringValue ?? "", $1["id"].stringValue ?? "") }
+            .sorted { ($0["start"].stringValue ?? "", $0["id"].stringValue ?? "")
+                < ($1["start"].stringValue ?? "", $1["id"].stringValue ?? "") }
             .compactMap { leg in
                 guard let id = leg["id"].stringValue,
                       let from = place(leg["departurePlaceId"].stringValue),
@@ -115,13 +115,17 @@ struct TripDocumentDestinations: Decodable {
             let path = "/trips/\(tripID)/destinations/\(encoded)"
             let stays = visits.filter { $0["destinationId"] == .string(city) }
                 .map { visit -> JSONValue in
-                    var value = visit.objectValue.filter { $0.key != "destinationId" && $0.key != "accommodationPlaceId" && $0.key != "etag" && $0.key != "accommodationEtag" }
-                    value["arrivalAt"] = visit["arrivalDate"].stringValue.map(JSONValue.string) ?? .string("")
-                    value["departureAt"] = visit["departureDate"].stringValue.map(JSONValue.string) ?? .string("")
-                    value["stayLocation"] = place(visit["accommodationPlaceId"].stringValue).map { p in
-                        .object(["type": .string("Feature"), "id": visit["id"], "geometry": p["location"],
-                                 "properties": .object(["name": p["name"]])])
-                    } ?? .null
+                    let lodging = items.first { $0["kind"] == .string("lodging") && $0["visitId"] == visit["id"] }
+                    let hotel = lodging.flatMap { place($0["placeId"].stringValue) }
+                    let value: [String: JSONValue] = [
+                        "id": visit["id"], "order": visit["order"],
+                        "arrivalDate": visit["start"], "departureDate": visit["end"],
+                        "arrivalAt": visit["start"].stringValue.map(JSONValue.string) ?? .string(""),
+                        "departureAt": visit["end"].stringValue.map(JSONValue.string) ?? .string(""),
+                        "stayLocation": hotel.map { p in
+                            .object(["type": .string("Feature"), "id": visit["id"], "geometry": p["location"], "properties": .object(["name": p["name"]])])
+                        } ?? .null
+                    ]
                     return .object(value)
                 }
             if hasEditingMetadata, let etag = p["etag"].stringValue {

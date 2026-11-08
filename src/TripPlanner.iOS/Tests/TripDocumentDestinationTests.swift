@@ -10,12 +10,11 @@ struct TripDocumentDestinationTests {
          "places":[{"id":"home","name":"Home"},{"id":"kyoto","destinationId":"kyoto","name":"Kyoto"},
            {"id":"tokyo","destinationId":"tokyo","name":"Tokyo","location":{"type":"Point","coordinates":[139.767,35.681]}},
            {"id":"osaka","destinationId":"osaka","name":"Osaka"}],
-         "itinerary":{"visits":[
-           {"id":"9a4047f9-dfb2-4aba-86c6-2ff3d5e9e607","destinationId":"tokyo","arrivalDate":"2027-04-09","departureDate":"2027-04-12"},
-           {"id":"22222222-2222-2222-2222-222222222222","destinationId":"kyoto","arrivalDate":"2027-04-12"},
-           {"id":"33333333-3333-3333-3333-333333333333","destinationId":"tokyo","arrivalDate":"2027-04-16","departureDate":"2027-04-19"}]},
-         "preferences":{"destinations":[{"destinationId":"kyoto"},{"destinationId":"osaka"},{"destinationId":"tokyo"}]},
-         "transportation":{"legs":[]}}
+         "itinerary":{"items":[
+           {"id":"9a4047f9-dfb2-4aba-86c6-2ff3d5e9e607","kind":"visit","destinationId":"tokyo","start":"2027-04-09","end":"2027-04-12"},
+           {"id":"22222222-2222-2222-2222-222222222222","kind":"visit","destinationId":"kyoto","start":"2027-04-12"},
+           {"id":"33333333-3333-3333-3333-333333333333","kind":"visit","destinationId":"tokyo","start":"2027-04-16","end":"2027-04-19"}]},
+         "preferences":{"destinations":[{"destinationId":"kyoto"},{"destinationId":"osaka"},{"destinationId":"tokyo"}]}}
         """
         let document = try JSONDecoder().decode(TripDocumentDestinations.self, from: Data(json.utf8))
         #expect(document.destinations == [
@@ -39,8 +38,8 @@ struct TripDocumentDestinationTests {
         let json = """
         {"id":"11111111-1111-1111-1111-111111111111","schemaVersion":1,
          "places":[{"id":"jfk","name":"Kennedy","iataCode":"JFK"},{"id":"hnd","name":"Haneda","iataCode":"HND"}],
-         "itinerary":{"visits":[]},"preferences":{"destinations":[]},
-         "transportation":{"legs":[
+         "preferences":{"destinations":[]},
+         "itinerary":{"items":[
           {"kind":"flight","id":"arrival","flightNumber":"JL5","departurePlaceId":"jfk","arrivalPlaceId":"hnd","departureLocalTime":"2027-12-08T12:00:00","arrivalLocalTime":"2027-12-09T16:00:00","destinationVisitId":"\(tokyo)","purchased":true},
           {"kind":"flight","id":"transfer","departurePlaceId":"jfk","arrivalPlaceId":"hnd","originVisitId":"\(tokyo)","destinationVisitId":"\(osaka)"},
           {"kind":"flight","id":"return","departurePlaceId":"jfk","arrivalPlaceId":"hnd","originVisitId":"\(osaka)"},

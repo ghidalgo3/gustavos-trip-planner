@@ -1,37 +1,70 @@
 # Trip Document
 
 A trip document is a versioned, self-contained description of an entire trip.
-Web and iOS clients download it in one authenticated request and retain it for
-read-only offline use. PostgreSQL remains authoritative; edits use focused REST
-resources and their optimistic concurrency checks.
+Web and iOS clients download it in one authenticated request and retain it for read-only offline use.
+PostgreSQL remains authoritative; edits use focused REST resources and their optimistic concurrency checks.
 
-The document and REST contracts evolve independently. A file format change does
-not require matching changes to every editing endpoint, and a REST representation
-change does not automatically require a new document version. Server and client
-adapters translate between the two contracts.
+The document and REST contracts evolve independently.
+A file format change does not require matching changes to every editing endpoint, and a REST representation change does not automatically require a new document version. Server and client adapters translate between the two contracts.
 
 ## Domain model
 
+**The itinerary is the trip's calendar.** Its `items` collection contains every
+activity, journey or transfer, city visit, and hotel stay. Each item owns its
+identity, details, and timing. There is no separate activity definition collection
+or timing schedule to join to it.
+
 | Section | Meaning |
 | --- | --- |
-| `people` | Participants, trip membership roles, and `isOwner`. Ownership implies planning permission, regardless of the stored membership role. Exactly one person owns the trip. |
-| `places` | Shared city, airport, accommodation, and activity locations. Each has a stable ID and one GeoJSON `location`; other entities reference it. Cities include their opaque `destinationId`. |
-| `activities` | Complete undated activity ideas: name, details, duration, cost, links, research evidence, and a place reference. `state` is the idea's Proposed/Planned/Rejected state; `selection` separately records its explicit Selected/Excluded/Unassigned status in the saved schedule. `rule` contains its scheduling restrictions. |
-| `transportation.legs` | Selected flight segments, explicit connections, and calculated local transfers. Flights contain their details, visit associations, and a purchase flag directly. There are no separate services, flight-selection references, or generated reservation entities. |
-| `transportation.journeys` | Selected provider itineraries, including fares and connection details needed to display and continue a saved flight selection. `groupId` associates them with participants; a null `legIndex` identifies a selection awaiting reassignment. |
-| `transportation.bookings` | Saved provider bookings used by flight editing and display. These are actual saved provider data, rather than synthetic reservations generated from a purchase flag. |
-| `itinerary.visits` | Visits in explicit route order, including repeat visits to one city. Dates and accommodation references belong to each visit. |
-| `itinerary.days` | Editable day assignments and ordered activity references, including availability, meal placement, and flight matching choices. |
-| `itinerary.schedule` | Calculated calendar timings referencing activity or transportation IDs. Definitions and titles remain in their domain collections. Unscheduled items have no schedule entry. |
-| `preferences` | Editable trip constraints, activity preferences, destination scheduling settings, travel-group membership, and flight-selection progress. |
-| `etag`, `contextVersion`, and version fields | Optional validators placed directly on the entities and editable sections they describe. Root `canPlan` records current planning permission. No API addresses, status codes, media types, or response bodies are stored. |
+| `people` | Participants, roles, and ownership. |
+| `places` | Reusable cities, airports, hotels, and venues with stable IDs and GeoJSON locations. |
+| `itinerary.items` | The calendar's events and unscheduled tasks. |
+| `preferences` | Editable constraints, day assignments, scheduling rules, participant groups, and saved flight-selection inputs. |
+
+Each calendar item has `id`, `name`, `kind`, `type`, and `busy`:
+
+| Kind | Details and behavior |
+| --- | --- |
+| `activity` | Complete idea, estimated duration, cost, research, links, selection state, and scheduling rule. An assigned visit is referenced by `visitId`. |
+| `flight` | A selected flight segment, its airports, flight number, purchase state, and visit associations. |
+| `connection` | An explicit journey between trip locations, with editable modes and segments. |
+| `transfer` | A calculated local journey between activities. |
+| `visit` | A city visit, including its route `order` and date range. Repeat visits have distinct IDs. |
+| `lodging` | A hotel stay referencing its `placeId` and `visitId`. The hotel location is reusable; each stay is a separate calendar item. |
+
+An item with a known start is an `event`; an unscheduled item is a `task`.
+Scheduling an activity keeps its ID and details and changes its type to `event`.
+An activity retains its Proposed/Planned/Rejected `state` and separate
+Selected/Excluded/Unassigned `selection`. Unselected ideas remain available as
+tasks rather than disappearing from the file.
+
+Events use `start` with either an exclusive `end` or an elapsed `duration`.
+City visits and lodging use date ranges. Timed activities and connections use
+offset timestamps with `timeZone` for local display; selected flights also
+retain airport-local times for display. Dates, times, timestamps, and elapsed
+durations use ISO 8601. An activity's `estimatedDuration` remains its research
+estimate; a scheduled event's `duration` is the actual planned allocation.
+
+Tasks have `busy: false`. City visits and lodging events also have `busy: false`,
+so they provide context without blocking daytime activities. Timed activities and
+transportation have `busy: true`.
+
+Current lodging storage records a chosen hotel against a visit. Its calendar
+range therefore comes from that visit and is marked `timingSource: "visit"`.
+These are visit dates, not independently confirmed hotel check-in/out times.
+
+Day assignments, availability, meal positions, and flight matches are editable
+planning inputs under `preferences.destinations[].schedule.days`. Actual event
+timings belong to the calendar items. Computed assessments remain API features.
+Shared provider fare data lives in `preferences.flightChoices[].journeys`, and a
+group's saved complete booking is in `preferences.groups[].booking`; a shared
+booking is stored once rather than repeated on each flight event.
 
 The format is ordinary JSON described by
-[`trip-document-v1.schema.json`](schemas/trip-document-v1.schema.json).
-It does not require JSON-LD processing. IDs remain stable across exports; place IDs
-are opaque and should not be interpreted as network addresses. Dates, local clock
-times, timestamps, and elapsed durations use ISO 8601. The itinerary is a domain
-model with references and timings, rather than a jCal document.
+[`trip-document-v1.schema.json`](schemas/trip-document-v1.schema.json), using
+calendar event/task semantics. It does not require JSON-LD or literal jCal array
+syntax. IDs are opaque, stable across exports, and should not be interpreted as
+network addresses.
 
 ## Entity validators
 
@@ -48,24 +81,32 @@ The whole downloaded file has a separate HTTP ETag.
 | Destination place `etag` | Destination details and constraints |
 | Destination place `activitiesEtag` and `contextVersion` | Activity collection and destination context |
 | Visit `etag` | Visit dates and ordering |
-| Visit `accommodationEtag` | Accommodation, including an absent accommodation |
+| Lodging `etag` | The chosen hotel for a visit |
+| Visit `accommodationEtag` | An absent hotel, allowing its first save with a validator |
 | Activity `etag` | Activity details and destination context |
 | Activity preferences `etag` and `version` | The complete preference resource at that scope |
 | Destination scheduling preferences `etag`, `version`, and `contextVersion` | Saved activity plan version and planning context |
 | Group `memberEtags[personId]` | That person's membership in the group |
 | Group `flightChoicesEtag` and `bookingEtag` | Selected journeys and saved provider booking for the group |
-| Transportation `connectionsEtag` and `connectionsVersion` | The collection of explicit connections |
+| Itinerary `connectionsEtag` and `connectionsVersion` | The collection of explicit connections |
 | Preferences `flightPlanningEtag` | Flight-planning inputs and their computed view |
 
-For example, a visit can carry separate edit validators without API addresses:
+For example, a hotel stay is a calendar event:
 
 ```json
 {
-  "id": "ceaa5647-9604-46c6-b7bf-b8100ef9106b",
-  "arrivalDate": "2026-12-10",
-  "departureDate": "2026-12-14",
-  "etag": "visit-7",
-  "accommodationEtag": "accommodation-2"
+  "id": "a75ac33b-9f4a-4e2c-9b78-1ac0205b24c9",
+  "kind": "lodging",
+  "type": "event",
+  "name": "Mets Shibuya Hotel",
+  "start": "2026-12-25",
+  "end": "2026-12-30",
+  "timeZone": "Asia/Tokyo",
+  "busy": false,
+  "placeId": "hotel-place-id",
+  "visitId": "29638aaf-ee9a-4aa5-8f64-00639da26763",
+  "timingSource": "visit",
+  "etag": "hotel-7"
 }
 ```
 

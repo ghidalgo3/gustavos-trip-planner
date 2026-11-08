@@ -25,10 +25,14 @@ function tripDocument() {
   const visits = destination.properties.stays.map((v) => ({
     id: v.id,
     order: v.order,
-    arrivalDate: v.arrivalDate,
-    departureDate: v.departureDate,
+    kind: "visit",
+    type: v.arrivalDate ? "event" : "task",
+    name: destination.properties.name,
+    busy: false,
+    start: v.arrivalDate,
+    end: v.departureDate,
     destinationId: destination.id,
-    accommodationPlaceId: null,
+    placeId: `urn:tripplanner:${trip.id}:place:${destination.id}`,
   }));
   const cityPlaceId = `urn:tripplanner:${trip.id}:place:${destination.id}`;
   return {
@@ -69,24 +73,7 @@ function tripDocument() {
         activitiesEtag: "1",
       },
     ],
-    activities: [],
-    transportation: {
-      legs: [],
-      journeys: choices.flatMap((c) => [
-        ...(c.flights ?? []).map((f) => ({
-          groupId: c.partyId,
-          legIndex: f.legIndex,
-          details: f.leg,
-        })),
-        ...(c.unmatchedFlights ?? []).map((f) => ({
-          groupId: c.partyId,
-          legIndex: null,
-          details: f,
-        })),
-      ]),
-      bookings: completeSelection ? [legacyFlight] : [],
-    },
-    itinerary: { visits, days: [], schedule: [] },
+    itinerary: { items: visits },
     preferences: {
       constraints: trip.constraints,
       activities: { instructions: "", defaults: null },
@@ -101,11 +88,22 @@ function tripDocument() {
       groups: parties.map(({ members, ...g }) => ({
         ...g,
         personIds: members.map((m) => m.id),
+        booking: completeSelection ? legacyFlight : null,
       })),
       flightChoices: choices.map(
         ({ partyId, flights, unmatchedFlights, ...c }) => ({
           ...c,
           groupId: partyId,
+          journeys: [
+            ...(flights ?? []).map((f) => ({
+              legIndex: f.legIndex,
+              details: f.leg,
+            })),
+            ...(unmatchedFlights ?? []).map((f) => ({
+              legIndex: null,
+              details: f,
+            })),
+          ],
         }),
       ),
     },

@@ -44,9 +44,7 @@ internal static class TripDocumentFixture
                     ["location"] = null,
                 },
             ],
-            [],
-            JsonNode.Parse("{\"legs\":[],\"journeys\":[],\"bookings\":[]}")!.AsObject(),
-            JsonNode.Parse("{\"visits\":[],\"days\":[],\"schedule\":[]}")!.AsObject(),
+            JsonNode.Parse("{\"items\":[]}")!.AsObject(),
             new JsonObject
             {
                 ["constraints"] = JsonNode.Parse(constraints.GetRawText()),

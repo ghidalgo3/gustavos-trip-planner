@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
@@ -110,20 +111,29 @@ public sealed class TripDocumentResourceTests
             TripResourceProjection.JsonOptions
         )!;
         Assert.AreEqual(trip.Id, document.Id);
-        var visits = document.Itinerary["visits"]!.AsArray();
-        Assert.AreEqual(2, visits.Count);
+        var items = document.Itinerary["items"]!.AsArray().OfType<JsonObject>().ToArray();
+        var visits = items.Where(item => item["kind"]!.GetValue<string>() == "visit").ToArray();
+        var lodging = items.Where(item => item["kind"]!.GetValue<string>() == "lodging").ToArray();
+        Assert.HasCount(2, visits);
+        Assert.HasCount(2, lodging);
         Assert.AreEqual(
-            visits[0]!["destinationId"]!.GetValue<string>(),
-            visits[1]!["destinationId"]!.GetValue<string>()
+            visits[0]["destinationId"]!.GetValue<string>(),
+            visits[1]["destinationId"]!.GetValue<string>()
         );
         Assert.AreNotEqual(
-            visits[0]!["accommodationPlaceId"]!.GetValue<string>(),
-            visits[1]!["accommodationPlaceId"]!.GetValue<string>()
+            lodging[0]["placeId"]!.GetValue<string>(),
+            lodging[1]["placeId"]!.GetValue<string>()
         );
         foreach (var visit in visits)
         {
+            var stay = lodging.Single(item =>
+                item["visitId"]!.GetValue<string>() == visit["id"]!.GetValue<string>()
+            );
+            Assert.IsTrue(JsonNode.DeepEquals(visit["start"], stay["start"]));
+            Assert.IsTrue(JsonNode.DeepEquals(visit["end"], stay["end"]));
+            Assert.IsFalse(stay["busy"]!.GetValue<bool>());
             var path =
-                $"/trips/{trip.Id}/destinations/{place.CityId}/stays/{visit!["id"]!.GetValue<string>()}";
+                $"/trips/{trip.Id}/destinations/{place.CityId}/stays/{visit["id"]!.GetValue<string>()}";
             using var details = await client.GetAsync(path);
             using var accommodation = await client.GetAsync(path + "/location");
             Assert.AreEqual(
@@ -132,23 +142,18 @@ public sealed class TripDocumentResourceTests
             );
             Assert.AreEqual(
                 accommodation.Headers.ETag!.ToString().Trim('"'),
-                visit["accommodationEtag"]!.GetValue<string>()
+                stay["etag"]!.GetValue<string>()
             );
         }
         using var travel = await client.GetAsync($"/trips/{trip.Id}/travel");
         Assert.AreEqual(
             travel.Headers.ETag!.ToString().Trim('"'),
-            document.Transportation["connectionsEtag"]!.GetValue<string>()
+            document.Itinerary["connectionsEtag"]!.GetValue<string>()
         );
-        var idea = document.Activities.Single(a =>
-            a["id"]!.GetValue<string>() == activity.Id.ToString()
-        );
+        var idea = items.Single(item => item["id"]!.GetValue<string>() == activity.Id.ToString());
         Assert.AreEqual("Proposed", idea["state"]!.GetValue<string>());
-        Assert.IsFalse(
-            document.Itinerary["schedule"]!
-                .AsArray()
-                .Any(e => e!["id"]!.GetValue<string>() == activity.Id.ToString())
-        );
+        Assert.AreEqual("task", idea["type"]!.GetValue<string>());
+        Assert.IsFalse(idea.ContainsKey("start"));
         using var individual = await client.GetAsync(
             $"/trips/{trip.Id}/destinations/{place.CityId}/activities/{activity.Id}"
         );
@@ -353,10 +358,10 @@ public sealed class TripDocumentResourceTests
             await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/document");
         var first = await Document();
         var flight = first
-            .GetProperty("transportation")
-            .GetProperty("legs")
+            .GetProperty("itinerary")
+            .GetProperty("items")
             .EnumerateArray()
-            .Single();
+            .Single(item => item.GetProperty("kind").GetString() == "flight");
         Assert.AreEqual(
             visit.StayId.ToString(),
             flight.GetProperty("destinationVisitId").GetString()
@@ -385,16 +390,18 @@ public sealed class TripDocumentResourceTests
             }
         );
         var purchased = await Document();
-        var purchasedLeg = purchased.GetProperty("transportation").GetProperty("legs")[0];
+        var purchasedLeg = purchased
+            .GetProperty("itinerary")
+            .GetProperty("items")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("kind").GetString() == "flight");
         Assert.IsTrue(purchasedLeg.GetProperty("purchased").GetBoolean());
         Assert.AreEqual(
             flight.GetProperty("id").GetString(),
             purchasedLeg.GetProperty("id").GetString()
         );
-        Assert.AreEqual(
-            1,
-            purchased.GetProperty("itinerary").GetProperty("schedule").GetArrayLength()
-        );
+        Assert.AreEqual("event", purchasedLeg.GetProperty("type").GetString());
+        Assert.IsTrue(purchasedLeg.TryGetProperty("start", out _));
         var serviceId = flight.GetProperty("serviceId").GetString()!;
         var connection = new TravelConnectionRequest(
             Guid.NewGuid(),
@@ -416,10 +423,10 @@ public sealed class TripDocumentResourceTests
         await factory.Database.DeleteSelectedFlightAsync(user.Id, trip.Id, party.Id);
         var afterDeselect = await Document();
         var retainedConnection = afterDeselect
-            .GetProperty("transportation")
-            .GetProperty("legs")
+            .GetProperty("itinerary")
+            .GetProperty("items")
             .EnumerateArray()
-            .Single();
+            .Single(item => item.GetProperty("kind").GetString() == "connection");
         Assert.AreEqual("connection", retainedConnection.GetProperty("kind").GetString());
         Assert.AreEqual(serviceId, retainedConnection.GetProperty("serviceId").GetString());
         var definition = retainedConnection.GetProperty("serviceDefinition");

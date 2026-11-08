@@ -132,8 +132,6 @@ public static class TripDocumentEndpoints
         if (
             document.People is null
             || document.Places is null
-            || document.Activities is null
-            || document.Transportation is null
             || document.Itinerary is null
             || document.Preferences is null
             || document.Id != tripId
@@ -158,10 +156,6 @@ public static class TripDocumentEndpoints
             Places = document
                 .Places.Select(value => value is null ? null! : Content(value).AsObject())
                 .ToArray(),
-            Activities = document
-                .Activities.Select(value => value is null ? null! : Content(value).AsObject())
-                .ToArray(),
-            Transportation = Content(document.Transportation).AsObject(),
             Itinerary = Content(document.Itinerary).AsObject(),
             Preferences = Content(document.Preferences).AsObject(),
         };
@@ -170,17 +164,9 @@ public static class TripDocumentEndpoints
         if (
             document.People.Length != 1
             || document.Places.Length != 1
-            || document.Activities.Length != 0
             || document.People[0] is null
             || document.Places[0] is null
-            || !JsonNode.DeepEquals(
-                document.Transportation,
-                JsonNode.Parse("{\"legs\":[],\"journeys\":[],\"bookings\":[]}")
-            )
-            || !JsonNode.DeepEquals(
-                document.Itinerary,
-                JsonNode.Parse("{\"visits\":[],\"days\":[],\"schedule\":[]}")
-            )
+            || !JsonNode.DeepEquals(document.Itinerary, JsonNode.Parse("{\"items\":[]}"))
         )
         {
             return "Importing destinations, activities, or transportation is not supported yet. The trip was not imported.";

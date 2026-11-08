@@ -368,15 +368,15 @@ private nonisolated struct DocumentHeader: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case id
-        case schemaVersion, transportation, itinerary
+        case schemaVersion, itinerary, items
     }
 
     init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(String.self, forKey: .id)
         schemaVersion = try fields.decode(Int.self, forKey: .schemaVersion)
-        _ = try fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .transportation)
-        _ = try fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .itinerary)
+        let itinerary = try fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .itinerary)
+        _ = try itinerary.nestedUnkeyedContainer(forKey: .items)
     }
 }
 
