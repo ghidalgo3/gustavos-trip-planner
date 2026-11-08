@@ -3,7 +3,7 @@ import {
   cachedTripResource,
   useExplicitResourceRefresh,
   useTripResourceVersion,
-} from "../../api/tripSnapshot";
+} from "../../api/tripDocumentStore";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
@@ -67,7 +67,7 @@ export default function TripOverview({
   readOnly: boolean;
   homeCity?: string | null;
 }) {
-  const snapshotVersion = useTripResourceVersion(`/trips/${trip.id}`);
+  const documentVersion = useTripResourceVersion(`/trips/${trip.id}`);
   const [flightRetry, setFlightRetry] = useState(0);
   const [flightData, setFlightData] = useState<{
     flights?: SelectedFlight[];
@@ -154,7 +154,7 @@ export default function TripOverview({
           );
       });
     return () => controller.abort();
-  }, [trip.id, retry, snapshotVersion]);
+  }, [trip.id, retry, documentVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -184,7 +184,7 @@ export default function TripOverview({
         );
     });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, summaryRetry, snapshotVersion]);
+  }, [trip.id, destinations?.features, summaryRetry, documentVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -210,7 +210,7 @@ export default function TripOverview({
       }
     });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, summaryRetry, snapshotVersion]);
+  }, [trip.id, destinations?.features, summaryRetry, documentVersion]);
 
   useEffect(() => {
     if (
@@ -232,7 +232,7 @@ export default function TripOverview({
         if (!controller.signal.aborted) setFlightData({ error: true });
       });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, flightRetry, snapshotVersion]);
+  }, [trip.id, destinations?.features, flightRetry, documentVersion]);
 
   function destinationAdded(destination: Destination) {
     setDestinations((current) => {
@@ -241,7 +241,7 @@ export default function TripOverview({
         (item) => item.id === destination.id,
       );
       const stay = destination.properties.stays.at(-1);
-      // The save refreshes the snapshot before the drawer reports success.
+      // The save refreshes the document before the drawer reports success.
       const newVisit =
         stay &&
         !collection.route.some(

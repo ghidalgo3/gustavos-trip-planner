@@ -159,18 +159,18 @@ final class AppModel {
         let ticket = generation
         do {
             guard hasNetworkPath else { throw URLError(.notConnectedToInternet) }
-            let snapshot = try await api.snapshot(id: trip.id)
+            let document = try await api.document(id: trip.id)
             try Task.checkCancellation()
             guard ticket == generation, var value = record(for: trip.id) else {
                 throw CancellationError()
             }
             isCloudAvailable = hasNetworkPath
-            value.snapshot = snapshot
+            value.document = document
             try? requireStore().save(value)
             if let index = records.firstIndex(where: { $0.key == value.key }) {
-                records[index].snapshot = snapshot
+                records[index].document = document
             }
-            return snapshot
+            return document
         } catch {
             try Task.checkCancellation()
             guard ticket == generation, let value = record(for: trip.id) else {
@@ -178,7 +178,7 @@ final class AppModel {
             }
             if allowCached, let urlError = error as? URLError,
                urlError.code == .notConnectedToInternet,
-               let cached = value.snapshot {
+               let cached = value.document {
                 return cached
             }
             throw error
@@ -291,7 +291,7 @@ final class AppModel {
             // Keep journals for unresolved writes, hidden from other accounts. They are not editable caches.
             records = records.filter { $0.accountID == nil || $0.pending != nil }
             for index in records.indices {
-                records[index].snapshot = nil
+                records[index].document = nil
                 if records[index].pending?.status == .sending { records[index].pending?.status = .uncertain }
             }
             try requireStore().replace(records)
@@ -333,9 +333,9 @@ final class AppModel {
                 value.confirmed = saved
                 value.pending?.status = .committed
                 try persist(value)
-                let snapshot = try await api.snapshot(id: saved.id)
+                let document = try await api.document(id: saved.id)
                 guard ticket == generation else { return }
-                value.snapshot = snapshot
+                value.document = document
                 value.accountID = pending.accountID
                 value.pending = nil
                 var next = records.filter { $0.confirmed.id != id }

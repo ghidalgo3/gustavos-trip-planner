@@ -1,3 +1,4 @@
+import { tripDocumentFixture } from "../../test/tripDocumentFixture";
 import {
   act,
   fireEvent,
@@ -10,10 +11,9 @@ import ColorSchemeProvider from "../../app/ColorSchemeProvider";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
-  clearTripSnapshotCache,
-  openTripSnapshot,
-  type TripSnapshot,
-} from "../../api/tripSnapshot";
+  clearTripDocumentCache,
+  openTripDocument,
+} from "../../api/tripDocumentStore";
 import {
   getSelectedFlights,
   getFlightChoices,
@@ -135,7 +135,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
   vi.unstubAllGlobals();
 });
 
@@ -259,32 +259,16 @@ test("starts empty and adds a selected city through the drawer without requiring
   ).not.toBeNull();
 });
 
-test("adds a single visit when the refreshed snapshot arrives before the add callback", async () => {
+test("adds a single visit when the refreshed document arrives before the add callback", async () => {
   const collection = {
     type: "FeatureCollection" as const,
     features: [paris],
     route: [{ destinationId: paris.id, stayId: paris.properties.stays[0].id }],
   };
-  const tripPath = `/trips/${trip.id}`;
-  const snapshot: TripSnapshot = {
-    "@type": "Trip",
-    "@id": `urn:uuid:${trip.id}`,
-    schemaVersion: 1,
-    name: trip.name,
-    revision: "1",
-    resources: {
-      [tripPath]: {
-        href: tripPath,
-        etag: '"1"',
-        status: 200,
-        contentType: "application/json",
-        data: trip,
-      },
-    },
-  };
+  const document = tripDocumentFixture(trip);
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => Response.json(snapshot)),
+    vi.fn(async () => Response.json(document)),
   );
   let finishSave!: (destination: Destination) => void;
   const save = new Promise<Destination>((resolve) => {
@@ -300,7 +284,7 @@ test("adds a single visit when the refreshed snapshot arrives before the add cal
 
   vi.mocked(getDestinations).mockResolvedValue(collection);
   await act(async () => {
-    await openTripSnapshot(trip.ownerUserId, trip.id, "");
+    await openTripDocument(trip.ownerUserId, trip.id, "");
   });
   const visits = screen.getByRole("list", {
     name: "Trip destinations",

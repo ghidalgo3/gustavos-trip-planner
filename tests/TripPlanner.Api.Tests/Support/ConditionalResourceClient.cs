@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 
 namespace TripPlanner.Api.Tests.Support;
 
@@ -61,24 +61,31 @@ public static class ConditionalResourceClient
         {
             return;
         }
-        using var response = await client.GetAsync($"/trips/{id}/snapshot");
-        if (!response.IsSuccessStatusCode)
-        {
-            return;
-        }
-        var snapshot = await response.Content.ReadFromJsonAsync<TripSnapshotResponse>(
-            TripSnapshotProjection.JsonOptions
-        );
         string key = path.EndsWith("/purchases") ? path[..^10] : path;
-        if (snapshot!.Resources.TryGetValue(key, out var resource))
+        using var response = await client.GetAsync(key);
+        if (response.Headers.ETag is { } etag)
         {
-            request.Headers.TryAddWithoutValidation("If-Match", resource.Etag);
+            request.Headers.TryAddWithoutValidation("If-Match", etag.ToString());
         }
         else if (path.Contains("/members/"))
         {
+            using var exported = await client.GetAsync($"/trips/{id}/document");
+            string? memberEtag = null;
+            if (exported.IsSuccessStatusCode)
+            {
+                var document = await exported.Content.ReadFromJsonAsync<TripDocument>(
+                    TripResourceProjection.JsonOptions
+                );
+                var group = document!.Preferences["groups"]!
+                    .AsArray()
+                    .FirstOrDefault(value => value!["id"]!.GetValue<string>() == parts[4]);
+                memberEtag = group?["memberEtags"]?[parts[6]]?.GetValue<string>();
+            }
             request.Headers.TryAddWithoutValidation(
                 "If-Match",
-                TripSnapshotProjection.ETag<object?>(null)
+                memberEtag is null
+                    ? TripResourceProjection.ETag<object?>(null)
+                    : $"\"{memberEtag}\""
             );
         }
     }

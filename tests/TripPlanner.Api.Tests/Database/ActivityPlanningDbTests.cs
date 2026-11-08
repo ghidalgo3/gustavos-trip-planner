@@ -164,14 +164,14 @@ public sealed class ActivityPlanningDbTests
             );
             var party = (await db.GetPartiesAsync(user.Id, trip.Id)).Single();
             await db.ChangePartyMemberAsync(user.Id, trip.Id, party.Id, traveller.Id, true);
-            var memberSnapshot = (
+            var memberReadView = (
                 await service.ReadAsync(user.Id, trip.Id, place.CityId, CancellationToken.None)
             )!;
-            var matched = memberSnapshot.SavedPlan! with
+            var matched = memberReadView.SavedPlan! with
             {
-                Plan = memberSnapshot.SavedPlan.Plan with
+                Plan = memberReadView.SavedPlan.Plan with
                 {
-                    Days = memberSnapshot
+                    Days = memberReadView
                         .SavedPlan.Plan.Days.Select(d =>
                             d with
                             {
@@ -188,7 +188,7 @@ public sealed class ActivityPlanningDbTests
                     place.CityId,
                     matched,
                     matched.Version,
-                    memberSnapshot.InputRevision
+                    memberReadView.InputRevision
                 )
             );
             var tokenHash = Guid.NewGuid().ToString("N");

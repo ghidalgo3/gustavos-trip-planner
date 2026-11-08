@@ -23,33 +23,38 @@ Starter architecture for a React single-page application and a C# API deployed t
 
 Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
 
-[Milestone 5](docs/milestone_5.md) implements complete compressed trip snapshots,
-conditional REST updates, offline reading, and OAuth support for native clients.
-PostgreSQL remains authoritative. `GET /trips/{tripId}/snapshot` returns a
-versioned Schema.org Trip with a JSCalendar Group, shared entities and stable
-references, plus resource URLs/ETags for editing. The published JSON Schema is
-available at `/schemas/trip-snapshot-v1.json`. Use `Accept-Encoding: gzip` and
-`If-None-Match` for efficient downloads; a snapshot ETag validates that exact
-encoded representation and must not be used as an edit precondition.
-PostgreSQL gathers the snapshot inputs in one query. The API applies the
-JSON-LD projection and resource validators to that result.
+The [trip document](docs/trip_document.md) is the portable, versioned trip model.
+`GET /trips/{tripId}/document` returns people with roles and ownership, activities,
+transportation, an ordered itinerary, and editable preferences. Calculated
+assessments and flight-planning views are fetched through their APIs and cached
+separately for offline viewing after being loaded. Optional bare ETag tokens and context versions are direct properties of their entities,
+with named collection validators on their owning sections. Clients add the required ETag quotes when building HTTP headers. API routes remain in client
+adapters; response bodies and HTTP response metadata stay outside the file. The JSON Schema is public at
+`/schemas/trip-document-v1.json`. Web and iOS clients adapt the domain model to
+screen and editing resources locally; the document and REST contracts can evolve
+independently. PostgreSQL remains authoritative and gathers consistent export
+inputs in one query. Use `Accept-Encoding: gzip` and `If-None-Match` for efficient
+downloads. The download ETag validates that representation; individual edits use
+the resource's own `If-Match` and context validators. See
+[`before.json`](docs/before.json) and [`after.json`](docs/after.json) for the captured
+Japan trip before and after conversion.
 
-The web app reads trip views from its account-scoped snapshot cache, saves through
-resource REST APIs, and reloads the snapshot after successful mutations. A stale
+The web app reads trip views through adapters over its account-scoped document cache, saves through
+resource REST APIs, and reloads the document after successful mutations. A stale
 write returns `412`; missing edit preconditions return `428`. The UI retains the
 draft and offers Refresh; it does not replay stale writes. Cached trips remain
 readable offline, with editing disabled. The production service worker caches the
-public app shell; authenticated snapshots are cached separately and cleared on
+public app shell; authenticated documents are cached separately and cleared on
 sign-out or an online access denial. Other tabs/devices do not receive live pushes.
 
 Offline launch also persists the last confirmed display identity and the trip list
 in account-scoped local storage; it does not persist authentication credentials.
 The installed app can reopen at its home screen without a network connection and
 open previously downloaded trips marked **Available offline**. Trips that have
-only appeared in the list need to be opened online once to download their snapshot.
+only appeared in the list need to be opened online once to download their document.
 Saved flights include selected individual legs before the route is complete,
 purchase status, and displaced selections that need review. Airport cities are
-included in the snapshot, so viewing flights and matching them to destination
+included in the document, so viewing flights and matching them to destination
 visits does not require an airport lookup. Offline flights use the same destination
 grid as online, with saved selections and booking status. Sorting, filtering,
 scrolling, and flight details remain available; search, selection changes, booking
@@ -181,13 +186,13 @@ and dates are persisted locally with SwiftData. Sign-in enables cloud trip acces
 and an explicit, one-way move to cloud storage. Cloud edits use cached content,
 optimistic saves, ETags, and a durable pending-write journal; cloud trips are
 read-only offline. Selecting a cloud trip shows destinations from its server
-snapshot, with cached data available offline. Online planners can add an
+document, with cached data available offline. Online planners can add an
 Apple Maps city, change an existing destination city, and edit stay dates. City
 replacement preserves the destination ID and planning constraints, keeping its
 activities and visits attached. Dates and city changes use separate resource
-updates with the ETags captured in the editing snapshot. Save closes the editor
+updates with the ETags captured in the editing document. Save closes the editor
 immediately and displays the pending draft while the request continues, including
-after navigation. Success commits a refreshed server snapshot; failure asks the
+after navigation. Success commits a refreshed server document; failure asks the
 user to refresh destinations before editing again. Pending writes prevent another
 destination write to that trip until completion. Shared services are owned by
 `AppDependencies`: `AppModel` handles session and trip-level state, while a typed
@@ -204,18 +209,18 @@ run the existing trip-wide flight search from the sheet. The sheet shows results
 for the selected pair of stays and draws illustrative great-circle arcs between
 each flight segment’s airports. Selecting a route or flight highlights it in
 the sheet for comparison. Saved flights appear in the destination timeline from
-the cached or live trip snapshot, including arrival and departure flights.
+the cached or live trip document, including arrival and departure flights.
 **Edit → Remove destination** removes a local stop or, for a cloud trip, the
 city and all its stays and activities after confirmation.
 
 In Debug builds, filter the Xcode console for the `HTTP` log category to see
 request and response pairs for the trip API and OAuth token exchange. Each pair
 shares a short ID and includes the status, duration, and byte counts. To diagnose
-destination removal, look for the DELETE followed by the snapshot GET. Request
+destination removal, look for the DELETE followed by the document GET. Request
 headers, query strings, and payload contents are omitted from the HTTP log.
 
-Cloud promotion uses `PUT /trips/{tripId}/snapshot` with the same version-1
-snapshot document used by GET export. Imports currently accept metadata-only
+Cloud promotion uses `PUT /trips/{tripId}/document` with the portable version-1
+document used by GET export. Imports currently accept metadata-only
 trips and reject unsupported itinerary content. An internal import receipt makes
 retries safe; there is no separate `/trip-imports` route.
 
@@ -275,7 +280,7 @@ Running `docker compose up` directly still starts the application, but local sig
 
 The API requires `ConnectionStrings:TripPlanner`. Docker Compose supplies a local PostgreSQL connection string with development-only password authentication. In Azure, `buildout` provisions an Azure Database for PostgreSQL Flexible Server with password authentication disabled and assigns the App Service managed identity as its Microsoft Entra administrator. `release` supplies a passwordless TLS connection string and enables managed-identity token acquisition. Npgsql periodically refreshes the database access token through `Azure.Identity`.
 
-At startup, the API acquires a PostgreSQL advisory transaction lock, creates the `gustavo_planner` schema when needed, then creates `gustavo_planner.schema_migrations` and loads and sorts the `.sql` files in `src/TripPlanner.Api/migrations`. Application connections use `gustavo_planner` as their search path, so all application tables and indexes live in that schema. Migration filenames use `0001_MigrationName.sql`; the four-digit prefix is the unique migration version. Applied versions and filenames are recorded in `gustavo_planner.schema_migrations`, and startup fails if an applied version has since been renamed. New migration files are copied into build and publish output automatically.
+At startup, the API acquires a PostgreSQL advisory transaction lock, creates the `gustavo_planner` schema when needed, then creates `gustavo_planner.schema_migrations` and loads and sorts the `.sql` files in `src/TripPlanner.Api/migrations`. Application connections use `gustavo_planner` as their search path, so all application tables and indexes live in that schema. Migration filenames use `0001_MigrationName.sql`; the four-digit prefix is the unique migration version. Applied versions and filenames are recorded in `gustavo_planner.schema_migrations`, and startup fails if an applied version has since been renamed. The trip document cleanup renamed migration `0018` to `0018_TripModificationTime.sql`; databases that applied its former name must be recreated before running this version. New migration files are copied into build and publish output automatically.
 
 Run `scripts/drop_db` to permanently drop the production `gustavo_planner` schema. It authenticates with the signed-in user's Microsoft Entra token and requires typing `drop gustavo_planner` before executing the drop. The API recreates the schema and its objects at its next startup, then restores contributor table grants and default privileges. Dropping the schema removes those grants from the old objects; role membership alone does not grant access to tables created afterward.
 
@@ -354,7 +359,7 @@ complete itineraries by price, stops, preferred airlines, home airport, and trav
 time. Separate tickets between stays are allowed and labeled; self-transfer
 connections are excluded. Results are a bounded sample, not a guarantee of the
 cheapest possible itinerary. The same asynchronous flight-search operation,
-one-hour cache, and selected-flight JSONB snapshot serve both planning modes.
+one-hour cache, and selected-flight JSONB booking data serve both planning modes.
 On phones and larger screens, route results show horizontally scrollable destination columns plus a return-home column. Phone columns stay 240–300px wide, with horizontal swipe scrolling and gentle column snapping; the rest of the page stays within the screen. Filters and selection actions wrap above the grid, and controls have larger touch targets. Each arriving flight card has a stable identity within its visit, including repeat destinations. Selected flights sort first. The split sort button orders the remaining cards by price, departure, arrival, or duration in either direction; unknown values stay last. Flight numbers for every segment appear below the airline name. Hover or keyboard focus draws and highlights complete server-validated paths containing that flight; alternatives in a column with a chosen flight do not trigger highlighting. Once all flights are chosen, their connecting line remains visible without hovering, including restored choices whose current search graph is unavailable. This line shows the chosen sequence; route feasibility is still assessed separately. Provisional flights show when no complete route has been found. Compact connection graphs preserve every valid path among the returned flight cards for any number of visits, independently of price ranking. Separate outbound fare contexts preserve bundled returns, currencies, and whole-trip duration constraints. Shared connection indexes avoid repeating flight details or enumerating every combination. At least one complete itinerary is retained for each compatible flight. Multi-stop hover reports connected flights instead of counting only the sampled itineraries. Card fares come from the cheapest complete path through that flight compatible with the current selections and filters, rather than an unrelated cheapest provider offer. Combined outbound/return fares are labeled explicitly; once both flights are selected, their shared fare appears once and the return says it is included in the outbound fare. Booking links and booked status are managed directly on each card. Flights without a compatible complete path retain their details but show no unverified fare. Graph responses identify bundled returns explicitly so the UI can distinguish their included return from a separately priced ticket. Clicking a card selects only that flight, in any column; clicking it again asks for confirmation before clearing it. Alternatives in selected columns dim, while other columns retain only flights on complete paths compatible with all selections. Each flight selection is saved immediately, including partial selections made out of order. A card’s **Booking Link** button and **Booked** switch use saved booking details, including partial selections. Preferred airlines have a **Preferred Airline** tag. When every selected leg forms a valid route, the complete itinerary is saved automatically for Plans and activity availability. Filters remain local. **Clear selections** reopens the grid after confirmation. Replacing a saved choice also requires confirmation. The cost slider’s minimum and maximum update from complete paths compatible with the current selections, airline filter, and stops filter as results arrive. Its own price cap does not shrink those bounds; a previously set cap is clamped to the updated range. The maximum total-trip-cost slider uses graph fare costs (charging each bundled fare once), rather than individual card prices or the sampled itineraries. Stops (nonstop, one, or two-plus) and airline multiselects apply to every flight/segment in the path; currencies are filtered separately. Forward/backward minimum-cost searches enforce the cap again when hovering or adding selections, so separately affordable branches cannot form an over-budget highlighted path. Search responses retain the complete weighted graph after selections are saved. Fluent UI skeleton cards appear in empty columns and below arriving results until the search finishes.
 
 Hover queries reuse a prepared graph with integer flight indexes and reusable cost buffers. Card content is memoized separately from highlight classes, and detailed flight information mounts only when expanded. A stable resize observer caches each card's geometry; pointer movement does not reread layout. All highlighted connections are drawn as subpaths in one SVG path, and highlighting has no fade animation. Geometry is refreshed when results, filters, selections, expanded details, or viewport size change.
@@ -386,7 +391,7 @@ route using cached or retained provider offers. If the provider no longer recogn
 Saving a complete route sends its leg identifiers and displayed price alongside the result key and index. The API resolves that quote against cached or retained, validated results, so additional search results cannot invalidate an unchanged selection. Changed flights or prices require reviewing the current results. The picker recognizes saved flights independently of temporary cache keys and result ordering, preserving its selected state and purchase indicators across refreshes.
 
 The owner can mark each flight as purchased on the saved route or in Plans;
-those booleans persist in the trip's selected-flight JSONB snapshot. Flights in a shared booking change purchase status together. Travel
+those booleans persist in the trip's selected-flight JSONB booking data. Flights in a shared booking change purchase status together. Travel
 companions can see the status but cannot change it. Prices include a local
 currency symbol alongside the currency code, such as USD $900.
 
@@ -457,7 +462,7 @@ The trip page has **Flights**, **Stays**, and **Plans** tabs, each reflected in 
 URL. An eligible fare can be selected, replaced, or deselected for its party.
 `GET /trips/{tripId}/flights` returns saved choices, or 204 when none have been
 selected; `PUT` and `DELETE` on `/{partyId}` replace or clear one. The API checks a new choice against
-the current cached search and stores an itinerary snapshot in `trips.selected_flights`,
+the current cached search and stores an saved itinerary in `trips.selected_flights`,
 so the Plans overview still shows it after the fare cache expires. This is a
 saved planning choice, not a booking. Stays is currently a placeholder.
 `PUT /trips/{tripId}/flights/{partyId}/purchases` saves one
@@ -669,7 +674,7 @@ and browser CORS behavior are not part of this contract. REST authentication
 failures return `401/403` instead of HTML login redirects. API and MCP token
 audiences are separate. OAuth server metadata is at `/.well-known/oauth-authorization-server` and API resource metadata
 at `/.well-known/oauth-protected-resource/api`. Native clients should persist the
-last successful snapshot per account/trip and follow the same explicit conflict
+last successful document per account/trip and follow the same explicit conflict
 refresh protocol as the web app. Offline writes are not queued.
 
 **Profile → Activity Log** shows new successful trip mutations, newest first, with
@@ -1078,8 +1083,8 @@ plugin's tool definitions so it receives the updated schemas.
 | GET | `/mapToken` | Issue an authenticated two-hour Azure Maps SAS limited to 50 requests per second |
 | GET, POST | `/trips` | List visible trips or create a trip with name, description, and optional constraints |
 | GET, PUT, DELETE | `/trips/{tripId}` | Read, replace, or delete a trip |
-| GET | `/trips/{tripId}/snapshot` | Complete versioned trip JSON-LD with gzip negotiation, conditional reads, and resource validators; MCP: `get_trip_snapshot` |
-| GET | `/schemas/trip-snapshot-v1.json` | Published JSON Schema for the snapshot format |
+| GET, PUT | `/trips/{tripId}/document` | Portable trip document and metadata-only import; optional validator metadata, gzip, conditional reads; MCP: `get_trip_document` |
+| GET | `/schemas/trip-document-v1.json` | Published JSON Schema for the trip document |
 | GET, PUT | `/trips/{tripId}/travel` | Read or conditionally replace all travel connections; MCP: `get_trip_travel`, `replace_trip_travel` |
 | GET | `/trips/{tripId}/travellers` | Read travellers and roles for the single-party trip |
 | GET, PUT, DELETE | `/trips/{tripId}/travellers/{memberId}` | Read membership or conditionally replace/remove it as the owner; actor inferred from authentication |

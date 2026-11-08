@@ -9,16 +9,16 @@ using Npgsql;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Database;
 
 [TestClass]
-public sealed class TripSnapshotPostgresTests
+public sealed class TripReadPostgresTests
 {
     [TestMethod]
-    public async Task MigrationMakesLegacyIdeasReadableInSnapshots()
+    public async Task MigrationMakesLegacyIdeasReadableInReadViews()
     {
         await WithDatabase(
             async (source, db) =>
@@ -51,13 +51,13 @@ public sealed class TripSnapshotPostgresTests
                     NullLogger<DatabaseMigrator>.Instance
                 ).MigrateAsync();
 
-                var snapshot = await db.ReadTripSnapshotAsync(
+                var readView = await db.ReadTripDataAsync(
                     owner.Id,
                     trip.Id,
                     CancellationToken.None
                 );
-                Assert.IsNotNull(snapshot);
-                var activity = snapshot.Activities.Single();
+                Assert.IsNotNull(readView);
+                var activity = readView.Activities.Single();
                 Assert.AreEqual("Museum", activity.Properties.Name);
                 Assert.AreEqual(ActivityState.Proposed, activity.Properties.State);
             }
@@ -65,13 +65,13 @@ public sealed class TripSnapshotPostgresTests
     }
 
     [TestMethod]
-    public async Task SnapshotReadsOneDatabaseVersionAcrossAConcurrentMultirowCommit()
+    public async Task ReadViewReadsOneDatabaseVersionAcrossAConcurrentMultirowCommit()
     {
         await WithDatabase(
             async (source, db) =>
             {
                 var user = await db.GetOrCreateUserAsync(
-                    new("google", "snapshot@example.com", "Snapshot")
+                    new("google", "readView@example.com", "ReadView")
                 );
                 var trip = await db.CreateTripAsync(user.Id, "Before", "");
                 var place = await db.SaveDestinationPlaceAsync(
@@ -127,12 +127,12 @@ public sealed class TripSnapshotPostgresTests
                 Assert.AreEqual(("Before", "Before", "Before"), captured);
                 Assert.IsNull(Transaction.Current);
                 Assert.AreEqual("After", (await db.GetVisibleTripAsync(user.Id, trip.Id))!.Name);
-                var snapshot = await new TripSnapshotReader(db).ReadAsync(
+                var readView = await new TripReader(db).ReadAsync(
                     user.Id,
                     trip.Id,
                     CancellationToken.None
                 );
-                Assert.AreEqual("After", snapshot!.Destinations.Single().Name);
+                Assert.AreEqual("After", readView!.Destinations.Single().Name);
             }
         );
     }
@@ -221,7 +221,7 @@ public sealed class TripSnapshotPostgresTests
                 var connection = new TripTravelConnection(
                     Guid.NewGuid(),
                     "Train",
-                    new(TripSnapshotProjection.LocalId(trip.Id, "place", "home"), null, null),
+                    new(TripResourceProjection.LocalId(trip.Id, "place", "home"), null, null),
                     new(null, null, visit.StayId),
                     "train",
                     "user",
@@ -246,20 +246,16 @@ public sealed class TripSnapshotPostgresTests
                     "train",
                     (await db.GetTripTravelAsync(user.Id, trip.Id)).Connections.Single().Mode
                 );
-                var snapshot = await db.ReadTripSnapshotAsync(
-                    user.Id,
-                    trip.Id,
-                    CancellationToken.None
-                );
-                Assert.IsNotNull(snapshot);
-                var capturedConnection = snapshot.Travel.Connections.Single();
+                var readView = await db.ReadTripDataAsync(user.Id, trip.Id, CancellationToken.None);
+                Assert.IsNotNull(readView);
+                var capturedConnection = readView.Travel.Connections.Single();
                 Assert.AreEqual(connection.Id, capturedConnection.Id);
                 Assert.AreEqual(connection.Mode, capturedConnection.Mode);
                 Assert.AreEqual(connection.To, capturedConnection.To);
-                Assert.AreEqual(visit.StayId, snapshot.Visits.Single().StayId);
-                Assert.AreEqual(saved.Version, snapshot.Travel.Version);
+                Assert.AreEqual(visit.StayId, readView.Visits.Single().StayId);
+                Assert.AreEqual(saved.Version, readView.Travel.Version);
                 Assert.IsNull(
-                    await db.ReadTripSnapshotAsync(Guid.NewGuid(), trip.Id, CancellationToken.None)
+                    await db.ReadTripDataAsync(Guid.NewGuid(), trip.Id, CancellationToken.None)
                 );
                 await db.DeleteDestinationVisitAsync(user.Id, trip.Id, place.CityId, visit.StayId);
                 var after = await db.GetTripTravelAsync(user.Id, trip.Id);
@@ -282,7 +278,7 @@ public sealed class TripSnapshotPostgresTests
                     new("google", "other@example.com", "Other")
                 );
                 var store = new PostgresTripImportStore(source);
-                var request = TripSnapshotFixture.Create(
+                var request = TripDocumentFixture.Create(
                     1,
                     Guid.NewGuid(),
                     "Device trip",
@@ -299,16 +295,9 @@ public sealed class TripSnapshotPostgresTests
                 );
                 Assert.AreEqual(1, results.Count(result => result.Status == 201));
                 Assert.AreEqual(7, results.Count(result => result.Status == 200));
-                Assert.IsTrue(
-                    results.All(result =>
-                        result.Trip!.Id == Guid.Parse(request.Id["urn:uuid:".Length..])
-                    )
-                );
+                Assert.IsTrue(results.All(result => result.Trip!.Id == request.Id));
                 Assert.HasCount(1, await db.GetTripsAsync(owner.Id));
-                Assert.HasCount(
-                    1,
-                    await db.GetPartiesAsync(owner.Id, Guid.Parse(request.Id["urn:uuid:".Length..]))
-                );
+                Assert.HasCount(1, await db.GetPartiesAsync(owner.Id, request.Id));
                 Assert.AreEqual(
                     404,
                     (await store.GetAsync(other.Id, transfer, CancellationToken.None)).Status
@@ -338,7 +327,7 @@ public sealed class TripSnapshotPostgresTests
                         )
                     ).Status
                 );
-                await db.DeleteTripAsync(owner.Id, Guid.Parse(request.Id["urn:uuid:".Length..]));
+                await db.DeleteTripAsync(owner.Id, request.Id);
                 Assert.AreEqual(
                     410,
                     (
@@ -364,7 +353,7 @@ public sealed class TripSnapshotPostgresTests
                     new("google", "invalid-import@example.com", "Owner")
                 );
                 var store = new PostgresTripImportStore(source);
-                var request = TripSnapshotFixture.Create(
+                var request = TripDocumentFixture.Create(
                     1,
                     Guid.NewGuid(),
                     new string('x', 201),
@@ -390,11 +379,11 @@ public sealed class TripSnapshotPostgresTests
         if (string.IsNullOrWhiteSpace(connection))
         {
             Assert.Inconclusive(
-                "Set TRIPPLANNER_TEST_POSTGRES to enable isolated PostgreSQL snapshot tests."
+                "Set TRIPPLANNER_TEST_POSTGRES to enable isolated PostgreSQL readView tests."
             );
             return;
         }
-        var name = "snapshot_test_" + Guid.NewGuid().ToString("N");
+        var name = "readView_test_" + Guid.NewGuid().ToString("N");
         await using var admin = NpgsqlDataSource.Create(connection);
         await using (var create = admin.CreateCommand($"CREATE DATABASE {name}"))
         {

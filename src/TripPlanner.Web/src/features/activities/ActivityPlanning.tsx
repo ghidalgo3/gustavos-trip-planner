@@ -2,7 +2,7 @@ import { mapsClient } from "../../maps/mapsClient";
 import {
   useExplicitResourceRefresh,
   useTripResourceVersion,
-} from "../../api/tripSnapshot";
+} from "../../api/tripDocumentStore";
 import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
 import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
 import { trackBehavior } from "../../telemetry/telemetry";
@@ -152,7 +152,7 @@ export default function ActivityPlanning({
   onDestinationChange?: (destination: Destination | undefined) => void;
   active?: boolean;
 }) {
-  const snapshotVersion = useTripResourceVersion(
+  const documentVersion = useTripResourceVersion(
     `/trips/${trip.id}/destinations`,
   );
   const [query, setQuery] = useSearchParams();
@@ -291,7 +291,7 @@ export default function ActivityPlanning({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [trip.id, active, snapshotVersion]);
+  }, [trip.id, active, documentVersion]);
 
   useEffect(() => {
     if (!cityId || !active) return;
@@ -309,7 +309,7 @@ export default function ActivityPlanning({
           );
       });
     return () => controller.abort();
-  }, [trip.id, cityId, active, snapshotVersion]);
+  }, [trip.id, cityId, active, documentVersion]);
 
   useEffect(() => {
     return () => {

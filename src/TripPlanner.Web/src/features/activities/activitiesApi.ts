@@ -1,4 +1,4 @@
-import { tripFetch } from "../../api/tripSnapshot";
+import { tripFetch } from "../../api/tripDocumentStore";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { apiBaseUrl, readTripError } from "../../api/api";
 import { getOperation, type TrackedOperation } from "../../api/operationsApi";

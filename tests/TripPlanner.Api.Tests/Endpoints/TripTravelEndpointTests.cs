@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Endpoints;
@@ -19,11 +19,11 @@ public sealed class TripTravelEndpointTests
     [DataRow("train")]
     [DataRow("transit")]
     [DataRow("flight")]
-    public async Task UntimedJourneyRemainsTaskAndSchedulingPreservesItsIdentity(string mode)
+    public async Task UntimedJourneyRemainsUnscheduledAndSchedulingPreservesItsIdentity(string mode)
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var owner = await TripSnapshotEndpointTests.Seed(factory, client);
+        var owner = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(owner.Id, "Journey", "");
         var paris = await factory.Database.SaveDestinationPlaceAsync(
             owner.Id,
@@ -39,7 +39,7 @@ public sealed class TripTravelEndpointTests
         var connection = new TravelConnectionRequest(
             Guid.NewGuid(),
             "Travel to Paris",
-            new(PlaceId: TripSnapshotProjection.LocalId(trip.Id, "place", "home")),
+            new(PlaceId: TripResourceProjection.LocalId(trip.Id, "place", "home")),
             new(VisitId: visit.StayId),
             mode,
             DepartureDate: new(2030, 4, 1),
@@ -50,7 +50,7 @@ public sealed class TripTravelEndpointTests
         {
             Content = JsonContent.Create(
                 new TripTravelRequest([connection]),
-                options: TripSnapshotProjection.JsonOptions
+                options: TripResourceProjection.JsonOptions
             ),
         };
         request.Headers.IfMatch.Add(read.Headers.ETag!);
@@ -63,24 +63,18 @@ public sealed class TripTravelEndpointTests
         Assert.AreEqual("\"travel-1\"", saved.Headers.ETag?.ToString());
         async Task<JsonElement> Entry()
         {
-            var snapshot = await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/snapshot");
-            return snapshot
-                .GetProperty("plan")
-                .GetProperty("entries")
+            var readView = await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/document");
+            return readView
+                .GetProperty("transportation")
+                .GetProperty("legs")
                 .EnumerateArray()
-                .Single(e => e.GetProperty("uid").GetString() == connection.Id.ToString());
+                .Single(e => e.GetProperty("id").GetString() == connection.Id.ToString());
         }
         var task = await Entry();
-        Assert.AreEqual("Task", task.GetProperty("@type").GetString());
+        Assert.AreEqual("connection", task.GetProperty("kind").GetString());
         Assert.IsFalse(task.TryGetProperty("start", out _));
-        Assert.AreEqual(
-            "2030-04-01",
-            task.GetProperty(TripSnapshotProjection.Extension + "departureDate").GetString()
-        );
-        Assert.AreEqual(
-            "America/New_York",
-            task.GetProperty(TripSnapshotProjection.Extension + "departureTimeZone").GetString()
-        );
+        Assert.AreEqual("2030-04-01", task.GetProperty("departureDate").GetString());
+        Assert.AreEqual("America/New_York", task.GetProperty("timeZone").GetString());
         connection = connection with
         {
             DepartureDate = new(2030, 4, 1),
@@ -91,22 +85,27 @@ public sealed class TripTravelEndpointTests
         using var timed = await client.PutResourceAsJsonAsync(
             path,
             new TripTravelRequest([connection]),
-            TripSnapshotProjection.JsonOptions
+            TripResourceProjection.JsonOptions
         );
         Assert.AreEqual(
             HttpStatusCode.OK,
             timed.StatusCode,
             await timed.Content.ReadAsStringAsync()
         );
-        var calendarEvent = await Entry();
-        Assert.AreEqual("Event", calendarEvent.GetProperty("@type").GetString());
+        var document = await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/document");
+        var calendarEvent = document
+            .GetProperty("itinerary")
+            .GetProperty("schedule")
+            .EnumerateArray()
+            .Single(e => e.GetProperty("id").GetString() == connection.Id.ToString());
+        Assert.AreEqual("transportation", calendarEvent.GetProperty("kind").GetString());
         Assert.AreEqual("2030-04-01T09:00:00", calendarEvent.GetProperty("start").GetString());
         Assert.AreEqual(
             "PT26H",
             calendarEvent.GetProperty("duration").GetString(),
             "Elapsed travel must not become a calendar-day duration across DST."
         );
-        Assert.AreEqual(connection.Id.ToString(), calendarEvent.GetProperty("uid").GetString());
+        Assert.AreEqual(connection.Id.ToString(), calendarEvent.GetProperty("id").GetString());
         using var stale = new HttpRequestMessage(HttpMethod.Put, path)
         {
             Content = JsonContent.Create(new TripTravelRequest([])),
@@ -130,7 +129,7 @@ public sealed class TripTravelEndpointTests
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var owner = await TripSnapshotEndpointTests.Seed(factory, client);
+        var owner = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(owner.Id, "Trip", "");
         string path = $"/trips/{trip.Id}/travel";
         var input = new TripTravelRequest([

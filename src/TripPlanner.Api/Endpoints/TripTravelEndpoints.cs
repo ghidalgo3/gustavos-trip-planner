@@ -3,7 +3,7 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -49,8 +49,8 @@ public static class TripTravelEndpoints
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser,
-        TripSnapshotReader reader,
-        TripSnapshotProjection projection
+        TripReader reader,
+        TripResourceProjection projection
     )
     {
         var (_, user, error) = await PlanningEndpointHelpers.AuthorizeAsync(
@@ -73,26 +73,32 @@ public static class TripTravelEndpoints
         {
             return ActivityPlanEndpoints.VersionError(context);
         }
-        var snapshot = projection.Project(data);
-        var reservedCalendarIds = snapshot.Plan["entries"]!
+        var view = projection.Project(data);
+        var document = view.Document;
+        var reservedCalendarIds = document.Transportation["legs"]!
             .AsArray()
-            .Select(entry => Guid.Parse(entry!["uid"]!.GetValue<string>()))
-            .Where(id => !data.Travel.Connections.Any(c => c.Id == id))
+            .Where(leg => leg!["kind"]!.GetValue<string>() != "connection")
+            .Select(leg => Guid.Parse(leg!["id"]!.GetValue<string>()))
+            .Concat(
+                document.Activities.Select(activity =>
+                    Guid.Parse(activity["id"]!.GetValue<string>())
+                )
+            )
             .ToHashSet();
-        var placeIds = snapshot.Places.Select(p => p["@id"]!.GetValue<string>()).ToHashSet();
-        var serviceIds = snapshot.Services.Select(p => p["@id"]!.GetValue<string>()).ToHashSet();
+        var placeIds = document.Places.Select(p => p["id"]!.GetValue<string>()).ToHashSet();
+        var serviceIds = view.Services.Keys.ToHashSet();
         var derivedPlaceIds = data
             .Activities.Select(a =>
-                TripSnapshotProjection.LocalId(tripId, "place", $"activity:{a.Id:D}")
+                TripResourceProjection.LocalId(tripId, "place", $"activity:{a.Id:D}")
             )
             .Concat(
                 data.Visits.Select(v =>
-                    TripSnapshotProjection.LocalId(tripId, "place", $"stay:{v.StayId:D}")
+                    TripResourceProjection.LocalId(tripId, "place", $"stay:{v.StayId:D}")
                 )
             )
             .ToHashSet();
         derivedPlaceIds.UnionWith(
-            data.Destinations.Select(p => TripSnapshotProjection.LocalId(tripId, "place", p.CityId))
+            data.Destinations.Select(p => TripResourceProjection.LocalId(tripId, "place", p.CityId))
         );
         bool ValidEndpoint(TravelEndpointRequest? endpoint)
         {
@@ -197,11 +203,7 @@ public static class TripTravelEndpoints
                         : null,
                     c.ServiceId is null
                         ? null
-                        : JsonSerializer.SerializeToElement(
-                            snapshot.Services.Single(service =>
-                                service["@id"]!.GetValue<string>() == c.ServiceId
-                            )
-                        )
+                        : JsonSerializer.SerializeToElement(view.Services[c.ServiceId])
                 );
             })
             .ToArray();

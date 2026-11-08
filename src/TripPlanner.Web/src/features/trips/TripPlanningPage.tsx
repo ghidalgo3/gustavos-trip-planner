@@ -13,10 +13,10 @@ import {
 } from "@fluentui/react-icons";
 import { apiBaseUrl, type Trip } from "../../api/api";
 import {
-  openTripSnapshot,
+  openTripDocument,
   refreshConflictedResource,
-  useTripSnapshotState,
-} from "../../api/tripSnapshot";
+  useTripDocumentState,
+} from "../../api/tripDocumentStore";
 import ActivityPlanningTab from "../activities/ActivityPlanningTab";
 import TripPlanning from "../flights/TripPlanning";
 import TripOverview from "./TripOverview";
@@ -43,23 +43,23 @@ export default function TripPlanningPage({
         : section === "flights"
           ? "flights"
           : "overview";
-  const snapshotState = useTripSnapshotState();
+  const documentState = useTripDocumentState();
   useEffect(() => {
     if (!tripId) return;
     const controller = new AbortController();
-    void openTripSnapshot(userId, tripId, apiBaseUrl, controller.signal).catch(
+    void openTripDocument(userId, tripId, apiBaseUrl, controller.signal).catch(
       () => undefined,
     );
     return () => controller.abort();
   }, [userId, tripId, offline]);
   const current =
-    snapshotState.tripId === tripId && snapshotState.userId === userId
+    documentState.tripId === tripId && documentState.userId === userId
       ? {
-          trip: snapshotState.snapshot?.resources[`/trips/${tripId}`]?.data as
+          trip: documentState.document?.resources[`/trips/${tripId}`]?.data as
             Trip | undefined,
           error:
-            !snapshotState.snapshot && !snapshotState.loading
-              ? snapshotState.message
+            !documentState.document && !documentState.loading
+              ? documentState.message
               : undefined,
         }
       : undefined;
@@ -87,27 +87,27 @@ export default function TripPlanningPage({
   const trip = current.trip;
   const readOnly =
     offline ||
-    snapshotState.offline ||
+    documentState.offline ||
     (trip.ownerUserId !== userId && !trip.canPlan);
 
   return (
     <div
       className={`trip-workspace trip-workspace-overview${activeTab === "activities" ? " trip-workspace-activities" : ""}`}
     >
-      {(snapshotState.message || snapshotState.conflict) && (
+      {(documentState.message || documentState.conflict) && (
         <div
-          className="snapshot-status"
-          role={snapshotState.conflict ? "alert" : "status"}
+          className="document-status"
+          role={documentState.conflict ? "alert" : "status"}
         >
-          <Text>{snapshotState.message}</Text>
+          <Text>{documentState.message}</Text>
           <Button
             appearance="primary"
-            disabled={snapshotState.loading}
+            disabled={documentState.loading}
             onClick={() =>
               void refreshConflictedResource().catch(() => undefined)
             }
           >
-            {snapshotState.loading ? "Refreshing…" : "Refresh"}
+            {documentState.loading ? "Refreshing…" : "Refresh"}
           </Button>
         </div>
       )}
@@ -116,7 +116,7 @@ export default function TripPlanningPage({
           <Title1 as="h1">{trip.name}</Title1>
           {readOnly && (
             <Text size={200}>
-              {offline || snapshotState.offline
+              {offline || documentState.offline
                 ? "Offline · View only"
                 : "Shared with you · View only"}
             </Text>

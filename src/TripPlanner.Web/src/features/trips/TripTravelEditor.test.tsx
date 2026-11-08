@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import TripTravelEditor, { type TravelPlan } from "./TripTravelEditor";
 import { planningRequest } from "../activities/activityPlanApi";
-import { clearTripSnapshotCache } from "../../api/tripSnapshot";
+import { clearTripDocumentCache } from "../../api/tripDocumentStore";
 vi.mock("../activities/activityPlanApi", () => ({ planningRequest: vi.fn() }));
 const plan: TravelPlan = {
   version: 1,
@@ -18,7 +18,7 @@ const plan: TravelPlan = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
 });
 function show() {
   return render(

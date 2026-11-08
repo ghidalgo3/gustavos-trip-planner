@@ -1,4 +1,4 @@
-import { useTripResourceVersion } from "../../api/tripSnapshot";
+import { useTripResourceVersion } from "../../api/tripDocumentStore";
 import type { PlannedVisit } from "./planningApi";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { useEffect, useRef, useState } from "react";

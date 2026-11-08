@@ -30,7 +30,7 @@ public sealed record TripResponse(
     public DateOnly? EndDate { get; init; }
 
     public string Etag =>
-        TripPlanner.Api.Services.Snapshots.TripSnapshotProjection.ETag(
+        TripPlanner.Api.Services.Documents.TripResourceProjection.ETag(
             new
             {
                 Id,

@@ -50,7 +50,7 @@ test.each([
   "/oauth/authorize",
   "/.auth/login/google",
   "/user",
-  "/trips/11111111-1111-1111-1111-111111111111/snapshot",
+  "/trips/11111111-1111-1111-1111-111111111111/document",
 ])("private navigation %s never enters the shell cache", (path) => {
   const app = worker();
   expect(app.navigate(path).respondWith).not.toHaveBeenCalled();

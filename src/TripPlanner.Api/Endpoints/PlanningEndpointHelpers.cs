@@ -43,7 +43,7 @@ internal static class PlanningEndpointHelpers
         return (trip, user, null);
     }
 
-    internal static async Task<(DestinationSnapshot? Snapshot, IResult? Error)> ResolveAsync(
+    internal static async Task<(DestinationReadView? ReadView, IResult? Error)> ResolveAsync(
         Guid userId,
         Trip trip,
         string? cityId,
@@ -53,13 +53,13 @@ internal static class PlanningEndpointHelpers
     {
         try
         {
-            var snapshot = await service.GetAsync(userId, trip, context.RequestAborted);
-            if (cityId is not null && snapshot.Find(cityId) is null)
+            var readView = await service.GetAsync(userId, trip, context.RequestAborted);
+            if (cityId is not null && readView.Find(cityId) is null)
             {
                 return (null, Results.NotFound());
             }
 
-            return (snapshot, null);
+            return (readView, null);
         }
         catch (InvalidOperationException exception)
         {

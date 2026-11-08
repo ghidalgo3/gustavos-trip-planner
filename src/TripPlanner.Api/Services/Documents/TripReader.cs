@@ -1,18 +1,14 @@
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 
-namespace TripPlanner.Api.Services.Snapshots;
+namespace TripPlanner.Api.Services.Documents;
 
-public sealed class TripSnapshotReader(IPlannerDb database)
+public sealed class TripReader(IPlannerDb database)
 {
     // Also called inside the write transaction when checking edit preconditions.
-    public async Task<TripSnapshotData?> ReadAsync(
-        Guid userId,
-        Guid tripId,
-        CancellationToken token
-    )
+    public async Task<TripReadData?> ReadAsync(Guid userId, Guid tripId, CancellationToken token)
     {
-        var data = await database.ReadTripSnapshotAsync(userId, tripId, token);
+        var data = await database.ReadTripDataAsync(userId, tripId, token);
         return data is null
             ? null
             : data with

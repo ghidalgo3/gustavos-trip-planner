@@ -1,4 +1,4 @@
-import { refreshTripSnapshot } from "./tripSnapshot";
+import { refreshTripDocument } from "./tripDocumentStore";
 import { apiBaseUrl, readTripError } from "./api";
 import type { PreparedSearch } from "../features/flights/planningApi";
 
@@ -173,7 +173,7 @@ export async function getOperation(
     await readTripError(response, "checking the trip form fill");
   const operation = (await response.json()) as TrackedOperation;
   if (operation.status === "Completed" && operation.type === "activitySuggest")
-    await refreshTripSnapshot(signal).catch(() => undefined);
+    await refreshTripDocument(signal).catch(() => undefined);
   return operation;
 }
 

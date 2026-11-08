@@ -30,7 +30,7 @@ public sealed class TripPlannerTools(
 )
 {
     [McpServerTool(
-        Name = "get_trip_snapshot",
+        Name = "get_trip_document",
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
@@ -41,19 +41,19 @@ public sealed class TripPlannerTools(
         JsonValue = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]"
     )]
     [Description(
-        "Read the complete shared trip snapshot in one call, including stable places/people, visits, activities and travel calendar, selected flights and resource edit validators. Private profiles, credentials and transient searches are excluded."
+        "Read the portable trip document in one call: people with roles and ownership, activities, transportation, itinerary, preferences, and optional edit validators without cached REST response bodies. Private profiles, credentials and transient searches are excluded."
     )]
-    public Task<CallToolResult> GetTripSnapshot(Guid tripId) =>
+    public Task<CallToolResult> GetTripDocument(Guid tripId) =>
         adapter.ExecuteAsync(
             false,
             context =>
-                TripImportExport.GetSnapshot(
+                TripDocumentEndpoints.GetDocument(
                     tripId,
                     context,
                     database,
                     currentUser,
-                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotReader>(),
-                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotProjection>()
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Documents.TripReader>(),
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Documents.TripResourceProjection>()
                 )
         );
 
@@ -696,8 +696,8 @@ public sealed class TripPlannerTools(
                     context,
                     database,
                     currentUser,
-                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotReader>(),
-                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Snapshots.TripSnapshotProjection>()
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Documents.TripReader>(),
+                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Documents.TripResourceProjection>()
                 ),
             etag: etag
         );

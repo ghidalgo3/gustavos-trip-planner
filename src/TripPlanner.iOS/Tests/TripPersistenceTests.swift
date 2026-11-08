@@ -5,30 +5,31 @@ import Testing
 @MainActor
 @Suite("Local trips and cloud write recovery")
 struct TripPersistenceTests {
-    @Test func uploadUsesTheSharedSnapshotShapeAndIsStableAcrossRetries() throws {
+    @Test func uploadUsesTheSharedDocumentShapeAndIsStableAcrossRetries() throws {
         let trip = Trip.local(name: "Japan", description: "Spring")
         let pending = PendingTripWrite(kind: .promote, accountID: UUID(), base: trip, draft: trip)
         let restored = try JSONDecoder().decode(PendingTripWrite.self, from: JSONEncoder().encode(pending))
-        #expect(pending.snapshotDocument == restored.snapshotDocument)
-        guard case .object(let document) = pending.snapshotDocument else {
-            Issue.record("The snapshot must be an object")
+        #expect(pending.document == restored.document)
+        guard case .object(let document) = pending.document else {
+            Issue.record("The document must be an object")
             return
         }
         let schemaURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("docs/schemas/trip-snapshot-v1.schema.json")
+            .appendingPathComponent("docs/schemas/trip-document-v1.schema.json")
         let schema = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: schemaURL))
         guard case .object(let schemaFields) = schema,
               case .array(let required) = schemaFields["required"] else {
-            Issue.record("The pinned snapshot schema must declare its required fields")
+            Issue.record("The pinned document schema must declare its required fields")
             return
         }
         for field in required {
             if case .string(let key) = field { #expect(document[key] != nil) }
         }
-        #expect(document["@type"] == .string("Trip"))
-        #expect(document["@id"] == .string("urn:uuid:" + trip.id.uuidString.lowercased()))
+        #expect(document["sync"] == nil)
+        #expect(document["assessments"] == nil)
+        #expect(document["id"] == .string(trip.id.uuidString.lowercased()))
         #expect(document["schemaVersion"] == .number(1))
         #expect(document["sourceTripId"] == nil)
     }
@@ -173,7 +174,7 @@ struct TripPersistenceTests {
         let local = Trip.local(name: "Move me", description: "")
         try store.save(StoredTrip(confirmed: local))
         let api = TestAPI(signedIn: true)
-        api.snapshotFails = true
+        api.documentFails = true
         let model = AppModel(api: api, store: store)
         await model.start()
         model.moveToCloud(local)
@@ -181,13 +182,13 @@ struct TripPersistenceTests {
         #expect(model.pendingWrite(for: local)?.status == .committed)
         #expect(!model.canEdit(local))
         #expect(model.trips.first?.isLocal == false)
-        api.snapshotFails = false
+        api.documentFails = false
         model.retry(local)
         await waitUntil { model.pendingWrite(for: local) == nil }
         #expect(api.transferIDs.count == 1)
         #expect(model.trips.count == 1)
         #expect(model.trips.first?.id == local.id)
-        #expect(try store.load().first?.snapshot != nil)
+        #expect(try store.load().first?.document != nil)
     }
 
     @Test func refreshCannotOverwriteNewerSave() async throws {
@@ -230,7 +231,7 @@ final class TestAPI: TripPlannerServing {
     var pauseUpdates = false
     var pauseList = false
     var listFails = false
-    var snapshotFails = false
+    var documentFails = false
     var updateContinuation: CheckedContinuation<Void, Never>?
     var listContinuation: CheckedContinuation<[Trip], Never>?
 
@@ -252,8 +253,8 @@ final class TestAPI: TripPlannerServing {
         guard let trip = remote.first(where: { $0.id == id }) else { throw APIError.server(status: 404, message: nil) }
         return trip
     }
-    func snapshot(id: UUID) async throws -> Data {
-        if snapshotFails { throw URLError(.networkConnectionLost) }
+    func document(id: UUID) async throws -> Data {
+        if documentFails { throw URLError(.networkConnectionLost) }
         return Data("{}".utf8)
     }
     func importTrip(_ write: PendingTripWrite) async throws -> Trip {

@@ -131,7 +131,7 @@ final class PreviewTripAPI: TripPlannerServing {
     func currentUser() async throws -> CurrentUser { throw URLError(.notConnectedToInternet) }
     func trips() async throws -> [Trip] { [] }
     func trip(id: UUID) async throws -> Trip { throw APIError.unauthorized }
-    func snapshot(id: UUID) async throws -> Data { throw APIError.unauthorized }
+    func document(id: UUID) async throws -> Data { throw APIError.unauthorized }
     func importTrip(_ write: PendingTripWrite) async throws -> Trip { throw APIError.unauthorized }
     func updateTrip(_ trip: Trip, name: String, description: String) async throws -> Trip { throw APIError.unauthorized }
     func deleteTrip(_ trip: Trip) async throws { throw APIError.unauthorized }

@@ -1,4 +1,4 @@
-import { useTripResourceVersion } from "../../api/tripSnapshot";
+import { useTripResourceVersion } from "../../api/tripDocumentStore";
 import { BookingOptionsSkeleton } from "./FlightSkeletons";
 import FlightPriceStatus from "./FlightPriceStatus";
 import {

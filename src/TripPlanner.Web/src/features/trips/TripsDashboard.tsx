@@ -1,6 +1,6 @@
 import { hasOfflineTrip, readTripCatalog } from "../../api/offlineCache";
 import { isAccessDenied } from "../../api/httpErrors";
-import { clearTripSnapshotCache } from "../../api/tripSnapshot";
+import { clearTripDocumentCache } from "../../api/tripDocumentStore";
 import { TripsSkeleton } from "./TripSkeletons";
 import TripMetadataEditor from "./TripMetadataEditor";
 import { FormEvent, useEffect, useEffectEvent, useRef, useState } from "react";
@@ -71,7 +71,7 @@ export default function TripsDashboard({
       } catch (reason) {
         if (controller.signal.aborted) return;
         if (isAccessDenied(reason)) {
-          clearTripSnapshotCache();
+          clearTripDocumentCache();
           setTrips([]);
           setError("Sign in again to load your trips.");
           sessionExpired();
@@ -158,7 +158,7 @@ export default function TripsDashboard({
       </div>
 
       {readOnly && (
-        <div className="snapshot-status" role="status">
+        <div className="document-status" role="status">
           <Text>
             Showing your saved trip list. Trips marked “Available offline” can
             be opened without a connection.

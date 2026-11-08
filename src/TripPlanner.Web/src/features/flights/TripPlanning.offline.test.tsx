@@ -1,8 +1,10 @@
+import { tripDocumentFixture } from "../../test/tripDocumentFixture";
 import {
-  clearTripSnapshotCache,
-  openTripSnapshot,
-  refreshTripSnapshot,
-} from "../../api/tripSnapshot";
+  clearTripDocumentCache,
+  openTripDocument,
+  refreshTripDocument,
+  tripFetch,
+} from "../../api/tripDocumentStore";
 import { memoryStorage } from "../../test/memoryStorage";
 import { legKey } from "./flightFormatting";
 import type { FareLeg } from "../../api/operationsApi";
@@ -14,7 +16,7 @@ import TripPlanning from "./TripPlanning";
 import type { Trip } from "../../api/api";
 
 afterEach(() => {
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
   vi.unstubAllGlobals();
 });
 
@@ -31,7 +33,7 @@ const savedLeg: FareLeg = {
     },
   ],
 };
-async function offlineFlights(choices: unknown[], legacy: unknown[] = []) {
+async function offlineFlights(choices: unknown[], bookings: unknown[] = []) {
   const trip: Trip = {
     id: "trip",
     ownerUserId: "owner",
@@ -42,79 +44,117 @@ async function offlineFlights(choices: unknown[], legacy: unknown[] = []) {
     updatedAt: "",
   };
   const prefix = "/trips/trip";
-  const resource = (href: string, data: unknown, status = 200) => ({
-    href,
-    data,
-    status,
-    etag: '"1"',
-    contentType: "application/json",
-  });
-  const snapshot = {
-    "@type": "Trip",
-    "@id": "urn:uuid:trip",
-    schemaVersion: 1,
-    name: trip.name,
-    revision: "1",
+  const groups = [{ id: "party", personIds: ["owner"] }];
+  const progress = choices as {
+    partyId: string;
+    flights?: { legIndex: number; leg: Record<string, unknown> }[];
+    unmatchedFlights?: Record<string, unknown>[];
+    [key: string]: unknown;
+  }[];
+  const document = tripDocumentFixture(trip, {
     places: [
       {
-        "@id": "bos",
+        id: "bos",
         name: "Logan",
+        type: "Airport",
         iataCode: "BOS",
         address: { addressLocality: "Boston" },
       },
       {
-        "@id": "nrt",
+        id: "nrt",
         name: "Narita",
+        type: "Airport",
         iataCode: "NRT",
         address: { addressLocality: "Tokyo" },
       },
+      {
+        id: "tokyo",
+        name: "Tokyo",
+        type: "Place",
+        destinationId: "tokyo",
+        countryCode: "JP",
+        timeZone: "Asia/Tokyo",
+        location: null,
+        active: true,
+      },
     ],
-    resources: {
-      [prefix]: resource(prefix, trip),
-      [`${prefix}/flights`]: resource(
-        `${prefix}/flights`,
-        legacy,
-        legacy.length ? 200 : 204,
-      ),
-      [`${prefix}/flights/choices`]: resource(
-        `${prefix}/flights/choices`,
-        choices,
-      ),
-      [`${prefix}/flights/constraints`]: resource(
-        `${prefix}/flights/constraints`,
+    itinerary: {
+      visits: [
         {
-          parties: [{ partyId: "party", preferredAirlines: ["JL"] }],
-          visits: [
-            {
-              id: "visit",
-              location: { code: "TYO", label: "Tokyo", timeZone: "Asia/Tokyo" },
-              nights: 8,
-              presentFrom: "2030-04-02",
-              presentThrough: "2030-04-10",
-              afterVisitIds: [],
-            },
-          ],
-          constraints: [],
+          id: "visit",
+          order: 0,
+          destinationId: "tokyo",
+          arrivalDate: "2030-04-02",
+          departureDate: "2030-04-10",
+          accommodationPlaceId: null,
         },
-      ),
-      [`${prefix}/destinations`]: resource(`${prefix}/destinations`, {
-        type: "FeatureCollection",
-        features: [{ properties: { stays: [{ id: "visit" }] } }],
-        route: [],
-      }),
-      [`${prefix}/parties`]: resource(`${prefix}/parties`, [
-        { id: "party", members: [{ id: "owner", name: "Ada" }] },
-      ]),
+      ],
+      days: [],
+      schedule: [],
     },
+    preferences: {
+      constraints: {},
+      groups,
+      activities: {},
+      destinations: [
+        {
+          destinationId: "tokyo",
+          constraints: {},
+          activities: {},
+          schedule: {},
+        },
+      ],
+      flightChoices: progress.map((c) =>
+        Object.fromEntries([
+          ...Object.entries(c).filter(
+            ([key]) =>
+              !["partyId", "flights", "unmatchedFlights"].includes(key),
+          ),
+          ["groupId", c.partyId],
+        ]),
+      ),
+    },
+    transportation: {
+      legs: [],
+      journeys: progress.flatMap((c) => [
+        ...(c.flights ?? []).map((f) => ({
+          groupId: c.partyId,
+          legIndex: f.legIndex,
+          details: f.leg,
+        })),
+        ...(c.unmatchedFlights ?? []).map((f) => ({
+          groupId: c.partyId,
+          legIndex: null,
+          details: f,
+        })),
+      ]),
+      bookings: bookings as Record<string, unknown>[],
+    },
+  });
+  const planning = {
+    parties: [{ partyId: "party", preferredAirlines: ["JL"] }],
+    visits: [
+      {
+        id: "visit",
+        location: { code: "TYO", label: "Tokyo", timeZone: "Asia/Tokyo" },
+        nights: 8,
+        presentFrom: "2030-04-02",
+        presentThrough: "2030-04-10",
+        afterVisitIds: [],
+      },
+    ],
+    constraints: [],
   };
   vi.stubGlobal("localStorage", memoryStorage());
   const network = vi
     .fn()
-    .mockResolvedValueOnce(Response.json(snapshot))
+    .mockResolvedValueOnce(Response.json(document))
+    .mockResolvedValueOnce(Response.json(planning))
     .mockRejectedValue(new TypeError("Offline"));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", "trip", "");
-  await refreshTripSnapshot();
+  await openTripDocument("owner", "trip", "");
+  await tripFetch(prefix + "/flights/constraints");
+  await refreshTripDocument();
   render(
     <FluentProvider theme={webLightTheme}>
       <MemoryRouter>
@@ -185,11 +225,11 @@ test("offline grid preserves partial selections, booking status and details with
     expect(document.querySelector("details")).toHaveAttribute("open"),
   );
   expect(flight).toHaveAttribute("aria-pressed", "true");
-  expect(network).toHaveBeenCalledTimes(2);
+  expect(network).toHaveBeenCalledTimes(3);
 });
 
 test.each(["legs", "outbound/inbound"])(
-  "offline grid restores legacy %s selections and purchases",
+  "offline grid restores saved %s selections and purchases",
   async (shape) => {
     const home = {
       ...savedLeg,
@@ -227,7 +267,7 @@ test.each(["legs", "outbound/inbound"])(
     const booked = screen.getAllByRole("switch", { name: "Booked" });
     expect(booked[0]).toBeChecked();
     expect(booked[1]).not.toBeChecked();
-    expect(network).toHaveBeenCalledTimes(2);
+    expect(network).toHaveBeenCalledTimes(3);
   },
 );
 
@@ -248,7 +288,7 @@ test("offline grid retains displaced saved flights for review without enabling c
   expect(
     screen.getByRole("button", { name: "Clear selections" }),
   ).toBeDisabled();
-  expect(network).toHaveBeenCalledTimes(2);
+  expect(network).toHaveBeenCalledTimes(3);
 });
 
 test("offline grid honors an explicit cleared choice over an old itinerary", async () => {

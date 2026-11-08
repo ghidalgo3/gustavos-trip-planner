@@ -5,20 +5,20 @@ using System.Text.Json;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Endpoints;
 
 [TestClass]
-public sealed class TripSnapshotEndpointTests
+public sealed class TripDocumentResourceTests
 {
     [TestMethod]
-    public async Task SnapshotContainsRepeatVisitsIndependentStaysAndTasksWithoutPrivateProfiles()
+    public async Task DocumentContainsRepeatVisitsIndependentStaysAndTasksWithoutPrivateProfiles()
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var user = await Seed(factory, client);
+        var user = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(user.Id, "Japan", "Offline plan");
         var place = await factory.Database.SaveDestinationPlaceAsync(
             user.Id,
@@ -88,62 +88,89 @@ public sealed class TripSnapshotEndpointTests
                 null
             )
         );
-        using var response = await client.GetAsync($"/trips/{trip.Id}/snapshot");
+        using var response = await client.GetAsync($"/trips/{trip.Id}/document");
         Assert.AreEqual(
             HttpStatusCode.OK,
             response.StatusCode,
             await response.Content.ReadAsStringAsync()
         );
-        Assert.AreEqual("application/ld+json", response.Content.Headers.ContentType!.MediaType);
+        Assert.AreEqual("application/json", response.Content.Headers.ContentType!.MediaType);
         Assert.IsTrue(response.Headers.CacheControl!.Private);
         var text = await response.Content.ReadAsStringAsync();
         await File.WriteAllTextAsync(
-            Path.Combine(Path.GetTempPath(), "tripplanner-snapshot-v1-test.json"),
+            Path.Combine(Path.GetTempPath(), "tripplanner-document-v1-test.json"),
             text
         );
         Assert.DoesNotContain("PRIVATE-INSTRUCTIONS-DO-NOT-EXPORT", text);
         Assert.DoesNotContain(user.Email, text);
-        var snapshot = JsonSerializer.Deserialize<TripSnapshotResponse>(
+        Assert.DoesNotContain("/trips/", text);
+        Assert.DoesNotContain("\"sync\":", text);
+        var document = JsonSerializer.Deserialize<TripDocument>(
             text,
-            TripSnapshotProjection.JsonOptions
+            TripResourceProjection.JsonOptions
         )!;
-        Assert.AreEqual("Trip", snapshot.Type);
-        var visits = snapshot.Itinerary["itemListElement"]!.AsArray();
+        Assert.AreEqual(trip.Id, document.Id);
+        var visits = document.Itinerary["visits"]!.AsArray();
         Assert.AreEqual(2, visits.Count);
         Assert.AreEqual(
-            visits[0]!["item"]!["@id"]!.GetValue<string>(),
-            visits[1]!["item"]!["@id"]!.GetValue<string>()
+            visits[0]!["destinationId"]!.GetValue<string>(),
+            visits[1]!["destinationId"]!.GetValue<string>()
         );
         Assert.AreNotEqual(
-            visits[0]!["tp:accommodation"]!["@id"]!.GetValue<string>(),
-            visits[1]!["tp:accommodation"]!["@id"]!.GetValue<string>()
+            visits[0]!["accommodationPlaceId"]!.GetValue<string>(),
+            visits[1]!["accommodationPlaceId"]!.GetValue<string>()
         );
-        var entries = snapshot.Plan["entries"]!.AsArray();
-        var task = entries.Single(e => e!["uid"]!.GetValue<string>() == activity.Id.ToString());
-        Assert.AreEqual("Task", task!["@type"]!.GetValue<string>());
-        Assert.IsNull(task["start"]);
-        var resource = snapshot.Resources[
-            $"/trips/{trip.Id}/destinations/{place.CityId}/activities/{activity.Id}"
-        ];
-        using var individual = await client.GetAsync(resource.Href);
-        Assert.AreEqual(resource.Etag, individual.Headers.ETag!.ToString());
+        foreach (var visit in visits)
+        {
+            var path =
+                $"/trips/{trip.Id}/destinations/{place.CityId}/stays/{visit!["id"]!.GetValue<string>()}";
+            using var details = await client.GetAsync(path);
+            using var accommodation = await client.GetAsync(path + "/location");
+            Assert.AreEqual(
+                details.Headers.ETag!.ToString().Trim('"'),
+                visit["etag"]!.GetValue<string>()
+            );
+            Assert.AreEqual(
+                accommodation.Headers.ETag!.ToString().Trim('"'),
+                visit["accommodationEtag"]!.GetValue<string>()
+            );
+        }
+        using var travel = await client.GetAsync($"/trips/{trip.Id}/travel");
         Assert.AreEqual(
-            resource.Data.GetRawText(),
-            JsonSerializer.Serialize(
-                await individual.Content.ReadFromJsonAsync<JsonElement>(),
-                TripSnapshotProjection.JsonOptions
-            )
+            travel.Headers.ETag!.ToString().Trim('"'),
+            document.Transportation["connectionsEtag"]!.GetValue<string>()
+        );
+        var idea = document.Activities.Single(a =>
+            a["id"]!.GetValue<string>() == activity.Id.ToString()
+        );
+        Assert.AreEqual("Proposed", idea["state"]!.GetValue<string>());
+        Assert.IsFalse(
+            document.Itinerary["schedule"]!
+                .AsArray()
+                .Any(e => e!["id"]!.GetValue<string>() == activity.Id.ToString())
+        );
+        using var individual = await client.GetAsync(
+            $"/trips/{trip.Id}/destinations/{place.CityId}/activities/{activity.Id}"
+        );
+        Assert.AreEqual(
+            idea["etag"]!.GetValue<string>(),
+            individual.Headers.ETag!.ToString().Trim('"')
+        );
+        var feature = await individual.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.AreEqual(
+            idea["name"]!.GetValue<string>(),
+            feature.GetProperty("properties").GetProperty("name").GetString()
         );
     }
 
     [TestMethod]
-    public async Task SnapshotSupportsGzipAndStableConditionalReadsWithoutOriginHeader()
+    public async Task DocumentSupportsGzipAndStableConditionalReadsWithoutOriginHeader()
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var user = await Seed(factory, client);
+        var user = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(user.Id, "Trip", "");
-        var url = $"/trips/{trip.Id}/snapshot";
+        var url = $"/trips/{trip.Id}/document";
         using var first = await client.GetAsync(url);
         using var conditional = new HttpRequestMessage(HttpMethod.Get, url);
         conditional.Headers.IfNoneMatch.Add(first.Headers.ETag!);
@@ -166,7 +193,7 @@ public sealed class TripSnapshotEndpointTests
     [DataRow("gzip;q=0, identity;q=0", HttpStatusCode.NotAcceptable, false)]
     [DataRow("gzip;q=0, *;q=1", HttpStatusCode.OK, false)]
     [DataRow("identity;q=0, gzip;q=1", HttpStatusCode.OK, true)]
-    public async Task SnapshotHonorsExcludedEncodings(
+    public async Task DocumentHonorsExcludedEncodings(
         string acceptEncoding,
         HttpStatusCode expected,
         bool compressed
@@ -174,9 +201,9 @@ public sealed class TripSnapshotEndpointTests
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var user = await Seed(factory, client);
+        var user = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(user.Id, "Encoding", "");
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"/trips/{trip.Id}/snapshot");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/trips/{trip.Id}/document");
         request.Headers.TryAddWithoutValidation("Accept-Encoding", acceptEncoding);
         using var response = await client.SendAsync(request);
         Assert.AreEqual(expected, response.StatusCode);
@@ -188,7 +215,7 @@ public sealed class TripSnapshotEndpointTests
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var user = await Seed(factory, client);
+        var user = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(user.Id, "Trip", "");
         var other = await factory.Database.CreateTripAsync(user.Id, "Other", "");
         string url = $"/trips/{trip.Id}";
@@ -220,22 +247,22 @@ public sealed class TripSnapshotEndpointTests
     }
 
     [TestMethod]
-    public async Task SnapshotsHideForeignTripsAndRequireAuthentication()
+    public async Task DocumentsHideForeignTripsAndRequireAuthentication()
     {
         await using var factory = new TestApplicationFactory();
         using var ownerClient = factory.CreateClient();
-        var owner = await Seed(factory, ownerClient);
+        var owner = await TripDocumentFixture.Seed(factory, ownerClient);
         var trip = await factory.Database.CreateTripAsync(owner.Id, "Private", "");
         using var anonymous = factory.CreateClient();
         Assert.AreEqual(
             HttpStatusCode.Unauthorized,
-            (await anonymous.GetAsync($"/trips/{trip.Id}/snapshot")).StatusCode
+            (await anonymous.GetAsync($"/trips/{trip.Id}/document")).StatusCode
         );
         using var stranger = factory.CreateClient();
-        await Seed(factory, stranger, "stranger@example.com");
+        await TripDocumentFixture.Seed(factory, stranger, "stranger@example.com");
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await stranger.GetAsync($"/trips/{trip.Id}/snapshot")).StatusCode
+            (await stranger.GetAsync($"/trips/{trip.Id}/document")).StatusCode
         );
     }
 
@@ -244,9 +271,9 @@ public sealed class TripSnapshotEndpointTests
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var user = await Seed(factory, client);
+        var user = await TripDocumentFixture.Seed(factory, client);
         using var memberClient = factory.CreateClient();
-        var member = await Seed(factory, memberClient, "member@example.com");
+        var member = await TripDocumentFixture.Seed(factory, memberClient, "member@example.com");
         var trip = await factory.Database.CreateTripAsync(user.Id, "Travellers", "");
         var path = $"/trips/{trip.Id}/travellers/{member.Id}";
         using var add = new HttpRequestMessage(HttpMethod.Put, path)
@@ -270,16 +297,16 @@ public sealed class TripSnapshotEndpointTests
         Assert.AreEqual(HttpStatusCode.NoContent, (await client.SendAsync(remove)).StatusCode);
         Assert.AreEqual(
             HttpStatusCode.NotFound,
-            (await memberClient.GetAsync($"/trips/{trip.Id}/snapshot")).StatusCode
+            (await memberClient.GetAsync($"/trips/{trip.Id}/document")).StatusCode
         );
     }
 
     [TestMethod]
-    public async Task SelectedFlightIsExportedWithoutAnOfferAndPurchaseAddsAReservation()
+    public async Task SelectedFlightExportTracksPurchasesAndRetainsReferencedServices()
     {
         await using var factory = new TestApplicationFactory();
         using var client = factory.CreateClient();
-        var user = await Seed(factory, client);
+        var user = await TripDocumentFixture.Seed(factory, client);
         var trip = await factory.Database.CreateTripAsync(user.Id, "Flight", "");
         var place = await factory.Database.SaveDestinationPlaceAsync(
             user.Id,
@@ -322,19 +349,20 @@ public sealed class TripSnapshotEndpointTests
             DateTimeOffset.UtcNow
         );
         await factory.Database.SetSelectedFlightAsync(user.Id, selected);
-        async Task<JsonElement> Snapshot() =>
-            await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/snapshot");
-        var first = await Snapshot();
-        var flight = first.GetProperty("flights").EnumerateArray().Single();
+        async Task<JsonElement> Document() =>
+            await client.GetFromJsonAsync<JsonElement>($"/trips/{trip.Id}/document");
+        var first = await Document();
+        var flight = first
+            .GetProperty("transportation")
+            .GetProperty("legs")
+            .EnumerateArray()
+            .Single();
         Assert.AreEqual(
-            TripSnapshotProjection.Id(visit.StayId),
-            flight.GetProperty("destinationVisit").GetProperty("@id").GetString()
+            visit.StayId.ToString(),
+            flight.GetProperty("destinationVisitId").GetString()
         );
-        Assert.IsFalse(flight.TryGetProperty("reservation", out _));
-        Assert.AreEqual(
-            "Flight",
-            first.GetProperty("services")[0].GetProperty("@type").GetString()
-        );
+        Assert.IsFalse(flight.GetProperty("purchased").GetBoolean());
+        Assert.AreEqual("flight", flight.GetProperty("kind").GetString());
         foreach (var (code, city) in new[] { ("BOS", "Boston"), ("CDG", "Paris") })
         {
             var airport = first
@@ -356,22 +384,22 @@ public sealed class TripSnapshotEndpointTests
                 PurchasedLegs = [true],
             }
         );
-        var purchased = await Snapshot();
-        var reservation = purchased.GetProperty("reservations").EnumerateArray().Single();
-        Assert.AreEqual("FlightReservation", reservation.GetProperty("@type").GetString());
+        var purchased = await Document();
+        var purchasedLeg = purchased.GetProperty("transportation").GetProperty("legs")[0];
+        Assert.IsTrue(purchasedLeg.GetProperty("purchased").GetBoolean());
         Assert.AreEqual(
-            flight.GetProperty("@id").GetString(),
-            purchased.GetProperty("flights")[0].GetProperty("@id").GetString()
+            flight.GetProperty("id").GetString(),
+            purchasedLeg.GetProperty("id").GetString()
         );
         Assert.AreEqual(
-            "Event",
-            purchased.GetProperty("plan").GetProperty("entries")[0].GetProperty("@type").GetString()
+            1,
+            purchased.GetProperty("itinerary").GetProperty("schedule").GetArrayLength()
         );
-        var serviceId = flight.GetProperty("flight").GetProperty("@id").GetString()!;
+        var serviceId = flight.GetProperty("serviceId").GetString()!;
         var connection = new TravelConnectionRequest(
             Guid.NewGuid(),
             "Flight journey",
-            new(PlaceId: TripSnapshotProjection.LocalId(trip.Id, "place", "home")),
+            new(PlaceId: TripResourceProjection.LocalId(trip.Id, "place", "home")),
             new(VisitId: visit.StayId),
             "flight",
             ServiceId: serviceId
@@ -386,39 +414,24 @@ public sealed class TripSnapshotEndpointTests
             await retained.Content.ReadAsStringAsync()
         );
         await factory.Database.DeleteSelectedFlightAsync(user.Id, trip.Id, party.Id);
-        var afterDeselect = await Snapshot();
-        Assert.AreEqual(0, afterDeselect.GetProperty("flights").GetArrayLength());
-        Assert.AreEqual(
-            serviceId,
-            afterDeselect.GetProperty("services")[0].GetProperty("@id").GetString()
-        );
-        var referencedAirports = afterDeselect
-            .GetProperty("services")[0]
-            .EnumerateObject()
-            .Where(property => property.Name.EndsWith("Airport"))
-            .Select(property => property.Value.GetProperty("@id").GetString())
-            .ToArray();
-        foreach (var airport in referencedAirports)
+        var afterDeselect = await Document();
+        var retainedConnection = afterDeselect
+            .GetProperty("transportation")
+            .GetProperty("legs")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual("connection", retainedConnection.GetProperty("kind").GetString());
+        Assert.AreEqual(serviceId, retainedConnection.GetProperty("serviceId").GetString());
+        var definition = retainedConnection.GetProperty("serviceDefinition");
+        foreach (var direction in new[] { "departureAirport", "arrivalAirport" })
         {
+            var airport = definition.GetProperty(direction).GetProperty("@id").GetString();
             Assert.IsTrue(
                 afterDeselect
                     .GetProperty("places")
                     .EnumerateArray()
-                    .Any(p => p.GetProperty("@id").GetString() == airport)
+                    .Any(p => p.GetProperty("id").GetString() == airport)
             );
         }
-    }
-
-    internal static async Task<User> Seed(
-        TestApplicationFactory factory,
-        HttpClient client,
-        string email = "owner@example.com"
-    )
-    {
-        var user = await factory.Database.GetOrCreateUserAsync(new("google", email, "Owner"));
-        user = await factory.Database.SetUserProfileAsync(user.Id, new(new("Boston", -71, 42), []));
-        client.DefaultRequestHeaders.Add("X-Test-Subject", email);
-        client.DefaultRequestHeaders.Add("X-Test-Email", email);
-        return user;
     }
 }

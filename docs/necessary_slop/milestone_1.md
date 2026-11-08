@@ -209,7 +209,7 @@ required for this initial finite search.
   keys for the normalized provider request and endpoint as part of the asynchronous
   planning operation. The client presents the operation and its results rather than
   exposing a separate preview action.
-- Trip revision history and persisted planning snapshots are deferred to
+- Trip revision history and persisted planning saved versions are deferred to
   [later milestones](later_milestones.md).
 
 ### C. Search and persist fares
@@ -282,7 +282,7 @@ The planner represents a route as dated edges shared across candidate schedules.
 
 After retrieval, the composer checks actual airport-local dates and UTC chronology, exact nights, required stays, flight windows, stops, journey duration, connection continuity, and layover exclusions. It never adds prices in different currencies. It retains bounded alternatives (up to 100 offers per query, a 300-path beam, and 200 complete routes), then ranks complete routes by total price, stops, preferred-airline usage, preferred home airport, and travel time. It reserves room for distinct flights on each leg. These bounds may omit feasible or cheaper combinations; an empty sampled result does not establish an impossible trip.
 
-Route results ask the owner to choose one flight at a time. While the search is running, a saved choice advances the picker to the next leg, showing its cached fares as they arrive and a waiting state until then. Each choice is persisted and recomposes complete, feasible itineraries around the chosen prefix from cached fares before the global result cap is applied. Changing an earlier flight restores the compatible options without another Ignav search while the cache is fresh. Every option has a title, airline names, flight numbers, connection airports and layover durations. The displayed price is always the **complete route price**: paired offers cannot safely be divided into per-leg prices. Price, outbound flight date, and homebound flight date filters narrow complete itineraries and are stored in the route query string. After the last choice, the owner reviews the total and saves the complete itinerary snapshot in the existing trips JSONB selected-flight field. The existing asynchronous operation, cache, worker, and authorization model are reused; no route-specific operation table is added.
+Route results ask the owner to choose one flight at a time. While the search is running, a saved choice advances the picker to the next leg, showing its cached fares as they arrive and a waiting state until then. Each choice is persisted and recomposes complete, feasible itineraries around the chosen prefix from cached fares before the global result cap is applied. Changing an earlier flight restores the compatible options without another Ignav search while the cache is fresh. Every option has a title, airline names, flight numbers, connection airports and layover durations. The displayed price is always the **complete route price**: paired offers cannot safely be divided into per-leg prices. Price, outbound flight date, and homebound flight date filters narrow complete itineraries and are stored in the route query string. After the last choice, the owner reviews the total and saves the complete itinerary saved state in the existing trips JSONB selected-flight field. The existing asynchronous operation, cache, worker, and authorization model are reused; no route-specific operation table is added.
 
 Flight cards display city plus airport code, local segment times, airline and flight number, and connections. The completed route separates flights with a divider showing nights from the previous flight's local arrival date to the next flight's local departure date. The earlier chosen flights are available from an **Edit flights** menu. The final flight step shows all compatible return options, including airlines that are not among the first three. A prior choice can still exclude a return because of route constraints or an indivisible paired fare. Amounts display both code and symbol, such as USD $900.
 
@@ -336,10 +336,10 @@ The trip page now has route-backed Flights, Stays, and Plans tabs. Stays is a
 placeholder; Plans shows the trip description and selected flight for each party.
 The owner may select, replace, or clear one itinerary per party through
 `/trips/{tripId}/flights`. Selecting requires an eligible itinerary
-from the trip's current fresh fare cache. `trips.selected_flights` stores a JSONB snapshot of
+from the trip's current fresh fare cache. `trips.selected_flights` stores a JSONB saved state of
 the search request and itinerary independently of cache cleanup. The choice
 remains visible after fares expire and is not a booking.
-Each selected flight stores one purchase boolean per leg in the same JSONB snapshot. Only the owner may update these statuses through `PUT /trips/{tripId}/flights/{partyId}/purchases`; shared members may read them. Selecting a different itinerary resets the statuses to false. Purchase tracking records the user's report and does not verify a booking with an airline.
+Each selected flight stores one purchase boolean per leg in the same JSONB saved state. Only the owner may update these statuses through `PUT /trips/{tripId}/flights/{partyId}/purchases`; shared members may read them. Selecting a different itinerary resets the statuses to false. Purchase tracking records the user's report and does not verify a booking with an airline.
 Partial route choices are stored in `trips.flight_choices` and reloaded after refresh. The additive `0002_AddFlightChoices.sql` migration preserves existing trips and selected-flight purchases.
 
 ### Recommended cache design
@@ -374,7 +374,7 @@ complete budget for retries, ancillary API calls, or repeated planning runs.
 | Travelers | Must all passengers have accounts? Are guests and children supported? |
 | Accounts and invitations | Google and personal Microsoft accounts are linked by normalized email. Define invitation acceptance, discovery, and visibility of user profiles and trip constraints. |
 | Remaining persistence | Users, trips, parties, the JSONB constraints document, operations, queue messages, and cached fare responses are durable. Eligibility is computed when reading fares; full preference scoring remains to be implemented. |
-| Concurrent edits and history | Trip revisions and persisted input snapshots are deferred to later milestones. Concurrent saves currently use last-write-wins. |
+| Concurrent edits and history | Trip revisions and persisted input saved versions are deferred to later milestones. Concurrent saves currently use last-write-wins. |
 | Search operations | One-hour cache, six-hour fare-row retention, bounded worker concurrency, timeouts, partial results, and recovery leases are implemented. Define limits across repeated runs. |
 
 ## 7. Scenarios to validate when implementing

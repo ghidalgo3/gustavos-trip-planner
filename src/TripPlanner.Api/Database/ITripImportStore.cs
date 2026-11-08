@@ -10,7 +10,7 @@ public interface ITripImportStore
     Task<TripImportResult> ImportAsync(
         Guid ownerId,
         Guid transferId,
-        TripSnapshotResponse request,
+        TripDocument request,
         CancellationToken cancellationToken
     );
 

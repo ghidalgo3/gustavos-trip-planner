@@ -11,11 +11,11 @@ public sealed class PostgresTripImportStore(NpgsqlDataSource source) : ITripImpo
     public async Task<TripImportResult> ImportAsync(
         Guid ownerId,
         Guid transferId,
-        TripSnapshotResponse request,
+        TripDocument request,
         CancellationToken cancellationToken
     )
     {
-        Guid tripId = Guid.Parse(request.Id["urn:uuid:".Length..]);
+        Guid tripId = request.Id;
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         // Serialize both the idempotency key and source identity before checking or inserting.
@@ -98,7 +98,7 @@ public sealed class PostgresTripImportStore(NpgsqlDataSource source) : ITripImpo
         insert.Parameters.AddWithValue(request.Description ?? "");
         insert.Parameters.AddWithValue(
             NpgsqlDbType.Jsonb,
-            request.Planning["trip"]!["constraints"]!.ToJsonString()
+            request.Preferences["constraints"]!.ToJsonString()
         );
         await insert.ExecuteNonQueryAsync(cancellationToken);
 

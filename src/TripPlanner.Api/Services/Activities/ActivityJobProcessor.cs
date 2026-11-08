@@ -67,12 +67,12 @@ public sealed class ActivityJobProcessor(
                 );
             }
 
-            DestinationSnapshot? snapshot = await destinations.GetAsync(
+            DestinationReadView? readView = await destinations.GetAsync(
                 user.Id,
                 trip,
                 cancellationToken
             );
-            var destination = snapshot?.Find(job.CityId);
+            var destination = readView?.Find(job.CityId);
             if (
                 destination is null
                 || destination.Properties.ContextVersion != job.DestinationContext

@@ -79,7 +79,7 @@ final class DestinationsModel {
                      let DecodingError.keyNotFound(_, context),
                      let DecodingError.dataCorrupted(context):
                     let path = context.codingPath.map(\.stringValue).joined(separator: ".")
-                    log.error("Destination removal refresh could not decode the snapshot at \(path, privacy: .public)")
+                    log.error("Destination removal refresh could not decode the document at \(path, privacy: .public)")
                 default:
                     let failure = error as NSError
                     log.error("Destination removal could not be confirmed: \(failure.domain, privacy: .public) \(failure.code)")
@@ -131,26 +131,26 @@ final class DestinationsModel {
 
     private func fetchDestinations(allowCached: Bool) async throws -> Itinerary {
         let data = try await model.tripDocument(for: trip, allowCached: allowCached)
-        let snapshot = try JSONDecoder().decode(TripSnapshotDestinations.self, from: data)
+        let document = try JSONDecoder().decode(TripDocumentDestinations.self, from: data)
         try Task.checkCancellation()
-        let destinations = snapshot.destinations.map {
+        let destinations = document.destinations.map {
             let prefix = "urn:tripplanner:\(trip.id.uuidString.lowercased()):place:"
             let encodedCity = $0.placeID.flatMap { id in
                 id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : nil
             }
             let cityID = encodedCity?.removingPercentEncoding
-            let stayID = TripSnapshotDestinations.stayID($0.stayID)
+            let stayID = TripDocumentDestinations.stayID($0.stayID)
             let path = encodedCity.map { "/trips/\(trip.id.uuidString.lowercased())/destinations/\($0)" }
-            let cityVersion = path.flatMap { snapshot.resources?[$0] }
+            let cityVersion = path.flatMap { document.resources?[$0] }
             let stayVersion = path.flatMap { path in
-                stayID.flatMap { snapshot.resources?["\(path)/stays/\($0.uuidString.lowercased())"] }
+                stayID.flatMap { document.resources?["\(path)/stays/\($0.uuidString.lowercased())"] }
             }
             return Destination(
                 title: $0.name, subtitle: "", coordinate: $0.coordinate, arrival: $0.arrival, departure: $0.departure,
                 cityID: cityID, stayID: stayID, cityVersion: cityVersion, stayVersion: stayVersion
             )
         }
-        return Itinerary(destinations: destinations, flights: snapshot.selectedFlights, home: snapshot.home)
+        return Itinerary(destinations: destinations, flights: document.selectedFlights, home: document.home)
     }
 
     @MainActor

@@ -2,8 +2,8 @@ import type { CurrentUser, Trip } from "./api";
 
 const userKey = "tripplanner.offline-user.v1";
 const catalogPrefix = "tripplanner.trip-catalog.v1:";
-export const snapshotKey = (userId: string, tripId: string) =>
-  `tripplanner.snapshot.v1:${userId}:${tripId}`;
+export const documentKey = (userId: string, tripId: string) =>
+  `tripplanner.document.v1:${userId}:${tripId}`;
 
 function read(key: string): unknown {
   try {
@@ -74,24 +74,13 @@ export function rememberTrip(userId: string, trip: Trip) {
   ]);
 }
 export function hasOfflineTrip(userId: string, tripId: string): boolean {
-  const value = read(snapshotKey(userId, tripId)) as
-    | {
-        snapshot?: {
-          schemaVersion?: number;
-          "@id"?: string;
-          resources?: Record<string, unknown>;
-        };
-      }
-    | undefined;
-  return (
-    value?.snapshot?.schemaVersion === 1 &&
-    value.snapshot["@id"] === `urn:uuid:${tripId}` &&
-    !!value.snapshot.resources?.[`/trips/${tripId}`]
-  );
+  const value = read(documentKey(userId, tripId)) as
+    { document?: { schemaVersion?: number; id?: string } } | undefined;
+  return value?.document?.schemaVersion === 1 && value.document.id === tripId;
 }
 export function forgetOfflineTrip(userId: string, tripId: string) {
   try {
-    localStorage.removeItem(snapshotKey(userId, tripId));
+    localStorage.removeItem(documentKey(userId, tripId));
     const catalog = readTripCatalog(userId);
     if (catalog)
       rememberTripCatalog(
@@ -109,7 +98,7 @@ export function clearOfflineCache() {
         key === userKey ||
         key === "tripplanner.session.v1" ||
         key.startsWith(catalogPrefix) ||
-        key.startsWith("tripplanner.snapshot.v1:")
+        key.startsWith("tripplanner.document.v1:")
       )
         localStorage.removeItem(key);
     }

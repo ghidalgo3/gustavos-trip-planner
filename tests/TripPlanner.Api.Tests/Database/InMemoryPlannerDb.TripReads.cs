@@ -4,7 +4,7 @@ namespace TripPlanner.Api.Tests.Database;
 
 public sealed partial class InMemoryPlannerDb
 {
-    public async Task<TripSnapshotData?> ReadTripSnapshotAsync(
+    public async Task<TripReadData?> ReadTripDataAsync(
         Guid userId,
         Guid tripId,
         CancellationToken token
@@ -77,7 +77,7 @@ public sealed partial class InMemoryPlannerDb
             (await GetFlightChoicesAsync(userId, tripId, token)).OrderBy(c => c.PartyId).ToArray(),
             await GetActivityPlanningRevisionAsync(userId, tripId, token),
             await GetTripTravelAsync(userId, tripId, token),
-            await GetTripSnapshotModifiedAtAsync(userId, tripId, token)
+            await GetTripModifiedAtAsync(userId, tripId, token)
         );
     }
 }

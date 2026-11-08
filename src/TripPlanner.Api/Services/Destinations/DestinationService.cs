@@ -10,7 +10,7 @@ using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Services.Destinations;
 
-public sealed record DestinationSnapshot(GeoJsonCollection<DestinationProperties> Collection)
+public sealed record DestinationReadView(GeoJsonCollection<DestinationProperties> Collection)
 {
     public GeoJsonFeature<DestinationProperties>? Find(string cityId) =>
         Collection.Features.FirstOrDefault(f => f.Id == cityId);
@@ -18,7 +18,7 @@ public sealed record DestinationSnapshot(GeoJsonCollection<DestinationProperties
 
 public sealed class DestinationService(IPlannerDb database, IAzureMapsClient maps)
 {
-    public async Task<DestinationSnapshot> GetAsync(
+    public async Task<DestinationReadView> GetAsync(
         Guid viewerUserId,
         Trip trip,
         CancellationToken cancellationToken
@@ -46,7 +46,7 @@ public sealed class DestinationService(IPlannerDb database, IAzureMapsClient map
         return Describe(places, visits, stayLocations);
     }
 
-    public static DestinationSnapshot Describe(
+    public static DestinationReadView Describe(
         IReadOnlyList<DestinationPlace> places,
         IReadOnlyList<DestinationVisit> visits,
         IReadOnlyDictionary<Guid, GeoJsonFeature<StayLocationProperties>> stayLocations

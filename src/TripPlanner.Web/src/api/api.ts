@@ -10,8 +10,8 @@ import {
   tripFetch,
   rememberResourceEtag,
   ResourceConflictError,
-  pruneTripSnapshotCache,
-} from "./tripSnapshot";
+  pruneTripDocumentCache,
+} from "./tripDocumentStore";
 export { apiBaseUrl } from "./config";
 export type { CitySuggestion, PlaceSuggestion } from "../maps/IMapsClient";
 export { formatCityLabel } from "../maps/AzureMapsClient";
@@ -191,7 +191,7 @@ export async function listTrips(
   }
   const trips = (await response.json()) as Trip[];
   rememberTripCatalog(userId, trips);
-  pruneTripSnapshotCache(userId, new Set(trips.map((trip) => trip.id)));
+  pruneTripDocumentCache(userId, new Set(trips.map((trip) => trip.id)));
   for (const trip of trips)
     if (trip.etag) rememberResourceEtag(`/trips/${trip.id}`, trip.etag);
   return trips;

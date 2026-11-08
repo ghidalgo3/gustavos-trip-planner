@@ -1,11 +1,12 @@
+import { tripDocumentFixture } from "../test/tripDocumentFixture";
 import { memoryStorage } from "../test/memoryStorage";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
-  openTripSnapshot,
+  openTripDocument,
   cachedTripResource,
-  pruneTripSnapshotCache,
-  clearTripSnapshotCache,
-} from "./tripSnapshot";
+  pruneTripDocumentCache,
+  clearTripDocumentCache,
+} from "./tripDocumentStore";
 import {
   readOfflineUser,
   rememberOfflineUser,
@@ -13,7 +14,7 @@ import {
   rememberTripCatalog,
   hasOfflineTrip,
   forgetOfflineTrip,
-  snapshotKey,
+  documentKey,
 } from "./offlineCache";
 import type { CurrentUser, Trip } from "./api";
 const user: CurrentUser = {
@@ -49,25 +50,21 @@ test("offline identity and the account-scoped catalog survive a fresh session", 
 test("sign out removes all private offline data while preserving display settings", () => {
   rememberOfflineUser(user);
   rememberTripCatalog("owner", [trip]);
-  localStorage.setItem(snapshotKey("owner", "trip"), "{}");
+  localStorage.setItem(documentKey("owner", "trip"), "{}");
   localStorage.setItem("tripplanner.color-scheme", "dark");
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
   expect(readOfflineUser()).toBeUndefined();
   expect(readTripCatalog("owner")).toBeUndefined();
-  expect(localStorage.getItem(snapshotKey("owner", "trip"))).toBeNull();
+  expect(localStorage.getItem(documentKey("owner", "trip"))).toBeNull();
   expect(localStorage.getItem("tripplanner.color-scheme")).toBe("dark");
 });
-test("only a supported saved snapshot is offered as available offline", () => {
+test("only a supported saved document is offered as available offline", () => {
   rememberTripCatalog("owner", [trip]);
   expect(hasOfflineTrip("owner", "trip")).toBe(false);
   localStorage.setItem(
-    snapshotKey("owner", "trip"),
+    documentKey("owner", "trip"),
     JSON.stringify({
-      snapshot: {
-        schemaVersion: 1,
-        "@id": "urn:uuid:trip",
-        resources: { "/trips/trip": { data: trip } },
-      },
+      document: tripDocumentFixture(trip),
     }),
   );
   expect(hasOfflineTrip("owner", "trip")).toBe(true);
@@ -92,28 +89,11 @@ test("a verified trip list prunes revoked trips from storage and current memory"
   const path = "/trips/trip";
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue(
-      Response.json({
-        "@type": "Trip",
-        "@id": "urn:uuid:trip",
-        schemaVersion: 1,
-        name: trip.name,
-        revision: "1",
-        resources: {
-          [path]: {
-            href: path,
-            etag: '"1"',
-            status: 200,
-            contentType: "application/json",
-            data: trip,
-          },
-        },
-      }),
-    ),
+    vi.fn().mockResolvedValue(Response.json(tripDocumentFixture(trip))),
   );
-  await openTripSnapshot("owner", "trip", "");
+  await openTripDocument("owner", "trip", "");
   expect(hasOfflineTrip("owner", "trip")).toBe(true);
-  pruneTripSnapshotCache("owner", new Set());
+  pruneTripDocumentCache("owner", new Set());
   expect(hasOfflineTrip("owner", "trip")).toBe(false);
   expect(cachedTripResource(path)).toBeUndefined();
 });

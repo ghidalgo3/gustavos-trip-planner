@@ -1,4 +1,4 @@
-import { useTripResourceVersion } from "../../api/tripSnapshot";
+import { useTripResourceVersion } from "../../api/tripDocumentStore";
 import PartySkeleton from "./PartySkeleton";
 import { useEffect, useState } from "react";
 import { Button, Text, Title2 } from "@fluentui/react-components";
@@ -14,7 +14,7 @@ export default function TripParties({
   userId: string;
   readOnly: boolean;
 }) {
-  const snapshotVersion = useTripResourceVersion(`/trips/${tripId}/parties`);
+  const documentVersion = useTripResourceVersion(`/trips/${tripId}/parties`);
   const [parties, setParties] = useState<PlanningParty[]>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -36,7 +36,7 @@ export default function TripParties({
           );
       });
     return () => controller.abort();
-  }, [tripId, retry, snapshotVersion]);
+  }, [tripId, retry, documentVersion]);
   async function refresh() {
     setParties(await getTripParties(tripId));
   }

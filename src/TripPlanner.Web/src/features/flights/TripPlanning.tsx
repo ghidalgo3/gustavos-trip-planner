@@ -1,4 +1,4 @@
-import { useTripResourceVersion } from "../../api/tripSnapshot";
+import { useTripResourceVersion } from "../../api/tripDocumentStore";
 import { FlightPlanningSkeleton } from "./FlightSkeletons";
 import { useEffect, useState } from "react";
 import { Button, Text } from "@fluentui/react-components";
@@ -19,7 +19,7 @@ export default function TripPlanning({
   onBack: () => void;
   readOnly?: boolean;
 }) {
-  const snapshotVersion = useTripResourceVersion(`/trips/${trip.id}/flights`);
+  const documentVersion = useTripResourceVersion(`/trips/${trip.id}/flights`);
   const [data, setData] = useState<TripFlightPlanningData>();
   const [hasDestinations, setHasDestinations] = useState(false);
   const [error, setError] = useState<string>();
@@ -52,7 +52,7 @@ export default function TripPlanning({
           );
       });
     return () => controller.abort();
-  }, [trip.id, retry, snapshotVersion]);
+  }, [trip.id, retry, documentVersion]);
   return (
     <section className="flight-planning" aria-label="Flight planning">
       {error ? (

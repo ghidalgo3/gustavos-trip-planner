@@ -10,10 +10,10 @@ using TripPlanner.Api.Services.ActivityPlanning;
 using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Flights;
 
-namespace TripPlanner.Api.Services.Snapshots;
+namespace TripPlanner.Api.Services.Documents;
 
 // Pure projection of a transactionally captured read model. No providers or persistence.
-public sealed class TripSnapshotProjection(
+public sealed class TripResourceProjection(
     AirportCatalog airports,
     DestinationFlightPlanning flightPlanning,
     RouteFareComposer routes,
@@ -21,8 +21,6 @@ public sealed class TripSnapshotProjection(
     ActivityPlanningService planning
 )
 {
-    public const string Vocabulary = "https://ghidalgo3.github.io/gustavos-trip-planner/vocab#";
-    public const string Extension = "ghidalgo3.github.io:";
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters =
@@ -53,11 +51,11 @@ public sealed class TripSnapshotProjection(
         return new Guid(bytes.AsSpan(0, 16), bigEndian: true);
     }
 
-    public TripSnapshotResponse Project(TripSnapshotData data)
+    public TripResourceView Project(TripReadData data)
     {
         var tripId = data.Trip.Id;
         var prefix = $"/trips/{tripId:D}";
-        var resources = new SortedDictionary<string, SnapshotResource>(StringComparer.Ordinal);
+        var resources = new SortedDictionary<string, TripResource>(StringComparer.Ordinal);
         void Add(
             string path,
             object? body,
@@ -77,11 +75,11 @@ public sealed class TripSnapshotProjection(
             .Flights.Where(f => !data.Choices.Any(c => c.PartyId == f.PartyId))
             .Select(f =>
             {
-                var legs = LegacyLegs(f.Itinerary).ToArray();
+                var legs = BookingLegs(f.Itinerary).ToArray();
                 var keys = legs.Select(FlightChoiceRoute.FlightKey).ToArray();
                 return new FlightChoiceProgress(f.PartyId, keys, [])
                 {
-                    // Export older complete itineraries through one known service
+                    // Export saved complete itineraries through one known service
                     // edge per leg; their original requests may be round-trip or flexible.
                     SavedFares = legs.Select(
                             (leg, index) =>
@@ -95,7 +93,7 @@ public sealed class TripSnapshotProjection(
                                     .GetString()!;
                                 return new FareSearchResult(
                                     f.PartyId,
-                                    f.CacheKey + ":snapshot:" + index,
+                                    f.CacheKey + ":document:" + index,
                                     f.Request with
                                     {
                                         SearchKind = "oneWay",
@@ -230,19 +228,18 @@ public sealed class TripSnapshotProjection(
         {
             var place = new JsonObject
             {
-                ["@id"] = id,
-                ["@type"] = type,
+                ["id"] = id,
+                ["type"] = type,
                 ["name"] = name,
             };
-            if (longitude is not null && latitude is not null)
-            {
-                place["geo"] = new JsonObject
-                {
-                    ["@type"] = "GeoCoordinates",
-                    ["longitude"] = longitude,
-                    ["latitude"] = latitude,
-                };
-            }
+            place["location"] =
+                longitude is not null && latitude is not null
+                    ? new JsonObject
+                    {
+                        ["type"] = "Point",
+                        ["coordinates"] = new JsonArray(longitude, latitude),
+                    }
+                    : null;
             if (!string.IsNullOrEmpty(zone))
             {
                 place["timeZone"] = zone;
@@ -286,27 +283,6 @@ public sealed class TripSnapshotProjection(
                 );
             }
         }
-        var people = data
-            .People.Select(p => new JsonObject
-            {
-                ["@id"] = Id(p.Id),
-                ["@type"] = "Person",
-                ["name"] = p.DisplayName,
-            })
-            .ToArray();
-        var travellers = data
-            .People.Select(p => new JsonObject
-            {
-                ["person"] = Reference(Id(p.Id)),
-                ["role"] =
-                    p.Id == data.Trip.OwnerUserId
-                        ? "Planner"
-                        : data.Parties.FirstOrDefault(x => x.UserIds.Contains(p.Id))
-                            ?.RoleFor(p.Id)
-                            .ToString()
-                            ?? "Traveller",
-            })
-            .ToArray();
         var updated = data
             .Activities.Select(a => a.UpdatedAt)
             .Concat(data.People.Select(p => p.UpdatedAt))
@@ -315,10 +291,27 @@ public sealed class TripSnapshotProjection(
             .Append(data.ModifiedAt)
             .Max()
             .ToUniversalTime();
-        var updatedText = UtcDateTimeOffsetConverter.Format(updated);
-        var entries = new List<JsonObject>();
-        var daySettings = new List<JsonNode?>();
-        var destinationSettings = new List<JsonNode?>();
+        var schedule = new List<JsonObject>();
+        var transportation = new List<JsonObject>();
+        void Schedule(string id, string kind, DateTimeOffset start, TimeSpan duration, string? zone)
+        {
+            if (zone is null || !TimeZoneInfo.TryFindSystemTimeZoneById(zone, out var timeZone))
+            {
+                return;
+            }
+            schedule.Add(
+                new JsonObject
+                {
+                    ["id"] = id,
+                    ["kind"] = kind,
+                    ["start"] = TimeZoneInfo
+                        .ConvertTime(start, timeZone)
+                        .ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture),
+                    ["timeZone"] = zone,
+                    ["duration"] = ElapsedDuration(duration),
+                }
+            );
+        }
         foreach (var place in data.Destinations)
         {
             string cityPrefix = $"{prefix}/destinations/{Uri.EscapeDataString(place.CityId)}";
@@ -388,185 +381,54 @@ public sealed class TripSnapshotProjection(
                 ActivityPlanRules.ETag(response.Version),
                 context: response.ContextVersion
             );
-            destinationSettings.Add(
-                new JsonObject
-                {
-                    ["destination"] = Reference(PlaceId(place.CityId)),
-                    ["constraints"] = Node(place.Constraints),
-                    ["preferences"] = Node(preferences.Preferences),
-                    ["effectiveSettings"] = Node(response.Plan.Settings),
-                    ["assessment"] = Node(response.Assessment),
-                    ["savedAssessment"] = Node(response.SavedAssessment),
-                    ["timingStale"] = response.TimingStale,
-                }
-            );
-            foreach (var day in response.Plan.Days)
+            if (!response.TimingStale)
             {
-                var dayNode = Node(day)!.AsObject();
-                dayNode["visit"] = Reference(Id(day.StayId));
-                dayNode["entries"] = new JsonArray(
-                    day.ActivityIds.Select(id => (JsonNode?)Reference(Id(id))).ToArray()
-                );
-                dayNode.Remove("stayId");
-                dayNode.Remove("activityIds");
-                daySettings.Add(dayNode);
-            }
-            foreach (var activity in activities)
-            {
-                var timing = response
-                    .Assessment.Days.SelectMany(d => d.Entries)
-                    .FirstOrDefault(e => e.ActivityId == activity.Id);
-                var selected = response.Plan.SelectedActivityIds.Contains(activity.Id);
-                bool scheduled =
-                    selected
-                    && timing?.Start is not null
-                    && timing.End is not null
-                    && !response.TimingStale;
-                var entry = new JsonObject
+                foreach (var timing in response.Assessment.Days.SelectMany(day => day.Entries))
                 {
-                    ["@type"] = scheduled ? "Event" : "Task",
-                    ["uid"] = activity.Id.ToString("D"),
-                    ["updated"] = updatedText,
-                    ["title"] = activity.Properties.Name,
-                    ["description"] = activity.Properties.Description,
-                    [Extension + "kind"] = "activity",
-                    [Extension + "destinationId"] = PlaceId(place.CityId),
-                    [Extension + "planningState"] =
-                        response.Plan.ExcludedActivityIds.Contains(activity.Id) ? "Rejected"
-                        : selected ? "Planned"
-                        : activity.Properties.State.ToString(),
-                    [Extension + "rules"] = Node(
-                        response.Plan.Rules.FirstOrDefault(r => r.ActivityId == activity.Id)
-                    ),
-                    [Extension + "details"] = Node(activity.Properties),
-                };
-                if (activity.Geometry is not null)
-                {
-                    entry[Extension + "placeId"] = PlaceId($"activity:{activity.Id:D}");
-                    entry["locations"] = new JsonObject
-                    {
-                        ["venue"] = new JsonObject
-                        {
-                            ["@type"] = "Location",
-                            ["name"] = activity.Properties.PlaceName ?? activity.Properties.Name,
-                            ["coordinates"] = FormattableString.Invariant(
-                                $"geo:{activity.Geometry.Position.Latitude},{activity.Geometry.Position.Longitude}"
-                            ),
-                        },
-                    };
-                }
-                if (scheduled)
-                {
-                    var zone = response.Plan.TimeZone;
                     if (
-                        zone is not null
-                        && TimeZoneInfo.TryFindSystemTimeZoneById(zone, out var tz)
+                        response.Plan.SelectedActivityIds.Contains(timing.ActivityId)
+                        && timing.Start is { } start
+                        && timing.End is not null
                     )
                     {
-                        entry["start"] = TimeZoneInfo
-                            .ConvertTime(timing!.Start!.Value, tz)
-                            .ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
-                        entry["timeZone"] = zone;
-                        entry["duration"] = ElapsedDuration(timing.Duration);
-                        entry[Extension + "visitId"] = Id(timing.StayId);
-                        entry[Extension + "resolvedStart"] = Node(
-                            timing.Start.Value.ToUniversalTime()
+                        Schedule(
+                            timing.ActivityId.ToString("D"),
+                            "activity",
+                            start,
+                            timing.Duration,
+                            response.Plan.TimeZone
                         );
-                        entry[Extension + "resolvedEnd"] = Node(
-                            timing.End!.Value.ToUniversalTime()
-                        );
-                        SetEventTiming(entry, timing.Start.Value, timing.Duration, zone);
-                    }
-                    else
-                    {
-                        entry["@type"] = "Task";
                     }
                 }
-                if (
-                    entry["@type"]!.GetValue<string>() == "Task"
-                    && activity.Properties.Duration is { } duration
-                    && duration > TimeSpan.Zero
-                )
-                {
-                    entry["estimatedDuration"] = ElapsedDuration(duration);
-                }
-                entries.Add(entry);
             }
             foreach (var day in response.Assessment.Days)
             {
                 foreach (var leg in day.Travel)
                 {
-                    var uid = StableGuid(
-                        $"{tripId}:travel:{day.StayId}:{day.Date}:{leg.FromActivityId}:{leg.ToActivityId}"
-                    );
-                    var travel = new JsonObject
-                    {
-                        ["@type"] = "Task",
-                        ["uid"] = uid.ToString("D"),
-                        ["updated"] = updatedText,
-                        ["title"] = "Travel",
-                        ["estimatedDuration"] = ElapsedDuration(leg.Duration),
-                        [Extension + "kind"] = "travel",
-                        [Extension + "visitId"] = Id(day.StayId),
-                        [Extension + "destinationId"] = PlaceId(place.CityId),
-                        [Extension + "travel"] = Node(leg),
-                        [Extension + "mode"] = NormalizeMode(leg.Mode),
-                        [Extension + "modeSelectedBy"] = response.Plan.TransportOverrides.Any(o =>
-                            o.Date == day.Date
-                            && o.FromActivityId == leg.FromActivityId
-                            && o.ToActivityId == leg.ToActivityId
+                    var id = StableGuid(
+                            $"{tripId}:travel:{day.StayId}:{day.Date}:{leg.FromActivityId}:{leg.ToActivityId}"
                         )
-                            ? "user"
-                            : "server",
-                        [Extension + "fromPlaceId"] = leg.FromActivityId is { } from
-                            ? places.ContainsKey(PlaceId($"activity:{from:D}"))
-                                ? PlaceId($"activity:{from:D}")
-                                : null
-                            : data.Stays.ContainsKey(day.StayId)
-                                ? PlaceId($"stay:{day.StayId:D}")
-                                : null,
-                        [Extension + "toPlaceId"] = leg.ToActivityId is { } to
-                            ? places.ContainsKey(PlaceId($"activity:{to:D}"))
-                                ? PlaceId($"activity:{to:D}")
-                                : null
-                            : data.Stays.ContainsKey(day.StayId)
-                                ? PlaceId($"stay:{day.StayId:D}")
-                                : null,
-                    };
-                    if (leg.Duration <= TimeSpan.Zero)
+                        .ToString("D");
+                    var item = Node(leg)!.AsObject();
+                    item["id"] = id;
+                    item["kind"] = "transfer";
+                    item["visitId"] = day.StayId.ToString("D");
+                    item["date"] = Node(day.Date);
+                    transportation.Add(item);
+                    if (!response.TimingStale && leg.Departure is { } departure)
                     {
-                        travel.Remove("estimatedDuration");
+                        Schedule(
+                            id,
+                            "transportation",
+                            departure,
+                            leg.Duration,
+                            response.Plan.TimeZone
+                        );
                     }
-
-                    travel[Extension + "planningDate"] = Node(day.Date);
-                    AddTravelLocations(
-                        travel,
-                        travel[Extension + "fromPlaceId"]?.GetValue<string>(),
-                        travel[Extension + "toPlaceId"]?.GetValue<string>(),
-                        places
-                    );
-                    if (
-                        leg.Departure is { } departure
-                        && !response.TimingStale
-                        && response.Plan.TimeZone is { } zone
-                        && TimeZoneInfo.TryFindSystemTimeZoneById(zone, out var tz)
-                    )
-                    {
-                        travel["@type"] = "Event";
-                        travel.Remove("estimatedDuration");
-                        travel["start"] = TimeZoneInfo
-                            .ConvertTime(departure, tz)
-                            .ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
-                        travel["timeZone"] = zone;
-                        travel["duration"] = ElapsedDuration(leg.Duration);
-                        SetEventTiming(travel, departure, leg.Duration, zone);
-                    }
-                    entries.Add(travel);
                 }
             }
         }
         var services = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
-        var reservations = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
         // A manually referenced service remains part of the trip even after its
         // flight selection is removed. Retain only its canonical public definition.
         foreach (var connection in data.Travel.Connections)
@@ -617,13 +479,11 @@ public sealed class TripSnapshotProjection(
                 places[placeId]["iataCode"] = code;
                 places[placeId]["address"] = new JsonObject
                 {
-                    ["@type"] = "PostalAddress",
                     ["addressLocality"] = airports.CityName(code),
                 };
             }
         }
 
-        var flights = new List<JsonObject>();
         foreach (var choice in choices)
         {
             var selected = SavedFlightChoices
@@ -670,7 +530,7 @@ public sealed class TripSnapshotProjection(
                     )
                     || data.Flights.Any(f =>
                         f.PartyId == choice.PartyId
-                        && LegacyLegs(f.Itinerary)
+                        && BookingLegs(f.Itinerary)
                             .Select((l, i) => (Key: FlightChoiceRoute.FlightKey(l), Index: i))
                             .Any(l =>
                                 l.Key == key
@@ -716,7 +576,6 @@ public sealed class TripSnapshotProjection(
                         places[airportId]["iataCode"] = code;
                         places[airportId]["address"] = new JsonObject
                         {
-                            ["@type"] = "PostalAddress",
                             ["addressLocality"] = airports.CityName(code),
                         };
                         service[direction + "Airport"] = Reference(airportId);
@@ -761,190 +620,63 @@ public sealed class TripSnapshotProjection(
                         service["tp:" + direction + "LocalTime"] = time;
                     }
                     services[serviceId] = service;
-                    var selectionId = Id(
-                        StableGuid($"{tripId}:selection:{choice.PartyId}:{serviceId}")
-                    );
-                    var selection = new JsonObject
+                    var selectionId = StableGuid($"{tripId}:selection:{choice.PartyId}:{serviceId}")
+                        .ToString("D");
+                    var flight = new JsonObject
                     {
-                        ["@id"] = selectionId,
-                        ["flight"] = Reference(serviceId),
-                        ["destination"] = toPlace is null ? null : Reference(toPlace),
-                        ["originVisit"] =
+                        ["id"] = selectionId,
+                        ["kind"] = "flight",
+                        ["serviceId"] = serviceId,
+                        ["flightNumber"] = Text("flight_number"),
+                        ["originVisitId"] =
                             fromVisit is { } ov && data.Visits.Any(v => v.StayId == ov)
-                                ? Reference(Id(ov))
+                                ? ov.ToString("D")
                                 : null,
-                        ["destinationVisit"] =
+                        ["destinationVisitId"] =
                             toVisit is { } dv && data.Visits.Any(v => v.StayId == dv)
-                                ? Reference(Id(dv))
+                                ? dv.ToString("D")
                                 : null,
+                        ["destinationPlaceId"] = toPlace,
                         ["unassigned"] = index is null,
+                        ["purchased"] = purchased,
+                        ["departurePlaceId"] = service["departureAirport"]!["@id"]!.DeepClone(),
+                        ["arrivalPlaceId"] = service["arrivalAirport"]!["@id"]!.DeepClone(),
+                        ["departureLocalTime"] = service["tp:departureLocalTime"]?.DeepClone(),
+                        ["arrivalLocalTime"] = service["tp:arrivalLocalTime"]?.DeepClone(),
                     };
-                    if (purchased)
+                    foreach (var name in new[] { "departureTime", "arrivalTime" })
                     {
-                        var reservationId = Id(StableGuid($"{selectionId}:reservation"));
-                        reservations[reservationId] = new JsonObject
+                        if (service[name] is { } instant)
                         {
-                            ["@id"] = reservationId,
-                            ["@type"] = "FlightReservation",
-                            ["reservationFor"] = Reference(serviceId),
-                            ["reservationStatus"] = "https://schema.org/ReservationConfirmed",
-                            ["tp:userReported"] = true,
-                        };
-                        selection["reservation"] = Reference(reservationId);
+                            flight[name] = instant.DeepClone();
+                        }
                     }
-                    flights.Add(selection);
-                    var flightEntry = new JsonObject
-                    {
-                        ["@type"] = "Task",
-                        ["uid"] = StableGuid(selectionId + ":calendar").ToString("D"),
-                        ["updated"] = updatedText,
-                        ["title"] = "Flight " + Text("flight_number"),
-                        [Extension + "kind"] = "travel",
-                        [Extension + "mode"] = "flight",
-                        [Extension + "modeSelectedBy"] = "user",
-                        [Extension + "serviceId"] = serviceId,
-                        [Extension + "selectionId"] = selectionId,
-                        [Extension + "originVisitId"] = selection["originVisit"]
-                            ?["@id"]?.DeepClone(),
-                        [Extension + "destinationVisitId"] = selection["destinationVisit"]
-                            ?["@id"]?.DeepClone(),
-                        [Extension + "fromPlaceId"] = service["departureAirport"]![
-                            "@id"
-                        ]!.DeepClone(),
-                        [Extension + "toPlaceId"] = service["arrivalAirport"]!["@id"]!.DeepClone(),
-                    };
+                    transportation.Add(flight);
                     if (
                         service["departureTime"] is { } departureNode
                         && service["arrivalTime"] is { } arrivalNode
                         && DateTimeOffset.TryParse(
                             departureNode.GetValue<string>(),
-                            out var departureInstant
+                            out var departure
                         )
-                        && DateTimeOffset.TryParse(
-                            arrivalNode.GetValue<string>(),
-                            out var arrivalInstant
-                        )
-                        && arrivalInstant >= departureInstant
-                        && airports.FindByCode(Text("departure_airport")) is { } departureAirport
-                        && TimeZoneInfo.TryFindSystemTimeZoneById(
-                            departureAirport.TimeZone,
-                            out var departureZone
-                        )
+                        && DateTimeOffset.TryParse(arrivalNode.GetValue<string>(), out var arrival)
+                        && arrival >= departure
                     )
                     {
-                        flightEntry["@type"] = "Event";
-                        flightEntry["start"] = TimeZoneInfo
-                            .ConvertTime(departureInstant, departureZone)
-                            .ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
-                        flightEntry["timeZone"] = departureAirport.TimeZone;
-                        flightEntry["duration"] = ElapsedDuration(
-                            arrivalInstant - departureInstant
-                        );
-                        flightEntry[Extension + "resolvedStart"] = Node(
-                            departureInstant.ToUniversalTime()
-                        );
-                        flightEntry[Extension + "resolvedEnd"] = Node(
-                            arrivalInstant.ToUniversalTime()
-                        );
-                        SetEventTiming(
-                            flightEntry,
-                            departureInstant,
-                            arrivalInstant - departureInstant,
-                            departureAirport.TimeZone
+                        Schedule(
+                            selectionId,
+                            "transportation",
+                            departure,
+                            arrival - departure,
+                            airports.FindByCode(Text("departure_airport"))?.TimeZone
                         );
                     }
-                    AddTravelLocations(
-                        flightEntry,
-                        service["departureAirport"]!["@id"]!.GetValue<string>(),
-                        service["arrivalAirport"]!["@id"]!.GetValue<string>(),
-                        places
-                    );
-                    entries.Add(flightEntry);
                 }
             }
         }
         foreach (var connection in data.Travel.Connections.OrderBy(c => c.Id))
         {
-            string? EndpointPlace(TripTravelEndpoint endpoint)
-            {
-                if (endpoint.PlaceId is not null && places.ContainsKey(endpoint.PlaceId))
-                {
-                    return endpoint.PlaceId;
-                }
-
-                if (
-                    endpoint.ActivityId is { } activityId
-                    && places.ContainsKey(PlaceId($"activity:{activityId:D}"))
-                )
-                {
-                    return PlaceId($"activity:{activityId:D}");
-                }
-
-                if (
-                    endpoint.VisitId is { } visitId
-                    && data.Visits.FirstOrDefault(v => v.StayId == visitId) is { } visit
-                )
-                {
-                    return data.Stays.ContainsKey(visitId)
-                        ? PlaceId($"stay:{visitId:D}")
-                        : PlaceId(visit.CityId);
-                }
-
-                return null;
-            }
-            var from = EndpointPlace(connection.From);
-            var to = EndpointPlace(connection.To);
             var duration = connection.DurationOverride ?? connection.Estimate?.Duration;
-            var entry = new JsonObject
-            {
-                ["@type"] = "Task",
-                ["uid"] = connection.Id.ToString("D"),
-                ["updated"] = updatedText,
-                ["title"] = connection.Name,
-                [Extension + "kind"] = "travel",
-                [Extension + "mode"] = connection.Mode,
-                [Extension + "modeSelectedBy"] = connection.ModeSelectedBy,
-                [Extension + "from"] = Node(connection.From),
-                [Extension + "to"] = Node(connection.To),
-                [Extension + "segments"] = Node(connection.Segments),
-                [Extension + "estimate"] = Node(connection.Estimate),
-                [Extension + "durationOverride"] = Node(connection.DurationOverride),
-                [Extension + "departureDate"] = Node(connection.DepartureDate),
-                [Extension + "departureTime"] = Node(connection.DepartureTime),
-                [Extension + "departureTimeZone"] = connection.TimeZone,
-                [Extension + "serviceId"] = connection.ServiceId,
-                [Extension + "fromPlaceId"] = from,
-                [Extension + "toPlaceId"] = to,
-            };
-            var locations = new JsonObject();
-            foreach (var (id, relative) in new[] { (from, "start"), (to, "end") })
-            {
-                if (id is not null)
-                {
-                    var location = new JsonObject
-                    {
-                        ["@type"] = "Location",
-                        ["name"] = places[id]["name"]!.DeepClone(),
-                        ["relativeTo"] = relative,
-                    };
-                    if (places[id]["timeZone"] is { } locationZone)
-                    {
-                        location["timeZone"] = locationZone.DeepClone();
-                    }
-
-                    locations[relative] = location;
-                }
-            }
-            if (locations.Count > 0)
-            {
-                entry["locations"] = locations;
-            }
-
-            if (duration > TimeSpan.Zero)
-            {
-                entry["estimatedDuration"] = ElapsedDuration(duration.Value);
-            }
-
             if (
                 duration is not null
                 && connection.DepartureDate is { } date
@@ -956,147 +688,35 @@ public sealed class TripSnapshotProjection(
                 var local = date.ToDateTime(time, DateTimeKind.Unspecified);
                 if (!zone.IsInvalidTime(local) && !zone.IsAmbiguousTime(local))
                 {
-                    entry["@type"] = "Event";
-                    entry.Remove("estimatedDuration");
-                    entry["start"] = local.ToString(
-                        "yyyy-MM-dd'T'HH:mm:ss",
-                        CultureInfo.InvariantCulture
-                    );
-                    entry["timeZone"] = zoneId;
-                    entry["duration"] = ElapsedDuration(duration.Value);
-                    entry[Extension + "resolvedStart"] = Node(
-                        new DateTimeOffset(local, zone.GetUtcOffset(local)).ToUniversalTime()
-                    );
-                    entry[Extension + "resolvedEnd"] = Node(
-                        new DateTimeOffset(local, zone.GetUtcOffset(local))
-                            .Add(duration.Value)
-                            .ToUniversalTime()
-                    );
-                    SetEventTiming(
-                        entry,
+                    Schedule(
+                        connection.Id.ToString("D"),
+                        "transportation",
                         new DateTimeOffset(local, zone.GetUtcOffset(local)),
                         duration.Value,
                         zoneId
                     );
                 }
             }
-            AddTravelLocations(entry, from, to, places);
-            entries.Add(entry);
         }
-        var itinerary = new JsonObject
-        {
-            ["@type"] = "ItemList",
-            ["itemListElement"] = new JsonArray(
-                data.Visits.OrderBy(v => v.ArrivalDate ?? v.DepartureDate ?? DateOnly.MaxValue)
-                    .ThenBy(v => v.Order)
-                    .ThenBy(v => v.StayId)
-                    .Select(
-                        (v, i) =>
-                            (JsonNode?)
-                                new JsonObject
-                                {
-                                    ["@id"] = Id(v.StayId),
-                                    ["@type"] = "ListItem",
-                                    ["position"] = i + 1,
-                                    ["item"] = Reference(PlaceId(v.CityId)),
-                                    ["tp:arrivalDate"] = Node(v.ArrivalDate),
-                                    ["tp:departureDate"] = Node(v.DepartureDate),
-                                    ["tp:accommodation"] = data.Stays.ContainsKey(v.StayId)
-                                        ? Reference(PlaceId($"stay:{v.StayId:D}"))
-                                        : null,
-                                }
-                    )
-                    .ToArray()
-            ),
-        };
-        var revision = ETag(resources).Trim('"');
-        var planUid = StableGuid($"{tripId}:calendar");
-        return new(
-            Context(),
-            Id(tripId),
-            data.Trip.Name,
-            data.Trip.Description,
+        // Revision tracks domain inputs, independently of REST addresses and response metadata.
+        var revision = ETag(data).Trim('"');
+        var file = TripDocumentProjection.Project(
+            data,
+            resources,
             revision,
-            Reference(homeId),
-            itinerary,
             places.Values.ToArray(),
-            people,
-            travellers,
-            Reference(Id(data.Trip.OwnerUserId)),
-            services.Values.ToArray(),
-            flights.ToArray(),
-            reservations.Values.ToArray(),
-            new JsonObject
-            {
-                ["@type"] = "Group",
-                ["uid"] = planUid.ToString("D"),
-                ["updated"] = updatedText,
-                ["title"] = data.Trip.Name,
-                ["entries"] = new JsonArray(
-                    entries
-                        .OrderBy(e => e["uid"]!.GetValue<string>(), StringComparer.Ordinal)
-                        .Select(e => (JsonNode?)e)
-                        .ToArray()
-                ),
-            },
-            new JsonObject
-            {
-                ["trip"] = new JsonObject
-                {
-                    ["constraints"] = Node(data.Trip.Constraints),
-                    ["preferences"] = Node(data.TripPreferences.Preferences),
-                    ["flightSettings"] = Node(document),
-                },
-                ["destinations"] = new JsonArray(destinationSettings.ToArray()),
-                ["days"] = new JsonArray(daySettings.ToArray()),
-                ["defaultsVersion"] = 1,
-            },
-            resources
+            transportation.ToArray(),
+            new JsonArray(
+                schedule
+                    .OrderBy(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal)
+                    .Select(e => (JsonNode?)e)
+                    .ToArray()
+            )
         );
+        return new(file, resources, services);
     }
 
-    private static void AddTravelLocations(
-        JsonObject entry,
-        string? from,
-        string? to,
-        IReadOnlyDictionary<string, JsonObject> places
-    )
-    {
-        var locations = new JsonObject();
-        foreach (var (id, relative) in new[] { (from, "start"), (to, "end") })
-        {
-            if (id is null || !places.TryGetValue(id, out var place))
-            {
-                continue;
-            }
-
-            var location = new JsonObject
-            {
-                ["@type"] = "Location",
-                ["name"] = place["name"]!.DeepClone(),
-                ["relativeTo"] = relative,
-            };
-            if (place["timeZone"] is { } zone)
-            {
-                location["timeZone"] = zone.DeepClone();
-            }
-
-            if (place["geo"] is JsonObject geo)
-            {
-                location["coordinates"] = FormattableString.Invariant(
-                    $"geo:{geo["latitude"]!.GetValue<double>()},{geo["longitude"]!.GetValue<double>()}"
-                );
-            }
-
-            locations[relative] = location;
-        }
-        if (locations.Count > 0)
-        {
-            entry["locations"] = locations;
-        }
-    }
-
-    public static string ElapsedDuration(TimeSpan duration)
+    private static string ElapsedDuration(TimeSpan duration)
     {
         var hours = duration.Ticks / TimeSpan.TicksPerHour;
         var minutes = duration.Minutes;
@@ -1120,30 +740,7 @@ public sealed class TripSnapshotProjection(
         return text.ToString();
     }
 
-    private static void SetEventTiming(
-        JsonObject entry,
-        DateTimeOffset start,
-        TimeSpan duration,
-        string zoneId
-    )
-    {
-        var zone = TimeZoneInfo.FindSystemTimeZoneById(zoneId);
-        var local = TimeZoneInfo.ConvertTime(start, zone).DateTime;
-        // Native JSCalendar resolves ambiguous local clocks to the earlier offset.
-        // Use UTC for a known ambiguous instant so generic readers retain the instant.
-        bool ambiguous = zone.IsAmbiguousTime(local);
-        entry["start"] = (ambiguous ? start.UtcDateTime : local).ToString(
-            "yyyy-MM-dd'T'HH:mm:ss",
-            CultureInfo.InvariantCulture
-        );
-        entry["timeZone"] = ambiguous ? "Etc/UTC" : zoneId;
-        entry["duration"] = ElapsedDuration(duration);
-        entry[Extension + "displayTimeZone"] = zoneId;
-        entry[Extension + "resolvedStart"] = Node(start.ToUniversalTime());
-        entry[Extension + "resolvedEnd"] = Node(start.Add(duration).ToUniversalTime());
-    }
-
-    private static IEnumerable<JsonElement> LegacyLegs(JsonElement itinerary)
+    private static IEnumerable<JsonElement> BookingLegs(JsonElement itinerary)
     {
         if (itinerary.ValueKind != JsonValueKind.Object)
         {
@@ -1169,54 +766,5 @@ public sealed class TripSnapshotProjection(
                 yield return leg;
             }
         }
-    }
-
-    public static string NormalizeMode(string mode) =>
-        mode.ToLowerInvariant() switch
-        {
-            "walking" => "walk",
-            "driving" => "car",
-            "cycling" => "bike",
-            _ => mode.ToLowerInvariant(),
-        };
-
-    private static JsonObject Context()
-    {
-        var context = new JsonObject
-        {
-            ["@version"] = 1.1,
-            ["@vocab"] = "https://schema.org/",
-            ["tp"] = Vocabulary,
-        };
-        foreach (var name in new[] { "plan", "planning", "resources" })
-        {
-            context[name] = new JsonObject { ["@id"] = "tp:" + name, ["@type"] = "@json" };
-        }
-        foreach (
-            var name in new[]
-            {
-                "schemaVersion",
-                "revision",
-                "places",
-                "people",
-                "travellers",
-                "person",
-                "role",
-                "services",
-                "flights",
-                "flight",
-                "reservation",
-                "reservations",
-                "destination",
-                "originVisit",
-                "destinationVisit",
-                "unassigned",
-                "timeZone",
-            }
-        )
-        {
-            context[name] = "tp:" + name;
-        }
-        return context;
     }
 }

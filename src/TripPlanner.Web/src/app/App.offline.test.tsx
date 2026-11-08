@@ -1,3 +1,4 @@
+import { tripDocumentFixture } from "../test/tripDocumentFixture";
 import { memoryStorage } from "../test/memoryStorage";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -8,9 +9,9 @@ import {
   rememberOfflineUser,
   rememberTripCatalog,
   readOfflineUser,
-  snapshotKey,
+  documentKey,
 } from "../api/offlineCache";
-import { clearTripSnapshotCache } from "../api/tripSnapshot";
+import { clearTripDocumentCache } from "../api/tripDocumentStore";
 const user = {
   isAuthenticated: true,
   id: "owner",
@@ -30,7 +31,7 @@ const trip = {
 beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
   vi.stubGlobal("sessionStorage", memoryStorage());
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
   localStorage.clear();
   sessionStorage.clear();
 });
@@ -51,13 +52,9 @@ function seed() {
 test("a fresh offline launch restores identity and downloaded trip links in read-only mode", async () => {
   seed();
   localStorage.setItem(
-    snapshotKey("owner", "trip"),
+    documentKey("owner", "trip"),
     JSON.stringify({
-      snapshot: {
-        schemaVersion: 1,
-        "@id": "urn:uuid:trip",
-        resources: { "/trips/trip": { data: trip } },
-      },
+      document: tripDocumentFixture(trip),
     }),
   );
   const network = vi.fn().mockRejectedValue(new TypeError("offline"));
@@ -78,7 +75,7 @@ test("a fresh offline launch restores identity and downloaded trip links in read
     screen.queryByRole("link", { name: "Sign in with Google" }),
   ).not.toBeInTheDocument();
 });
-test("a list entry without a snapshot is explained rather than offered as an offline trip", async () => {
+test("a list entry without a document is explained rather than offered as an offline trip", async () => {
   seed();
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
   show();
@@ -135,15 +132,13 @@ test("an explicit signed-out response clears the saved account and trip list", a
   seed();
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          isAuthenticated: false,
-          completedOnboarding: false,
-          profile: user.profile,
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      Response.json({
+        isAuthenticated: false,
+        completedOnboarding: false,
+        profile: user.profile,
+      }),
+    ),
   );
   show();
   expect(

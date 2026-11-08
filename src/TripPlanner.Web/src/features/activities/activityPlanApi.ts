@@ -1,4 +1,4 @@
-import { tripFetch } from "../../api/tripSnapshot";
+import { tripFetch } from "../../api/tripDocumentStore";
 import { apiBaseUrl } from "../../api/api";
 
 export type DailySettings = {

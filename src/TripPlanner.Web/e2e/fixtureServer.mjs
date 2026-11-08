@@ -20,52 +20,99 @@ const root = resolve("dist");
 let authenticated = true;
 let completeSelection = false;
 const prefix = `/trips/${trip.id}`;
-const resource = (href, data, status = 200) => ({
-  href,
-  data,
-  status,
-  etag: '"1"',
-  contentType: "application/json",
-});
-const snapshot = {
-  "@type": "Trip",
-  "@id": `urn:uuid:${trip.id}`,
-  schemaVersion: 1,
-  revision: "1",
-  name: trip.name,
-  places: airportPlaces,
-  resources: {
-    [prefix]: resource(prefix, trip),
-    [`${prefix}/destinations`]: resource(`${prefix}/destinations`, {
-      type: "FeatureCollection",
-      features: [destination],
-      route: [
+function tripDocument() {
+  const choices = completeSelection ? [] : flightChoices;
+  const visits = destination.properties.stays.map((v) => ({
+    id: v.id,
+    order: v.order,
+    arrivalDate: v.arrivalDate,
+    departureDate: v.departureDate,
+    destinationId: destination.id,
+    accommodationPlaceId: null,
+  }));
+  const cityPlaceId = `urn:tripplanner:${trip.id}:place:${destination.id}`;
+  return {
+    schemaVersion: 1,
+    id: trip.id,
+    name: trip.name,
+    description: trip.description,
+    revision: "1",
+    createdAt: trip.createdAt,
+    updatedAt: trip.updatedAt,
+    originPlaceId: "home",
+    people: parties
+      .flatMap((g) => g.members)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.role,
+        homeCityName: p.homeCity,
+        isOwner: p.id === trip.ownerUserId,
+      })),
+    places: [
+      ...airportPlaces.map((p) => ({
+        ...p,
+        id: p["@id"],
+        type: p["@type"] ?? "Airport",
+        location: null,
+      })),
+      {
+        id: cityPlaceId,
+        type: "Place",
+        name: destination.properties.name,
+        destinationId: destination.id,
+        countryCode: destination.properties.countryCode,
+        timeZone: destination.properties.timeZone,
+        location: destination.geometry,
+        active: true,
+        etag: "1",
+        activitiesEtag: "1",
+      },
+    ],
+    activities: [],
+    transportation: {
+      legs: [],
+      journeys: choices.flatMap((c) => [
+        ...(c.flights ?? []).map((f) => ({
+          groupId: c.partyId,
+          legIndex: f.legIndex,
+          details: f.leg,
+        })),
+        ...(c.unmatchedFlights ?? []).map((f) => ({
+          groupId: c.partyId,
+          legIndex: null,
+          details: f,
+        })),
+      ]),
+      bookings: completeSelection ? [legacyFlight] : [],
+    },
+    itinerary: { visits, days: [], schedule: [] },
+    preferences: {
+      constraints: trip.constraints,
+      activities: { instructions: "", defaults: null },
+      destinations: [
         {
           destinationId: destination.id,
-          stayId: destination.properties.stays[0].id,
+          constraints: destination.properties.constraints ?? {},
+          activities: { instructions: "", defaults: null },
+          schedule: {},
         },
       ],
-    }),
-    [`${prefix}/flights`]: resource(`${prefix}/flights`, [], 204),
-    [`${prefix}/flights/choices`]: resource(
-      `${prefix}/flights/choices`,
-      flightChoices,
-    ),
-    [`${prefix}/flights/constraints`]: resource(
-      `${prefix}/flights/constraints`,
-      flightConstraints,
-    ),
-    [`${prefix}/parties`]: resource(`${prefix}/parties`, parties),
-    [`${prefix}/destinations/${destination.id}/activities`]: resource(
-      `${prefix}/destinations/${destination.id}/activities`,
-      { type: "FeatureCollection", features: [] },
-    ),
-    [`${prefix}/destinations/${destination.id}/activity-plan`]: resource(
-      `${prefix}/destinations/${destination.id}/activity-plan`,
-      { version: 0 },
-    ),
-  },
-};
+      groups: parties.map(({ members, ...g }) => ({
+        ...g,
+        personIds: members.map((m) => m.id),
+      })),
+      flightChoices: choices.map(
+        ({ partyId, flights, unmatchedFlights, ...c }) => ({
+          ...c,
+          groupId: partyId,
+        }),
+      ),
+    },
+    canPlan: trip.canPlan,
+    etag: "1",
+  };
+}
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://127.0.0.1:4174");
@@ -97,23 +144,12 @@ const server = createServer(async (request, response) => {
       json(authenticated ? [trip] : {}, authenticated ? 200 : 401);
       return;
     }
-    if (url.pathname === `${prefix}/snapshot`) {
-      const selectedSnapshot = completeSelection
-        ? {
-            ...snapshot,
-            resources: {
-              ...snapshot.resources,
-              [`${prefix}/flights`]: resource(`${prefix}/flights`, [
-                legacyFlight,
-              ]),
-              [`${prefix}/flights/choices`]: resource(
-                `${prefix}/flights/choices`,
-                [],
-              ),
-            },
-          }
-        : snapshot;
-      json(authenticated ? selectedSnapshot : {}, authenticated ? 200 : 401);
+    if (url.pathname === `${prefix}/flights/constraints`) {
+      json(authenticated ? flightConstraints : {}, authenticated ? 200 : 401);
+      return;
+    }
+    if (url.pathname === `${prefix}/document`) {
+      json(authenticated ? tripDocument() : {}, authenticated ? 200 : 401);
       return;
     }
     if (

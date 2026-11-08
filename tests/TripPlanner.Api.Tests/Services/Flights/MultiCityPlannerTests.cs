@@ -396,7 +396,7 @@ public sealed class MultiCityPlannerTests
                 .GetDecimal()
         );
         // No separate itinerary-save request is needed after choosing all legs.
-        // Clearing the resource drops snapshots and makes every leg searchable again.
+        // Clearing the resource drops readViews and makes every leg searchable again.
         (
             await client.PutResourceAsJsonAsync(choicesUrl, new SetFlightChoicesRequest([]))
         ).EnsureSuccessStatusCode();

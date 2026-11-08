@@ -1,4 +1,4 @@
-import { useExplicitResourceRefresh } from "../../api/tripSnapshot";
+import { useExplicitResourceRefresh } from "../../api/tripDocumentStore";
 import { DailyPlanSkeleton } from "./ActivityPlanningSkeletons";
 import ActivityOrderHandle from "./ActivityOrderHandle";
 import type { ActivityRouteSelection } from "./activityRouteApi";

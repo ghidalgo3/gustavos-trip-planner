@@ -1,6 +1,6 @@
 # Follow-ups for later milestones
 
-## Trip revision history and planning snapshots
+## Trip revision history and planning saved versions
 
 Defer trip versioning until after the initial constraint and planning prototype.
 The current application stores only the latest trip definition; a constraint

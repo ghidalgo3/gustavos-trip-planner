@@ -3075,7 +3075,7 @@ main:has(.trip-workspace-activities) > .topbar {
   width: 65%;
 }
 
-.snapshot-status {
+.document-status {
   display: flex;
   flex-shrink: 0;
   align-items: center;

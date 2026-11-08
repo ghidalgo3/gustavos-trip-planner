@@ -1,8 +1,8 @@
 import {
   refreshConflictedResource,
   useExplicitResourceRefresh,
-  useTripSnapshotState,
-} from "../../api/tripSnapshot";
+  useTripDocumentState,
+} from "../../api/tripDocumentStore";
 import { useState } from "react";
 import { Button, Text } from "@fluentui/react-components";
 import { planningRequest, type Versioned } from "../activities/activityPlanApi";
@@ -69,9 +69,9 @@ export default function TripTravelEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const path = `/trips/${tripId}/travel`;
-  const snapshot = useTripSnapshotState();
+  const document = useTripDocumentState();
   const homeZone =
-    snapshot.snapshot?.places?.find((p) => p["@id"].endsWith(":place:home"))
+    document.document?.places?.find((p) => p.id.endsWith(":place:home"))
       ?.timeZone ?? null;
   const endpoints = [
     {
@@ -80,16 +80,14 @@ export default function TripTravelEditor({
       endpoint: { placeId: `urn:tripplanner:${tripId}:place:home` } as Endpoint,
       zone: homeZone as string | null,
     },
-    ...(snapshot.snapshot?.places ?? [])
+    ...(document.document?.places ?? [])
       .filter(
-        (p) =>
-          !p["@id"].endsWith(":place:home") &&
-          /:place:airport%3A/i.test(p["@id"]),
+        (p) => !p.id.endsWith(":place:home") && /:place:airport%3A/i.test(p.id),
       )
       .map((p) => ({
-        key: `place:${p["@id"]}`,
+        key: `place:${p.id}`,
         label: p.name,
-        endpoint: { placeId: p["@id"] } as Endpoint,
+        endpoint: { placeId: p.id } as Endpoint,
         zone: p.timeZone ?? null,
       })),
     ...destinations.features.flatMap((d) =>

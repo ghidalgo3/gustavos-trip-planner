@@ -1,13 +1,13 @@
 using System.Text.Json;
 using NpgsqlTypes;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 
 namespace TripPlanner.Api.Database;
 
 public sealed partial class PostgresPlannerDb
 {
-    public async Task<DateTimeOffset> GetTripSnapshotModifiedAtAsync(
+    public async Task<DateTimeOffset> GetTripModifiedAtAsync(
         Guid userId,
         Guid tripId,
         CancellationToken cancellationToken = default
@@ -43,7 +43,7 @@ public sealed partial class PostgresPlannerDb
             ? new(
                 JsonSerializer.Deserialize<TripTravelConnection[]>(
                     reader.GetString(0),
-                    TripSnapshotProjection.JsonOptions
+                    TripResourceProjection.JsonOptions
                 ) ?? [],
                 reader.GetInt64(1)
             )
@@ -75,7 +75,7 @@ public sealed partial class PostgresPlannerDb
         command.Parameters.AddWithValue(userId);
         command.Parameters.AddWithValue(
             NpgsqlDbType.Jsonb,
-            JsonSerializer.Serialize(connections, TripSnapshotProjection.JsonOptions)
+            JsonSerializer.Serialize(connections, TripResourceProjection.JsonOptions)
         );
         command.Parameters.AddWithValue(expectedVersion);
         command.Parameters.AddWithValue(expectedContextRevision);

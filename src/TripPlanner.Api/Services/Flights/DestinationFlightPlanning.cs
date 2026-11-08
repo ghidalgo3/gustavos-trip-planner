@@ -23,25 +23,25 @@ public sealed class DestinationFlightPlanning(
 
     public async Task<PlanningDocument> GetAsync(Guid viewerId, Trip trip, CancellationToken token)
     {
-        var snapshot = await destinations.GetAsync(viewerId, trip, token);
+        var readView = await destinations.GetAsync(viewerId, trip, token);
         var owner = await database.GetUserAsync(trip.OwnerUserId, token);
         var parties = await database.GetPartiesAsync(viewerId, trip.Id, token);
-        return Describe(trip, snapshot, owner, parties);
+        return Describe(trip, readView, owner, parties);
     }
 
     public PlanningDocument Describe(
         Trip trip,
-        DestinationSnapshot snapshot,
+        DestinationReadView readView,
         User? owner,
         IReadOnlyList<Party> parties
     )
     {
         var saved = PlanningDocument.FromJson(trip.FlightConstraints);
-        if (snapshot.Collection.Features.Count == 0)
+        if (readView.Collection.Features.Count == 0)
         {
             return saved;
         }
-        var visits = snapshot
+        var visits = readView
             .Collection.Features.SelectMany(city =>
                 city.Properties.Stays.Select(stay => new { City = city, Stay = stay })
             )

@@ -1,6 +1,6 @@
 import { readOfflineUser, rememberOfflineUser } from "../api/offlineCache";
 import { HttpResponseError, isAccessDenied } from "../api/httpErrors";
-import { clearTripSnapshotCache } from "../api/tripSnapshot";
+import { clearTripDocumentCache } from "../api/tripDocumentStore";
 import ContentSkeleton from "../shared/components/ContentSkeleton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -58,7 +58,7 @@ export default function App() {
   const acceptUser = useCallback((value: CurrentUser) => {
     const previous = readOfflineUser();
     if (!value.isAuthenticated || (previous && previous.id !== value.id))
-      clearTripSnapshotCache();
+      clearTripDocumentCache();
     if (value.isAuthenticated) rememberOfflineUser(value);
     setUser(value);
     setOffline(false);
@@ -155,7 +155,7 @@ export default function App() {
                 >
                   <Person24Regular /> Your profile
                 </button>
-                <a href={logoutUrl()} onClick={clearTripSnapshotCache}>
+                <a href={logoutUrl()} onClick={clearTripDocumentCache}>
                   <SignOut24Regular /> Sign out
                 </a>
               </div>
@@ -165,7 +165,7 @@ export default function App() {
       </header>
 
       {offline && user?.isAuthenticated && (
-        <div className="snapshot-status" role="status">
+        <div className="document-status" role="status">
           <Text>
             Offline · Viewing saved trips. Connect to refresh; editing is
             disabled.

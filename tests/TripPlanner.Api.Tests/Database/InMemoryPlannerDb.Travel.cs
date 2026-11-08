@@ -4,10 +4,12 @@ namespace TripPlanner.Api.Tests.Database;
 
 public sealed partial class InMemoryPlannerDb
 {
-    private readonly Dictionary<Guid, (long Revision, DateTimeOffset ModifiedAt)> snapshotTimes =
-        new();
+    private readonly Dictionary<
+        Guid,
+        (long Revision, DateTimeOffset ModifiedAt)
+    > modificationTimes = new();
 
-    public Task<DateTimeOffset> GetTripSnapshotModifiedAtAsync(
+    public Task<DateTimeOffset> GetTripModifiedAtAsync(
         Guid userId,
         Guid tripId,
         CancellationToken cancellationToken = default
@@ -16,10 +18,10 @@ public sealed partial class InMemoryPlannerDb
         lock (_tripLock)
         {
             var revision = PlanningRevision(tripId);
-            if (!snapshotTimes.TryGetValue(tripId, out var value) || value.Revision != revision)
+            if (!modificationTimes.TryGetValue(tripId, out var value) || value.Revision != revision)
             {
                 value = (revision, DateTimeOffset.UtcNow);
-                snapshotTimes[tripId] = value;
+                modificationTimes[tripId] = value;
             }
             return Task.FromResult(value.ModifiedAt);
         }

@@ -70,7 +70,7 @@ public static class DestinationsEndpoints
         {
             return Results.Forbid();
         }
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user.Id,
             trip!,
             destinationCity,
@@ -86,7 +86,7 @@ public static class DestinationsEndpoints
         {
             var suggestions = await research.FindAsync(
                 request.Query.Trim(),
-                snapshot!.Find(destinationCity)!,
+                readView!.Find(destinationCity)!,
                 context.RequestAborted
             );
             // Preview only: the ordinary stay replacement saves the user's accepted location.
@@ -282,10 +282,10 @@ public static class DestinationsEndpoints
         try
         {
             var visit = await service.AddAsync(user!.Id, trip!, input, context.RequestAborted);
-            var snapshot = await service.GetAsync(user.Id, trip!, context.RequestAborted);
+            var readView = await service.GetAsync(user.Id, trip!, context.RequestAborted);
             context.Response.Headers.Location = $"/trips/{tripId:D}/destinations/{visit.CityId}";
             return Results.Json(
-                snapshot.Find(visit.CityId),
+                readView.Find(visit.CityId),
                 statusCode: 201,
                 contentType: "application/geo+json"
             );
@@ -403,8 +403,8 @@ public static class DestinationsEndpoints
             return Results.NotFound();
         }
 
-        var snapshot = await service.GetAsync(user.Id, trip!, context.RequestAborted);
-        return GeoJson(snapshot.Find(destinationCity) ?? InactiveDestination(saved));
+        var readView = await service.GetAsync(user.Id, trip!, context.RequestAborted);
+        return GeoJson(readView.Find(destinationCity) ?? InactiveDestination(saved));
     }
 
     internal static async Task<IResult> DeleteDestination(
@@ -514,8 +514,8 @@ public static class DestinationsEndpoints
             return Results.NotFound();
         }
 
-        var snapshot = await service.GetAsync(user.Id, trip!, context.RequestAborted);
-        return GeoJson(snapshot.Find(destinationCity)!);
+        var readView = await service.GetAsync(user.Id, trip!, context.RequestAborted);
+        return GeoJson(readView.Find(destinationCity)!);
     }
 
     internal static async Task<IResult> GetDestinations(
@@ -539,16 +539,16 @@ public static class DestinationsEndpoints
             return error;
         }
 
-        var (snapshot, resolveError) = await ResolveAsync(user!.Id, trip!, null, service, context);
-        if (snapshot is null && resolveError is not null && includeInactive != true)
+        var (readView, resolveError) = await ResolveAsync(user!.Id, trip!, null, service, context);
+        if (readView is null && resolveError is not null && includeInactive != true)
         {
             return resolveError;
         }
 
-        var active = snapshot?.Collection.Features ?? [];
+        var active = readView?.Collection.Features ?? [];
         if (includeInactive != true)
         {
-            return GeoJson(snapshot!.Collection);
+            return GeoJson(readView!.Collection);
         }
 
         var known = await database.GetDestinationPlacesAsync(
@@ -563,7 +563,7 @@ public static class DestinationsEndpoints
             new GeoJsonCollection<DestinationProperties>(
                 "FeatureCollection",
                 [.. active, .. inactive],
-                snapshot?.Collection.Route ?? []
+                readView?.Collection.Route ?? []
             )
         );
     }
@@ -589,7 +589,7 @@ public static class DestinationsEndpoints
             return error;
         }
 
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
             destinationCity,
@@ -598,7 +598,7 @@ public static class DestinationsEndpoints
         );
         if (resolveError is null)
         {
-            return GeoJson(snapshot!.Find(destinationCity)!);
+            return GeoJson(readView!.Find(destinationCity)!);
         }
 
         DestinationPlace? place = await database.GetDestinationPlaceAsync(

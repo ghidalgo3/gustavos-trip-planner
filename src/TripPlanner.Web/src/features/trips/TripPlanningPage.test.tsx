@@ -18,15 +18,15 @@ vi.mock("../../api/api", () => ({
     ownerUserId: "owner",
   }),
 }));
-vi.mock("../../api/tripSnapshot", () => ({
-  openTripSnapshot: vi.fn().mockResolvedValue(undefined),
+vi.mock("../../api/tripDocumentStore", () => ({
+  openTripDocument: vi.fn().mockResolvedValue(undefined),
   refreshConflictedResource: vi.fn().mockResolvedValue(undefined),
-  useTripSnapshotState: () => ({
+  useTripDocumentState: () => ({
     userId: "owner",
     tripId: "trip",
     offline: false,
     loading: false,
-    snapshot: {
+    document: {
       resources: {
         "/trips/trip": {
           data: { id: "trip", name: "Test trip", ownerUserId: "owner" },

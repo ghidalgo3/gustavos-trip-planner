@@ -1,16 +1,16 @@
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 
 namespace TripPlanner.Api.Endpoints;
 
-// Supplies the same read representation/validator in focused GETs and in snapshots.
+// Supplies the same read representation/validator in focused GETs and in views.
 public sealed class TripResourceFilter(
     IPlannerDb database,
     ICurrentUser currentUser,
-    TripSnapshotReader reader,
-    TripSnapshotProjection projection,
+    TripReader reader,
+    TripResourceProjection projection,
     ITripDataSession sessions
 ) : IEndpointFilter
 {
@@ -26,7 +26,7 @@ public sealed class TripResourceFilter(
                 context.Request.RouteValues.GetValueOrDefault("tripId")?.ToString(),
                 out var tripId
             )
-            || path.EndsWith("/snapshot", StringComparison.Ordinal)
+            || path.EndsWith("/document", StringComparison.Ordinal)
             || !(
                 HttpMethods.IsGet(context.Request.Method)
                 || HttpMethods.IsPut(context.Request.Method)
@@ -70,9 +70,9 @@ public sealed class TripResourceFilter(
             {
                 return Results.NotFound();
             }
-            var snapshot = projection.Project(data);
+            var view = projection.Project(data);
             var key = path + context.Request.QueryString;
-            if (!snapshot.Resources.TryGetValue(key, out var resource))
+            if (!view.Resources.TryGetValue(key, out var resource))
             {
                 return await next(invocation);
             }
@@ -114,9 +114,9 @@ public sealed class TripResourceFilter(
                     {
                         return await next(invocation);
                     }
-                    var snapshot = projection.Project(data);
+                    var view = projection.Project(data);
                     string key = writePath;
-                    if (!snapshot.Resources.TryGetValue(key, out var resource))
+                    if (!view.Resources.TryGetValue(key, out var resource))
                     {
                         if (
                             (
@@ -127,7 +127,7 @@ public sealed class TripResourceFilter(
                         {
                             resource = new(
                                 key,
-                                TripSnapshotProjection.ETag<object?>(null),
+                                TripResourceProjection.ETag<object?>(null),
                                 System.Text.Json.JsonSerializer.SerializeToElement<object?>(null)
                             );
                         }
@@ -272,7 +272,7 @@ public sealed class TripResourceFilter(
         return "/" + string.Join('/', parts);
     }
 
-    private static void SetHeaders(HttpContext context, SnapshotResource resource)
+    private static void SetHeaders(HttpContext context, TripResource resource)
     {
         context.Response.Headers.ETag = resource.Etag;
         context.Response.Headers.CacheControl = "private, no-cache";

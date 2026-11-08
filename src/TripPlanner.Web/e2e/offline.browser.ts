@@ -206,7 +206,7 @@ for (const selection of ["partial", "complete"]) {
         .poll(() =>
           offlinePage.evaluate(() =>
             Object.keys(localStorage).filter((key) =>
-              /tripplanner\.(offline-user|trip-catalog|snapshot)/.test(key),
+              /tripplanner\.(offline-user|trip-catalog|document)/.test(key),
             ),
           ),
         )

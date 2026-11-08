@@ -102,11 +102,11 @@ public sealed class NativeClientTests
         Assert.AreEqual(HttpStatusCode.OK, profileResponse.StatusCode);
         var profile = await profileResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.AreEqual(user.Id.ToString(), profile.GetProperty("id").GetString());
-        using var snapshot = await native.GetAsync($"/trips/{trip.Id}/snapshot");
+        using var readView = await native.GetAsync($"/trips/{trip.Id}/document");
         Assert.AreEqual(
             HttpStatusCode.OK,
-            snapshot.StatusCode,
-            await snapshot.Content.ReadAsStringAsync()
+            readView.StatusCode,
+            await readView.Content.ReadAsStringAsync()
         );
         using var read = await native.GetAsync($"/trips/{trip.Id}");
         using var write = new HttpRequestMessage(HttpMethod.Put, $"/trips/{trip.Id}")
@@ -122,7 +122,7 @@ public sealed class NativeClientTests
             wrongAudience.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
         );
         using var anonymous = McpEndpointTests.CreateClient(factory);
-        using var denied = await anonymous.GetAsync($"/trips/{trip.Id}/snapshot");
+        using var denied = await anonymous.GetAsync($"/trips/{trip.Id}/document");
         Assert.AreEqual(HttpStatusCode.Unauthorized, denied.StatusCode);
         Assert.IsNull(
             denied.Headers.Location,

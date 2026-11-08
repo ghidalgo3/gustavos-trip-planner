@@ -1,4 +1,4 @@
-import { ResourceConflictError } from "../../api/tripSnapshot";
+import { ResourceConflictError } from "../../api/tripDocumentStore";
 import { useRef, useState } from "react";
 import {
   Button,

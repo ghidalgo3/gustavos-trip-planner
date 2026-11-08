@@ -1,4 +1,4 @@
-import { useTripSnapshotState } from "../../api/tripSnapshot";
+import { useTripDocumentState } from "../../api/tripDocumentStore";
 import { useEffect, useState } from "react";
 import { apiBaseUrl } from "../../api/api";
 import type { AirportCities } from "./flightFormatting";
@@ -18,9 +18,9 @@ export function flightAirportCodes(legs: FareLeg[]): string[] {
 }
 
 export function useAirportCities(codes: string[]): AirportCities {
-  const snapshot = useTripSnapshotState();
+  const document = useTripDocumentState();
   const saved: AirportCities = Object.fromEntries(
-    (snapshot.snapshot?.places ?? [])
+    (document.document?.places ?? [])
       .filter((place) => place.iataCode && place.address?.addressLocality)
       .map((place) => [place.iataCode!, place.address!.addressLocality!]),
   );
@@ -28,7 +28,7 @@ export function useAirportCities(codes: string[]): AirportCities {
     .filter((code) => !saved[code])
     .sort()
     .join(",");
-  const disconnected = snapshot.offline || navigator.onLine === false;
+  const disconnected = document.offline || navigator.onLine === false;
   const [value, setValue] = useState<{ key: string; cities: AirportCities }>();
   useEffect(() => {
     if (!key || disconnected) return;

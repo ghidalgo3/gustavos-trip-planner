@@ -1,4 +1,4 @@
-import { tripFetch } from "../../api/tripSnapshot";
+import { tripFetch } from "../../api/tripDocumentStore";
 import { apiBaseUrl, tripResourceUrl, readTripError } from "../../api/api";
 
 export type SearchLocation = {

@@ -1,7 +1,7 @@
 namespace TripPlanner.Api.Models;
 
 // Internal read model. Includes private evaluation inputs; never return it directly.
-public sealed record TripSnapshotData(
+public sealed record TripReadData(
     Trip Trip,
     bool CanPlan,
     Party[] Parties,

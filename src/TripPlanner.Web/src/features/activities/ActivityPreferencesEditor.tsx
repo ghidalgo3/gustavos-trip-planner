@@ -1,4 +1,4 @@
-import { useExplicitResourceRefresh } from "../../api/tripSnapshot";
+import { useExplicitResourceRefresh } from "../../api/tripDocumentStore";
 import { PreferencesSkeleton } from "./ActivityPlanningSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useState } from "react";

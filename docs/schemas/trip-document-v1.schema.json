@@ -1,0 +1,1034 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghidalgo3.github.io/gustavos-trip-planner/schemas/trip-document-v1.schema.json",
+  "title": "Trip document version 1",
+  "description": "Portable trip domain model. Optional ETags and other validators are direct properties on their entities and editable sections. API routes and response bodies are excluded. Core references and ownership are checked by application code. Format assertions must be enabled in validators.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "description",
+    "revision",
+    "createdAt",
+    "updatedAt",
+    "originPlaceId",
+    "people",
+    "places",
+    "activities",
+    "transportation",
+    "itinerary",
+    "preferences"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "originPlaceId": {
+      "type": "string"
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/person"
+      }
+    },
+    "places": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/place"
+      }
+    },
+    "activities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/activity"
+      }
+    },
+    "transportation": {
+      "type": "object",
+      "required": [
+        "legs",
+        "journeys",
+        "bookings"
+      ],
+      "properties": {
+        "legs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/leg"
+          }
+        },
+        "journeys": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "groupId",
+              "legIndex",
+              "details"
+            ],
+            "properties": {
+              "groupId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "legIndex": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "bookings": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "connectionsEtag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        },
+        "connectionsVersion": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "itinerary": {
+      "type": "object",
+      "required": [
+        "visits",
+        "days",
+        "schedule"
+      ],
+      "properties": {
+        "visits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/visit"
+          }
+        },
+        "days": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/day"
+          }
+        },
+        "schedule": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "id",
+              "start",
+              "timeZone",
+              "duration"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "activity",
+                  "transportation"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "start": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+              },
+              "timeZone": {
+                "type": "string"
+              },
+              "duration": {
+                "type": "string",
+                "pattern": "^PT(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]+)?S)?$",
+                "minLength": 4
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "preferences": {
+      "type": "object",
+      "required": [
+        "constraints",
+        "activities",
+        "destinations",
+        "groups",
+        "flightChoices"
+      ],
+      "properties": {
+        "constraints": {
+          "type": "object"
+        },
+        "activities": {
+          "type": "object",
+          "properties": {
+            "etag": {
+              "type": "string",
+              "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+            },
+            "contextVersion": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            }
+          }
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "destinationId",
+              "constraints",
+              "activities",
+              "schedule"
+            ],
+            "properties": {
+              "destinationId": {
+                "type": "string"
+              },
+              "constraints": {
+                "type": "object"
+              },
+              "activities": {
+                "type": "object",
+                "properties": {
+                  "etag": {
+                    "type": "string",
+                    "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+                  },
+                  "contextVersion": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "schedule": {
+                "type": "object",
+                "properties": {
+                  "etag": {
+                    "type": "string",
+                    "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+                  },
+                  "contextVersion": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "flightChoicesEtag": {
+                "type": "string",
+                "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+              },
+              "bookingEtag": {
+                "type": "string",
+                "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+              },
+              "memberEtags": {
+                "type": "object",
+                "propertyNames": {
+                  "format": "uuid"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+                }
+              }
+            }
+          }
+        },
+        "flightChoices": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "flightPlanningEtag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "etag": {
+      "type": "string",
+      "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+    },
+    "canPlan": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "person": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "role",
+        "isOwner",
+        "homeCityName"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "Planner",
+            "Traveller"
+          ]
+        },
+        "isOwner": {
+          "type": "boolean"
+        },
+        "homeCityName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        },
+        "contextVersion": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "place": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "Place",
+            "Airport",
+            "LodgingBusiness"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "coordinates"
+              ],
+              "properties": {
+                "type": {
+                  "const": "Point"
+                },
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeZone": {
+          "type": "string"
+        },
+        "iataCode": {
+          "type": "string"
+        },
+        "address": {
+          "type": "object"
+        },
+        "destinationId": {
+          "type": "string"
+        },
+        "countryCode": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        },
+        "activitiesEtag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        },
+        "contextVersion": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "activity": {
+      "type": "object",
+      "required": [
+        "id",
+        "destinationId",
+        "name",
+        "description",
+        "duration",
+        "cost",
+        "state",
+        "placeId",
+        "selection",
+        "rule",
+        "links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "destinationId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^PT(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]+)?S)?$",
+              "minLength": 4
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "amount",
+                "currency",
+                "basis"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z]{3}$"
+                },
+                "basis": {
+                  "enum": [
+                    "perPerson",
+                    "total"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "Proposed",
+            "Planned",
+            "Rejected"
+          ]
+        },
+        "placeName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "placeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "durationEvidence": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "notes",
+                "source",
+                "researchedAt"
+              ],
+              "properties": {
+                "notes": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "object",
+                  "required": [
+                    "url"
+                  ],
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "researchedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "costEvidence": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "notes",
+                "source",
+                "researchedAt"
+              ],
+              "properties": {
+                "notes": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "object",
+                  "required": [
+                    "url"
+                  ],
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "researchedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locationSuggestion": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "venueName",
+                "geometry",
+                "source",
+                "retrievedAt"
+              ],
+              "properties": {
+                "venueName": {
+                  "type": "string"
+                },
+                "geometry": {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "coordinates"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "Point"
+                    },
+                    "coordinates": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "source": {
+                  "type": "object",
+                  "required": [
+                    "url"
+                  ],
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "retrievedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selection": {
+          "enum": [
+            "Selected",
+            "Excluded",
+            "Unassigned"
+          ]
+        },
+        "rule": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        },
+        "contextVersion": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "leg": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "serviceId",
+            "flightNumber",
+            "originVisitId",
+            "destinationVisitId",
+            "departurePlaceId",
+            "arrivalPlaceId",
+            "unassigned",
+            "purchased"
+          ],
+          "properties": {
+            "kind": {
+              "const": "flight"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "serviceId": {
+              "type": "string"
+            },
+            "flightNumber": {
+              "type": "string"
+            },
+            "originVisitId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "destinationVisitId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "destinationPlaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "departurePlaceId": {
+              "type": "string"
+            },
+            "arrivalPlaceId": {
+              "type": "string"
+            },
+            "departureTime": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "arrivalTime": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "departureLocalTime": {
+              "type": "string"
+            },
+            "arrivalLocalTime": {
+              "type": "string"
+            },
+            "unassigned": {
+              "type": "boolean"
+            },
+            "purchased": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "from",
+            "to"
+          ],
+          "properties": {
+            "kind": {
+              "const": "connection"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": {
+              "type": "string"
+            },
+            "from": {
+              "type": "object"
+            },
+            "to": {
+              "type": "object"
+            },
+            "mode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "visitId",
+            "date",
+            "duration",
+            "mode"
+          ],
+          "properties": {
+            "kind": {
+              "const": "transfer"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "visitId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "duration": {
+              "type": "string",
+              "pattern": "^PT(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]+)?S)?$",
+              "minLength": 4
+            },
+            "mode": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "visit": {
+      "type": "object",
+      "required": [
+        "id",
+        "order",
+        "destinationId",
+        "arrivalDate",
+        "departureDate",
+        "accommodationPlaceId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "destinationId": {
+          "type": "string"
+        },
+        "arrivalDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "departureDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "accommodationPlaceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        },
+        "accommodationEtag": {
+          "type": "string",
+          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "day": {
+      "type": "object",
+      "required": [
+        "destinationId",
+        "stayId",
+        "date",
+        "activityIds",
+        "settings",
+        "mealPositions",
+        "availableFrom",
+        "availableUntil",
+        "availabilityConfirmed",
+        "flightMatches"
+      ],
+      "properties": {
+        "destinationId": {
+          "type": "string"
+        },
+        "stayId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "activityIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "settings": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "mealPositions": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "availableFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+        },
+        "availableUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+        },
+        "availabilityConfirmed": {
+          "type": "boolean"
+        },
+        "flightMatches": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "dependentRequired": {
+    "etag": [
+      "canPlan"
+    ]
+  }
+}

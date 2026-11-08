@@ -1,35 +1,28 @@
+import { tripDocumentFixture } from "../test/tripDocumentFixture";
+import type { TripDocument } from "./tripDocument";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cachedTripResource,
-  clearTripSnapshotCache,
-  openTripSnapshot,
-  refreshTripSnapshot,
+  clearTripDocumentCache,
+  openTripDocument,
+  refreshTripDocument,
   tripFetch,
-  type TripSnapshot,
-} from "./tripSnapshot";
+} from "./tripDocumentStore";
 const tripId = "11111111-1111-1111-1111-111111111111";
 const path = `/trips/${tripId}`;
-function fixture(name = "Original", version = "1"): TripSnapshot {
-  return {
-    "@id": `urn:uuid:${tripId}`,
-    "@type": "Trip",
-    schemaVersion: 1,
-    name,
-    revision: version,
-    resources: {
-      [path]: {
-        href: path,
-        etag: `"resource-${version}"`,
-        status: 200,
-        contentType: "application/json",
-        data: { id: tripId, name },
-      },
+function fixture(name = "Original", version = "1"): TripDocument {
+  return tripDocumentFixture(
+    { id: tripId, name },
+    {
+      revision: version,
+      canPlan: true,
+      etag: `resource-${version}`,
     },
-  };
+  );
 }
-function response(snapshot = fixture()) {
-  return new Response(JSON.stringify(snapshot), {
-    headers: { ETag: `"snapshot-${snapshot.revision}"` },
+function response(document = fixture()) {
+  return new Response(JSON.stringify(document), {
+    headers: { ETag: `"document-${document.revision}"` },
   });
 }
 let storage: Map<string, string>;
@@ -40,21 +33,21 @@ beforeEach(() => {
     setItem: (key: string, value: string) => storage.set(key, value),
     removeItem: (key: string) => storage.delete(key),
   });
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
 });
 afterEach(() => {
-  clearTripSnapshotCache();
+  clearTripDocumentCache();
   vi.unstubAllGlobals();
 });
 
-test("one snapshot supplies resource GETs and edits use its resource ETag", async () => {
+test("one document supplies resource GETs and edits use its resource ETag", async () => {
   const network = vi
     .fn()
     .mockResolvedValueOnce(response())
     .mockResolvedValueOnce(new Response(JSON.stringify({ name: "Normalized" })))
     .mockResolvedValueOnce(response(fixture("Normalized", "2")));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", tripId, "");
+  await openTripDocument("owner", tripId, "");
   expect(await (await tripFetch(path)).json()).toMatchObject({
     name: "Original",
   });
@@ -81,7 +74,7 @@ test("conflicts leave confirmed state intact and refresh never replays the write
     )
     .mockResolvedValueOnce(response(fixture("Someone else's edit", "2")));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", tripId, "");
+  await openTripDocument("owner", tripId, "");
   const result = await tripFetch(path, {
     method: "PUT",
     body: JSON.stringify({ name: "My draft" }),
@@ -89,7 +82,7 @@ test("conflicts leave confirmed state intact and refresh never replays the write
   expect(result.status).toBe(412);
   expect(cachedTripResource(path)).toMatchObject({ name: "Original" });
   expect(network).toHaveBeenCalledTimes(2);
-  await refreshTripSnapshot();
+  await refreshTripDocument();
   expect(cachedTripResource(path)).toMatchObject({
     name: "Someone else's edit",
   });
@@ -104,8 +97,8 @@ test("cached trips remain readable offline and disconnected edits are blocked", 
     .mockResolvedValueOnce(response())
     .mockRejectedValue(new TypeError("Offline"));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", tripId, "");
-  await openTripSnapshot("owner", tripId, "");
+  await openTripDocument("owner", tripId, "");
+  await openTripDocument("owner", tripId, "");
   expect(await (await tripFetch(path)).json()).toMatchObject({
     name: "Original",
   });
@@ -121,14 +114,14 @@ test("a successful save remains successful if the subsequent refresh fails", asy
     .mockResolvedValueOnce(new Response("{}", { status: 200 }))
     .mockRejectedValue(new TypeError("Offline"));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", tripId, "");
+  await openTripDocument("owner", tripId, "");
   expect((await tripFetch(path, { method: "PUT", body: "{}" })).ok).toBe(true);
   expect(
     network.mock.calls.filter(([, init]) => init?.method === "PUT"),
   ).toHaveLength(1);
 });
 
-test("a snapshot requested before a save cannot replace newer confirmed state", async () => {
+test("a document requested before a save cannot replace newer confirmed state", async () => {
   let completeOld!: (value: Response) => void;
   const network = vi
     .fn()
@@ -142,8 +135,8 @@ test("a snapshot requested before a save cannot replace newer confirmed state", 
     .mockResolvedValueOnce(new Response("{}"))
     .mockResolvedValueOnce(response(fixture("New", "2")));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", tripId, "");
-  const oldRead = refreshTripSnapshot();
+  await openTripDocument("owner", tripId, "");
+  const oldRead = refreshTripDocument();
   await tripFetch(path, { method: "PUT", body: "{}" });
   completeOld(response(fixture("Old", "1")));
   await oldRead;
@@ -158,10 +151,10 @@ test("revoked access clears cached trip data rather than displaying it as offlin
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(new Response(null, { status: 403 })),
   );
-  await openTripSnapshot("owner", tripId, "");
-  await expect(refreshTripSnapshot()).rejects.toThrow("no longer available");
+  await openTripDocument("owner", tripId, "");
+  await expect(refreshTripDocument()).rejects.toThrow("no longer available");
   expect(cachedTripResource(path)).toBeUndefined();
-  expect(storage.has(`tripplanner.snapshot.v1:owner:${tripId}`)).toBe(false);
+  expect(storage.has(`tripplanner.document.v1:owner:${tripId}`)).toBe(false);
 });
 
 test("one account never receives another account's cached trip", async () => {
@@ -172,8 +165,8 @@ test("one account never receives another account's cached trip", async () => {
       .mockResolvedValueOnce(response())
       .mockRejectedValue(new TypeError("Offline")),
   );
-  await openTripSnapshot("owner", tripId, "");
-  await expect(openTripSnapshot("another-user", tripId, "")).rejects.toThrow();
+  await openTripDocument("owner", tripId, "");
+  await expect(openTripDocument("another-user", tripId, "")).rejects.toThrow();
   expect(cachedTripResource(path)).toBeUndefined();
 });
 
@@ -190,12 +183,12 @@ test("queued writes are cancelled when the active account changes", async () => 
     )
     .mockResolvedValueOnce(response(fixture("Other account", "2")));
   vi.stubGlobal("fetch", network);
-  await openTripSnapshot("owner", tripId, "");
+  await openTripDocument("owner", tripId, "");
   const first = tripFetch(path, { method: "PUT", body: "{}" });
   await vi.waitFor(() => expect(network).toHaveBeenCalledTimes(2));
   const queued = tripFetch(path, { method: "PUT", body: "{}" });
   const rejected = expect(queued).rejects.toThrow("trip session changed");
-  await openTripSnapshot("another-user", tripId, "");
+  await openTripDocument("another-user", tripId, "");
   complete(new Response("{}"));
   await first;
   await rejected;

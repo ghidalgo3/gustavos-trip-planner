@@ -57,7 +57,7 @@ CREATE TABLE activity_calendar_subscriptions (
 );
 
 -- Every planning input mutation participates in the same revision lock. Plan writes
--- lock this row before checking their snapshot and changing activity membership.
+-- lock this row before checking their readView and changing activity membership.
 CREATE FUNCTION bump_activity_planning_revision() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE target uuid;
 BEGIN

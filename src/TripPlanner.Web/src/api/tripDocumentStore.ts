@@ -1,14 +1,20 @@
 import {
+  hydrateTripDocument,
+  tripDocumentValidators,
+  validateTripDocument,
+  type TripDocument,
+} from "./tripDocument";
+import {
   clearOfflineCache,
   forgetOfflineTrip,
   rememberTrip,
-  snapshotKey,
+  documentKey,
   offlineStorageKeys,
 } from "./offlineCache";
 import type { Trip } from "./api";
 import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
 
-export type SnapshotResource = {
+export type ClientResource = {
   href: string;
   etag: string;
   data: unknown;
@@ -16,32 +22,30 @@ export type SnapshotResource = {
   contentType: string;
   contextVersion?: string | null;
 };
-export type TripSnapshot = {
-  "@type": "Trip";
-  "@id": string;
-  schemaVersion: 1;
+export type TripView = {
+  document: TripDocument;
   name: string;
-  places?: {
-    "@id": string;
+  revision: string;
+  places: {
+    id: string;
     name: string;
     timeZone?: string;
     iataCode?: string;
     address?: { addressLocality?: string };
   }[];
-  revision: string;
-  resources: Record<string, SnapshotResource>;
+  resources: Record<string, ClientResource>;
 };
-type SnapshotState = {
+type DocumentState = {
   userId: string;
   tripId: string;
-  snapshot?: TripSnapshot;
+  document?: TripView;
   etag?: string;
   message?: string;
   conflict?: string;
   offline: boolean;
   loading: boolean;
 };
-const empty: SnapshotState = {
+const empty: DocumentState = {
   userId: "",
   tripId: "",
   offline: false,
@@ -63,17 +67,61 @@ const listeners = new Set<() => void>();
 const versions = new Map<string, number>();
 const writes = new Map<string, Promise<unknown>>();
 const validators = new Map<string, string>();
+// API results are an account-scoped application cache, outside the portable file.
+export const isTripApiResult = (path: string) =>
+  /\/(?:activity-plan|flights\/constraints)$/.test(path);
+type ApiResults = {
+  revision?: string;
+  resources: Record<string, ClientResource>;
+};
+let apiResults: ApiResults = { resources: {} };
+function cacheEnvelope(view: TripView, etag?: string) {
+  return { document: view.document, etag, apiResults };
+}
+function persistApiResults() {
+  if (!state.document) return;
+  try {
+    localStorage.setItem(
+      cacheKey(state.userId, state.tripId),
+      JSON.stringify(cacheEnvelope(state.document, state.etag)),
+    );
+  } catch {
+    /* API results remain available in memory if storage is unavailable. */
+  }
+}
+function restoreApiResults(
+  value: ApiResults | undefined,
+  tripId: string,
+  revision: string,
+): ApiResults {
+  if (value?.revision !== revision) return { revision, resources: {} };
+  return {
+    revision,
+    resources: Object.fromEntries(
+      Object.entries(value.resources ?? {}).filter(
+        ([path, resource]) =>
+          path.startsWith(`/trips/${tripId}/`) &&
+          isTripApiResult(path) &&
+          resource?.href === path &&
+          resource.status === 200 &&
+          typeof resource.contentType === "string" &&
+          typeof resource.etag === "string",
+      ),
+    ),
+  };
+}
+
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
 };
-const publish = (next: SnapshotState) => {
+const publish = (next: DocumentState) => {
   state = next;
   listeners.forEach((listener) => listener());
 };
-const cacheKey = snapshotKey;
+const cacheKey = documentKey;
 export const canonicalPath = (path: string) =>
   path
     .replace(/^\/user\/[^/]+\/trips(?=\/|$)/, "/trips")
@@ -83,44 +131,29 @@ export const canonicalPath = (path: string) =>
       (id) => id.toLowerCase(),
     );
 
-function validate(value: unknown, tripId: string): TripSnapshot {
-  if (!value || typeof value !== "object")
-    throw new Error("Invalid trip snapshot.");
-  const snapshot = value as TripSnapshot;
-  if (
-    snapshot.schemaVersion !== 1 ||
-    snapshot["@type"] !== "Trip" ||
-    snapshot["@id"] !== `urn:uuid:${tripId}` ||
-    !snapshot.resources ||
-    !snapshot.resources[`/trips/${tripId}`]
-  ) {
-    throw new Error("This trip snapshot format is unsupported.");
-  }
-  for (const [path, resource] of Object.entries(snapshot.resources)) {
-    if (path !== `/trips/${tripId}` && !path.startsWith(`/trips/${tripId}/`))
-      throw new Error("Invalid snapshot resource.");
-    if (
-      resource.href !== path ||
-      typeof resource.etag !== "string" ||
-      typeof resource.status !== "number"
-    )
-      throw new Error("Invalid snapshot resource metadata.");
-  }
-  return snapshot;
+function validate(value: unknown, tripId: string): TripView {
+  return hydrateTripDocument(validateTripDocument(value, tripId));
 }
-function changedResources(
-  previous: TripSnapshot | undefined,
-  next: TripSnapshot,
-) {
+
+function changedResources(previous: TripView | undefined, next: TripView) {
+  const oldResources: Record<string, Partial<ClientResource>> = {
+    ...(previous?.document ? tripDocumentValidators(previous.document) : {}),
+    ...previous?.resources,
+  };
+  const newResources: Record<string, Partial<ClientResource>> = {
+    ...(next.document ? tripDocumentValidators(next.document) : {}),
+    ...next.resources,
+  };
   const paths = new Set([
-    ...Object.keys(previous?.resources ?? {}),
-    ...Object.keys(next.resources),
+    ...Object.keys(oldResources),
+    ...Object.keys(newResources),
   ]);
   for (const path of paths) {
-    const oldResource = previous?.resources[path];
-    const newResource = next.resources[path];
+    const oldResource = oldResources[path];
+    const newResource = newResources[path];
     if (
       oldResource?.etag !== newResource?.etag ||
+      oldResource?.contextVersion !== newResource?.contextVersion ||
       JSON.stringify(oldResource?.data) !== JSON.stringify(newResource?.data)
     ) {
       versions.set(path, (versions.get(path) ?? 0) + 1);
@@ -131,12 +164,12 @@ function changedResources(
         versions.set(parent, (versions.get(parent) ?? 0) + 1);
       }
     }
-    if (newResource) validators.set(path, newResource.etag);
+    if (newResource?.etag) validators.set(path, newResource.etag);
     else validators.delete(path);
   }
 }
 
-export async function openTripSnapshot(
+export async function openTripDocument(
   userId: string,
   tripId: string,
   apiBaseUrl: string,
@@ -146,39 +179,52 @@ export async function openTripSnapshot(
   if (state.userId !== userId || state.tripId !== tripId) {
     validators.clear();
     versions.clear();
+    apiResults = { resources: {} };
   }
   ++generation;
-  let cached: { snapshot: TripSnapshot; etag?: string } | undefined =
-    state.userId === userId && state.tripId === tripId && state.snapshot
-      ? { snapshot: state.snapshot, etag: state.etag }
+  let cached: { document: TripView; etag?: string } | undefined =
+    state.userId === userId && state.tripId === tripId && state.document
+      ? { document: state.document, etag: state.etag }
       : undefined;
   try {
     const raw = localStorage.getItem(cacheKey(userId, tripId));
     if (raw) {
-      const value = JSON.parse(raw) as { snapshot: unknown; etag?: string };
-      cached = { snapshot: validate(value.snapshot, tripId), etag: value.etag };
+      const value = JSON.parse(raw) as {
+        document?: unknown;
+        etag?: string;
+        apiResults?: ApiResults;
+      };
+      cached = {
+        document: validate(value.document, tripId),
+        etag: value.etag,
+      };
+      apiResults = restoreApiResults(
+        value.apiResults,
+        tripId,
+        cached.document.revision,
+      );
     }
   } catch {
     /* Unavailable/corrupt storage must not prevent an online load. */
   }
   changedResources(
     undefined,
-    cached?.snapshot ?? ({ resources: {} } as TripSnapshot),
+    cached?.document ?? ({ resources: {} } as TripView),
   );
   publish({
     userId,
     tripId,
-    snapshot: cached?.snapshot,
+    document: cached?.document,
     etag: cached?.etag,
     offline: !!cached,
     loading: true,
   });
-  return refreshTripSnapshot(signal);
+  return refreshTripDocument(signal);
 }
 
-export async function refreshTripSnapshot(
+export async function refreshTripDocument(
   signal?: AbortSignal,
-): Promise<TripSnapshot | undefined> {
+): Promise<TripView | undefined> {
   if (!state.tripId) return undefined;
   const requestGeneration = ++generation;
   const previous = state;
@@ -186,27 +232,28 @@ export async function refreshTripSnapshot(
   try {
     if (navigator.onLine === false) throw new TypeError("Offline");
     const response = await fetch(
-      `${baseUrl}/trips/${encodeURIComponent(previous.tripId)}/snapshot`,
+      `${baseUrl}/trips/${encodeURIComponent(previous.tripId)}/document`,
       {
         credentials: "include",
         signal,
         headers: {
-          Accept: "application/ld+json",
+          Accept: "application/json",
           ...(previous.etag ? { "If-None-Match": previous.etag } : {}),
         },
       },
     );
     if (requestGeneration !== generation || signal?.aborted)
-      return state.snapshot;
+      return state.document;
     if ([401, 403, 404].includes(response.status)) {
       try {
         forgetOfflineTrip(previous.userId, previous.tripId);
       } catch {
         /* Storage may be disabled. */
       }
+      apiResults = { resources: {} };
       publish({
         ...previous,
-        snapshot: undefined,
+        document: undefined,
         etag: undefined,
         loading: false,
         offline: false,
@@ -215,7 +262,7 @@ export async function refreshTripSnapshot(
       });
       throw new Error("This trip is no longer available.");
     }
-    if (response.status === 304 && previous.snapshot) {
+    if (response.status === 304 && previous.document) {
       publish({
         ...previous,
         loading: false,
@@ -223,41 +270,43 @@ export async function refreshTripSnapshot(
         conflict: previous.conflict,
         message: previous.conflict ? previous.message : undefined,
       });
-      return previous.snapshot;
+      return previous.document;
     }
     if (!response.ok) throw new Error("Unable to refresh the trip.");
-    const snapshot = validate(await response.json(), previous.tripId);
+    const document = validate(await response.json(), previous.tripId);
     if (requestGeneration !== generation || signal?.aborted)
-      return state.snapshot;
-    changedResources(state.snapshot, snapshot);
+      return state.document;
+    if (apiResults.revision !== document.revision)
+      apiResults = { revision: document.revision, resources: {} };
+    changedResources(state.document, document);
     rememberTrip(
       previous.userId,
-      snapshot.resources[`/trips/${previous.tripId}`].data as Trip,
+      document.resources[`/trips/${previous.tripId}`].data as Trip,
     );
     const etag = response.headers.get("ETag") ?? undefined;
     let message: string | undefined;
     try {
       localStorage.setItem(
         cacheKey(previous.userId, previous.tripId),
-        JSON.stringify({ snapshot, etag }),
+        JSON.stringify(cacheEnvelope(document, etag)),
       );
     } catch {
       message = "Trip loaded. Offline storage is unavailable on this device.";
     }
     publish({
       ...previous,
-      snapshot,
+      document,
       etag,
       loading: false,
       offline: false,
       conflict: previous.conflict,
       message: previous.conflict ? previous.message : message,
     });
-    return snapshot;
+    return document;
   } catch (error) {
     if (requestGeneration !== generation || signal?.aborted)
-      return state.snapshot;
-    if (!state.snapshot) {
+      return state.document;
+    if (!state.document) {
       publish({
         ...state,
         loading: false,
@@ -277,13 +326,13 @@ export async function refreshTripSnapshot(
       offline: true,
       message: "Showing the last saved trip. Refresh when connected.",
     });
-    return state.snapshot;
+    return state.document;
   }
 }
 
 export async function refreshConflictedResource() {
   const path = state.conflict;
-  const result = await refreshTripSnapshot();
+  const result = await refreshTripDocument();
   if (result && !state.offline) {
     if (path)
       explicitRefresh = { path, sequence: explicitRefresh.sequence + 1 };
@@ -306,7 +355,7 @@ export function useExplicitResourceRefresh(
     });
   }, [path]);
 }
-export function useTripSnapshotState() {
+export function useTripDocumentState() {
   return useSyncExternalStore(subscribe, () => state);
 }
 export function useTripResourceVersion(path: string) {
@@ -315,12 +364,12 @@ export function useTripResourceVersion(path: string) {
     () => versions.get(canonicalPath(path)) ?? 0,
   );
 }
-export function pruneTripSnapshotCache(
+export function pruneTripDocumentCache(
   userId: string,
   tripIds: ReadonlySet<string>,
 ) {
   try {
-    const prefix = `tripplanner.snapshot.v1:${userId}:`;
+    const prefix = `tripplanner.document.v1:${userId}:`;
     for (const key of offlineStorageKeys())
       if (key.startsWith(prefix) && !tripIds.has(key.slice(prefix.length)))
         localStorage.removeItem(key);
@@ -331,22 +380,26 @@ export function pruneTripSnapshotCache(
     ++generation;
     validators.clear();
     versions.clear();
+    apiResults = { resources: {} };
     publish(empty);
   }
 }
 
-export function clearTripSnapshotCache() {
+export function clearTripDocumentCache() {
   ++generation;
   clearOfflineCache();
   validators.clear();
   versions.clear();
+  apiResults = { resources: {} };
   publish(empty);
 }
 export function rememberResourceEtag(path: string, etag: string) {
   validators.set(canonicalPath(path), etag);
 }
 export function cachedTripResource<T>(path: string): T | undefined {
-  return state.snapshot?.resources[canonicalPath(path)]?.data as T | undefined;
+  const key = canonicalPath(path);
+  return (state.document?.resources[key] ?? apiResults.resources[key])?.data as
+    T | undefined;
 }
 
 // A transport adapter, shared by existing resource APIs. It never changes global fetch.
@@ -363,24 +416,24 @@ export async function tripFetch(
   const tripId = /^\/trips\/([^/]+)/.exec(key)?.[1];
   if (!tripId) return fetch(input, init);
   const account = state.userId;
-  const active = tripId === state.tripId && !!state.snapshot;
+  const active = tripId === state.tripId && !!state.document;
   const stillActive = () =>
     active && state.tripId === tripId && state.userId === account;
-  if (
-    method === "GET" &&
-    active &&
-    init.cache !== "reload" &&
-    state.snapshot?.resources[key]
-  ) {
+  const disconnected =
+    navigator.onLine === false || (state.offline && !state.loading);
+  const cached =
+    state.document?.resources[key] ??
+    (disconnected ? apiResults.resources[key] : undefined);
+  if (method === "GET" && active && init.cache !== "reload" && cached) {
     if (init.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const resource = state.snapshot.resources[key];
+    const resource = cached;
     return new Response(
       resource.status === 204 ? null : JSON.stringify(resource.data),
       {
         status: resource.status,
         headers: {
           "Content-Type": resource.contentType,
-          ETag: resource.etag,
+          ...(resource.etag ? { ETag: resource.etag } : {}),
           ...(resource.contextVersion
             ? {
                 "Planning-Context": resource.contextVersion,
@@ -391,6 +444,10 @@ export async function tripFetch(
       },
     );
   }
+  if (method === "GET" && active && disconnected && isTripApiResult(key))
+    throw new Error(
+      "This planning result has not been saved offline. Connect to load it.",
+    );
   const headers = new Headers(init.headers);
   const resourceKey = key.endsWith("/purchases") ? key.slice(0, -10) : key;
   const mutation = !!tripId && ["PUT", "DELETE", "POST"].includes(method);
@@ -415,12 +472,22 @@ export async function tripFetch(
   }
   if (mutation && state.offline && active)
     throw new Error("Connect to the internet before saving changes.");
+  if (
+    mutation &&
+    active &&
+    state.document?.document &&
+    !state.document.document.etag
+  )
+    throw new Error(
+      "Refresh the trip to obtain editing versions before saving changes.",
+    );
   const send = async () => {
     if (mutation && active && !stillActive())
       throw new Error(
         "The trip session changed. Reopen the trip before saving.",
       );
     if (mutation && stillActive()) ++generation; // Invalidate GETs issued before this save.
+    const readGeneration = generation;
     let response: Response;
     try {
       response = await fetch(
@@ -438,6 +505,32 @@ export async function tripFetch(
         });
       throw reason;
     }
+    if (
+      method === "GET" &&
+      isTripApiResult(key) &&
+      stillActive() &&
+      readGeneration === generation
+    ) {
+      if ([401, 403].includes(response.status)) {
+        ++generation;
+        apiResults = { resources: {} };
+        validators.clear();
+        versions.clear();
+        forgetOfflineTrip(account, tripId);
+        publish({
+          ...state,
+          document: undefined,
+          etag: undefined,
+          loading: false,
+          offline: false,
+          message:
+            "This trip is no longer available. Sign in or return to your trips.",
+        });
+      } else if (response.status === 404) {
+        delete apiResults.resources[key];
+        persistApiResults();
+      }
+    }
     const etag = response.headers?.get("ETag");
     if (mutation && response.ok) {
       if (etag) validators.set(resourceKey, etag);
@@ -449,7 +542,36 @@ export async function tripFetch(
         if (saved?.etag) validators.set(resourceKey, saved.etag);
       }
     }
-    if (method === "GET" && response.ok && etag) validators.set(key, etag);
+    if (method === "GET" && response.ok && etag && (!active || stillActive()))
+      validators.set(key, etag);
+    if (
+      method === "GET" &&
+      response.ok &&
+      isTripApiResult(key) &&
+      stillActive() &&
+      readGeneration === generation
+    ) {
+      const data: unknown = await response.clone().json();
+      if (stillActive() && readGeneration === generation && state.document) {
+        apiResults = {
+          revision: state.document.revision,
+          resources: {
+            ...apiResults.resources,
+            [key]: {
+              href: key,
+              etag: etag ?? "",
+              status: response.status,
+              contentType:
+                response.headers.get("Content-Type") ?? "application/json",
+              contextVersion:
+                response.headers.get("Planning-Context") ?? undefined,
+              data,
+            },
+          },
+        };
+        persistApiResults();
+      }
+    }
     if (
       mutation &&
       stillActive() &&
@@ -483,7 +605,7 @@ export async function tripFetch(
       !key.includes("/bookingLinks") &&
       !key.includes("-proposals")
     ) {
-      const updated = await refreshTripSnapshot().catch(() => undefined);
+      const updated = await refreshTripDocument().catch(() => undefined);
       if (!updated || state.offline)
         publish({
           ...state,

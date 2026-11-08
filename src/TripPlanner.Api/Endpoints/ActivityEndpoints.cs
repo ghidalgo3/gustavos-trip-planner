@@ -88,7 +88,7 @@ public static class ActivityEndpoints
         {
             return Results.Forbid();
         }
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user.Id,
             trip!,
             destinationCity,
@@ -104,7 +104,7 @@ public static class ActivityEndpoints
         {
             var suggestions = await research.FindAsync(
                 request.Query.Trim(),
-                snapshot!.Find(destinationCity)!,
+                readView!.Find(destinationCity)!,
                 context.RequestAborted
             );
             // Preview only: selecting a result changes the activity draft, never persisted ideas.
@@ -271,7 +271,7 @@ public static class ActivityEndpoints
             return error;
         }
 
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
             destinationCity,
@@ -283,7 +283,7 @@ public static class ActivityEndpoints
             return resolveError;
         }
 
-        if (!ContextMatches(context, snapshot!, destinationCity))
+        if (!ContextMatches(context, readView!, destinationCity))
         {
             return DestinationChanged();
         }
@@ -310,7 +310,7 @@ public static class ActivityEndpoints
         var saved = await database.SaveActivityAsync(
             user.Id,
             item,
-            snapshot!.Find(destinationCity)!.Properties.ContextVersion,
+            readView!.Find(destinationCity)!.Properties.ContextVersion,
             null,
             context.RequestAborted
         );
@@ -414,7 +414,7 @@ public static class ActivityEndpoints
         {
             return Results.Forbid();
         }
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user.Id,
             trip!,
             destinationCity,
@@ -425,7 +425,7 @@ public static class ActivityEndpoints
         {
             return resolveError;
         }
-        if (!ContextMatches(context, snapshot!, destinationCity))
+        if (!ContextMatches(context, readView!, destinationCity))
         {
             return DestinationChanged();
         }
@@ -444,7 +444,7 @@ public static class ActivityEndpoints
         {
             return Results.StatusCode(412);
         }
-        var destination = snapshot!.Find(destinationCity)!;
+        var destination = readView!.Find(destinationCity)!;
         try
         {
             var suggestion = await research(existing, destination);
@@ -503,7 +503,7 @@ public static class ActivityEndpoints
             return error;
         }
 
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
             destinationCity,
@@ -515,7 +515,7 @@ public static class ActivityEndpoints
             return resolveError;
         }
 
-        if (!ContextMatches(context, snapshot!, destinationCity))
+        if (!ContextMatches(context, readView!, destinationCity))
         {
             return DestinationChanged();
         }
@@ -551,7 +551,7 @@ public static class ActivityEndpoints
                 Properties = input.Properties with { Name = input.Properties.Name.Trim() },
                 UpdatedAt = DateTimeOffset.UtcNow,
             },
-            snapshot!.Find(destinationCity)!.Properties.ContextVersion,
+            readView!.Find(destinationCity)!.Properties.ContextVersion,
             existing.UpdatedAt,
             context.RequestAborted
         );
@@ -586,7 +586,7 @@ public static class ActivityEndpoints
             return error;
         }
 
-        var (snapshot, resolveError) = await ResolveAsync(
+        var (readView, resolveError) = await ResolveAsync(
             user!.Id,
             trip!,
             destinationCity,
@@ -598,7 +598,7 @@ public static class ActivityEndpoints
             return resolveError;
         }
 
-        if (!ContextMatches(context, snapshot!, destinationCity))
+        if (!ContextMatches(context, readView!, destinationCity))
         {
             return DestinationChanged();
         }
@@ -625,7 +625,7 @@ public static class ActivityEndpoints
             tripId,
             destinationCity,
             activityId,
-            snapshot!.Find(destinationCity)!.Properties.ContextVersion,
+            readView!.Find(destinationCity)!.Properties.ContextVersion,
             existing.UpdatedAt,
             context.RequestAborted
         )
@@ -729,11 +729,11 @@ public static class ActivityEndpoints
 
     private static bool ContextMatches(
         HttpContext context,
-        DestinationSnapshot snapshot,
+        DestinationReadView readView,
         string cityId
     ) =>
         context.Request.Headers["Destination-Context"].ToString()
-        == snapshot.Find(cityId)!.Properties.ContextVersion;
+        == readView.Find(cityId)!.Properties.ContextVersion;
 
     private static IResult DestinationChanged() =>
         Results.Conflict(
@@ -997,13 +997,13 @@ public static class ActivityEndpoints
             );
         }
 
-        var (snapshot, resolveError) = await ResolveAsync(user.Id, trip!, cityId, service, context);
+        var (readView, resolveError) = await ResolveAsync(user.Id, trip!, cityId, service, context);
         if (resolveError is not null)
         {
             return resolveError;
         }
 
-        if (request.DestinationContext != snapshot!.Find(cityId)!.Properties.ContextVersion)
+        if (request.DestinationContext != readView!.Find(cityId)!.Properties.ContextVersion)
         {
             return DestinationChanged();
         }

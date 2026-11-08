@@ -118,7 +118,7 @@ test("failed writes preserve the draft, disable controls while saving, and offer
 });
 
 test("conflicts preserve edits until explicit refresh and never replay them", async () => {
-  const { ResourceConflictError } = await import("../../api/tripSnapshot");
+  const { ResourceConflictError } = await import("../../api/tripDocumentStore");
   vi.mocked(updateTrip).mockRejectedValue(
     new ResourceConflictError("Trip changed", 412),
   );

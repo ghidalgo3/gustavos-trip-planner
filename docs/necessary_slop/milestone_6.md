@@ -11,7 +11,7 @@ drafts on conflicts. Unknown write outcomes are reconciled before replay; cloud
 editing is disabled when offline. Sign-out clears normal cloud caches but retains
 unresolved operation journals for recovery with the same account.
 
-Promotion uses PUT/GET `/trips/{tripId}/snapshot` and the existing v1 document schema.
+Promotion uses PUT/GET `/trips/{tripId}/document` and the existing v1 document schema.
 This initial importer supports the native metadata feature set only; destination,
 activity, reservation, Calendar, and Siri implementation remains pending. The
 storyboard description below records the broader design, not completed native features.
@@ -125,7 +125,7 @@ competes with the trip tabs.
 5. **Offline:** Storyboard → Offline · Full walkthrough. Use the same tabs,
    dates, filters, lists, and detail views. Editing and network-dependent actions
    are disabled. A saved-copy banner explains the state. The fixture is not an
-   actual downloaded snapshot.
+   actual downloaded saved state.
 6. **Recovery:** Storyboard → Loading, empty & load errors, and switch between
    Trips and Agenda. Separate Saving, Save failed, and Changed elsewhere entries
    show the trip editor with an unsaved draft. The conflict includes the previous
@@ -161,7 +161,7 @@ are not filled with invented facts.
 Before implementation, review the four-tab structure, the agenda/idea boundary,
 flight comparison depth, and the schematic map interaction. This prototype is a
 starting design, not evidence that every web editing capability has native parity.
-Native system-browser OAuth + PKCE, secure credentials, milestone 5 snapshots,
+Native system-browser OAuth + PKCE, secure credentials, milestone 5 saved versions,
 cache lifecycle, real resource validation, search jobs and progress, geographic
 maps, accessibility auditing, and automation belong to phase 2.
 

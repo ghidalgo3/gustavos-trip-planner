@@ -27,7 +27,7 @@ struct StoredTrip: Codable, Equatable {
     var confirmed: Trip
     var accountID: UUID?
     var pending: PendingTripWrite?
-    var snapshot: Data?
+    var document: Data?
 
     var displayed: Trip {
         guard let pending, pending.kind == .update,

@@ -1,18 +1,18 @@
 using System.Text.Json;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Snapshots;
+using TripPlanner.Api.Services.Documents;
 
 namespace TripPlanner.Api.Database;
 
 public sealed partial class PostgresPlannerDb
 {
-    public async Task<TripSnapshotData?> ReadTripSnapshotAsync(
+    public async Task<TripReadData?> ReadTripDataAsync(
         Guid userId,
         Guid tripId,
         CancellationToken cancellationToken
     )
     {
-        // A single statement captures one PostgreSQL snapshot, including when called
+        // A single statement captures a consistent PostgreSQL view, including when called
         // inside the transaction that checks a resource's write precondition.
         await using var command = dataSource.CreateCommand(
             """
@@ -127,13 +127,13 @@ public sealed partial class PostgresPlannerDb
             return null;
         }
 
-        var snapshot = JsonSerializer.Deserialize<TripSnapshotData>(
+        var readView = JsonSerializer.Deserialize<TripReadData>(
             reader.GetString(0),
-            TripSnapshotProjection.JsonOptions
+            TripResourceProjection.JsonOptions
         )!;
-        return snapshot with
+        return readView with
         {
-            Trip = snapshot.Trip with
+            Trip = readView.Trip with
             {
                 FlightConstraints = JsonSerializer.Deserialize<JsonElement>(reader.GetString(1)),
             },

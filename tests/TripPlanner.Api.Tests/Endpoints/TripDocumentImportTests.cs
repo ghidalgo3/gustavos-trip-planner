@@ -14,10 +14,10 @@ using TripPlanner.Api.Tests.Support;
 namespace TripPlanner.Api.Tests.Endpoints;
 
 [TestClass]
-public sealed class TripImportExportTests
+public sealed class TripDocumentImportTests
 {
     [TestMethod]
-    public async Task SnapshotImportRequiresAuthenticationButNotHomeCityAndUsesAuthenticatedOwner()
+    public async Task DocumentImportRequiresAuthenticationButNotHomeCityAndUsesAuthenticatedOwner()
     {
         var imports = new RecordingImports();
         await using var factory = new TestApplicationFactory();
@@ -30,17 +30,17 @@ public sealed class TripImportExportTests
         );
         using var client = configured.CreateClient();
         var id = Guid.NewGuid();
-        var snapshot = TripSnapshotFixture.Create(
+        var document = TripDocumentFixture.Create(
             1,
             id,
             "Local trip",
             "",
             JsonSerializer.SerializeToElement(new { budget = 400 })
         );
-        string url = $"/trips/{id}/snapshot";
+        string url = $"/trips/{id}/document";
         Assert.AreEqual(
             HttpStatusCode.Unauthorized,
-            (await client.PutAsJsonAsync(url, snapshot)).StatusCode
+            (await client.PutAsJsonAsync(url, document)).StatusCode
         );
         client.DefaultRequestHeaders.Add("X-Test-Subject", "subject-local@example.com");
         client.DefaultRequestHeaders.Add("X-Test-Provider", "google");
@@ -48,7 +48,7 @@ public sealed class TripImportExportTests
         client.DefaultRequestHeaders.Add("X-Test-Email", "local@example.com");
         var user = await client.GetFromJsonAsync<CurrentUserResponse>("/user");
         Assert.IsNotNull(user);
-        var result = await client.PutAsJsonAsync(url, snapshot);
+        var result = await client.PutAsJsonAsync(url, document);
         Assert.AreEqual(HttpStatusCode.Created, result.StatusCode);
         var trip = await result.Content.ReadFromJsonAsync<TripResponse>();
         Assert.AreEqual(user.Id, trip!.OwnerUserId);
@@ -61,15 +61,15 @@ public sealed class TripImportExportTests
     [TestMethod]
     [DataRow("visits")]
     [DataRow("activities")]
-    [DataRow("reservations")]
+    [DataRow("bookings")]
     [DataRow("version")]
     [DataRow("identity")]
     [DataRow("origin")]
     [DataRow("extension")]
-    public void UnsupportedSnapshotContentIsRejectedInsteadOfSilentlyLost(string change)
+    public void UnsupportedDocumentContentIsRejectedInsteadOfSilentlyLost(string change)
     {
         var id = Guid.NewGuid();
-        var snapshot = TripSnapshotFixture.Create(
+        var document = TripDocumentFixture.Create(
             1,
             id,
             "Trip",
@@ -79,48 +79,45 @@ public sealed class TripImportExportTests
         switch (change)
         {
             case "visits":
-                snapshot.Itinerary["itemListElement"]!.AsArray().Add(new JsonObject());
+                document.Itinerary["visits"]!.AsArray().Add(new JsonObject());
                 break;
             case "activities":
-                snapshot.Plan["entries"]!.AsArray().Add(new JsonObject());
+                document = document with { Activities = [new JsonObject()] };
                 break;
-            case "reservations":
-                snapshot = snapshot with { Reservations = [new JsonObject()] };
+            case "bookings":
+                document.Transportation["bookings"]!.AsArray().Add(new JsonObject());
                 break;
             case "version":
-                snapshot = snapshot with { SchemaVersion = 2 };
+                document = document with { SchemaVersion = 2 };
                 break;
             case "identity":
                 id = Guid.NewGuid();
                 break;
             case "origin":
-                snapshot.TripOrigin["@id"] = "urn:uuid:missing";
+                document = document with { OriginPlaceId = "missing" };
                 break;
             case "extension":
-                snapshot.Extensions.Add("custom", JsonSerializer.SerializeToElement(new { }));
+                document.Extensions.Add("custom", JsonSerializer.SerializeToElement(new { }));
                 break;
         }
-        Assert.IsNotNull(TripImportExport.ValidateImport(id, snapshot));
+        Assert.IsNotNull(TripDocumentEndpoints.ValidateImport(id, document));
     }
 
     [TestMethod]
-    public void SharedSnapshotDtoRoundTripsSupportedImportDocument()
+    public void SharedDocumentDtoRoundTripsSupportedImportDocument()
     {
         var id = Guid.NewGuid();
-        var snapshot = TripSnapshotFixture.Create(
+        var document = TripDocumentFixture.Create(
             1,
             id,
             "Trip",
             "",
             JsonSerializer.SerializeToElement(new { budget = 500 })
         );
-        var json = JsonSerializer.Serialize(snapshot, JsonSerializerOptions.Web);
-        var decoded = JsonSerializer.Deserialize<TripSnapshotResponse>(
-            json,
-            JsonSerializerOptions.Web
-        )!;
-        Assert.IsNull(TripImportExport.ValidateImport(id, decoded));
-        Assert.AreEqual(500, decoded.Planning["trip"]!["constraints"]!["budget"]!.GetValue<int>());
+        var json = JsonSerializer.Serialize(document, JsonSerializerOptions.Web);
+        var decoded = JsonSerializer.Deserialize<TripDocument>(json, JsonSerializerOptions.Web)!;
+        Assert.IsNull(TripDocumentEndpoints.ValidateImport(id, decoded));
+        Assert.AreEqual(500, decoded.Preferences["constraints"]!["budget"]!.GetValue<int>());
     }
 
     private sealed class RecordingImports : ITripImportStore
@@ -130,17 +127,17 @@ public sealed class TripImportExportTests
         public Task<TripImportResult> ImportAsync(
             Guid ownerId,
             Guid transferId,
-            TripSnapshotResponse request,
+            TripDocument request,
             CancellationToken cancellationToken
         )
         {
             TransferId = transferId;
             var trip = new Trip(
-                Guid.Parse(request.Id["urn:uuid:".Length..]),
+                request.Id,
                 ownerId,
                 request.Name,
                 request.Description,
-                JsonSerializer.SerializeToElement(request.Planning["trip"]!["constraints"]),
+                JsonSerializer.SerializeToElement(request.Preferences["constraints"]),
                 DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow
             );

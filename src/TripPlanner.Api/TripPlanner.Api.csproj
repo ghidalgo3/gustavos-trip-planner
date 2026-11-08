@@ -32,10 +32,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Data/airports.json" />
-    <EmbeddedResource
-      Include="../../docs/schemas/trip-snapshot-v1.schema.json"
-      LogicalName="TripPlanner.Api.Schemas.TripSnapshotV1.json"
-    />
+    <EmbeddedResource Include="../../docs/schemas/trip-document-v1.schema.json"
+      LogicalName="TripPlanner.Api.Schemas.TripDocumentV1.json" />
     <None
       Update="Data/airportsdata-LICENSE"
       CopyToOutputDirectory="PreserveNewest"

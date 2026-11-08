@@ -22,7 +22,7 @@ protocol TripPlannerServing: DestinationServing, TransferFlightServing {
     func currentUser() async throws -> CurrentUser
     func trips() async throws -> [Trip]
     func trip(id: UUID) async throws -> Trip
-    func snapshot(id: UUID) async throws -> Data
+    func document(id: UUID) async throws -> Data
     func importTrip(_ write: PendingTripWrite) async throws -> Trip
     func updateTrip(_ trip: Trip, name: String, description: String) async throws -> Trip
     func deleteTrip(_ trip: Trip) async throws
@@ -99,17 +99,17 @@ final class TripPlannerAPI: TripPlannerServing {
         try await send(path: "trips/\(id.uuidString.lowercased())")
     }
 
-    func snapshot(id: UUID) async throws -> Data {
-        let data = try await responseData(path: "trips/\(id.uuidString.lowercased())/snapshot")
-        try await validateSnapshot(data, id: id)
+    func document(id: UUID) async throws -> Data {
+        let data = try await responseData(path: "trips/\(id.uuidString.lowercased())/document")
+        try await validateDocument(data, id: id)
         return data
     }
 
     @concurrent
-    private nonisolated func validateSnapshot(_ data: Data, id: UUID) async throws {
-        let header = try JSONDecoder().decode(SnapshotHeader.self, from: data)
+    private nonisolated func validateDocument(_ data: Data, id: UUID) async throws {
+        let header = try JSONDecoder().decode(DocumentHeader.self, from: data)
         guard header.schemaVersion == 1,
-              header.id == "urn:uuid:\(id.uuidString.lowercased())" else {
+              header.id == id.uuidString.lowercased() else {
             throw APIError.invalidResponse
         }
     }
@@ -224,10 +224,10 @@ final class TripPlannerAPI: TripPlannerServing {
     }
 
     func importTrip(_ write: PendingTripWrite) async throws -> Trip {
-        try await send(
-            path: "trips/\(write.base.id.uuidString.lowercased())/snapshot",
+        return try await send(
+            path: "trips/\(write.base.id.uuidString.lowercased())/document",
             method: "PUT",
-            body: write.snapshotDocument
+            body: write.document
         )
     }
 
@@ -362,20 +362,21 @@ private struct TransferAirport: Decodable {
 
 private struct EmptyResponse: Decodable {}
 
-private nonisolated struct SnapshotHeader: Decodable {
+private nonisolated struct DocumentHeader: Decodable {
     let id: String
     let schemaVersion: Int
 
     private enum CodingKeys: String, CodingKey {
-        case id = "@id"
-        case schemaVersion, resources
+        case id
+        case schemaVersion, transportation, itinerary
     }
 
     init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(String.self, forKey: .id)
         schemaVersion = try fields.decode(Int.self, forKey: .schemaVersion)
-        _ = try fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .resources)
+        _ = try fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .transportation)
+        _ = try fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .itinerary)
     }
 }
 

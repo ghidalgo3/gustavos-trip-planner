@@ -44,7 +44,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - Prefer to write "functional" code, minimizing side effects and I/O until they are necessary, this is easier to test. 
 - I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
 - All C# REST APIs must declare property validation attributes to consume in MCP tool definitions and OpenAPI document generation.
-- When refactoring, you only must preserve REST API and Postgres compatibility. You can make arbitrary changes to the code, do not assume that we need to preserve fully-qualified type names for any reason. 
+- Backward compatibility is not required when refactoring. REST routes, request/response contracts, trip document formats, local caches, PostgreSQL schemas, and fully-qualified type names may change. Update the server, web, iOS, and relevant MCP tools together. Prefer removing obsolete code instead of retaining legacy routes, decoders, adapters, or migrations solely for compatibility.
 
 ## UI Conventions
 
