@@ -70,102 +70,30 @@ public interface IActivityPlanningResearch
 // Fixed provider hosts only. Untrusted venue URLs are evidence, never request targets.
 public sealed class ActivityPlanningProviders(
     HttpClient client,
-    IMapTokenProvider maps,
+    IAzureMapsClient maps,
     IOptions<OpenAiOptions> ai,
     IOptions<ActivityPlanningOptions> planning,
     TimeProvider clock
 ) : IActivityRoutingProvider, IActivityPreferenceScorer, IActivityPlanningResearch
 {
-    private sealed class ProviderJson(
-        JsonDocument document,
-        DateTimeOffset? cacheUntil,
-        bool noStore
-    ) : IDisposable
-    {
-        public JsonElement RootElement => document.RootElement;
-        public DateTimeOffset? CacheUntil { get; } = cacheUntil;
-        public bool NoStore { get; } = noStore;
-
-        public void Dispose() => document.Dispose();
-    }
-
-    private async Task<ProviderJson> SendAsync(
+    private Task<PlanningProviderRequests.ProviderJson> SendAsync(
         Func<HttpRequestMessage> create,
         PlanningProviderBudget budget,
         CancellationToken ct
-    )
-    {
-        await budget.Concurrency.WaitAsync(ct);
-        try
-        {
-            for (int attempt = 0; ; attempt++)
-            {
-                if (!budget.Take())
-                {
-                    throw new PlanningProviderException("Provider request budget reached.");
-                }
-
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(
-                    TimeSpan.FromSeconds(Math.Clamp(planning.Value.ProviderTimeoutSeconds, 1, 60))
-                );
-                using var request = create();
-                using var response = await client.SendAsync(
+    ) =>
+        PlanningProviderRequests.SendAsync(
+            create,
+            budget,
+            ct,
+            (request, cancellationToken) =>
+                client.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
-                    timeout.Token
-                );
-                if (
-                    attempt == 0
-                    && response.StatusCode
-                        is HttpStatusCode.TooManyRequests
-                            or HttpStatusCode.ServiceUnavailable
-                            or HttpStatusCode.BadGateway
-                )
-                {
-                    var delay = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(1);
-                    if (delay > TimeSpan.FromSeconds(5))
-                    {
-                        throw new PlanningProviderException(
-                            "Provider temporarily unavailable; retry later."
-                        );
-                    }
-
-                    await Task.Delay(delay, ct);
-                    continue;
-                }
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new PlanningProviderException(
-                        $"Provider returned HTTP {(int)response.StatusCode}; evidence for these inputs or dates is unavailable."
-                    );
-                }
-
-                await response.Content.LoadIntoBufferAsync(2_000_000, timeout.Token);
-                return new ProviderJson(
-                    JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(timeout.Token)),
-                    response.Headers.CacheControl?.MaxAge is { } maxAge
-                        ? clock.GetUtcNow() + maxAge
-                        : null,
-                    response.Headers.CacheControl?.NoStore == true
-                );
-            }
-        }
-        catch (HttpRequestException)
-        {
-            throw new PlanningProviderException(
-                "Provider connection failed; cached evidence and estimates remain available."
-            );
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new PlanningProviderException("Provider request timed out.");
-        }
-        finally
-        {
-            budget.Concurrency.Release();
-        }
-    }
+                    cancellationToken
+                ),
+            planning.Value,
+            clock
+        );
 
     public async Task<ActivityRouteEvidence[]> RoutesAsync(
         GeographyPoint from,
@@ -177,79 +105,17 @@ public sealed class ActivityPlanningProviders(
     )
     {
         string key = ActivityPlanningContext.RouteKey(from, to, departure, mode);
-        var now = clock.GetUtcNow();
         if (!ActivityPlanRules.TransportModes.Contains(mode))
         {
             throw new PlanningProviderException("Choose walking, taxi, or driving.");
         }
-        var token = await maps.GetTokenAsync(ct);
-        using var response = await SendAsync(
-            () =>
-            {
-                var request = new HttpRequestMessage(
-                    HttpMethod.Post,
-                    "https://atlas.microsoft.com/route/matrix?api-version=2025-01-01"
-                );
-                request.Headers.TryAddWithoutValidation("Authorization", $"jwt-sas {token.Token}");
-                request.Content = JsonContent.Create(
-                    new
-                    {
-                        type = "FeatureCollection",
-                        features = new[]
-                        {
-                            new
-                            {
-                                type = "Feature",
-                                geometry = new
-                                {
-                                    type = "MultiPoint",
-                                    coordinates = new[] { new[] { from.Longitude, from.Latitude } },
-                                },
-                                properties = new { pointType = "origins" },
-                            },
-                            new
-                            {
-                                type = "Feature",
-                                geometry = new
-                                {
-                                    type = "MultiPoint",
-                                    coordinates = new[] { new[] { to.Longitude, to.Latitude } },
-                                },
-                                properties = new { pointType = "destinations" },
-                            },
-                        },
-                        travelMode = mode == "walking" ? "walking" : "driving",
-                        departAt = departure.ToString("O"),
-                        traffic = "historical",
-                    },
-                    mediaType: new MediaTypeHeaderValue("application/geo+json")
-                );
-                return request;
-            },
-            budget,
-            ct
-        );
-        if (response.NoStore)
-        {
-            throw new PlanningProviderException(
-                "Road/walking evidence cannot be cached under the provider response policy."
-            );
-        }
-
-        var cell = response.RootElement.GetProperty("properties").GetProperty("matrix")[0];
-        if (cell.GetProperty("statusCode").GetInt32() != 200)
+        var estimate = await maps.EstimateRouteAsync(from, to, departure, mode, budget, ct);
+        if (estimate is null)
         {
             return [];
         }
-
-        double seconds = cell.TryGetProperty("durationTrafficInSeconds", out var traffic)
-            ? traffic.GetDouble()
-            : cell.GetProperty("durationInSeconds").GetDouble();
-        if (!double.IsFinite(seconds) || seconds is < 0 or > 86400)
-        {
-            return [];
-        }
-
+        double seconds = estimate.Duration.TotalSeconds;
+        var now = estimate.RetrievedAt;
         int minutes = (int)Math.Ceiling(seconds / 60) + (mode == "taxi" ? 5 : 0);
         // A taxi pickup allowance is explicitly an assumption, even when road time is verified.
         return
@@ -260,7 +126,7 @@ public sealed class ActivityPlanningProviders(
                 TimeSpan.FromMinutes(minutes),
                 now,
                 (
-                    response.CacheUntil is { } until
+                    estimate.ExpiresAt is { } until
                     && until < now.AddHours(Math.Clamp(planning.Value.EvidenceHours, 1, 24))
                         ? until
                         : now.AddHours(Math.Clamp(planning.Value.EvidenceHours, 1, 24))

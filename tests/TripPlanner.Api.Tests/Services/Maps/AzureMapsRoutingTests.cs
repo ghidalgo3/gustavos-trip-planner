@@ -2,11 +2,12 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Spatial;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Services.Maps;
 
 [TestClass]
-public sealed class ActivityRouteMapProviderTests
+public sealed class AzureMapsRoutingTests
 {
     [TestMethod]
     [DataRow("walking", "walking")]
@@ -37,8 +38,8 @@ public sealed class ActivityRouteMapProviderTests
             );
             return """{"features":[{"properties":{"type":"Waypoint"},"geometry":{"type":"Point","coordinates":[2.3,48.8]}},{"properties":{"type":"RoutePath"},"geometry":{"type":"MultiLineString","coordinates":[[[2.3,48.8],[2.32,48.81],[2.35,48.86]]]}}]}""";
         });
-        var provider = new ActivityRouteMapProvider(new HttpClient(handler), new Tokens());
-        var path = await provider.GetAsync(
+        var provider = AzureMapsTestClient.Create(new HttpClient(handler), new Tokens());
+        var path = await provider.RouteAsync(
             GeographyPoint.Create(48.8, 2.3),
             GeographyPoint.Create(48.86, 2.35),
             departure,
@@ -65,9 +66,9 @@ public sealed class ActivityRouteMapProviderTests
     public async Task MissingOrInvalidGeometry_DoesNotInventAStraightLine(string json)
     {
         using var handler = new Handler(_ => json);
-        var provider = new ActivityRouteMapProvider(new HttpClient(handler), new Tokens());
+        var provider = AzureMapsTestClient.Create(new HttpClient(handler), new Tokens());
         Assert.IsNull(
-            await provider.GetAsync(
+            await provider.RouteAsync(
                 GeographyPoint.Create(48.8, 2.3),
                 GeographyPoint.Create(48.86, 2.35),
                 DateTimeOffset.UtcNow,
@@ -87,9 +88,9 @@ public sealed class ActivityRouteMapProviderTests
                 {"features":[{"properties":{"type":"RoutePath"},"geometry":{"type":"MultiLineString","coordinates":[[[141.35297,43.0583],[141.35722,43.05833],[141.36877,43.05878],[141.37207,43.05993],[141.37839,43.06214],[141.37936,43.0628],[141.38192,43.06461]]]}}]}
                 """
         );
-        var provider = new ActivityRouteMapProvider(new HttpClient(handler), new Tokens());
+        var provider = AzureMapsTestClient.Create(new HttpClient(handler), new Tokens());
         Assert.IsNull(
-            await provider.GetAsync(
+            await provider.RouteAsync(
                 GeographyPoint.Create(43.056, 141.353),
                 GeographyPoint.Create(43.071, 141.3735),
                 DateTimeOffset.UtcNow,

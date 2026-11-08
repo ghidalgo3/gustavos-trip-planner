@@ -1,12 +1,11 @@
+import { mapsClient } from "../../maps/mapsClient";
 import { useState } from "react";
 import { Button } from "@fluentui/react-components";
 import HomeAirportPicker from "./HomeAirportPicker";
 import { trackBehavior } from "../../telemetry/telemetry";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
 import {
-  resolveCity,
   saveUserProfile,
-  searchCities,
   type CitySuggestion,
   type CurrentUser,
 } from "../../api/api";
@@ -31,7 +30,7 @@ export default function HomeCityPicker({ onSaved }: HomeCityPickerProps) {
     setSaving(true);
     setError(undefined);
     try {
-      const location = await resolveCity(selectedCity);
+      const location = await mapsClient.geocodeCity(selectedCity);
       onSaved(
         await saveUserProfile({
           homeCity: { name: selectedCity.label, ...location },
@@ -59,7 +58,7 @@ export default function HomeCityPicker({ onSaved }: HomeCityPickerProps) {
         inputValue={query}
         selectedOptionValue={selectedCity?.id}
         selectedOptionLabel={selectedCity?.label}
-        search={searchCities}
+        search={mapsClient.searchCities}
         getOptionValue={(city) => city.id}
         getOptionText={(city) => city.label}
         onInputChange={(value) => {

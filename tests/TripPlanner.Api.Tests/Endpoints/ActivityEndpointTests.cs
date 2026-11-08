@@ -132,8 +132,8 @@ public class ActivityEndpointTests
         int expectedLookups
     )
     {
-        var resolver = new TimeZoneResolver(resolvedZone);
-        await using var factory = new TestApplicationFactory { TimeZoneResolver = resolver };
+        var resolver = new TimeZoneMaps(resolvedZone);
+        await using var factory = new TestApplicationFactory { MapsClient = resolver };
         using var client = factory.CreateClient();
         var (trip, _, _) = await CreateTrip(client, factory);
         var request = DestinationFeature("Paris", "FR", new(2027, 6, 10), new(2027, 6, 11));
@@ -199,10 +199,7 @@ public class ActivityEndpointTests
         string expected
     )
     {
-        await using var factory = new TestApplicationFactory
-        {
-            TimeZoneResolver = new CoordinateZones(),
-        };
+        await using var factory = new TestApplicationFactory { MapsClient = new CoordinateZones() };
         using var client = factory.CreateClient();
         var (trip, owner, _) = await CreateTrip(client, factory);
         string path = $"/trips/{trip.Id}/destinations";
@@ -267,9 +264,9 @@ public class ActivityEndpointTests
         );
     }
 
-    private sealed class CoordinateZones : IDestinationTimeZoneResolver
+    private sealed class CoordinateZones : AzureMapsStub
     {
-        public Task<string?> ResolveAsync(
+        public override Task<string?> ResolveTimeZoneAsync(
             GeographyPoint point,
             CancellationToken cancellationToken
         ) =>
@@ -278,12 +275,15 @@ public class ActivityEndpointTests
             );
     }
 
-    private sealed class TimeZoneResolver(string? zone) : IDestinationTimeZoneResolver
+    private sealed class TimeZoneMaps(string? zone) : AzureMapsStub
     {
         public int Calls { get; private set; }
         public GeographyPoint? Point { get; private set; }
 
-        public Task<string?> ResolveAsync(GeographyPoint point, CancellationToken cancellationToken)
+        public override Task<string?> ResolveTimeZoneAsync(
+            GeographyPoint point,
+            CancellationToken cancellationToken
+        )
         {
             Calls++;
             Point = point;
@@ -965,13 +965,12 @@ public class ActivityEndpointTests
     )
     {
         var research = new StubVenueResearch(fails);
-        var places = new ResearchPlaceResolver(true, geocodes);
+        var places = new ResearchMaps(true, geocodes);
         await using var factory = new TestApplicationFactory
         {
             StayVenueSearch = research,
             ActivityVenueSearch = research,
-            ActivityPlaceResolver = places,
-            AddressGeocoder = places,
+            MapsClient = places,
         };
         using var client = factory.CreateClient();
         var (trip, owner, _) = await CreateTrip(client, factory);
@@ -1407,6 +1406,73 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
+    [DataRow(AddressMatchConfidence.High, false, false, 1, true)]
+    [DataRow(AddressMatchConfidence.Medium, false, false, 1, false)]
+    [DataRow(AddressMatchConfidence.High, true, false, 1, false)]
+    [DataRow(AddressMatchConfidence.High, false, true, 1, false)]
+    [DataRow(AddressMatchConfidence.High, false, false, 2, false)]
+    [DataRow(AddressMatchConfidence.High, false, false, 0, false)]
+    public async Task ActivityJobs_AssignOnlyOnePreciseResearchedAddress(
+        AddressMatchConfidence confidence,
+        bool ambiguous,
+        bool postalMismatch,
+        int count,
+        bool located
+    )
+    {
+        var maps = new ResearchMaps(false, false)
+        {
+            AddressCandidates = Enumerable
+                .Range(0, count)
+                .Select(index => new AddressLocationCandidate(
+                    new("Point", GeographyPoint.Create(48.86, 2.33 + index * 0.01)),
+                    "1 Main Street",
+                    confidence,
+                    ambiguous
+                )
+                {
+                    PostalCodeMismatch = postalMismatch,
+                })
+                .ToArray(),
+        };
+        await using var factory = new TestApplicationFactory
+        {
+            MapsClient = maps,
+            ActivityAssistant = new StubAssistant(),
+            ActivityVenueResearch = new StubVenueResearch(false),
+        };
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        await factory.Database.SetUserFeatureFlagsAsync(owner, "LLM");
+        await AddDestinations(client, trip, false);
+        var destination = (
+            await client.GetFromJsonAsync<GeoJsonCollection<DestinationProperties>>(
+                $"/trips/{trip.Id}/destinations"
+            )
+        )!.Features.Single();
+        Guid requestId = Guid.NewGuid();
+        using var started = await client.PostAsJsonAsync(
+            $"/trips/{trip.Id}/destinations/{destination.Id}:suggest",
+            new ActivitySuggestionRequest(
+                requestId,
+                "Museum",
+                destination.Properties.ContextVersion
+            )
+        );
+        Assert.AreEqual(HttpStatusCode.Accepted, started.StatusCode);
+        Assert.IsTrue(
+            await factory.Services.GetRequiredService<ActivityJobProcessor>().ProcessNextAsync()
+        );
+        var result = (
+            await client.GetFromJsonAsync<ActivitySuggestionResult>(
+                $"/trips/{trip.Id}/destinations/{destination.Id}/suggestions/{requestId}"
+            )
+        )!;
+        Assert.AreEqual(located, result.Activities.Features.Single().Geometry is not null);
+        Assert.AreEqual("1 Main Street", maps.LastAddress);
+    }
+
+    [TestMethod]
     [DataRow(true, false, false, false, true)]
     [DataRow(false, true, false, true, true)]
     [DataRow(false, false, false, true, true)]
@@ -1424,12 +1490,12 @@ public class ActivityEndpointTests
     )
     {
         var research = new StubVenueResearch(researchFails);
-        var resolver = new ResearchPlaceResolver(initiallyResolved, verifiesVenue);
+        var resolver = new ResearchMaps(initiallyResolved, verifiesVenue);
         var coordinates = new StubCoordinateResearch();
         await using var factory = new TestApplicationFactory
         {
             ActivityAssistant = new StubAssistant(),
-            ActivityPlaceResolver = resolver,
+            MapsClient = resolver,
             ActivityVenueResearch = research,
             ActivityCoordinateResearch = coordinates,
         };
@@ -1817,34 +1883,13 @@ public class ActivityEndpointTests
         }
     }
 
-    private sealed class ResearchPlaceResolver(bool initiallyResolved, bool verifiesVenue)
-        : IActivityPlaceResolver,
-            TripPlanner.Api.Services.Maps.IAddressGeocoder
+    private sealed class ResearchMaps(bool initiallyResolved, bool verifiesVenue) : AzureMapsStub
     {
         public string? LastPlace { get; private set; }
         public string? LastAddress { get; private set; }
+        public IReadOnlyList<AddressLocationCandidate>? AddressCandidates { get; init; }
 
-        public async Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
-            string address,
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken,
-            GeoJsonPoint? center = null,
-            StructuredAddress? structuredAddress = null
-        )
-        {
-            var point = await ResolveAddressAsync(
-                address,
-                city,
-                countryCode,
-                cancellationToken,
-                center,
-                structuredAddress
-            );
-            return point is null ? [] : [new(point, address, AddressMatchConfidence.High, false)];
-        }
-
-        public Task<GeoJsonPoint?> ResolveAddressAsync(
+        public override Task<IReadOnlyList<AddressLocationCandidate>> GeocodeAddressAsync(
             string address,
             string city,
             string countryCode,
@@ -1854,14 +1899,25 @@ public class ActivityEndpointTests
         )
         {
             LastAddress = address;
-            return Task.FromResult<GeoJsonPoint?>(
-                verifiesVenue
-                    ? new("Point", GeographyPoint.Create(latitude: 48.86, longitude: 2.33))
-                    : null
-            );
+            IReadOnlyList<AddressLocationCandidate> candidates =
+                AddressCandidates
+                ?? (
+                    verifiesVenue
+                        ?
+                        [
+                            new(
+                                new("Point", GeographyPoint.Create(48.86, 2.33)),
+                                address,
+                                AddressMatchConfidence.High,
+                                false
+                            ),
+                        ]
+                        : []
+                );
+            return Task.FromResult(candidates);
         }
 
-        public Task<GeoJsonPoint?> ResolveAsync(
+        public override Task<GeoJsonPoint?> GeocodePlaceAsync(
             string placeName,
             string city,
             string countryCode,

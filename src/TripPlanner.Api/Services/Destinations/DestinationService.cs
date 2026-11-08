@@ -10,95 +10,13 @@ using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Services.Destinations;
 
-public interface ICityPlaceResolver
-{
-    Task<GeoJsonPoint?> ResolveAsync(
-        string city,
-        string countryCode,
-        CancellationToken cancellationToken
-    );
-}
-
-public sealed class AzureCityPlaceResolver(HttpClient client, IMapTokenProvider tokens)
-    : ICityPlaceResolver
-{
-    public async Task<GeoJsonPoint?> ResolveAsync(
-        string city,
-        string countryCode,
-        CancellationToken cancellationToken
-    )
-    {
-        MapToken token = await tokens.GetTokenAsync(cancellationToken);
-        string query = Uri.EscapeDataString($"{city}, {countryCode}");
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{token.Endpoint.TrimEnd('/')}/geocode?api-version=2026-01-01&query={query}&top=1&resultTypes=PopulatedPlace"
-        );
-        request.Headers.TryAddWithoutValidation("Authorization", $"jwt-sas {token.Token}");
-        using var response = await client.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(
-            await response.Content.ReadAsStreamAsync(cancellationToken)
-        );
-        if (
-            !json.RootElement.TryGetProperty("features", out var features)
-            || features.ValueKind != JsonValueKind.Array
-            || features.GetArrayLength() == 0
-        )
-        {
-            return null;
-        }
-
-        var feature = features[0];
-        if (
-            feature.TryGetProperty("properties", out var properties)
-            && properties.TryGetProperty("address", out var address)
-            && (
-                address.TryGetProperty("countryRegionISO2", out var country)
-                || (
-                    address.TryGetProperty("countryRegion", out var countryRegion)
-                    && countryRegion.TryGetProperty("ISO", out country)
-                )
-            )
-            && !string.Equals(country.GetString(), countryCode, StringComparison.OrdinalIgnoreCase)
-        )
-        {
-            return null;
-        }
-
-        if (
-            !feature.TryGetProperty("geometry", out var geometry)
-            || !geometry.TryGetProperty("coordinates", out var point)
-            || point.ValueKind != JsonValueKind.Array
-            || point.GetArrayLength() < 2
-        )
-        {
-            return null;
-        }
-
-        double longitude = point[0].GetDouble(),
-            latitude = point[1].GetDouble();
-        return
-            double.IsFinite(longitude)
-            && double.IsFinite(latitude)
-            && Math.Abs(longitude) <= 180
-            && Math.Abs(latitude) <= 90
-            ? new("Point", GeographyPoint.Create(latitude: latitude, longitude: longitude))
-            : null;
-    }
-}
-
 public sealed record DestinationSnapshot(GeoJsonCollection<DestinationProperties> Collection)
 {
     public GeoJsonFeature<DestinationProperties>? Find(string cityId) =>
         Collection.Features.FirstOrDefault(f => f.Id == cityId);
 }
 
-public sealed class DestinationService(
-    IPlannerDb database,
-    ICityPlaceResolver cities,
-    IDestinationTimeZoneResolver timeZones
-)
+public sealed class DestinationService(IPlannerDb database, IAzureMapsClient maps)
 {
     public async Task<DestinationSnapshot> GetAsync(
         Guid viewerUserId,
@@ -191,7 +109,7 @@ public sealed class DestinationService(
         {
             return place;
         }
-        string? zone = await timeZones.ResolveAsync(
+        string? zone = await maps.ResolveTimeZoneAsync(
             GeographyPoint.Create(place.Latitude, place.Longitude),
             cancellationToken
         );
@@ -248,14 +166,14 @@ public sealed class DestinationService(
         {
             GeoJsonPoint? point = suppliedPoint is not null
                 ? suppliedPoint
-                : await cities.ResolveAsync(city, country, cancellationToken);
+                : await maps.GeocodeCityAsync(city, country, cancellationToken);
             if (point is null)
             {
                 throw new InvalidOperationException("The destination city could not be located.");
             }
 
             string? timeZone = string.IsNullOrWhiteSpace(input.TimeZone)
-                ? await timeZones.ResolveAsync(point.Position, cancellationToken)
+                ? await maps.ResolveTimeZoneAsync(point.Position, cancellationToken)
                 : input.TimeZone.Trim();
             place = await database.SaveDestinationPlaceAsync(
                 ownerUserId,

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import ColorSchemeProvider from "../../app/ColorSchemeProvider";
 import StayLocationDrawer from "./StayLocationDrawer";
-import { searchPlaces } from "../../api/api";
+import { mapsClient } from "../../maps/mapsClient";
 import {
   saveStayLocation,
   researchStayAddress,
@@ -10,7 +10,9 @@ import {
   type StayAddressSuggestion,
 } from "../activities/activitiesApi";
 
-vi.mock("../../api/api", () => ({ searchPlaces: vi.fn() }));
+vi.mock("../../maps/mapsClient", () => ({
+  mapsClient: { searchPlaces: vi.fn() },
+}));
 vi.mock("../activities/activitiesApi", () => ({
   saveStayLocation: vi.fn(),
   researchStayAddress: vi.fn(),
@@ -134,7 +136,7 @@ test("typing makes no search requests; explicit search returns choices and saves
   expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
   typeQuery();
   await new Promise((resolve) => setTimeout(resolve, 350));
-  expect(searchPlaces).not.toHaveBeenCalled();
+  expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
   expect(researchStayAddress).not.toHaveBeenCalled();
   expect(screen.queryByRole("combobox")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
@@ -155,7 +157,7 @@ test("typing makes no search requests; explicit search returns choices and saves
     "Hotel Mets",
     expect.any(AbortSignal),
   );
-  expect(searchPlaces).not.toHaveBeenCalled();
+  expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
   expect(
     screen.queryByRole("button", { name: "Save Stay" }),
   ).not.toBeInTheDocument();

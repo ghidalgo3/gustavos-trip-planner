@@ -4,6 +4,7 @@ using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Services.Destinations;
 
@@ -179,9 +180,9 @@ public sealed class StayAddressResearchTests
         );
     }
 
-    private sealed class CandidateGeocoder(AddressLocationCandidate[] candidates) : IAddressGeocoder
+    private sealed class CandidateGeocoder(AddressLocationCandidate[] candidates) : AzureMapsStub
     {
-        public Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
+        public override Task<IReadOnlyList<AddressLocationCandidate>> GeocodeAddressAsync(
             string address,
             string city,
             string countryCode,
@@ -191,14 +192,14 @@ public sealed class StayAddressResearchTests
         ) => Task.FromResult<IReadOnlyList<AddressLocationCandidate>>(candidates);
     }
 
-    private sealed class BatchPlaces : IAddressGeocoder
+    private sealed class BatchPlaces : AzureMapsStub
     {
         private int active;
         private int calls;
         public int Calls => calls;
         public int MaxConcurrent { get; private set; }
 
-        public async Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
+        public override async Task<IReadOnlyList<AddressLocationCandidate>> GeocodeAddressAsync(
             string address,
             string city,
             string countryCode,
@@ -261,7 +262,7 @@ public sealed class StayAddressResearchTests
     }
 
     private sealed class Places(string outcome, CancellationTokenSource? cancel = null)
-        : IAddressGeocoder
+        : AzureMapsStub
     {
         public static readonly GeoJsonPoint Point = new(
             "Point",
@@ -271,7 +272,7 @@ public sealed class StayAddressResearchTests
         public GeoJsonPoint? Center { get; private set; }
         public StructuredAddress? Components { get; private set; }
 
-        public Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
+        public override Task<IReadOnlyList<AddressLocationCandidate>> GeocodeAddressAsync(
             string address,
             string city,
             string countryCode,

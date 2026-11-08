@@ -8,7 +8,12 @@ import {
 } from "@testing-library/react";
 import ColorSchemeProvider from "../../app/ColorSchemeProvider";
 import { MemoryRouter } from "react-router";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import {
+  clearTripSnapshotCache,
+  openTripSnapshot,
+  type TripSnapshot,
+} from "../../api/tripSnapshot";
 import {
   getSelectedFlights,
   getFlightChoices,
@@ -20,7 +25,8 @@ vi.mock("../activities/activityPlanApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../activities/activityPlanApi")>()),
   planningRequest: vi.fn(),
 }));
-import { resolveCity, searchCities, type Trip } from "../../api/api";
+import type { Trip } from "../../api/api";
+import { mapsClient } from "../../maps/mapsClient";
 import {
   addDestination,
   deleteDestination,
@@ -42,9 +48,8 @@ vi.mock("../flights/selectedFlightsApi", () => ({
   getSelectedFlights: vi.fn(),
   getFlightChoices: vi.fn(),
 }));
-vi.mock("../../api/api", () => ({
-  searchCities: vi.fn(),
-  resolveCity: vi.fn(),
+vi.mock("../../maps/mapsClient", () => ({
+  mapsClient: { searchCities: vi.fn(), geocodeCity: vi.fn() },
 }));
 vi.mock("../activities/activitiesApi", () => ({
   getDestinations: vi.fn(),
@@ -114,7 +119,7 @@ beforeEach(() => {
     features: [],
     route: [],
   });
-  vi.mocked(searchCities).mockResolvedValue([
+  vi.mocked(mapsClient.searchCities).mockResolvedValue([
     {
       id: "paris",
       label: "Paris, France",
@@ -122,11 +127,16 @@ beforeEach(() => {
       countryCode: "FR",
     },
   ]);
-  vi.mocked(resolveCity).mockResolvedValue({
+  vi.mocked(mapsClient.geocodeCity).mockResolvedValue({
     longitude: 2.35,
     latitude: 48.86,
   });
   vi.mocked(addDestination).mockResolvedValue(paris);
+});
+
+afterEach(() => {
+  clearTripSnapshotCache();
+  vi.unstubAllGlobals();
 });
 
 test.each([false, true])(
@@ -247,6 +257,60 @@ test("starts empty and adds a selected city through the drawer without requiring
       ".fui-Toast",
     ),
   ).not.toBeNull();
+});
+
+test("adds a single visit when the refreshed snapshot arrives before the add callback", async () => {
+  const collection = {
+    type: "FeatureCollection" as const,
+    features: [paris],
+    route: [{ destinationId: paris.id, stayId: paris.properties.stays[0].id }],
+  };
+  const tripPath = `/trips/${trip.id}`;
+  const snapshot: TripSnapshot = {
+    "@type": "Trip",
+    "@id": `urn:uuid:${trip.id}`,
+    schemaVersion: 1,
+    name: trip.name,
+    revision: "1",
+    resources: {
+      [tripPath]: {
+        href: tripPath,
+        etag: '"1"',
+        status: 200,
+        contentType: "application/json",
+        data: trip,
+      },
+    },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(snapshot)),
+  );
+  let finishSave!: (destination: Destination) => void;
+  const save = new Promise<Destination>((resolve) => {
+    finishSave = resolve;
+  });
+  vi.mocked(addDestination).mockReturnValueOnce(save);
+
+  show();
+  const drawer = await openAndChooseCity();
+  fireEvent.click(
+    within(drawer).getByRole("button", { name: "Add destination" }),
+  );
+
+  vi.mocked(getDestinations).mockResolvedValue(collection);
+  await act(async () => {
+    await openTripSnapshot(trip.ownerUserId, trip.id, "");
+  });
+  const visits = screen.getByRole("list", {
+    name: "Trip destinations",
+    hidden: true,
+  });
+  expect(visits.querySelectorAll(".overview-destination")).toHaveLength(1);
+
+  await act(async () => finishSave(paris));
+  expect(visits.querySelectorAll(".overview-destination")).toHaveLength(1);
+  expect(addDestination).toHaveBeenCalledTimes(1);
 });
 
 test("cancel closes the drawer and discards its unsaved selection", async () => {

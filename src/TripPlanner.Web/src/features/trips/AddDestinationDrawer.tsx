@@ -1,3 +1,4 @@
+import { mapsClient } from "../../maps/mapsClient";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useState, type FormEvent } from "react";
 import {
@@ -13,7 +14,7 @@ import {
 } from "@fluentui/react-components";
 import { Dismiss24Regular } from "@fluentui/react-icons";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
-import { resolveCity, searchCities, type CitySuggestion } from "../../api/api";
+import type { CitySuggestion } from "../../api/api";
 import {
   addDestination,
   replaceDestinationStay,
@@ -26,7 +27,9 @@ import TripCalendar from "./TripCalendar";
 import { conflictingVisit, formatStayDates, parseTripDate } from "./tripDates";
 
 const searchDestinationCities = async (query: string, signal: AbortSignal) =>
-  (await searchCities(query, signal)).filter((city) => city.countryCode);
+  (await mapsClient.searchCities(query, signal)).filter(
+    (city) => city.countryCode,
+  );
 
 export default function AddDestinationDrawer({
   tripId,
@@ -144,7 +147,7 @@ export default function AddDestinationDrawer({
             constraints,
           );
       } else {
-        const coordinates = await resolveCity(city!);
+        const coordinates = await mapsClient.geocodeCity(city!);
         destination = await addDestination(tripId, {
           name: city!.cityName ?? city!.label.split(",")[0].trim(),
           countryCode: city!.countryCode!,

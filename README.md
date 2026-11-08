@@ -94,7 +94,10 @@ Frontend code under `src/TripPlanner.Web/src` is grouped by responsibility:
 
 - `features/activities`, `features/flights`, `features/trips`, `features/party`, and
   `features/profile` contain each feature's components, API clients, and helpers.
-- `maps` owns the Azure Maps integration and marker transitions.
+- `maps` owns the Azure Maps integration and marker transitions. Features use the
+  `MapsClient` interface through `mapsClient`. `createAzureMapsClient` implements
+  city/place searches, city geocoding, token caching, SDK loading, and map-control
+  factories.
 - `shared/components`, `shared/hooks`, and `shared/time` hold reusable UI and utilities.
 - `api` holds shared API access, `app` holds application composition and theming,
   and `telemetry` holds browser instrumentation.
@@ -108,6 +111,16 @@ research), `Flights`, `Destinations`, `Maps`, `TripForms`, and `Jobs` (the share
 background worker). Each folder has a matching namespace. Authentication, MCP
 registration, database registration/auditing, hosting, and input validation live
 in the corresponding top-level folders.
+
+Backend code uses the injectable `IAzureMapsClient` for city, address, and place
+geocoding, IANA time-zone resolution, route geometry, and travel-time estimates.
+The Azure implementation owns request construction, authentication, provider
+response parsing, and coordinate validation. Callers exchange typed coordinates,
+address candidates, routes, and durations. Planning applies its own taxi pickup
+allowance and evidence lifetime to those results. Azure routing and OpenAI
+research share the existing request budgets, retries, and response-size limits.
+Time-zone resolution uses local boundary data before calling Azure. Activity jobs
+accept a researched address pin only when exactly one candidate is precise.
 
 `ActivityPlanningContext` in `Models` holds the planning inputs and owns the pure
 `Evaluate(plan, now)` calculation. Its data is declared in
@@ -183,6 +196,23 @@ destination write to that trip until completion. Shared services are owned by
 The resource store is reset at sign-out, cancelling pending work and ignoring late
 responses from the previous session. Local destination edits are stored on the
 current device. Apple Maps search requires connectivity.
+
+The destinations list shows a transportation card between consecutive stops.
+Open **Compare options** to view MapKit driving and walking alternatives, or a
+public transit ETA with a link to directions in Apple Maps. Cloud planners can
+run the existing trip-wide flight search from the sheet. The sheet shows results
+for the selected pair of stays and draws illustrative great-circle arcs between
+each flight segment’s airports. Selecting a route or flight highlights it in
+the sheet for comparison. Saved flights appear in the destination timeline from
+the cached or live trip snapshot, including arrival and departure flights.
+**Edit → Remove destination** removes a local stop or, for a cloud trip, the
+city and all its stays and activities after confirmation.
+
+In Debug builds, filter the Xcode console for the `HTTP` log category to see
+request and response pairs for the trip API and OAuth token exchange. Each pair
+shares a short ID and includes the status, duration, and byte counts. To diagnose
+destination removal, look for the DELETE followed by the snapshot GET. Request
+headers, query strings, and payload contents are omitted from the HTTP log.
 
 Cloud promotion uses `PUT /trips/{tripId}/snapshot` with the same version-1
 snapshot document used by GET export. Imports currently accept metadata-only

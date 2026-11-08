@@ -11,7 +11,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Spatial;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Destinations;
@@ -30,11 +29,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public IIgnavClient? FlightClient { get; set; }
     public ITripFormAssistant? FormAssistant { get; set; }
     public IActivityAssistant? ActivityAssistant { get; set; }
-    public ICityPlaceResolver? CityResolver { get; set; }
-    public IDestinationTimeZoneResolver? TimeZoneResolver { get; set; }
-    public IActivityPlaceResolver? ActivityPlaceResolver { get; set; }
-    public IAddressGeocoder? AddressGeocoder { get; set; }
-    public IActivityRouteMapProvider? RouteMapProvider { get; set; }
+    public IAzureMapsClient? MapsClient { get; set; }
     public IActivityVenueResearch? ActivityVenueResearch { get; set; }
     public IStayVenueSearch? StayVenueSearch { get; set; }
     public IActivityVenueSearch? ActivityVenueSearch { get; set; }
@@ -94,19 +89,8 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 );
             }
             services.RemoveAll<IMapTokenProvider>();
-            services.RemoveAll<ICityPlaceResolver>();
-            services.RemoveAll<IDestinationTimeZoneResolver>();
-            services.AddSingleton<IDestinationTimeZoneResolver>(
-                TimeZoneResolver ?? new TestDestinationTimeZoneResolver()
-            );
-            services.RemoveAll<IActivityPlaceResolver>();
-            if (RouteMapProvider is not null)
-            {
-                services.RemoveAll<IActivityRouteMapProvider>();
-                services.AddSingleton(RouteMapProvider);
-            }
-            services.RemoveAll<IAddressGeocoder>();
-            services.AddSingleton<IAddressGeocoder>(AddressGeocoder ?? new TestAddressGeocoder());
+            services.RemoveAll<IAzureMapsClient>();
+            services.AddSingleton<IAzureMapsClient>(MapsClient ?? new AzureMapsStub());
             services.RemoveAll<IActivityDetailsResearch>();
             services.AddSingleton<IActivityDetailsResearch>(
                 ActivityDetailsResearch ?? new NoDetailsResearch()
@@ -124,10 +108,6 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IActivityVenueResearch>();
             services.AddSingleton<IActivityVenueResearch>(
                 ActivityVenueResearch ?? new NoVenueResearch()
-            );
-            services.AddSingleton<ICityPlaceResolver>(CityResolver ?? new TestCityPlaceResolver());
-            services.AddSingleton<IActivityPlaceResolver>(
-                ActivityPlaceResolver ?? new TestActivityPlaceResolver()
             );
             if (ActivityAssistant is not null)
             {
@@ -188,31 +168,6 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             Task.FromResult(token);
     }
 
-    private sealed class TestCityPlaceResolver : ICityPlaceResolver
-    {
-        public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAsync(
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken
-        ) =>
-            Task.FromResult<TripPlanner.Api.Models.GeoJsonPoint?>(
-                new(
-                    "Point",
-                    city == "Paris"
-                        ? GeographyPoint.Create(48.8566, 2.3522)
-                        : GeographyPoint.Create(41.9028, 12.4964)
-                )
-            );
-    }
-
-    private sealed class TestDestinationTimeZoneResolver : IDestinationTimeZoneResolver
-    {
-        public Task<string?> ResolveAsync(
-            GeographyPoint point,
-            CancellationToken cancellationToken
-        ) => Task.FromResult<string?>(point.Longitude < 5 ? "Europe/Paris" : "Europe/Rome");
-    }
-
     private sealed class NoDetailsResearch : IActivityDetailsResearch
     {
         public Task<TripPlanner.Api.DTO.ActivityDetailsSuggestion?> FindAsync(
@@ -264,41 +219,6 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             CancellationToken cancellationToken,
             string userPrompt = ""
         ) => Task.FromResult<ActivityVenue?>(null);
-    }
-
-    private sealed class TestAddressGeocoder : IAddressGeocoder
-    {
-        public Task<IReadOnlyList<TripPlanner.Api.Models.AddressLocationCandidate>> FindAsync(
-            string address,
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken,
-            TripPlanner.Api.Models.GeoJsonPoint? center = null,
-            TripPlanner.Api.Models.StructuredAddress? structuredAddress = null
-        ) => Task.FromResult<IReadOnlyList<TripPlanner.Api.Models.AddressLocationCandidate>>([]);
-    }
-
-    private sealed class TestActivityPlaceResolver : IActivityPlaceResolver
-    {
-        public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAddressAsync(
-            string address,
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken,
-            TripPlanner.Api.Models.GeoJsonPoint? center = null,
-            TripPlanner.Api.Models.StructuredAddress? structuredAddress = null
-        ) => ResolveAsync(address, city, countryCode, cancellationToken, center);
-
-        public Task<TripPlanner.Api.Models.GeoJsonPoint?> ResolveAsync(
-            string placeName,
-            string city,
-            string countryCode,
-            CancellationToken cancellationToken,
-            TripPlanner.Api.Models.GeoJsonPoint? center = null
-        ) =>
-            Task.FromResult<TripPlanner.Api.Models.GeoJsonPoint?>(
-                new("Point", GeographyPoint.Create(latitude: 48.8606, longitude: 2.3364))
-            );
     }
 
     private sealed class TestAuthenticationHandler(

@@ -26,9 +26,8 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 ./scripts/release
 ```
 
-## Conventions
+## Engineering Conventions
 
-- UI elements should be self-explanatory and not require descriptive text to explain to the user what they do or how they work.
 - C# code must always use curly braces for blocks, even single statement blocks.
 - Wire dates, clock times, timestamps, and elapsed durations must use ISO 8601 (`YYYY-MM-DD`, `HH:mm:ss`, offset timestamps, and durations such as `PT1H30M`). Keep C# values typed as `DateOnly`, `TimeOnly`, `DateTimeOffset`, and `TimeSpan`.
 - The API is RESTful, meaning that routes should modify entire _resources_ at a time, instead of having hundreds of APIs to modify each invidual property of a persisted object.
@@ -45,10 +44,16 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - Prefer to write "functional" code, minimizing side effects and I/O until they are necessary, this is easier to test. 
 - I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
 - All C# REST APIs must declare property validation attributes to consume in MCP tool definitions and OpenAPI document generation.
+- When refactoring, you only must preserve REST API and Postgres compatibility. You can make arbitrary changes to the code, do not assume that we need to preserve fully-qualified type names for any reason. 
+
+## UI Conventions
+
+- UI elements should be self-explanatory and not require descriptive text to explain to the user what they do or how they work.
 
 ## Cross platform instructions
 
 - Whenever the server introduces a new route or modifies the requests/responses of a route, all clients must be updated to support this change.
+- Use color to attract the user's attention to unfinished actions or next steps. Once an action is complete, you may remove color from an element.
 
 ## Web UI Practices
 
@@ -67,7 +72,6 @@ These do not apply to iOS.
 
 - Tests should verify the code satisfy a requirement, not simply branch coverage.
 - Where possible, write parametrized tests instead of more test functions.
-- Use color to attract the user's attention to unfinished actions or next steps. Once an action is complete, you may remove color from an element.
 
 ## Database practices
 

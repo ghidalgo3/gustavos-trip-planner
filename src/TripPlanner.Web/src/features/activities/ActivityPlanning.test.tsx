@@ -10,7 +10,8 @@ import ColorSchemeProvider from "../../app/ColorSchemeProvider";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import ActivityPlanning from "./ActivityPlanning";
-import { searchPlaces, type Trip } from "../../api/api";
+import type { Trip } from "../../api/api";
+import { mapsClient } from "../../maps/mapsClient";
 import {
   getDestinations,
   getActivities,
@@ -86,7 +87,9 @@ vi.mock("../../maps/ActivityMap", () => ({
     </PersistentMapSurface>
   ),
 }));
-vi.mock("../../api/api", () => ({ searchPlaces: vi.fn() }));
+vi.mock("../../maps/mapsClient", () => ({
+  mapsClient: { searchPlaces: vi.fn() },
+}));
 vi.mock("./DailyActivityPlan", () => ({
   default: ({
     onSelectTravel,
@@ -431,7 +434,7 @@ test.each(["map", "list", "cancel"])(
       },
     ];
     let completeSearch!: (value: typeof results) => void;
-    vi.mocked(searchPlaces).mockReturnValue(
+    vi.mocked(mapsClient.searchPlaces).mockReturnValue(
       new Promise((resolve) => {
         completeSearch = resolve;
       }),
@@ -478,7 +481,7 @@ test.each(["map", "list", "cancel"])(
 
 test("the place SearchBox searches on Enter without submitting the editor or starting duplicate searches", async () => {
   let completeSearch!: (value: []) => void;
-  vi.mocked(searchPlaces).mockReturnValue(
+  vi.mocked(mapsClient.searchPlaces).mockReturnValue(
     new Promise((resolve) => {
       completeSearch = resolve;
     }),
@@ -489,19 +492,19 @@ test("the place SearchBox searches on Enter without submitting the editor or sta
     name: "Activity or place name",
   });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(searchPlaces).not.toHaveBeenCalled();
+  expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
   change(input, { target: { value: "Louvre" } });
   fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-  expect(searchPlaces).not.toHaveBeenCalled();
+  expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(searchPlaces).toHaveBeenCalledWith(
+  expect(mapsClient.searchPlaces).toHaveBeenCalledWith(
     "Louvre",
     expect.any(AbortSignal),
     [2.35, 48.86],
     "FR",
   );
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(searchPlaces).toHaveBeenCalledTimes(1);
+  expect(mapsClient.searchPlaces).toHaveBeenCalledTimes(1);
   expect(saveActivity).not.toHaveBeenCalled();
   await act(async () => completeSearch([]));
   expect(
@@ -513,8 +516,10 @@ test.each(["empty", "failure", "explicit"])(
   "web place research handles Azure %s results and preserves sourced candidates for review",
   async (outcome) => {
     if (outcome === "failure")
-      vi.mocked(searchPlaces).mockRejectedValue(new Error("Map search failed"));
-    else vi.mocked(searchPlaces).mockResolvedValue([]);
+      vi.mocked(mapsClient.searchPlaces).mockRejectedValue(
+        new Error("Map search failed"),
+      );
+    else vi.mocked(mapsClient.searchPlaces).mockResolvedValue([]);
     const source = {
       url: "https://venue.example/access",
       label: "Venue source",
@@ -562,7 +567,8 @@ test.each(["empty", "failure", "explicit"])(
       "teamlabs planets",
       expect.any(AbortSignal),
     );
-    if (outcome === "explicit") expect(searchPlaces).not.toHaveBeenCalled();
+    if (outcome === "explicit")
+      expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
     expect(within(drawer).getByText("6-1-16 Toyosu, Tokyo")).toBeVisible();
     expect(
       within(drawer).getByText("Map address: 6 Chome 1-16, Toyosu, Tokyo"),
@@ -661,7 +667,7 @@ test("changing the query cancels web research and ignores its old results", asyn
 });
 
 test("successful Azure lookup skips AI research", async () => {
-  vi.mocked(searchPlaces).mockResolvedValue([
+  vi.mocked(mapsClient.searchPlaces).mockResolvedValue([
     { id: "venue", label: "Venue, Paris", longitude: 2.35, latitude: 48.86 },
   ]);
   show(false, ["LLM"]);
@@ -676,7 +682,7 @@ test("successful Azure lookup skips AI research", async () => {
 });
 
 test("place lookup populates the activity's name and location, and saving updates the cards", async () => {
-  vi.mocked(searchPlaces).mockResolvedValue([
+  vi.mocked(mapsClient.searchPlaces).mockResolvedValue([
     {
       id: "louvre",
       label: "Louvre, Paris",
@@ -704,7 +710,7 @@ test("place lookup populates the activity's name and location, and saving update
     "place-search-result-address",
   );
   click(result);
-  expect(searchPlaces).toHaveBeenCalledWith(
+  expect(mapsClient.searchPlaces).toHaveBeenCalledWith(
     "Louvre",
     expect.any(AbortSignal),
     [2.35, 48.86],

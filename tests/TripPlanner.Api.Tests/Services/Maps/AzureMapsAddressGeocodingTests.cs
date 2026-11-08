@@ -1,14 +1,14 @@
 using System.Net;
 using System.Text.Json;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Spatial;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Services.Maps;
 
 [TestClass]
-public sealed class AzureAddressGeocoderTests
+public sealed class AzureMapsAddressGeocodingTests
 {
     private static readonly GeoJsonPoint Center = new(
         "Point",
@@ -29,7 +29,7 @@ public sealed class AzureAddressGeocoderTests
             Fixture("sapporo-beer-museum-structured")
         );
         var candidates = await Geocoder(handler)
-            .FindAsync(
+            .GeocodeAddressAsync(
                 "〒065-8633 北海道札幌市東区北7条東9丁目1-1, Japan",
                 "Sapporo",
                 "JP",
@@ -79,7 +79,7 @@ public sealed class AzureAddressGeocoderTests
         response["features"]![0]!["properties"]!["address"]!["postalCode"] = actual;
         using var handler = new Responses(response.ToJsonString());
         var candidates = await Geocoder(handler)
-            .FindAsync(
+            .GeocodeAddressAsync(
                 "Address",
                 "Sapporo",
                 country,
@@ -107,7 +107,7 @@ public sealed class AzureAddressGeocoderTests
     {
         using var handler = new Responses(Neighborhood(), Fixture());
         var candidates = await Geocoder(handler)
-            .FindAsync(
+            .GeocodeAddressAsync(
                 "〒064-0804 北海道札幌市中央区南4条西4丁目1番1, Japan",
                 "Sapporo",
                 "JP",
@@ -151,7 +151,7 @@ public sealed class AzureAddressGeocoderTests
             JsonSerializer.Serialize(new { features = new[] { feature, feature } })
         );
         var candidates = await Geocoder(handler)
-            .FindAsync("Address", "Sapporo", "JP", default, Center, Components);
+            .GeocodeAddressAsync("Address", "Sapporo", "JP", default, Center, Components);
         Assert.HasCount(1, candidates);
         Assert.HasCount(1, handler.Urls);
         Assert.IsFalse(candidates[0].Ambiguous);
@@ -183,7 +183,7 @@ public sealed class AzureAddressGeocoderTests
             )
         );
         var candidates = await Geocoder(handler)
-            .FindAsync("Address", "Sapporo", "JP", default, Center);
+            .GeocodeAddressAsync("Address", "Sapporo", "JP", default, Center);
         Assert.AreEqual(accepted, candidates.Count == 1);
     }
 
@@ -196,7 +196,7 @@ public sealed class AzureAddressGeocoderTests
     {
         using var handler = new Responses(response);
         Assert.IsEmpty(
-            await Geocoder(handler).FindAsync("Address", "Sapporo", "JP", default, Center)
+            await Geocoder(handler).GeocodeAddressAsync("Address", "Sapporo", "JP", default, Center)
         );
     }
 
@@ -213,7 +213,7 @@ public sealed class AzureAddressGeocoderTests
         );
         handler.FailAfterFirst = true;
         var candidates = await Geocoder(handler)
-            .FindAsync("Address", "Sapporo", "JP", default, Center, Components);
+            .GeocodeAddressAsync("Address", "Sapporo", "JP", default, Center, Components);
         Assert.HasCount(1, candidates);
         Assert.HasCount(2, handler.Urls);
         Assert.AreEqual(AddressMatchConfidence.Medium, candidates[0].Confidence);
@@ -226,7 +226,14 @@ public sealed class AzureAddressGeocoderTests
         using var handler = new Responses(Neighborhood()) { AfterFirst = cancellation.Cancel };
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             Geocoder(handler)
-                .FindAsync("Address", "Sapporo", "JP", cancellation.Token, Center, Components)
+                .GeocodeAddressAsync(
+                    "Address",
+                    "Sapporo",
+                    "JP",
+                    cancellation.Token,
+                    Center,
+                    Components
+                )
         );
         Assert.HasCount(1, handler.Urls);
     }
@@ -290,7 +297,7 @@ public sealed class AzureAddressGeocoderTests
         );
         using var handler = new Responses(freeform, structured);
         var candidates = await Geocoder(handler)
-            .FindAsync(
+            .GeocodeAddressAsync(
                 "〒078-8205 北海道旭川市東旭川町倉沼, Japan",
                 "Sapporo",
                 "JP",
@@ -339,15 +346,16 @@ public sealed class AzureAddressGeocoderTests
 
     private static string Fixture(string name = "sapporo-structured")
     {
-        using var stream = typeof(AzureAddressGeocoderTests).Assembly.GetManifestResourceStream(
-            $"TripPlanner.Api.Tests.Services.Maps.Fixtures.{name}.json"
-        )!;
+        using var stream =
+            typeof(AzureMapsAddressGeocodingTests).Assembly.GetManifestResourceStream(
+                $"TripPlanner.Api.Tests.Services.Maps.Fixtures.{name}.json"
+            )!;
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
 
-    private static AzureAddressGeocoder Geocoder(HttpMessageHandler handler) =>
-        new(new HttpClient(handler), new Tokens(), NullLogger<AzureAddressGeocoder>.Instance);
+    private static AzureMapsClient Geocoder(HttpMessageHandler handler) =>
+        AzureMapsTestClient.Create(new HttpClient(handler), new Tokens());
 
     private sealed class Tokens : IMapTokenProvider
     {

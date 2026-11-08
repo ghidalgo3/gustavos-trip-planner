@@ -24,7 +24,7 @@ public sealed class ActivityRouteEndpointTests
     )
     {
         var routes = new Routes { Available = available };
-        await using var factory = new TestApplicationFactory { RouteMapProvider = routes };
+        await using var factory = new TestApplicationFactory { MapsClient = routes };
         using var owner = factory.CreateClient();
         var (trip, user, place, activity) = await Seed(factory, owner);
         var visit = (await factory.Database.GetDestinationVisitsAsync(user.Id, trip.Id)).Single();
@@ -104,7 +104,7 @@ public sealed class ActivityRouteEndpointTests
         Assert.AreEqual(calls, routes.Calls);
     }
 
-    private sealed class Routes : IActivityRouteMapProvider
+    private sealed class Routes : AzureMapsStub
     {
         public bool Available { get; init; } = true;
         public GeographyPoint? From { get; private set; }
@@ -112,7 +112,7 @@ public sealed class ActivityRouteEndpointTests
         public string? Mode { get; private set; }
         public int Calls { get; private set; }
 
-        public Task<ActivityRoutePath?> GetAsync(
+        public override Task<ActivityRoutePath?> RouteAsync(
             GeographyPoint from,
             GeographyPoint to,
             DateTimeOffset departure,

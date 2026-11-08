@@ -3,24 +3,13 @@ using System.Text.Json;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.ActivityPlanning;
 
 namespace TripPlanner.Api.Services.Maps;
 
-public interface IActivityRouteMapProvider
+public sealed partial class AzureMapsClient
 {
-    Task<ActivityRoutePath?> GetAsync(
-        GeographyPoint from,
-        GeographyPoint to,
-        DateTimeOffset departure,
-        string mode,
-        CancellationToken cancellationToken
-    );
-}
-
-public sealed class ActivityRouteMapProvider(HttpClient client, IMapTokenProvider tokens)
-    : IActivityRouteMapProvider
-{
-    public async Task<ActivityRoutePath?> GetAsync(
+    public async Task<ActivityRoutePath?> RouteAsync(
         GeographyPoint from,
         GeographyPoint to,
         DateTimeOffset departure,
@@ -32,12 +21,10 @@ public sealed class ActivityRouteMapProvider(HttpClient client, IMapTokenProvide
         {
             return null;
         }
-        var token = await tokens.GetTokenAsync(cancellationToken);
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            "https://atlas.microsoft.com/route/directions?api-version=2025-01-01"
+            "route/directions?api-version=2025-01-01"
         );
-        request.Headers.TryAddWithoutValidation("Authorization", $"jwt-sas {token.Token}");
         request.Content = JsonContent.Create(
             new
             {
@@ -63,7 +50,9 @@ public sealed class ActivityRouteMapProvider(HttpClient client, IMapTokenProvide
             },
             mediaType: new MediaTypeHeaderValue("application/geo+json")
         );
-        using var response = await client.SendAsync(request, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        using var response = await SendAsync(request, timeout.Token);
         response.EnsureSuccessStatusCode();
         using var document = await JsonDocument.ParseAsync(
             await response.Content.ReadAsStreamAsync(cancellationToken),
@@ -128,5 +117,92 @@ public sealed class ActivityRouteMapProvider(HttpClient client, IMapTokenProvide
             return new("MultiLineString", lines);
         }
         return null;
+    }
+
+    public async Task<MapRouteEstimate?> EstimateRouteAsync(
+        GeographyPoint from,
+        GeographyPoint to,
+        DateTimeOffset departure,
+        string mode,
+        PlanningProviderBudget budget,
+        CancellationToken ct
+    )
+    {
+        if (!ActivityPlanRules.TransportModes.Contains(mode))
+        {
+            throw new PlanningProviderException("Choose walking, taxi, or driving.");
+        }
+        var now = clock.GetUtcNow();
+        using var response = await PlanningProviderRequests.SendAsync(
+            () =>
+            {
+                var request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    "route/matrix?api-version=2025-01-01"
+                );
+                request.Content = JsonContent.Create(
+                    new
+                    {
+                        type = "FeatureCollection",
+                        features = new[]
+                        {
+                            new
+                            {
+                                type = "Feature",
+                                geometry = new
+                                {
+                                    type = "MultiPoint",
+                                    coordinates = new[] { new[] { from.Longitude, from.Latitude } },
+                                },
+                                properties = new { pointType = "origins" },
+                            },
+                            new
+                            {
+                                type = "Feature",
+                                geometry = new
+                                {
+                                    type = "MultiPoint",
+                                    coordinates = new[] { new[] { to.Longitude, to.Latitude } },
+                                },
+                                properties = new { pointType = "destinations" },
+                            },
+                        },
+                        travelMode = mode == "walking" ? "walking" : "driving",
+                        departAt = departure.ToString("O"),
+                        traffic = "historical",
+                    },
+                    mediaType: new MediaTypeHeaderValue("application/geo+json")
+                );
+                return request;
+            },
+            budget,
+            ct,
+            (request, cancellationToken) =>
+                SendAsync(request, cancellationToken, HttpCompletionOption.ResponseHeadersRead),
+            planning.Value,
+            clock
+        );
+        if (response.NoStore)
+        {
+            throw new PlanningProviderException(
+                "Road/walking evidence cannot be cached under the provider response policy."
+            );
+        }
+
+        var cell = response.RootElement.GetProperty("properties").GetProperty("matrix")[0];
+        if (cell.GetProperty("statusCode").GetInt32() != 200)
+        {
+            return null;
+        }
+
+        double seconds = cell.TryGetProperty("durationTrafficInSeconds", out var traffic)
+            ? traffic.GetDouble()
+            : cell.GetProperty("durationInSeconds").GetDouble();
+        if (!double.IsFinite(seconds) || seconds is < 0 or > 86400)
+        {
+            return null;
+        }
+
+        return new MapRouteEstimate(TimeSpan.FromSeconds(seconds), now, response.CacheUntil);
     }
 }

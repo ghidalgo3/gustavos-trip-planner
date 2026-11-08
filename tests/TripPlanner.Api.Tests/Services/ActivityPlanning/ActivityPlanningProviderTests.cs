@@ -41,7 +41,7 @@ public sealed class ActivityPlanningProviderTests
     private static ActivityPlanningProviders Provider(Handler handler) =>
         new(
             new HttpClient(handler),
-            new Maps(),
+            AzureMapsTestClient.Create(new HttpClient(handler), new Maps()),
             Microsoft.Extensions.Options.Options.Create(
                 new OpenAiOptions { ApiKey = "private-openai-key" }
             ),

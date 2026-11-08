@@ -3,6 +3,7 @@ using System.Text;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Services.Maps;
 using TripPlanner.Api.Telemetry;
 
 namespace TripPlanner.Api.Services.Activities;
@@ -11,7 +12,7 @@ public sealed class ActivityJobProcessor(
     IPlannerDb database,
     DestinationService destinations,
     IActivityAssistant assistant,
-    IActivityPlaceResolver places,
+    IAzureMapsClient maps,
     IActivityVenueResearch research,
     IActivityCoordinateResearch coordinateResearch,
     ILogger<ActivityJobProcessor> logger
@@ -119,7 +120,7 @@ public sealed class ActivityJobProcessor(
                 {
                     try
                     {
-                        point = await places.ResolveAsync(
+                        point = await maps.GeocodePlaceAsync(
                             placeName,
                             destination.Properties.Name,
                             destination.Properties.CountryCode,
@@ -158,7 +159,7 @@ public sealed class ActivityJobProcessor(
                         {
                             links = [venue.Source];
                             placeName = $"{venue.PlaceName}, {venue.Address}";
-                            var verified = await places.ResolveAddressAsync(
+                            var addressCandidates = await maps.GeocodeAddressAsync(
                                 venue.Address,
                                 destination.Properties.Name,
                                 destination.Properties.CountryCode,
@@ -166,9 +167,17 @@ public sealed class ActivityJobProcessor(
                                 destination.Geometry,
                                 venue.AddressComponents
                             );
-                            if (verified is not null)
+                            var precise = addressCandidates
+                                .Where(candidate =>
+                                    candidate.Confidence == AddressMatchConfidence.High
+                                    && !candidate.Ambiguous
+                                    && !candidate.PostalCodeMismatch
+                                )
+                                .ToArray();
+                            // Jobs can assign a pin only when a single precise address is verified.
+                            if (precise.Length == 1)
                             {
-                                point = verified;
+                                point = precise[0].Geometry;
                             }
                         }
                     }

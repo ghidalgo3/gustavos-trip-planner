@@ -8,6 +8,7 @@ using TripPlanner.Api.Models;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Services.Activities;
 
@@ -294,16 +295,8 @@ public class OpenAiActivityAssistantTests
             }
         );
         using var handler = new ResponseHandler(response);
-        var resolver = new AzureActivityPlaceResolver(
-            new HttpClient(handler),
-            new MapTokens(),
-            new AzureAddressGeocoder(
-                new HttpClient(handler),
-                new MapTokens(),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureAddressGeocoder>.Instance
-            )
-        );
-        var point = await resolver.ResolveAsync("Louvre", "Paris", "FR", default);
+        var resolver = AzureMapsTestClient.Create(new HttpClient(handler), new MapTokens());
+        var point = await resolver.GeocodePlaceAsync("Louvre", "Paris", "FR", default);
         Assert.AreEqual(matches, point is not null);
         if (point is not null)
         {
@@ -342,17 +335,9 @@ public class OpenAiActivityAssistantTests
             }
         );
         using var handler = new ResponseHandler(json);
-        var resolver = new AzureActivityPlaceResolver(
-            new HttpClient(handler),
-            new MapTokens(),
-            new AzureAddressGeocoder(
-                new HttpClient(handler),
-                new MapTokens(),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureAddressGeocoder>.Instance
-            )
-        );
+        var resolver = AzureMapsTestClient.Create(new HttpClient(handler), new MapTokens());
         Assert.IsNotNull(
-            await resolver.ResolveAsync(
+            await resolver.GeocodePlaceAsync(
                 requested,
                 "Tokyo",
                 "JP",
@@ -380,16 +365,8 @@ public class OpenAiActivityAssistantTests
     )
     {
         using var handler = new LandmarkHandler(confidence, type, countryCode);
-        var resolver = new AzureActivityPlaceResolver(
-            new HttpClient(handler),
-            new MapTokens(),
-            new AzureAddressGeocoder(
-                new HttpClient(handler),
-                new MapTokens(),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureAddressGeocoder>.Instance
-            )
-        );
-        var point = await resolver.ResolveAsync(
+        var resolver = AzureMapsTestClient.Create(new HttpClient(handler), new MapTokens());
+        var point = await resolver.GeocodePlaceAsync(
             "Visit Sensō-ji Temple",
             "Tokyo",
             "JP",
@@ -411,17 +388,9 @@ public class OpenAiActivityAssistantTests
     public async Task PlaceResolver_DoesNotRepeatDestinationAlreadyInThePlaceName()
     {
         using var handler = new LandmarkHandler("High", "Temple", "JP");
-        var resolver = new AzureActivityPlaceResolver(
-            new HttpClient(handler),
-            new MapTokens(),
-            new AzureAddressGeocoder(
-                new HttpClient(handler),
-                new MapTokens(),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<AzureAddressGeocoder>.Instance
-            )
-        );
+        var resolver = AzureMapsTestClient.Create(new HttpClient(handler), new MapTokens());
         Assert.IsNotNull(
-            await resolver.ResolveAsync(
+            await resolver.GeocodePlaceAsync(
                 "Sensoji Temple, Tokyo, JP",
                 "Tokyo",
                 "JP",

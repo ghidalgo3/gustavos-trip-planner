@@ -49,7 +49,7 @@ public static class VerificationProgram
         );
         builder.Services.AddHttpClient();
         builder.Services.AddHttpClient<ActivityPlanningProviders>().RemoveAllLoggers();
-        builder.Services.AddHttpClient<IAddressGeocoder, AzureAddressGeocoder>().RemoveAllLoggers();
+        builder.Services.AddHttpClient<IAzureMapsClient, AzureMapsClient>().RemoveAllLoggers();
         builder
             .Services.AddHttpClient<IStayVenueSearch, OpenAiActivityVenueResearch>(client =>
                 client.Timeout = TimeSpan.FromSeconds(20)

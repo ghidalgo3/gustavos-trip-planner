@@ -2,62 +2,40 @@ using System.Globalization;
 using System.Text.Json;
 using GeoTimeZone;
 using Microsoft.Spatial;
-using TripPlanner.Api.Services.Maps;
 
-namespace TripPlanner.Api.Services.Destinations;
+namespace TripPlanner.Api.Services.Maps;
 
-public interface IDestinationTimeZoneResolver
+public sealed partial class AzureMapsClient
 {
-    Task<string?> ResolveAsync(GeographyPoint point, CancellationToken cancellationToken);
-}
-
-public sealed class DestinationTimeZoneResolver(AzureDestinationTimeZoneResolver fallback)
-    : IDestinationTimeZoneResolver
-{
-    public Task<string?> ResolveAsync(GeographyPoint point, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        string id = TimeZoneLookup.GetTimeZone(point.Latitude, point.Longitude).Result;
-        // The boundary data is local: ordinary city lookups need no key, permission or network.
-        // Ocean fallback offsets are not evidence of a city's civil time zone.
-        if (
-            !id.StartsWith("Etc/", StringComparison.Ordinal)
-            && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)
-            && zone.HasIanaId
-        )
-        {
-            return Task.FromResult<string?>(zone.Id);
-        }
-        return fallback.ResolveAsync(point, cancellationToken);
-    }
-}
-
-public sealed class AzureDestinationTimeZoneResolver(
-    HttpClient client,
-    IMapTokenProvider tokens,
-    ILogger<AzureDestinationTimeZoneResolver> logger
-) : IDestinationTimeZoneResolver
-{
-    public async Task<string?> ResolveAsync(
+    public async Task<string?> ResolveTimeZoneAsync(
         GeographyPoint point,
         CancellationToken cancellationToken
     )
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        string localId = TimeZoneLookup.GetTimeZone(point.Latitude, point.Longitude).Result;
+        // Boundary data resolves cities locally. Ocean offsets need a provider lookup.
+        if (
+            !localId.StartsWith("Etc/", StringComparison.Ordinal)
+            && TimeZoneInfo.TryFindSystemTimeZoneById(localId, out var localZone)
+            && localZone.HasIanaId
+        )
+        {
+            return localZone.Id;
+        }
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            var token = await tokens.GetTokenAsync(deadline.Token);
             string coordinates = string.Create(
                 CultureInfo.InvariantCulture,
                 $"{point.Latitude},{point.Longitude}"
             );
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                $"{token.Endpoint.TrimEnd('/')}/timezone/byCoordinates/json?api-version=1.0&options=none&query={coordinates}"
+                $"timezone/byCoordinates/json?api-version=1.0&options=none&query={coordinates}"
             );
-            request.Headers.TryAddWithoutValidation("Authorization", $"jwt-sas {token.Token}");
-            using var response = await client.SendAsync(request, deadline.Token);
+            using var response = await SendAsync(request, deadline.Token);
             response.EnsureSuccessStatusCode();
             using var json = await JsonDocument.ParseAsync(
                 await response.Content.ReadAsStreamAsync(deadline.Token),

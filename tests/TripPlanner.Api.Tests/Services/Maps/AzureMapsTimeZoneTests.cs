@@ -1,14 +1,13 @@
 using System.Globalization;
 using System.Net;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Spatial;
-using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Tests.Support;
 
-namespace TripPlanner.Api.Tests.Services.Destinations;
+namespace TripPlanner.Api.Tests.Services.Maps;
 
 [TestClass]
-public sealed class DestinationTimeZoneResolverTests
+public sealed class AzureMapsTimeZoneTests
 {
     [TestMethod]
     [DataRow(37.5665, 126.9780, "Asia/Seoul")]
@@ -24,8 +23,8 @@ public sealed class DestinationTimeZoneResolverTests
     {
         using var handler = new ResponseHandler("{}", HttpStatusCode.Forbidden);
         using var client = new HttpClient(handler);
-        var resolver = new DestinationTimeZoneResolver(Create(client));
-        var actual = await resolver.ResolveAsync(
+        var resolver = Create(client);
+        var actual = await resolver.ResolveTimeZoneAsync(
             GeographyPoint.Create(latitude, longitude),
             default
         );
@@ -48,13 +47,20 @@ public sealed class DestinationTimeZoneResolverTests
             $$"""{"{{collection}}":[{"{{id}}":"America/New_York"}]}"""
         );
         using var client = new HttpClient(handler);
+        StringAssert.StartsWith(
+            GeoTimeZone.TimeZoneLookup.GetTimeZone(0.5, -150.25).Result,
+            "Etc/"
+        );
         var resolver = Create(client);
         var previousCulture = CultureInfo.CurrentCulture;
         string? result;
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
-            result = await resolver.ResolveAsync(GeographyPoint.Create(40.7128, -74.006), default);
+            result = await resolver.ResolveTimeZoneAsync(
+                GeographyPoint.Create(0.5, -150.25),
+                default
+            );
         }
         finally
         {
@@ -62,7 +68,7 @@ public sealed class DestinationTimeZoneResolverTests
         }
         Assert.AreEqual("America/New_York", result);
         Assert.AreEqual(
-            "https://atlas.example.test/timezone/byCoordinates/json?api-version=1.0&options=none&query=40.7128,-74.006",
+            "https://atlas.example.test/timezone/byCoordinates/json?api-version=1.0&options=none&query=0.5,-150.25",
             handler.Url
         );
         Assert.AreEqual("jwt-sas test-token", handler.Authorization);
@@ -85,7 +91,7 @@ public sealed class DestinationTimeZoneResolverTests
         using var handler = new ResponseHandler(body, (HttpStatusCode)status);
         using var client = new HttpClient(handler);
         Assert.IsNull(
-            await Create(client).ResolveAsync(GeographyPoint.Create(48.86, 2.35), default)
+            await Create(client).ResolveTimeZoneAsync(GeographyPoint.Create(0.5, -150.25), default)
         );
     }
 
@@ -95,7 +101,7 @@ public sealed class DestinationTimeZoneResolverTests
         using var handler = new CanceledHandler();
         using var client = new HttpClient(handler);
         Assert.IsNull(
-            await Create(client).ResolveAsync(GeographyPoint.Create(48.86, 2.35), default)
+            await Create(client).ResolveTimeZoneAsync(GeographyPoint.Create(0.5, -150.25), default)
         );
     }
 
@@ -106,13 +112,14 @@ public sealed class DestinationTimeZoneResolverTests
         using var client = new HttpClient(handler);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
-            Create(client).ResolveAsync(GeographyPoint.Create(48.86, 2.35), cancellation.Token)
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            Create(client)
+                .ResolveTimeZoneAsync(GeographyPoint.Create(0.5, -150.25), cancellation.Token)
         );
     }
 
-    private static AzureDestinationTimeZoneResolver Create(HttpClient client) =>
-        new(client, new Tokens(), NullLogger<AzureDestinationTimeZoneResolver>.Instance);
+    private static AzureMapsClient Create(HttpClient client) =>
+        AzureMapsTestClient.Create(client, new Tokens());
 
     private sealed class Tokens : IMapTokenProvider
     {

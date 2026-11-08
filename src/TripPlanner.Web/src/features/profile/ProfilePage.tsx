@@ -1,3 +1,4 @@
+import { mapsClient } from "../../maps/mapsClient";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { FormEvent, useRef, useState } from "react";
 import { Button, Card, Field, Text, Title1 } from "@fluentui/react-components";
@@ -10,9 +11,7 @@ import ConnectedAgents from "./ConnectedAgents";
 import ActivityPreferencesEditor from "../activities/ActivityPreferencesEditor";
 import "../activities/activityPlan.css";
 import {
-  resolveCity,
   saveUserProfile,
-  searchCities,
   type CitySuggestion,
   type CurrentUser,
 } from "../../api/api";
@@ -84,7 +83,10 @@ export default function ProfilePage({
     setError(undefined);
     try {
       const homeCity = selectedCity
-        ? { name: selectedCity.label, ...(await resolveCity(selectedCity)) }
+        ? {
+            name: selectedCity.label,
+            ...(await mapsClient.geocodeCity(selectedCity)),
+          }
         : currentCity;
       const saved = await saveUserProfile({
         homeCity,
@@ -177,7 +179,7 @@ export default function ProfilePage({
               inputValue={cityQuery}
               selectedOptionValue={selectedCity?.id}
               selectedOptionLabel={selectedCity?.label}
-              search={searchCities}
+              search={mapsClient.searchCities}
               getOptionValue={(city) => city.id}
               getOptionText={(city) => city.label}
               onInputChange={(value) => {

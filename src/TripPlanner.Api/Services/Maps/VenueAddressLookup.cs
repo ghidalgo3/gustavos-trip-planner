@@ -12,7 +12,7 @@ public delegate Task<IReadOnlyList<ActivityVenue>> VenueSearch(
     CancellationToken cancellationToken
 );
 
-public sealed class VenueAddressLookup(IAddressGeocoder places, ILogger<VenueAddressLookup> logger)
+public sealed class VenueAddressLookup(IAzureMapsClient maps, ILogger<VenueAddressLookup> logger)
 {
     public async Task<IReadOnlyList<VenueAddressSuggestion>> FindAsync(
         VenueSearch search,
@@ -74,7 +74,7 @@ public sealed class VenueAddressLookup(IAddressGeocoder places, ILogger<VenueAdd
             // Geocode researched street addresses, never similarly named fuzzy POIs.
             if (!deadline.IsCancellationRequested)
             {
-                locations = await places.FindAsync(
+                locations = await maps.GeocodeAddressAsync(
                     venue.Address,
                     destination.Properties.Name,
                     destination.Properties.CountryCode,

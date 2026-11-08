@@ -9,9 +9,9 @@ import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import ActivityMap from "./ActivityMap";
 import type { Activity } from "../features/activities/activitiesApi";
-import { getMapToken } from "../api/api";
+import { mapsClient } from "./mapsClient";
 
-vi.mock("../api/api", () => ({ getMapToken: vi.fn() }));
+vi.spyOn(mapsClient, "getToken");
 
 const events = new Map<string, (event: { error?: Error }) => void>();
 const createMap = vi.fn();
@@ -26,7 +26,7 @@ const sourceAdd = vi.fn(),
   lineOptions = vi.fn();
 
 beforeEach(() => {
-  vi.mocked(getMapToken).mockReset();
+  vi.mocked(mapsClient.getToken).mockReset();
   createMap.mockReset();
   setStyle.mockReset();
   setCamera.mockReset();
@@ -92,7 +92,7 @@ afterEach(() => {
 });
 
 test("shows an expired token error and retries the map", async () => {
-  vi.mocked(getMapToken)
+  vi.mocked(mapsClient.getToken)
     .mockRejectedValueOnce(
       new Error(
         "Azure Maps token expired. Restart the local development server to renew it.",
@@ -120,7 +120,7 @@ test("shows an expired token error and retries the map", async () => {
   expect(createMap).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Retry map" }));
   await waitFor(() => expect(createMap).toHaveBeenCalledTimes(1));
-  expect(getMapToken).toHaveBeenLastCalledWith(undefined, true);
+  expect(mapsClient.getToken).toHaveBeenLastCalledWith(undefined, true);
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
   act(() =>
@@ -132,7 +132,7 @@ test("shows an expired token error and retries the map", async () => {
 });
 
 test("centers the map on the destination and shows loading until the SDK is ready", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -189,7 +189,7 @@ test("camera changes respect reduced motion", async () => {
       removeEventListener: vi.fn(),
     })),
   );
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -213,7 +213,7 @@ test("camera changes respect reduced motion", async () => {
 });
 
 test("fullscreen reparents the same map without creating another instance or resetting the camera", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -238,14 +238,14 @@ test("fullscreen reparents the same map without creating another instance or res
   rerender(<ActivityMap {...props} />);
   expect(inlineParent).toContainElement(canvas);
   expect(createMap).toHaveBeenCalledTimes(1);
-  expect(getMapToken).toHaveBeenCalledTimes(1);
+  expect(mapsClient.getToken).toHaveBeenCalledTimes(1);
   expect(setCamera).not.toHaveBeenCalled();
   unmount();
   host.remove();
 });
 
 test("a map that never becomes ready shows an error instead of an endless blank canvas", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -271,7 +271,7 @@ test("a map that never becomes ready shows an error instead of an endless blank 
 });
 
 test("map bubbles match list positions even when an activity has no location", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -330,7 +330,7 @@ test("map bubbles match list positions even when an activity has no location", a
 });
 
 test("place search replaces activity and stay bubbles with numbered selectable results, then restores them", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -425,7 +425,7 @@ test.each([false, true])(
         ) => listeners.delete(listener),
       })),
     );
-    vi.mocked(getMapToken).mockResolvedValue({
+    vi.mocked(mapsClient.getToken).mockResolvedValue({
       token: "sas",
       endpoint: "https://atlas.microsoft.com",
       expiresAt: "2030-01-01T02:00:00Z",
@@ -456,7 +456,7 @@ test.each([false, true])(
 );
 
 test("fits all located activities without a hotel, refits new locations, and explains missing pins", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -543,7 +543,7 @@ test("fits all located activities without a hotel, refits new locations, and exp
 });
 
 test("stay preview animates to street level without recreating its map", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -584,11 +584,11 @@ test("stay preview animates to street level without recreating its map", async (
     ),
   );
   expect(createMap).toHaveBeenCalledTimes(1);
-  expect(getMapToken).toHaveBeenCalledTimes(1);
+  expect(mapsClient.getToken).toHaveBeenCalledTimes(1);
 });
 
 test("repeat visits render separate accommodation pins and preserve their selection IDs", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T02:00:00Z",
@@ -627,7 +627,7 @@ test("repeat visits render separate accommodation pins and preserve their select
 });
 
 test("draws the selected street path, frames it, and replaces or clears it without rebuilding the map", async () => {
-  vi.mocked(getMapToken).mockResolvedValue({
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
     expiresAt: "2030-01-01T00:00:00Z",

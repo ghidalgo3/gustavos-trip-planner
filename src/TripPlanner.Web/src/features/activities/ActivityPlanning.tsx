@@ -1,3 +1,4 @@
+import { mapsClient } from "../../maps/mapsClient";
 import {
   useExplicitResourceRefresh,
   useTripResourceVersion,
@@ -57,7 +58,7 @@ import {
 import { destinationDates } from "../trips/tripDates";
 import { Link, useSearchParams } from "react-router";
 import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
-import { searchPlaces, type PlaceSuggestion, type Trip } from "../../api/api";
+import type { PlaceSuggestion, Trip } from "../../api/api";
 import { activityMapLink } from "../../maps/activityMapLink";
 import ActivityDetailsResearch, {
   ActivityDetailsEvidence,
@@ -688,7 +689,7 @@ export default function ActivityPlanning({
       let results: ActivityPlaceResult[] = [];
       if (!webOnly) {
         try {
-          results = await searchPlaces(
+          results = await mapsClient.searchPlaces(
             placeQuery.trim(),
             controller.signal,
             destination.geometry.coordinates,

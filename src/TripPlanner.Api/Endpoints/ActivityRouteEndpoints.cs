@@ -29,7 +29,7 @@ public static class ActivityRouteEndpoints
         IPlannerDb database,
         ICurrentUser currentUser,
         ActivityPlanningService planning,
-        IActivityRouteMapProvider routes,
+        IAzureMapsClient maps,
         TimeProvider clock
     )
     {
@@ -90,7 +90,7 @@ public static class ActivityRouteEndpoints
         }
         try
         {
-            var path = await routes.GetAsync(from, to, departure, leg.Mode, context.RequestAborted);
+            var path = await maps.RouteAsync(from, to, departure, leg.Mode, context.RequestAborted);
             return path is null
                 ? Results.Problem(
                     statusCode: 422,

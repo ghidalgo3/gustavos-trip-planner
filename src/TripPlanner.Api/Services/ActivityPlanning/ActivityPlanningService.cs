@@ -2,7 +2,7 @@ using Microsoft.Spatial;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Services.ActivityPlanning;
 
@@ -10,7 +10,7 @@ public sealed class ActivityPlanningService(
     IPlannerDb database,
     ActivityFlightAvailability flights,
     TimeProvider clock,
-    IDestinationTimeZoneResolver timeZones
+    IAzureMapsClient maps
 )
 {
     public static string ContextVersion(ActivityPlanningContext planningContext) =>
@@ -43,7 +43,7 @@ public sealed class ActivityPlanningService(
                 place = place with
                 {
                     TimeZone =
-                        await timeZones.ResolveAsync(
+                        await maps.ResolveTimeZoneAsync(
                             GeographyPoint.Create(place.Latitude, place.Longitude),
                             ct
                         ) ?? "",

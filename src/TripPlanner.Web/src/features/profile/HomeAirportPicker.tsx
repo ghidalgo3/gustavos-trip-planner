@@ -1,7 +1,8 @@
+import { mapsClient } from "../../maps/mapsClient";
 import { HomeAirportSkeleton } from "./ProfileSkeletons";
 import { useEffect, useState } from "react";
 import { Field, Select, Text } from "@fluentui/react-components";
-import { apiBaseUrl, resolveCity, type CitySuggestion } from "../../api/api";
+import { apiBaseUrl, type CitySuggestion } from "../../api/api";
 import type { AirportSuggestion } from "../flights/planningApi";
 
 export default function HomeAirportPicker({
@@ -24,7 +25,8 @@ export default function HomeAirportPicker({
   useEffect(() => {
     const controller = new AbortController();
     if (city)
-      void resolveCity(city)
+      void mapsClient
+        .geocodeCity(city)
         .then(async (point) => {
           const query = new URLSearchParams({
             city: city.label,

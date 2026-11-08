@@ -3,6 +3,7 @@ using Microsoft.Spatial;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Maps;
+using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Services.Activities;
 
@@ -80,9 +81,9 @@ public sealed class ActivityPlaceResearchTests
             ]);
     }
 
-    private sealed class Geocoder(string outcome) : IAddressGeocoder
+    private sealed class Geocoder(string outcome) : AzureMapsStub
     {
-        public Task<IReadOnlyList<AddressLocationCandidate>> FindAsync(
+        public override Task<IReadOnlyList<AddressLocationCandidate>> GeocodeAddressAsync(
             string address,
             string city,
             string country,

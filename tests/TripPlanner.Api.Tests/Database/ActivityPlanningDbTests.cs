@@ -3,7 +3,6 @@ using Npgsql;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.ActivityPlanning;
-using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Tests.Support;
 
@@ -12,9 +11,9 @@ namespace TripPlanner.Api.Tests.Database;
 [TestClass]
 public sealed class ActivityPlanningDbTests
 {
-    private sealed class UnusedTimeZoneResolver : IDestinationTimeZoneResolver
+    private sealed class UnusedMaps : AzureMapsStub
     {
-        public Task<string?> ResolveAsync(
+        public override Task<string?> ResolveTimeZoneAsync(
             Microsoft.Spatial.GeographyPoint point,
             CancellationToken cancellationToken
         ) => throw new AssertFailedException("This fixture already has a destination time zone.");
@@ -58,7 +57,7 @@ public sealed class ActivityPlanningDbTests
                 db,
                 new(new AirportCatalog()),
                 TimeProvider.System,
-                new UnusedTimeZoneResolver()
+                new UnusedMaps()
             );
             var planningContext = (
                 await service.ReadAsync(user.Id, trip.Id, place.CityId, CancellationToken.None)

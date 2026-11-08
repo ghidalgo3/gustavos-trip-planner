@@ -15,7 +15,8 @@ import {
   AnimatedMapMarkers,
   type MapMarkerDescription,
 } from "./AnimatedMapMarkers";
-import { getMapToken } from "../api/api";
+import { mapsClient } from "./mapsClient";
+import type { MapControl, MapHandle } from "./IMapsClient";
 import PersistentMapSurface from "./PersistentMapSurface";
 import type {
   Activity,
@@ -23,87 +24,12 @@ import type {
   StayLocation,
 } from "../features/activities/activitiesApi";
 
+type Marker = { getElement?: () => HTMLElement };
+
 export type PlaceSearch = {
   results: { label: string; longitude?: number; latitude?: number }[];
   onSelect: (index: number) => void;
 };
-
-type Marker = { getElement?: () => HTMLElement };
-type MapEvent = { position?: [number, number]; error?: Error };
-type RouteSource = { add: (feature: object) => void };
-type RouteLayer = object;
-type MapHandle = {
-  events: {
-    add: (event: string, callback: (event: MapEvent) => void) => void;
-  };
-  markers: { add: (marker: Marker) => void; remove: (marker: Marker) => void };
-  sources: {
-    add: (source: RouteSource) => void;
-    remove: (source: RouteSource) => void;
-  };
-  layers: {
-    add: (layer: RouteLayer) => void;
-    remove: (layer: RouteLayer) => void;
-  };
-  setCamera: (options: object) => void;
-  setStyle: (options: object) => void;
-  dispose: () => void;
-  resize: () => void;
-};
-type Atlas = {
-  Map: new (container: HTMLElement, options: object) => MapHandle;
-  HtmlMarker: new (options: object) => Marker;
-  source: { DataSource: new () => RouteSource };
-  layer: {
-    LineLayer: new (
-      source: RouteSource,
-      id: string | null,
-      options: object,
-    ) => RouteLayer;
-  };
-};
-
-let atlasPromise: Promise<Atlas> | undefined;
-function loadAtlas(): Promise<Atlas> {
-  if (window.atlas) return Promise.resolve(window.atlas);
-  if (!atlasPromise)
-    atlasPromise = new Promise<Atlas>((resolve, reject) => {
-      if (!document.querySelector('link[data-azure-map="true"]')) {
-        const css = document.createElement("link");
-        css.rel = "stylesheet";
-        css.href =
-          "https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.css";
-        css.dataset.azureMap = "true";
-        document.head.append(css);
-      }
-      const script = document.createElement("script");
-      script.src =
-        "https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js";
-      const fail = () => {
-        window.clearTimeout(timeout);
-        script.remove();
-        reject(new Error("Map controls did not load."));
-      };
-      const timeout = window.setTimeout(fail, 15_000);
-      script.onload = () => {
-        window.clearTimeout(timeout);
-        if (window.atlas) resolve(window.atlas);
-        else fail();
-      };
-      script.onerror = fail;
-      document.head.append(script);
-    }).catch((reason: unknown) => {
-      atlasPromise = undefined;
-      throw reason;
-    });
-  return atlasPromise!;
-}
-
-declare global {
-  interface Window {
-    atlas?: Atlas;
-  }
-}
 
 export default function ActivityMap({
   center,
@@ -182,7 +108,7 @@ export default function ActivityMap({
   const centerRef = useRef(center.coordinates);
   const zoomRef = useRef(zoom);
   const callbacks = useRef({ onSelect, onPick, placeSearch });
-  const [atlas, setAtlas] = useState<Atlas>();
+  const [control, setControl] = useState<MapControl>();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -268,9 +194,10 @@ export default function ActivityMap({
 
   useEffect(() => {
     let active = true;
-    void loadAtlas()
+    void mapsClient
+      .loadControl()
       .then((loaded) => {
-        if (active) setAtlas(loaded);
+        if (active) setControl(loaded);
       })
       .catch(() => {
         if (active) setError("Map unavailable. Please retry.");
@@ -281,7 +208,7 @@ export default function ActivityMap({
   }, [retry]);
 
   useEffect(() => {
-    if (!atlas || !element.current) return;
+    if (!control || !element.current) return;
     let active = true;
     setError(undefined);
     setReady(false);
@@ -290,10 +217,11 @@ export default function ActivityMap({
     }, 20_000);
     let observer: ResizeObserver | undefined;
     let resizeFrame = 0;
-    void getMapToken(undefined, retry > 0)
+    void mapsClient
+      .getToken(undefined, retry > 0)
       .then((token) => {
         if (!active || !element.current) return;
-        const instance = new atlas.Map(element.current, {
+        const instance = control.createMap(element.current, {
           center: centerRef.current,
           zoom: zoomRef.current,
           style: styleRef.current,
@@ -305,7 +233,8 @@ export default function ActivityMap({
               resolve: (token: string) => void,
               reject: (error: unknown) => void,
             ) => {
-              void getMapToken(undefined, true)
+              void mapsClient
+                .getToken(undefined, true)
                 .then((fresh) => resolve(fresh.token))
                 .catch((reason: unknown) => {
                   if (active)
@@ -322,7 +251,7 @@ export default function ActivityMap({
         map.current = instance;
         markerTransitions.current = new AnimatedMapMarkers(
           ({ position, button }) => {
-            const marker = new atlas.HtmlMarker({
+            const marker = control.createMarker({
               position,
               htmlContent: button,
             });
@@ -385,11 +314,11 @@ export default function ActivityMap({
       map.current = null;
     };
     // Keep the map alive across destination changes so its camera can animate.
-  }, [atlas, retry]);
+  }, [control, retry]);
 
   useEffect(() => {
     const instance = map.current;
-    if (!instance || !atlas || !ready) return;
+    if (!instance || !control || !ready) return;
     const descriptions: MapMarkerDescription[] = [];
     for (const [index, activity] of activities.entries()) {
       if (!activity.geometry) continue;
@@ -451,7 +380,7 @@ export default function ActivityMap({
     }
     markerTransitions.current?.update(descriptions, reducedMotion);
   }, [
-    atlas,
+    control,
     ready,
     activities,
     selectedId,
@@ -464,16 +393,16 @@ export default function ActivityMap({
   const restoreMap = useEffectEvent(() => fitActivities());
   useEffect(() => {
     const instance = map.current;
-    if (!ready || !instance || !atlas) return;
+    if (!ready || !instance || !control) return;
     if (!route) {
       if (routeWasShown.current) restoreMap();
       routeWasShown.current = false;
       return;
     }
-    const source = new atlas.source.DataSource();
+    const source = control.createRouteSource();
     instance.sources.add(source);
     source.add({ type: "Feature", geometry: route.geometry, properties: {} });
-    const layer = new atlas.layer.LineLayer(source, null, {
+    const layer = control.createRouteLayer(source, {
       strokeColor: darkMode ? "#60cdff" : "#0067c0",
       strokeWidth: 5,
       ...(route.mode === "walking" ? { strokeDashArray: [2, 2] } : {}),
@@ -498,7 +427,7 @@ export default function ActivityMap({
       instance.layers.remove(layer);
       instance.sources.remove(source);
     };
-  }, [atlas, ready, route, darkMode, reducedMotion]);
+  }, [control, ready, route, darkMode, reducedMotion]);
 
   return (
     <PersistentMapSurface host={portalHost}>

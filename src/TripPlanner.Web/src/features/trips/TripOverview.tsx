@@ -241,6 +241,13 @@ export default function TripOverview({
         (item) => item.id === destination.id,
       );
       const stay = destination.properties.stays.at(-1);
+      // The save refreshes the snapshot before the drawer reports success.
+      const newVisit =
+        stay &&
+        !collection.route.some(
+          (visit) =>
+            visit.destinationId === destination.id && visit.stayId === stay.id,
+        );
       return {
         ...collection,
         features: exists
@@ -248,7 +255,7 @@ export default function TripOverview({
               item.id === destination.id ? destination : item,
             )
           : [...collection.features, destination],
-        route: stay
+        route: newVisit
           ? [
               ...collection.route,
               { destinationId: destination.id, stayId: stay.id },
