@@ -69,7 +69,7 @@ test("opens the profile route from the user menu and keeps sign out there", asyn
           }),
         };
       }
-      return { ok: true, json: async () => [] };
+      return { ok: true, json: async () => ({ trips: [], hasMore: false }) };
     }),
   );
   function RouteState() {
@@ -257,10 +257,10 @@ test("autocompletes and saves the user's home city", async () => {
         };
       }
       if (
-        url.endsWith("/user/d8612b89-4343-4a30-aed4-6b7f2f8c8123/trips") &&
+        url.includes("/user/d8612b89-4343-4a30-aed4-6b7f2f8c8123/trips?") &&
         !init?.method
       ) {
-        return { ok: true, json: async () => [] };
+        return { ok: true, json: async () => ({ trips: [], hasMore: false }) };
       }
 
       throw new Error(`Unexpected request: ${url}`);
@@ -313,7 +313,7 @@ test("autocompletes and saves the user's home city", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-  expect(await screen.findByText("Welcome back, Ada Traveler.")).toBeVisible();
+  expect(await screen.findByRole("button", { name: "New trip" })).toBeVisible();
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/user/profile"),
@@ -417,8 +417,11 @@ test.each([false, true])(
               { id: "party-1", members: [{ id: userId, name: "Ada" }] },
             ],
           };
-        if (url.endsWith(`/user/${userId}/trips`))
-          return { ok: true, json: async () => [trip] };
+        if (url.includes(`/user/${userId}/trips?`))
+          return {
+            ok: true,
+            json: async () => ({ trips: [trip], hasMore: false }),
+          };
         if (url.includes("/operations?"))
           return { ok: true, json: async () => [] };
         throw new Error(`Unexpected request: ${url}`);
@@ -503,9 +506,7 @@ test.each([false, true])(
     fireEvent.click(screen.getByRole("link", { name: "Trip Planner" }));
     expect(screen.getByTestId("route")).toHaveTextContent("/");
     expect(
-      await screen.findByRole("heading", {
-        name: "Welcome back, Ada Traveler.",
-      }),
+      await screen.findByRole("button", { name: "New trip" }),
     ).toBeVisible();
   },
 );

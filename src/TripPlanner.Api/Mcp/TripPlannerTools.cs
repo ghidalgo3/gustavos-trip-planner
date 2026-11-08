@@ -227,10 +227,14 @@ public sealed class TripPlannerTools(
     [McpServerTool(Name = "list_trips", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
     [Description(
-        "List trips visible to the connected user, including trips shared with them. Use these IDs in later calls."
+        "List 10 visible trips, nearest to today first, including shared trips. Returns trips and hasMore; increment skip by 10 for another page. Search matches names; past filters completed trips. Supply today in YYYY-MM-DD for the user's local date."
     )]
-    public Task<CallToolResult> ListTrips() =>
-        Execute(false, context => TripsEndpoints.ListTrips(null, context, database, currentUser));
+    public Task<CallToolResult> ListTrips(TripListQuery? query = null) =>
+        Execute(
+            false,
+            context =>
+                TripsEndpoints.ListTrips(null, query ?? new(), context, database, currentUser)
+        );
 
     [McpServerTool(Name = "get_trip", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]

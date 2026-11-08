@@ -306,6 +306,13 @@ public interface IPlannerDb : IActivityPlanningDb
         CancellationToken cancellationToken = default
     );
 
+    Task<TripListPage> GetTripPageAsync(
+        Guid viewerUserId,
+        TripListQuery query,
+        DateOnly today,
+        CancellationToken cancellationToken = default
+    );
+
     Task<Trip?> GetVisibleTripAsync(
         Guid viewerUserId,
         Guid tripId,

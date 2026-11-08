@@ -144,11 +144,14 @@ public sealed class TripResourceProjection(
                 owner?.PreferredAirport
             ))
             .ToArray();
-        Add(
-            prefix,
-            TripResponse.From(data.Trip, data.CanPlan),
-            TripResponse.From(data.Trip, data.CanPlan).Etag
-        );
+        var firstVisit = data.Visits.MinBy(visit => visit.Order);
+        var lastVisit = data.Visits.MaxBy(visit => visit.Order);
+        var tripResponse = TripResponse.From(data.Trip, data.CanPlan) with
+        {
+            StartDate = firstVisit?.ArrivalDate ?? firstVisit?.DepartureDate,
+            EndDate = lastVisit?.DepartureDate ?? lastVisit?.ArrivalDate,
+        };
+        Add(prefix, tripResponse, tripResponse.Etag);
         Add(
             $"{prefix}/travel",
             data.Travel,

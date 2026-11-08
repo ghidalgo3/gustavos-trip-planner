@@ -12,6 +12,81 @@ namespace TripPlanner.Api.Tests.Endpoints;
 public class TripsEndpointTests
 {
     [TestMethod]
+    public async Task ListTrips_PagesSearchesAndSeparatesPastTripsByLocalDate()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "ada@example.com");
+        var owner = (await CompleteOnboardingAsync(client)).Id!.Value;
+        var today = new DateOnly(2030, 6, 15);
+        async Task Add(string name, DateOnly? start, DateOnly? end)
+        {
+            var trip = await factory.Database.CreateTripAsync(owner, name, "");
+            if (start is null && end is null)
+            {
+                return;
+            }
+            await factory.Database.SaveDestinationPlaceAsync(
+                owner,
+                new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
+            );
+            await factory.Database.AddDestinationVisitAsync(
+                owner,
+                new(trip.Id, "paris-fr", Guid.NewGuid(), 0, start, end)
+            );
+        }
+        await Add("Ongoing", today.AddDays(-3), today.AddDays(2));
+        for (int day = 1; day <= 13; day++)
+        {
+            await Add($"Future {day:00}", today.AddDays(day), today.AddDays(day + 1));
+        }
+        await Add("Undated", null, null);
+        await Add("Recent past", today.AddDays(-3), today.AddDays(-1));
+        await Add("Older past", today.AddDays(-30), today.AddDays(-25));
+
+        const string url = "/trips?today=2030-06-15&past=false";
+        var first = (await client.GetFromJsonAsync<TripListPage>(url))!;
+        var second = (await client.GetFromJsonAsync<TripListPage>(url + "&skip=10"))!;
+        Assert.HasCount(10, first.Trips);
+        Assert.IsTrue(first.HasMore);
+        Assert.HasCount(5, second.Trips);
+        Assert.IsFalse(second.HasMore);
+        CollectionAssert.AreEqual(
+            new[] { "Ongoing" }
+                .Concat(Enumerable.Range(1, 13).Select(day => $"Future {day:00}"))
+                .Append("Undated")
+                .ToArray(),
+            first.Trips.Concat(second.Trips).Select(trip => trip.Name).ToArray()
+        );
+        var found = (await client.GetFromJsonAsync<TripListPage>(url + "&search=FUTURE%2012"))!;
+        Assert.AreEqual("Future 12", found.Trips.Single().Name);
+        var past = (
+            await client.GetFromJsonAsync<TripListPage>("/trips?today=2030-06-15&past=true")
+        )!;
+        CollectionAssert.AreEqual(
+            new[] { "Recent past", "Older past" },
+            past.Trips.Select(trip => trip.Name).ToArray()
+        );
+        Assert.IsFalse(past.HasMore);
+    }
+
+    [TestMethod]
+    [DataRow("skip=-1")]
+    [DataRow("today=invalid")]
+    [DataRow("past=invalid")]
+    public async Task ListTrips_RejectsInvalidQueries(string query)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        AddPrincipal(client, "ada@example.com");
+        await CompleteOnboardingAsync(client);
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (await client.GetAsync("/trips?" + query)).StatusCode
+        );
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ListTrips_UsesItineraryBoundaryDates(bool hasDestinations)
@@ -47,7 +122,7 @@ public class TripsEndpointTests
             );
         }
 
-        var listed = (await client.GetFromJsonAsync<TripResponse[]>("/trips"))!.Single();
+        var listed = (await client.GetFromJsonAsync<TripListPage>("/trips"))!.Trips.Single();
         Assert.AreEqual(hasDestinations ? start : (DateOnly?)null, listed.StartDate);
         Assert.AreEqual(hasDestinations ? end : (DateOnly?)null, listed.EndDate);
     }
@@ -73,7 +148,7 @@ public class TripsEndpointTests
         string url = $"/trips/{trip.Id}";
         Assert.AreEqual(url, created.Headers.Location?.ToString());
         Assert.AreEqual(5000, trip.Constraints.GetProperty("budget").GetInt32());
-        Assert.HasCount(1, (await client.GetFromJsonAsync<Trip[]>("/trips"))!);
+        Assert.HasCount(1, (await client.GetFromJsonAsync<TripListPage>("/trips"))!.Trips);
         var flightDocument = new PlanningDocument { AiPrompt = "Prefer morning flights" };
         Assert.AreEqual(
             HttpStatusCode.OK,
@@ -165,7 +240,7 @@ public class TripsEndpointTests
         AddPrincipal(stranger, "other@example.com");
         await CompleteOnboardingAsync(stranger);
         string url = $"/trips/{trip.Id}";
-        Assert.IsEmpty((await stranger.GetFromJsonAsync<Trip[]>("/trips"))!);
+        Assert.IsEmpty((await stranger.GetFromJsonAsync<TripListPage>("/trips"))!.Trips);
         Assert.AreEqual(HttpStatusCode.NotFound, (await stranger.GetAsync(url)).StatusCode);
         Assert.AreEqual(
             HttpStatusCode.NotFound,
@@ -213,7 +288,7 @@ public class TripsEndpointTests
         Assert.AreEqual(created.Id, party.TripId);
         CollectionAssert.AreEqual(new[] { user.Id!.Value }, party.UserIds.ToArray());
 
-        Trip[]? listed = await client.GetFromJsonAsync<Trip[]>(collectionUrl);
+        var listed = (await client.GetFromJsonAsync<TripListPage>(collectionUrl))!.Trips;
         Assert.IsNotNull(listed);
         Assert.HasCount(1, listed);
         Assert.AreEqual(created.Id, listed[0].Id);
@@ -398,7 +473,7 @@ public class TripsEndpointTests
         );
 
         string sharedTripUrl = $"/trips/{trip.Id}";
-        Trip[]? sharedTrips = await travelerClient.GetFromJsonAsync<Trip[]>("/trips");
+        var sharedTrips = (await travelerClient.GetFromJsonAsync<TripListPage>("/trips"))!.Trips;
         Assert.AreEqual(trip.Id, sharedTrips?.Single().Id);
         Assert.AreEqual(trip.Id, (await travelerClient.GetFromJsonAsync<Trip>(sharedTripUrl))?.Id);
         string destinationsUrl = $"/trips/{trip.Id}/destinations";

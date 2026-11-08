@@ -19,6 +19,7 @@ Starter architecture for a React single-page application and a C# API deployed t
 | `scripts/buildout` | Provision or update Azure resources |
 | `scripts/secrets` | Store and rotate authentication, Ignav, and OpenAI credentials in Azure Key Vault |
 | `scripts/server` | Load local auth configuration and start the development containers |
+| `scripts/seed_database` | Seed sample trips through the C# database services in the local development database |
 | `scripts/release` | Test, build, configure, deploy, and verify a release |
 
 Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
@@ -52,7 +53,7 @@ sign-out or an online access denial. Other tabs/devices do not receive live push
 Offline launch also persists the last confirmed display identity and the trip list
 in account-scoped local storage; it does not persist authentication credentials.
 The installed app can reopen at its home screen without a network connection and
-open previously downloaded trips marked **Available offline**. Trips that have
+open previously downloaded trips. Trips that have
 only appeared in the list need to be opened online once to download their document.
 Saved flights include selected individual legs before the route is complete,
 purchase status, and displaced selections that need review. Airport cities are
@@ -69,8 +70,9 @@ refreshes in the background; failed asset downloads preserve the previous shell.
 On iPhone, open the installed home-screen app while connected, sign in there, and
 open each trip you want to keep offline. Then return to the trip list, close the
 app, enable airplane mode, and relaunch the same icon. You should see the remembered
-account, the saved trip list, and **Available offline** on downloaded trips. Maps,
-searches, AI features and edits require connectivity. Clearing website data or
+account and the saved trip list, with links to downloaded trips. Trip-name search
+and paging remain available over saved entries; maps, flight searches, AI features,
+and edits require connectivity. Clearing website data or
 browser storage eviction removes offline availability. The service worker is only
 registered by production builds, so `scripts/server` alone does not test it.
 
@@ -261,6 +263,10 @@ The script reads the four authentication values and the Ignav and OpenAI keys fr
 
 Open <http://localhost:5173>. Vite proxies application API calls to the API container at `http://api:8080`; editing the frontend triggers HMR, while `dotnet watch` rebuilds and restarts the API without interactive hot-reload prompts. The API is also exposed at <http://localhost:8080>. The web container runs pnpm in noninteractive CI mode so it can reconcile the persistent `node_modules` volume after package-manager upgrades. PostgreSQL 18 with PostGIS 3.6 and pg_cron is exposed at `localhost:5432`, uses the development-only `tripplanner` credentials from `compose.yaml`, and stores its data in the `postgres-18-data` Docker volume. The local database image uses Debian packages for pg_cron. The versioned volume lets PostgreSQL 18 use its required cluster layout while retaining any older `postgres-data` volume for deliberate migration or removal.
 
+After signing in locally once, run `scripts/seed_database` to create **Trip Small** (New York), **Trip Medium** (Amsterdam → London), and **Trip Large** (New York → London → Rome → Istanbul → Hong Kong → Seoul → Tokyo → Sydney → Honolulu → Los Angeles → Chicago). Each trip includes the signed-in user as its owner and party member, destination coordinates and time zones, and visits in the listed order with three days (three nights) at each destination. Trip names and owner identify existing samples: rerunning refreshes their visit dates while preserving trip/visit IDs and other fields; a rerun on the same day skips already matching dates. If there are multiple users, select the owner with `scripts/seed_database you@example.com`. The script runs the .NET 10 console tool in `tools/TripPlanner.SeedDatabase`, which calls the application's `IPlannerDb` methods with the same auditing decorator used by the API. Each new trip, its initial party, destinations, and visits commit together. It connects only to the local PostgreSQL instance exposed by Docker Compose at `localhost:5432`.
+
+For a larger UI test dataset, run `scripts/seed_database --count 1000` (optionally followed by the owner's email). The count includes the three named examples; additional trips cycle through the small, medium, and large destination sets with names such as **Trip Small 0004**. The first ten samples are past trips, with the tenth ending yesterday; the remaining 990 start tomorrow and run consecutively, with one day between trips. Each destination departs three days after arrival, and the next destination starts on that departure date. For the 1,000-trip dataset this reaches roughly 40 years into the future. Dates are based on the machine's local calendar day and stay within the application's supported years (2000–2100). A smaller count creates the initial examples from the same schedule; increasing the count expands it, and reducing it preserves trips beyond that count. Reruns reuse existing trips and refresh dates on the requested samples; other trips and other fields are left unchanged.
+
 Useful commands when Node.js and .NET are installed locally:
 
 ```bash
@@ -293,6 +299,8 @@ The same migration installs pg_cron in the configured `tripplanner` database and
 Infrastructure deployment maps the App Service managed identity and a dedicated PostgreSQL provisioning identity into Entra authentication. It creates the `gustavo_planner_contributor` PostgreSQL role and maps the Key Vault operator's Entra object ID to the `gustavo_hidalgo` database login, then grants that login contributor membership. The role can connect to `tripplanner`, create objects in `gustavo_planner`, and read and modify its tables and sequences. `scripts/setup` installs Homebrew's `libpq` client, which provides `psql` for database maintenance.
 
 A trip's editable fields are its name, description, and optional free-form JSON object `constraints` (default `{}`). `/trips` and `/trips/{tripId}` use the authenticated user's identity; Travellers can read shared trips; Planners and the owner can edit trip constraints, destinations, activities, and flight plans. Only the owner can delete the trip or manage party membership and roles. The trip response includes `canPlan` for the current user. `PUT` replaces all editable fields; omitting constraints resets them to `{}`. The existing `/user/{userId}/trips` routes remain compatibility aliases for the current GUI and preserve constraints on metadata-only updates. A new trip and its initial one-person party are inserted in one transaction.
+
+The signed-in web dashboard starts with **New trip** and a name search. `GET /trips` and `GET /user/{userId}/trips` return `{ "trips": [...], "hasMore": true }`, with at most 10 trips per page. Query parameters are `skip` (default 0), `search` (case-insensitive name substring), `past` (true for completed trips, false for ongoing/future/undated trips, omitted for all), and `today` (`YYYY-MM-DD`, supplied in the client's local calendar date; defaults to the server's UTC date). Ongoing trips sort first, followed by the nearest future dates, then undated trips; past trips sort most recent first. Name and ID break ties. The dates come from the first and last visits in itinerary order, using the other date on that boundary visit when one is missing. A trip is past when its end date is before today. The dashboard shows available dates, keeps past trips collapsed initially, expands them when searching, and loads another 10 on demand for either section. The database filters and pages before returning results, avoiding per-trip read queries. Offline mode uses the same search, ordering, sections, and paging over the remembered catalog while disabling edits. Loaded pages merge into that catalog without removing downloaded trip documents. The iOS client follows the paged response, and the MCP `list_trips` tool accepts the same query fields.
 
 Destinations are Point GeoJSON Features at `/trips/{tripId}/destinations/{destinationCity}`, with their own `properties.constraints` object. Destination stays and activities belong to that city resource. Flight planning is independent at `/trips/{tripId}/flights`; its search document lives in separate `flight_constraints` storage and never appears as trip constraints. Migration `0005` preserves existing flight-search documents in that column. The trip page now starts on Overview; trip-wide date and flexibility controls are a follow-up.
 

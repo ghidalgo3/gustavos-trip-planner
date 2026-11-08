@@ -92,7 +92,22 @@ final class TripPlannerAPI: TripPlannerServing {
     }
 
     func trips() async throws -> [Trip] {
-        try await send(path: "trips")
+        struct Page: Decodable {
+            let trips: [Trip]
+            let hasMore: Bool
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = .current
+        formatter.formatOptions = [.withFullDate]
+        let today = formatter.string(from: Date())
+        var trips: [Trip] = []
+        while true {
+            try Task.checkCancellation()
+            let page: Page = try await send(path: "trips?skip=\(trips.count)&today=\(today)")
+            trips.append(contentsOf: page.trips)
+            if !page.hasMore { return trips }
+            guard !page.trips.isEmpty else { throw APIError.invalidResponse }
+        }
     }
 
     func trip(id: UUID) async throws -> Trip {

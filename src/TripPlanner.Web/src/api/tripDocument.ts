@@ -251,8 +251,8 @@ export function hydrateTripDocument(document: TripDocument): TripView {
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     canPlan: d.etag ? (d.canPlan ?? false) : false,
-    startDate: null,
-    endDate: null,
+    startDate: dates[0]?.start ?? dates[0]?.end ?? null,
+    endDate: dates.at(-1)?.end ?? dates.at(-1)?.start ?? null,
     etag: metadata[prefix]?.etag,
   });
   const member = (p: ObjectValue) => ({

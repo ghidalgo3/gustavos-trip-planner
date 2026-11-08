@@ -6,13 +6,14 @@ export function TripsSkeleton() {
   return (
     <ContentSkeleton label="Loading your trips">
       <div className="trip-grid">
-        {[0, 1, 2].map((index) => (
+        {Array.from({ length: 10 }, (_, index) => (
           <div className="skeleton-panel skeleton-trip-card" key={index}>
             <div className="skeleton-row">
               <SkeletonItem size={24} style={{ width: "60%" }} />
               <SkeletonItem size={24} style={{ width: 28 }} />
             </div>
             <SkeletonItem size={16} style={{ width: "85%" }} />
+            <SkeletonItem size={16} style={{ width: "65%" }} />
           </div>
         ))}
       </div>

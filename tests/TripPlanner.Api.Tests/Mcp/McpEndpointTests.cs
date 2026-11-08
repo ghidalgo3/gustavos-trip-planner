@@ -451,8 +451,8 @@ public class McpEndpointTests
             );
         }
         SetTestPrincipal(browser, user.Email);
-        var restList = await browser.GetFromJsonAsync<TripResponse[]>("/trips");
-        Assert.AreEqual(canPlan, restList!.Single().CanPlan);
+        var restList = await browser.GetFromJsonAsync<TripListPage>("/trips");
+        Assert.AreEqual(canPlan, restList!.Trips.Single().CanPlan);
         Assert.AreEqual(
             canPlan,
             (await browser.GetFromJsonAsync<TripResponse>($"/trips/{trip.Id}"))!.CanPlan
@@ -472,7 +472,8 @@ public class McpEndpointTests
             canPlan,
             listed
                 .GetProperty("structuredContent")
-                .GetProperty("data")[0]
+                .GetProperty("data")
+                .GetProperty("trips")[0]
                 .GetProperty("canPlan")
                 .GetBoolean()
         );

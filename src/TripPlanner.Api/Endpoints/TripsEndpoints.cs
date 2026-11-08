@@ -24,8 +24,12 @@ public static class TripsEndpoints
         canonical
             .MapGet(
                 "",
-                (HttpContext context, IPlannerDb database, ICurrentUser currentUser) =>
-                    ListTrips(null, context, database, currentUser)
+                (
+                    [AsParameters] TripListQuery query,
+                    HttpContext context,
+                    IPlannerDb database,
+                    ICurrentUser currentUser
+                ) => ListTrips(null, query, context, database, currentUser)
             )
             .WithName("ListTrips");
         canonical
@@ -69,6 +73,7 @@ public static class TripsEndpoints
 
     internal static async Task<IResult> ListTrips(
         Guid? userId,
+        [AsParameters] TripListQuery query,
         HttpContext context,
         IPlannerDb database,
         ICurrentUser currentUser
@@ -85,12 +90,12 @@ public static class TripsEndpoints
             return error;
         }
 
-        var trips = await database.GetTripsAsync(user!.Id, context.RequestAborted);
         return Results.Ok(
-            await Task.WhenAll(
-                trips.Select(trip =>
-                    DescribeTripAsync(trip, user.Id, database, context.RequestAborted)
-                )
+            await database.GetTripPageAsync(
+                user!.Id,
+                query,
+                query.Today ?? DateOnly.FromDateTime(DateTime.UtcNow),
+                context.RequestAborted
             )
         );
     }

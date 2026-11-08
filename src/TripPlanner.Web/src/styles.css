@@ -257,20 +257,32 @@ main {
 .trips-dashboard {
   width: calc(100% - 2 * var(--app-page-gutter));
   margin: 0 auto;
-  padding: 64px 0 96px;
+  padding: 24px 0 96px;
 }
 .dashboard-heading {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 32px;
-  margin-bottom: 32px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
-.dashboard-heading > div {
-  display: flex;
-  max-width: 760px;
-  flex-direction: column;
-  gap: 10px;
+.dashboard-heading > .fui-Input {
+  width: min(100%, 400px);
+  min-width: 0;
+}
+.trips-dashboard .trip-load-more {
+  margin-top: 20px;
+}
+.past-trips {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--colorNeutralStroke2);
+}
+.past-trips-content {
+  margin-top: 20px;
+}
+.trip-card-dates {
+  color: var(--colorNeutralForeground2);
 }
 .trip-editor,
 .empty-trips {

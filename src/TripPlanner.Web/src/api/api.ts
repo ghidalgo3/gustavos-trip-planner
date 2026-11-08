@@ -4,13 +4,13 @@ import { HttpResponseError } from "./httpErrors";
 import {
   forgetOfflineTrip,
   rememberTrip,
+  readTripCatalog,
   rememberTripCatalog,
 } from "./offlineCache";
 import {
   tripFetch,
   rememberResourceEtag,
   ResourceConflictError,
-  pruneTripDocumentCache,
 } from "./tripDocumentStore";
 export { apiBaseUrl } from "./config";
 export type { CitySuggestion, PlaceSuggestion } from "../maps/IMapsClient";
@@ -102,7 +102,11 @@ export type Trip = {
   constraints: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  startDate?: string | null;
+  endDate?: string | null;
 };
+
+export type TripListPage = { trips: Trip[]; hasMore: boolean };
 
 export type TripInput = {
   name: string;
@@ -179,9 +183,16 @@ export async function readTripError(response: Response, action: string) {
 
 export async function listTrips(
   userId: string,
+  query: { skip: number; search: string; past: boolean; today: string },
   signal?: AbortSignal,
-): Promise<Trip[]> {
-  const response = await tripFetch(tripResourceUrl(userId), {
+): Promise<TripListPage> {
+  const params = new URLSearchParams({
+    skip: String(query.skip),
+    search: query.search,
+    past: String(query.past),
+    today: query.today,
+  });
+  const response = await tripFetch(`${tripResourceUrl(userId)}?${params}`, {
     credentials: "include",
     cache: "no-store",
     signal,
@@ -189,12 +200,18 @@ export async function listTrips(
   if (!response.ok) {
     await readTripError(response, "loading trips");
   }
-  const trips = (await response.json()) as Trip[];
-  rememberTripCatalog(userId, trips);
-  pruneTripDocumentCache(userId, new Set(trips.map((trip) => trip.id)));
-  for (const trip of trips)
+  const page = (await response.json()) as TripListPage;
+  if (!Array.isArray(page.trips) || typeof page.hasMore !== "boolean")
+    throw new Error("Unable to load trips.");
+  // A page is only part of the catalog; keep other pages and downloaded documents.
+  const catalog = new Map(
+    (readTripCatalog(userId) ?? []).map((trip) => [trip.id, trip]),
+  );
+  for (const trip of page.trips) catalog.set(trip.id, trip);
+  rememberTripCatalog(userId, [...catalog.values()]);
+  for (const trip of page.trips)
     if (trip.etag) rememberResourceEtag(`/trips/${trip.id}`, trip.etag);
-  return trips;
+  return page;
 }
 
 export async function getTrip(

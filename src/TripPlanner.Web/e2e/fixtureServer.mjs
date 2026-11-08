@@ -139,7 +139,10 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (url.pathname === `/user/${user.id}/trips`) {
-      json(authenticated ? [trip] : {}, authenticated ? 200 : 401);
+      json(
+        authenticated ? { trips: [trip], hasMore: false } : {},
+        authenticated ? 200 : 401,
+      );
       return;
     }
     if (url.pathname === `${prefix}/flights/constraints`) {

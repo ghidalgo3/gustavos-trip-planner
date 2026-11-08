@@ -20,7 +20,15 @@ test.each(
   expect(actual).toBeDefined();
   if (actual.etag) expect(actual.etag).toEqual(expected.etag);
   expect(actual.status).toEqual(expected.status);
-  expect(actual.data).toEqual(expected.data);
+  expect(actual.data).toEqual(
+    path === `/trips/${after.id}`
+      ? {
+          ...(expected.data as object),
+          startDate: "2026-12-25",
+          endDate: "2027-01-07",
+        }
+      : expected.data,
+  );
 });
 
 test.each(Object.keys(before.resources).filter(isTripApiResult))(

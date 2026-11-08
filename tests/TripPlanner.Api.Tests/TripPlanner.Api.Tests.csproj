@@ -22,5 +22,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TripPlanner.Api\TripPlanner.Api.csproj" />
+    <ProjectReference Include="../../tools/TripPlanner.SeedDatabase/TripPlanner.SeedDatabase.csproj" />
   </ItemGroup>
 </Project>

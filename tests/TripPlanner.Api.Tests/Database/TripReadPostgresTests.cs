@@ -11,12 +11,152 @@ using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Tests.Support;
+using TripPlanner.SeedDatabase;
 
 namespace TripPlanner.Api.Tests.Database;
 
 [TestClass]
 public sealed class TripReadPostgresTests
 {
+    [TestMethod]
+    public async Task SeederReschedulesExistingVisitsWithoutOverlapOrDuplicateTrips()
+    {
+        await WithDatabase(
+            async (_, database) =>
+            {
+                var owner = await database.GetOrCreateUserAsync(
+                    new("google", "seed@example.com", "Owner")
+                );
+                var seeder = new DatabaseSeeder(database);
+                var today = new DateOnly(2026, 11, 8);
+                Assert.AreEqual(
+                    new SeedResult(12, 0, 0),
+                    await seeder.SeedAsync(owner.Id, 12, today.AddDays(-1))
+                );
+                var trips = await database.GetTripsAsync(owner.Id);
+                var originalVisits = new List<DestinationVisit>();
+                foreach (var trip in trips)
+                {
+                    originalVisits.AddRange(
+                        await database.GetDestinationVisitsAsync(owner.Id, trip.Id)
+                    );
+                }
+
+                Assert.AreEqual(
+                    new SeedResult(0, 12, 0),
+                    await seeder.SeedAsync(owner.Id, 12, today)
+                );
+                Assert.AreEqual(
+                    new SeedResult(0, 0, 12),
+                    await seeder.SeedAsync(owner.Id, 12, today)
+                );
+                Assert.HasCount(12, await database.GetTripsAsync(owner.Id));
+                foreach (var trip in trips)
+                {
+                    var visits = await database.GetDestinationVisitsAsync(owner.Id, trip.Id);
+                    foreach (var visit in visits)
+                    {
+                        var old = originalVisits.Single(original =>
+                            original.StayId == visit.StayId
+                        );
+                        Assert.AreEqual(old.ArrivalDate!.Value.AddDays(1), visit.ArrivalDate);
+                        Assert.AreEqual(visit.ArrivalDate!.Value.AddDays(3), visit.DepartureDate);
+                    }
+                }
+                var past = await database.GetTripPageAsync(owner.Id, new(Past: true), today);
+                Assert.HasCount(10, past.Trips);
+                Assert.IsFalse(past.HasMore);
+                var future = await database.GetTripPageAsync(owner.Id, new(Past: false), today);
+                Assert.HasCount(2, future.Trips);
+                Assert.IsTrue(future.Trips.All(trip => trip.StartDate > today));
+            }
+        );
+    }
+
+    [TestMethod]
+    public async Task TripListPagesAndSearchesDatedTripsInPostgres()
+    {
+        await WithDatabase(
+            async (_, database) =>
+            {
+                var owner = await database.GetOrCreateUserAsync(
+                    new("google", "pages@example.com", "Owner")
+                );
+                var stranger = await database.GetOrCreateUserAsync(
+                    new("google", "stranger@example.com", "Stranger")
+                );
+                var today = new DateOnly(2030, 6, 15);
+                for (int index = 0; index < 15; index++)
+                {
+                    var trip = await database.CreateTripAsync(owner.Id, $"Trip {index:00}", "");
+                    await database.SaveDestinationPlaceAsync(
+                        owner.Id,
+                        new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
+                    );
+                    var date = today.AddDays(index - 2);
+                    await database.AddDestinationVisitAsync(
+                        owner.Id,
+                        new(trip.Id, "paris-fr", Guid.NewGuid(), 0, date, date)
+                    );
+                }
+                await database.CreateTripAsync(owner.Id, "Undated", "");
+                var query = new TripListQuery(Past: false);
+                var first = await database.GetTripPageAsync(owner.Id, query, today);
+                var second = await database.GetTripPageAsync(
+                    owner.Id,
+                    query with
+                    {
+                        Skip = 10,
+                    },
+                    today
+                );
+                Assert.HasCount(10, first.Trips);
+                Assert.IsTrue(first.HasMore);
+                Assert.HasCount(4, second.Trips);
+                Assert.IsFalse(second.HasMore);
+                Assert.AreEqual("Trip 02", first.Trips[0].Name);
+                Assert.AreEqual(today, first.Trips[0].StartDate);
+                Assert.AreEqual(today, first.Trips[0].EndDate);
+                Assert.IsTrue(first.Trips.All(trip => trip.CanPlan));
+                Assert.AreEqual("Undated", second.Trips[^1].Name);
+                var past = await database.GetTripPageAsync(
+                    owner.Id,
+                    query with
+                    {
+                        Past = true,
+                    },
+                    today
+                );
+                CollectionAssert.AreEqual(
+                    new[] { "Trip 01", "Trip 00" },
+                    past.Trips.Select(trip => trip.Name).ToArray()
+                );
+                var found = await database.GetTripPageAsync(
+                    owner.Id,
+                    query with
+                    {
+                        Search = "TRIP 14",
+                    },
+                    today
+                );
+                Assert.AreEqual("Trip 14", found.Trips.Single().Name);
+                Assert.IsEmpty(
+                    (
+                        await database.GetTripPageAsync(
+                            owner.Id,
+                            query with
+                            {
+                                Search = "%",
+                            },
+                            today
+                        )
+                    ).Trips
+                );
+                Assert.IsEmpty((await database.GetTripPageAsync(stranger.Id, query, today)).Trips);
+            }
+        );
+    }
+
     [TestMethod]
     public async Task MigrationMakesLegacyIdeasReadableInReadViews()
     {
@@ -383,7 +523,7 @@ public sealed class TripReadPostgresTests
             );
             return;
         }
-        var name = "readView_test_" + Guid.NewGuid().ToString("N");
+        var name = "read_view_test_" + Guid.NewGuid().ToString("N");
         await using var admin = NpgsqlDataSource.Create(connection);
         await using (var create = admin.CreateCommand($"CREATE DATABASE {name}"))
         {

@@ -1,9 +1,7 @@
-import { hasOfflineTrip, readTripCatalog } from "../../api/offlineCache";
-import { isAccessDenied } from "../../api/httpErrors";
-import { clearTripDocumentCache } from "../../api/tripDocumentStore";
+import { hasOfflineTrip } from "../../api/offlineCache";
 import { TripsSkeleton } from "./TripSkeletons";
 import TripMetadataEditor from "./TripMetadataEditor";
-import { FormEvent, useEffect, useEffectEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   Button,
@@ -13,22 +11,25 @@ import {
   Input,
   Text,
   Textarea,
-  Title1,
   Title3,
 } from "@fluentui/react-components";
 import {
   Add24Regular,
   Delete24Regular,
   Edit24Regular,
+  Search24Regular,
+  ChevronDown24Regular,
+  ChevronRight24Regular,
 } from "@fluentui/react-icons";
 import {
   createTrip,
   deleteTrip,
-  listTrips,
   type CurrentUser,
   type Trip,
   type TripInput,
 } from "../../api/api";
+import { formatTripDates, localToday } from "./tripList";
+import { useTripList } from "./useTripList";
 import { trackBehavior } from "../../telemetry/telemetry";
 
 type Props = {
@@ -45,51 +46,48 @@ export default function TripsDashboard({
   onSessionExpired,
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [trips, setTrips] = useState<Trip[]>();
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [today, setToday] = useState(localToday);
+  const [pastOpen, setPastOpen] = useState(false);
+  const current = useTripList({
+    userId: user.id,
+    search: query,
+    past: false,
+    today,
+    offline,
+    onSessionExpired,
+  });
+  const past = useTripList({
+    userId: user.id,
+    search: query,
+    past: true,
+    today,
+    offline: offline || current.readOnly,
+    enabled: pastOpen,
+    onSessionExpired,
+  });
+  const { trips, setTrips } = current;
   const showCreate = searchParams.get("create") === "1";
   const editingId = searchParams.get("edit") ?? undefined;
   const [createInput, setCreateInput] = useState<TripInput>(emptyInput);
   const [busyId, setBusyId] = useState<string>();
   const [error, setError] = useState<string>();
   const [tripToDelete, setTripToDelete] = useState<Trip>();
-  const [disconnected, setDisconnected] = useState(offline);
-  const [retry, setRetry] = useState(0);
-  const readOnly = offline || disconnected;
-  const sessionExpired = useEffectEvent(() => onSessionExpired?.());
+  const readOnly = offline || current.readOnly;
 
   useEffect(() => {
-    const controller = new AbortController();
-    async function load() {
-      try {
-        if (offline || navigator.onLine === false)
-          throw new TypeError("Offline");
-        const latest = await listTrips(user.id, controller.signal);
-        if (controller.signal.aborted) return;
-        setTrips(latest);
-        setDisconnected(false);
-        setError(undefined);
-      } catch (reason) {
-        if (controller.signal.aborted) return;
-        if (isAccessDenied(reason)) {
-          clearTripDocumentCache();
-          setTrips([]);
-          setError("Sign in again to load your trips.");
-          sessionExpired();
-        } else {
-          const saved = readTripCatalog(user.id);
-          setTrips(saved ?? []);
-          setError(
-            saved
-              ? undefined
-              : "No trip list is saved on this device. Connect to the internet to load your trips.",
-          );
-        }
-        setDisconnected(true);
-      }
-    }
-    void load();
-    return () => controller.abort();
-  }, [user.id, offline, retry]);
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      if (search.trim()) setPastOpen(true);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(localToday()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function submitCreate(event: FormEvent) {
     event.preventDefault();
@@ -101,6 +99,9 @@ export default function TripsDashboard({
       const created = await createTrip(user.id, createInput);
       trackBehavior("trip_created");
       setTrips((current) => [created, ...(current ?? [])]);
+      setSearch("");
+      setQuery("");
+      current.refresh();
       setCreateInput(emptyInput);
       setSearchParams({}, { replace: true });
     } catch (reason) {
@@ -124,6 +125,9 @@ export default function TripsDashboard({
     try {
       await deleteTrip(user.id, trip.id);
       setTrips((current) => current?.filter((item) => item.id !== trip.id));
+      past.setTrips((items) => items?.filter((item) => item.id !== trip.id));
+      current.refresh();
+      past.refresh();
       setTripToDelete(undefined);
     } catch (reason) {
       setError(errorMessage(reason));
@@ -132,18 +136,122 @@ export default function TripsDashboard({
     }
   }
 
+  const renderTrips = (items: Trip[]) => (
+    <div className="trip-grid">
+      {items.map((trip) => (
+        <Card key={trip.id} className="trip-card">
+          {!readOnly &&
+          editingId === trip.id &&
+          trip.ownerUserId === user.id ? (
+            <TripMetadataEditor
+              key={trip.id}
+              trip={trip}
+              userId={user.id}
+              onSaved={(updated) => {
+                const replace = (items: Trip[] | undefined) =>
+                  items?.map((item) =>
+                    item.id === updated.id ? updated : item,
+                  );
+                setTrips(replace);
+                past.setTrips(replace);
+              }}
+              onClose={() => {
+                setSearchParams({}, { replace: true });
+                current.refresh();
+                past.refresh();
+              }}
+            />
+          ) : (
+            <>
+              {(!readOnly || hasOfflineTrip(user.id, trip.id)) && (
+                <Link
+                  className="trip-card-link"
+                  to={`/trips/${encodeURIComponent(trip.id)}`}
+                  aria-label={`Open trip: ${trip.name}`}
+                />
+              )}
+              {readOnly && !hasOfflineTrip(user.id, trip.id) && (
+                <Text size={200}>Connect to open this trip.</Text>
+              )}
+              <div className="trip-card-heading">
+                <CardHeader
+                  header={<Title3 as="h2">{trip.name}</Title3>}
+                  description={
+                    trip.description || trip.ownerUserId !== user.id ? (
+                      <Text>
+                        {trip.description}
+                        {trip.ownerUserId !== user.id &&
+                          trip.description &&
+                          " · "}
+                        {trip.ownerUserId !== user.id && "Shared with you"}
+                      </Text>
+                    ) : undefined
+                  }
+                />
+                {trip.ownerUserId === user.id && (
+                  <details className="trip-card-menu">
+                    <summary
+                      role="button"
+                      aria-label={`Options for ${trip.name}`}
+                      aria-disabled={readOnly || busyId === trip.id}
+                      onClick={(event) => {
+                        if (readOnly || busyId === trip.id)
+                          event.preventDefault();
+                      }}
+                    >
+                      ...
+                    </summary>
+                    <div
+                      className="trip-card-menu-panel"
+                      role="group"
+                      aria-label={`${trip.name} actions`}
+                    >
+                      <button
+                        type="button"
+                        disabled={readOnly || busyId === trip.id}
+                        onClick={(event) => {
+                          event.currentTarget
+                            .closest("details")
+                            ?.removeAttribute("open");
+                          startEditing(trip);
+                        }}
+                      >
+                        <Edit24Regular aria-hidden="true" />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={readOnly || busyId === trip.id}
+                        onClick={(event) => {
+                          event.currentTarget
+                            .closest("details")
+                            ?.removeAttribute("open");
+                          setError(undefined);
+                          setTripToDelete(trip);
+                        }}
+                      >
+                        <Delete24Regular aria-hidden="true" />
+                        Delete
+                      </button>
+                    </div>
+                  </details>
+                )}
+              </div>
+              {formatTripDates(trip) && (
+                <Text className="trip-card-dates" size={300}>
+                  {formatTripDates(trip)}
+                </Text>
+              )}
+            </>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+
   return (
-    <section className="trips-dashboard" aria-labelledby="trips-heading">
+    <section className="trips-dashboard" aria-label="Your trips">
       <div className="dashboard-heading">
-        <div>
-          <Text className="eyebrow" weight="semibold">
-            YOUR TRIPS
-          </Text>
-          <Title1 as="h1" id="trips-heading">
-            Welcome back, {user.name ?? user.email ?? "traveler"}.
-          </Title1>
-          <Text>Start with a name. We’ll shape the itinerary together.</Text>
-        </div>
         <Button
           appearance="primary"
           disabled={readOnly}
@@ -155,20 +263,36 @@ export default function TripsDashboard({
         >
           New trip
         </Button>
+        <Input
+          type="search"
+          aria-label="Search trips"
+          placeholder="Search trips"
+          contentBefore={<Search24Regular />}
+          value={search}
+          maxLength={200}
+          onChange={(_, data) => setSearch(data.value)}
+        />
       </div>
 
       {readOnly && (
         <div className="document-status" role="status">
-          <Text>
-            Showing your saved trip list. Trips marked “Available offline” can
-            be opened without a connection.
-          </Text>
-          <Button onClick={() => setRetry((value) => value + 1)}>
+          <Text>Showing your saved trips.</Text>
+          <Button
+            onClick={() => {
+              current.refresh();
+              past.refresh();
+            }}
+          >
             Refresh trips
           </Button>
         </div>
       )}
-      {error && !tripToDelete && <Text role="alert">{error}</Text>}
+      {(error || current.error) && !tripToDelete && (
+        <Text role="alert">{error ?? current.error}</Text>
+      )}
+      {current.error && !readOnly && (
+        <Button onClick={current.refresh}>Retry loading trips</Button>
+      )}
 
       {showCreate && !readOnly && (
         <Card className="trip-editor">
@@ -190,118 +314,62 @@ export default function TripsDashboard({
 
       {!trips ? (
         <TripsSkeleton />
-      ) : trips.length === 0 && !showCreate && !readOnly ? (
+      ) : trips.length === 0 && !showCreate ? (
         <Card className="empty-trips" appearance="filled-alternative">
-          <Title3 as="h2">No trips yet</Title3>
-          <Text>Create one when you’re ready to start planning.</Text>
+          <Title3 as="h2">
+            {query ? "No matching upcoming trips" : "No upcoming trips"}
+          </Title3>
         </Card>
       ) : (
-        <div className="trip-grid">
-          {trips.map((trip) => (
-            <Card key={trip.id} className="trip-card">
-              {!readOnly &&
-              editingId === trip.id &&
-              trip.ownerUserId === user.id ? (
-                <TripMetadataEditor
-                  key={trip.id}
-                  trip={trip}
-                  userId={user.id}
-                  onSaved={(updated) =>
-                    setTrips((current) =>
-                      current?.map((item) =>
-                        item.id === updated.id ? updated : item,
-                      ),
-                    )
-                  }
-                  onClose={() => setSearchParams({}, { replace: true })}
-                />
-              ) : (
-                <>
-                  {(!readOnly || hasOfflineTrip(user.id, trip.id)) && (
-                    <Link
-                      className="trip-card-link"
-                      to={`/trips/${encodeURIComponent(trip.id)}`}
-                      aria-label={`Open trip: ${trip.name}`}
-                    />
-                  )}
-                  {hasOfflineTrip(user.id, trip.id) ? (
-                    <Text size={200}>Available offline</Text>
-                  ) : (
-                    readOnly && (
-                      <Text size={200}>
-                        Connect and open this trip once to save it offline.
-                      </Text>
-                    )
-                  )}
-                  <div className="trip-card-heading">
-                    <CardHeader
-                      header={<Title3 as="h2">{trip.name}</Title3>}
-                      description={
-                        trip.description || trip.ownerUserId !== user.id ? (
-                          <Text>
-                            {trip.description}
-                            {trip.ownerUserId !== user.id &&
-                              trip.description &&
-                              " · "}
-                            {trip.ownerUserId !== user.id && "Shared with you"}
-                          </Text>
-                        ) : undefined
-                      }
-                    />
-                    {!readOnly && trip.ownerUserId === user.id && (
-                      <details className="trip-card-menu">
-                        <summary
-                          role="button"
-                          aria-label={`Options for ${trip.name}`}
-                          aria-disabled={busyId === trip.id}
-                          onClick={(event) => {
-                            if (busyId === trip.id) event.preventDefault();
-                          }}
-                        >
-                          ...
-                        </summary>
-                        <div
-                          className="trip-card-menu-panel"
-                          role="group"
-                          aria-label={`${trip.name} actions`}
-                        >
-                          <button
-                            type="button"
-                            disabled={busyId === trip.id}
-                            onClick={(event) => {
-                              event.currentTarget
-                                .closest("details")
-                                ?.removeAttribute("open");
-                              startEditing(trip);
-                            }}
-                          >
-                            <Edit24Regular aria-hidden="true" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyId === trip.id}
-                            onClick={(event) => {
-                              event.currentTarget
-                                .closest("details")
-                                ?.removeAttribute("open");
-                              setError(undefined);
-                              setTripToDelete(trip);
-                            }}
-                          >
-                            <Delete24Regular aria-hidden="true" />
-                            Delete
-                          </button>
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                </>
-              )}
-            </Card>
-          ))}
-        </div>
+        renderTrips(trips)
       )}
+      {current.hasMore && (
+        <Button
+          className="trip-load-more"
+          disabled={current.loadingMore}
+          onClick={() => void current.loadMore()}
+        >
+          {current.loadingMore ? "Loading…" : "Load more"}
+        </Button>
+      )}
+      {current.loadingMore && <TripsSkeleton />}
+
+      <section className="past-trips" aria-label="Past trips">
+        <Button
+          appearance="secondary"
+          aria-expanded={pastOpen}
+          aria-controls="past-trips-list"
+          icon={pastOpen ? <ChevronDown24Regular /> : <ChevronRight24Regular />}
+          onClick={() => setPastOpen((value) => !value)}
+        >
+          Past trips
+        </Button>
+        {pastOpen && (
+          <div id="past-trips-list" className="past-trips-content">
+            {!past.trips ? (
+              <TripsSkeleton />
+            ) : past.trips.length ? (
+              renderTrips(past.trips)
+            ) : (
+              <Text>{query ? "No matching past trips" : "No past trips"}</Text>
+            )}
+            {past.error && <Text role="alert">{past.error}</Text>}
+            {past.error && !past.readOnly && (
+              <Button onClick={past.refresh}>Retry loading past trips</Button>
+            )}
+            {past.hasMore && (
+              <Button
+                className="trip-load-more"
+                disabled={past.loadingMore}
+                onClick={() => void past.loadMore()}
+              >
+                {past.loadingMore ? "Loading…" : "Load more past trips"}
+              </Button>
+            )}
+            {past.loadingMore && <TripsSkeleton />}
+          </div>
+        )}
+      </section>
       {tripToDelete && !readOnly && (
         <DeleteTripDialog
           trip={tripToDelete}

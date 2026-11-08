@@ -61,9 +61,7 @@ test("a fresh offline launch restores identity and downloaded trip links in read
   vi.stubGlobal("fetch", network);
   show();
   expect(
-    await screen.findByRole("heading", {
-      name: "Welcome back, Cached Traveller.",
-    }),
+    await screen.findByRole("region", { name: "Your trips" }),
   ).toBeVisible();
   expect(
     await screen.findByRole("link", { name: "Open trip: Cached trip" }),
@@ -79,11 +77,7 @@ test("a list entry without a document is explained rather than offered as an off
   seed();
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
   show();
-  expect(
-    await screen.findByText(
-      "Connect and open this trip once to save it offline.",
-    ),
-  ).toBeVisible();
+  expect(await screen.findByText("Connect to open this trip.")).toBeVisible();
   expect(
     screen.queryByRole("link", { name: "Open trip: Cached trip" }),
   ).not.toBeInTheDocument();
@@ -111,13 +105,15 @@ test("reconnection validates the session before enabling editing", async () => {
   const network = vi.fn().mockRejectedValue(new TypeError("offline"));
   vi.stubGlobal("fetch", network);
   show();
-  await screen.findByRole("heading", {
-    name: "Welcome back, Cached Traveller.",
-  });
+  await screen.findByRole("region", { name: "Your trips" });
   network.mockImplementation(
     async (input) =>
       new Response(
-        JSON.stringify(String(input).endsWith("/user") ? user : [trip]),
+        JSON.stringify(
+          String(input).endsWith("/user")
+            ? user
+            : { trips: [trip], hasMore: false },
+        ),
       ),
   );
   fireEvent.click(screen.getByRole("button", { name: "Refresh connection" }));
@@ -153,14 +149,14 @@ test("signing in as another account removes the previous account's offline data"
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input) =>
-      Response.json(String(input).endsWith("/user") ? other : []),
+      Response.json(
+        String(input).endsWith("/user") ? other : { trips: [], hasMore: false },
+      ),
     ),
   );
   show();
   expect(
-    await screen.findByRole("heading", {
-      name: "Welcome back, Other Traveller.",
-    }),
+    await screen.findByRole("region", { name: "Your trips" }),
   ).toBeVisible();
   expect(readOfflineUser()?.id).toBe("someone-else");
   expect(localStorage.getItem("tripplanner.trip-catalog.v1:owner")).toBeNull();

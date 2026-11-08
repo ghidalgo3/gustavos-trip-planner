@@ -17,6 +17,7 @@ import {
   documentKey,
 } from "./offlineCache";
 import type { CurrentUser, Trip } from "./api";
+import { listTrips } from "./api";
 const user: CurrentUser = {
   isAuthenticated: true,
   id: "owner",
@@ -46,6 +47,36 @@ test("offline identity and the account-scoped catalog survive a fresh session", 
   expect(readOfflineUser()).toEqual(user);
   expect(readTripCatalog("owner")).toEqual([trip]);
   expect(readTripCatalog("another-user")).toBeUndefined();
+});
+
+test("loading a trip page preserves other catalog pages and downloaded documents", async () => {
+  rememberTripCatalog("owner", [trip]);
+  localStorage.setItem(
+    documentKey("owner", "trip"),
+    JSON.stringify({ document: tripDocumentFixture(trip) }),
+  );
+  const other = {
+    ...trip,
+    id: "other",
+    name: "Other trip",
+    startDate: "2030-06-15",
+    endDate: "2030-06-18",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ trips: [other], hasMore: true }),
+    })),
+  );
+  await listTrips("owner", {
+    skip: 10,
+    search: "Other",
+    past: false,
+    today: "2030-06-15",
+  });
+  expect(readTripCatalog("owner")).toEqual([trip, other]);
+  expect(hasOfflineTrip("owner", "trip")).toBe(true);
 });
 test("sign out removes all private offline data while preserving display settings", () => {
   rememberOfflineUser(user);

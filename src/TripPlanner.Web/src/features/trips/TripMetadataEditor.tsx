@@ -34,15 +34,13 @@ export default function TripMetadataEditor({
   const [previousDraft, setPreviousDraft] = useState<TripInput>();
   const [error, setError] = useState<string>();
   const [failedField, setFailedField] = useState<keyof TripInput>();
-  const [status, setStatus] = useState(
-    "Changes save when you leave each field.",
-  );
+  const [status, setStatus] = useState<string>();
 
   function edit(field: keyof TripInput, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
     setError(undefined);
     setFailedField(undefined);
-    setStatus("Changes save when you leave each field.");
+    setStatus(undefined);
   }
 
   async function save(field: keyof TripInput) {
@@ -136,7 +134,7 @@ export default function TripMetadataEditor({
           onBlur={() => void save("description")}
         />
       </Field>
-      <Text role="status">{status}</Text>
+      {status && <Text role="status">{status}</Text>}
       {error && <Text role="alert">{error}</Text>}
       {previousDraft && (
         <details>

@@ -75,13 +75,12 @@ for (const selection of ["partial", "complete"]) {
         path: testInfo.outputPath("online-flights.png"),
         fullPage: true,
       });
-      // Match the installed-app workflow: confirm the dashboard's download
-      // marker before closing, rather than stopping as soon as a title renders.
+      // Confirm the saved trip catalog before reopening the app offline.
       await page
         .getByRole("link", { name: "Trip Planner", exact: true })
         .click();
       await expect(
-        page.getByText("Available offline", { exact: true }),
+        page.getByRole("link", { name: `Open trip: ${trip.name}` }),
       ).toBeVisible();
       await context.close();
 
@@ -91,15 +90,13 @@ for (const selection of ["partial", "complete"]) {
       const offlinePage = await context.newPage();
       await offlinePage.goto(origin);
       await expect(
-        offlinePage.getByRole("heading", {
-          name: "Welcome back, Offline Traveller.",
-        }),
+        offlinePage.getByRole("region", { name: "Your trips" }),
       ).toBeVisible();
       await expect(
         offlinePage.getByRole("button", { name: "New trip" }),
       ).toBeDisabled();
       await expect(
-        offlinePage.getByText("Available offline", { exact: true }),
+        offlinePage.getByRole("link", { name: `Open trip: ${trip.name}` }),
       ).toBeVisible();
       await offlinePage.screenshot({
         path: testInfo.outputPath("offline-catalog.png"),

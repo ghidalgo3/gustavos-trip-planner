@@ -15,6 +15,18 @@ public sealed record UpdateTripRequest(
     [property: JsonObjectValue] JsonElement? Constraints = null
 );
 
+public sealed record TripListQuery(
+    [property: Range(0, int.MaxValue)] int Skip = 0,
+    [property: StringLength(200)] string? Search = null,
+    bool? Past = null,
+    [property: DataType(DataType.Date)] DateOnly? Today = null
+)
+{
+    public const int PageSize = 10;
+}
+
+public sealed record TripListPage(IReadOnlyList<TripResponse> Trips, bool HasMore);
+
 public sealed record TripResponse(
     Guid Id,
     Guid OwnerUserId,
