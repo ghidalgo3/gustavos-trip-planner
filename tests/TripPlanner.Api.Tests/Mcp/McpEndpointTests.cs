@@ -683,7 +683,14 @@ public class McpEndpointTests
             "Feature",
             null,
             null,
-            new("Visit the Louvre", TimeSpan.FromHours(2), "Art", null, ActivityState.Proposed)
+            new(
+                "Visit the Louvre",
+                TimeSpan.FromHours(2),
+                "Art",
+                null,
+                ActivityState.Proposed,
+                [ActivityKind.Culture]
+            )
         );
         var created = await Result(
             await Rpc(

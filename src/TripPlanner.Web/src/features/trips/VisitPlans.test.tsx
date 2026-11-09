@@ -75,6 +75,9 @@ const activities = ["museum", "walk", "other"].map((id) => ({
   geometry: null,
   properties: {
     name: id,
+    kinds: ["Culture" as const],
+    address: null,
+    ticketRequirement: "Unknown" as const,
     state: "Planned",
     description: "",
     duration: null,

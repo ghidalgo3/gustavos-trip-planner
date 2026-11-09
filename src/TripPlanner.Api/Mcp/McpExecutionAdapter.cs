@@ -11,6 +11,7 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Services.ActivityPlanning;
 
@@ -45,15 +46,12 @@ public sealed class McpExecutionAdapter(
                 StructuredContent = JsonSerializer.SerializeToElement(new { status = 403 }),
                 Content =
                 [
-                    new TextContentBlock
-                    {
-                        Text = "Insufficient scope. Reconnect with the required permission.",
-                    },
+                    new TextContentBlock { Text = McpInstructions.Messages.InsufficientScope },
                 ],
                 Meta = new JsonObject
                 {
                     ["mcp/www_authenticate"] = new JsonArray(
-                        $"Bearer error=\"insufficient_scope\", error_description=\"Reconnect TripPlanner to grant the required permission.\", scope=\"{(write ? McpServiceExtensions.WriteScope : McpServiceExtensions.ReadScope)}\", resource_metadata=\"{new Uri(new Uri(options.Value.Issuer!), "/.well-known/oauth-protected-resource/mcp")}\""
+                        $"Bearer error=\"insufficient_scope\", error_description=\"{McpInstructions.Messages.Reconnect}\", scope=\"{(write ? McpServiceExtensions.WriteScope : McpServiceExtensions.ReadScope)}\", resource_metadata=\"{new Uri(new Uri(options.Value.Issuer!), "/.well-known/oauth-protected-resource/mcp")}\""
                     ),
                 },
             };
@@ -79,10 +77,7 @@ public sealed class McpExecutionAdapter(
                 StructuredContent = JsonSerializer.SerializeToElement(new { status = 403 }),
                 Content =
                 [
-                    new TextContentBlock
-                    {
-                        Text = "Complete your TripPlanner profile and reconnect this account.",
-                    },
+                    new TextContentBlock { Text = McpInstructions.Messages.CompleteProfile },
                 ],
             };
         }

@@ -74,7 +74,14 @@ public sealed class TripDocumentResourceTests
             trip.Id,
             place.CityId,
             null,
-            new("Museum", TimeSpan.FromHours(2), "An idea", null, ActivityState.Proposed),
+            new(
+                "Museum",
+                TimeSpan.FromHours(2),
+                "An idea",
+                null,
+                ActivityState.Proposed,
+                [ActivityKind.Culture]
+            ),
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow
         );

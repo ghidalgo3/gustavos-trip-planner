@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Serialization;
 
 namespace TripPlanner.Api.Models;
@@ -98,32 +99,39 @@ public sealed record ActivityProperties(
     [property:
         Required,
         StringLength(200, MinimumLength = 1),
-        Description(
-            "Name of the undated activity idea, e.g. Insadong crafts, tea, and Jogyesa. Do not prefix itinerary dates, start times or day numbers; schedule through the activity plan. Preserve dates that are part of an event's actual name."
-        )
+        Description(McpInstructions.Fields.ActivityName)
     ]
         string Name,
     [property: DurationRange(1, 10080), JsonConverter(typeof(IsoDurationConverter))]
         TimeSpan? Duration,
-    [property:
-        StringLength(10000),
-        Description(
-            "Describe what to do. Requested itinerary dates and times belong in the activity plan."
-        )
-    ]
+    [property: StringLength(10000), Description(McpInstructions.Fields.ActivityDescription)]
         string Description,
     ActivityCost? Cost,
     [property:
         JsonRequired,
         EnumDataType(typeof(ActivityState)),
-        Description(
-            "Proposed is an idea; Planned selects it for the plan but does not assign a day or time; Rejected excludes it."
-        )
+        Description(McpInstructions.Fields.ActivityState)
     ]
         ActivityState State,
+    [property:
+        Required,
+        MinLength(1),
+        MaxLength(9),
+        UniqueItems,
+        Description(McpInstructions.Fields.ActivityKinds)
+    ]
+        IReadOnlyList<ActivityKind> Kinds,
     [property: StringLength(200)] string? PlaceName = null
 )
 {
+    [StringLength(2000)]
+    [Description(McpInstructions.Fields.ActivityAddress)]
+    public string? Address { get; init; }
+
+    [Required, AllowedValues("Unknown", "Required", "NotRequired")]
+    [Description(McpInstructions.Fields.TicketRequirement)]
+    public string TicketRequirement { get; init; } = "Unknown";
+
     [MaxLength(20)]
     public IReadOnlyList<ActivityLink> Links { get; init; } = [];
 
@@ -172,7 +180,13 @@ public sealed record ActivityCandidate(
     string? CostBasis,
     double? Longitude,
     double? Latitude
-);
+)
+{
+    public IReadOnlyList<ActivityKind> Kinds { get; init; } = [];
+    public string? Address { get; init; }
+    public string TicketRequirement { get; init; } = "Unknown";
+    public IReadOnlyList<ActivityLink> Links { get; init; } = [];
+}
 
 public sealed record ActivityJob(
     Guid OperationId,

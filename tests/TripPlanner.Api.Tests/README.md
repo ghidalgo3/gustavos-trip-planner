@@ -87,3 +87,5 @@ Location research tests in `Services/Activities/ActivityCoordinateResearchTests.
 Repeat-visit accommodation coverage checks independent REST/MCP resources, scope and planning permissions, audit attribution, planning-context invalidation, separate hotel travel legs, cascading visit deletion, and migration of existing city-wide hotel choices. `PlannerDbTests` runs the same accommodation contract against in-memory and PostgreSQL storage when `TRIPPLANNER_TEST_POSTGRES` is configured.
 
 Activity place-search coverage verifies the activity-specific web prompt, consulted sources, structured address components, the shared bounded geocoder, REST/MCP authorization and preview-only behavior, and frontend Azure fallback, explicit web search, unresolved candidates, and preserving selected source links. `--verify-activity-place` runs the opt-in Tokyo teamLab Planets provider smoke test without saving data.
+
+`--mcp-eval-server` starts the loopback-only, in-memory MCP eval fixtures. See [the eval guide](../../evals/mcp/README.md).

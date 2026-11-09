@@ -1,0 +1,188 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+unsetopt BGNICE
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/evals [--smoke | --view] [--model MODEL] [--service-tier default|flex] [--repeat COUNT]
+                     [--output DIRECTORY] [-- PROMPTFOO_EVAL_OPTIONS]
+
+Build and start isolated MCP fixtures, wait for readiness, run the evals, and stop
+fixtures on success, failure or interruption. Results and fixture logs are saved
+under .promptfoo/runs by default.
+
+  --smoke          Check real MCP discovery and tool calls without model calls
+  --view           Open Promptfoo's saved results viewer (no fixture server)
+  --model MODEL    Override TRIPPLANNER_EVAL_MODEL (default: gpt-6-luna)
+  --service-tier T  Choose discounted Flex (default) or standard (default tier)
+  --repeat COUNT   Run each case COUNT times (default: 1)
+  --output DIR     Save this run's artifacts in DIR
+  -h, --help       Show this help
+
+Behavioral runs read openai-api-key from the deployed Azure Key Vault. Sign in
+with az login first; manage the credential with scripts/secrets set openai-api-key.
+Smoke checks and the viewer do not access Azure. Model calls incur API charges;
+fixtures never access the production database.
+Model and tier defaults are configured in evals/mcp/defaults.json.
+Cases run with up to four in parallel; override with -- --max-concurrency COUNT.
+Optional overrides: RESOURCE_GROUP, SUBSCRIPTION, INFRA_DEPLOYMENT_NAME,
+EXPECTED_TENANT_ID, TRIPPLANNER_EVAL_PORT, PROMPTFOO_VERSION.
+USAGE
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+log() { printf '\n==> %s\n' "$*"; }
+
+REPO_ROOT="${0:A:h:h}"
+cd "$REPO_ROOT"
+EVAL_MODE=run
+EVAL_MODEL="${TRIPPLANNER_EVAL_MODEL:-}"
+EVAL_SERVICE_TIER="${TRIPPLANNER_EVAL_SERVICE_TIER:-}"
+EVAL_REPEAT=1
+EVAL_OUTPUT=''
+EVAL_PORT="${TRIPPLANNER_EVAL_PORT:-5188}"
+EVAL_OPTIONS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --smoke|--view)
+      [[ "$EVAL_MODE" == run ]] || die 'choose either --smoke or --view'
+      EVAL_MODE="${1#--}"; shift ;;
+    --model|--service-tier|--repeat|--output)
+      [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || die "$1 requires a value"
+      case "$1" in
+        --model) EVAL_MODEL="$2" ;;
+        --service-tier) EVAL_SERVICE_TIER="$2" ;;
+        --repeat) EVAL_REPEAT="$2" ;;
+        --output) EVAL_OUTPUT="$2" ;;
+      esac
+      shift 2 ;;
+    --) shift; EVAL_OPTIONS=("$@"); break ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown argument: $1" ;;
+  esac
+done
+
+[[ "$EVAL_REPEAT" == <-> && "$EVAL_REPEAT" -gt 0 ]] || die '--repeat must be a positive integer'
+[[ "$EVAL_PORT" == <-> && "$EVAL_PORT" -ge 1024 && "$EVAL_PORT" -le 65535 ]] || die 'TRIPPLANNER_EVAL_PORT must be 1024–65535'
+for command_name in node; do
+  command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
+done
+[[ -n "$EVAL_MODEL" ]] || EVAL_MODEL="$(node -e 'process.stdout.write(require("./evals/mcp/defaults.json").model)')"
+[[ -n "$EVAL_SERVICE_TIER" ]] || EVAL_SERVICE_TIER="$(node -e 'process.stdout.write(require("./evals/mcp/defaults.json").serviceTier)')"
+case "$EVAL_SERVICE_TIER" in
+  default|flex) ;;
+  batch) die 'Batch needs an asynchronous scheduler; this runner supports --service-tier default or flex' ;;
+  *) die '--service-tier must be default or flex' ;;
+esac
+PROMPTFOO_VERSION="${PROMPTFOO_VERSION:-$(<evals/mcp/promptfoo-version)}"
+if [[ "$EVAL_MODE" != smoke ]]; then
+  command -v npx >/dev/null 2>&1 || die 'npx is required; run scripts/setup'
+fi
+if [[ "$EVAL_MODE" == view ]]; then
+  exec npx --yes "promptfoo@$PROMPTFOO_VERSION" view
+fi
+command -v dotnet >/dev/null 2>&1 || die 'dotnet is required; run scripts/setup'
+if [[ "$EVAL_MODE" == run ]]; then
+  command -v az >/dev/null 2>&1 || die 'Azure CLI is required; run scripts/setup'
+  RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+  SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
+  INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
+  EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
+
+  ACTUAL_TENANT_ID="$(az account show --subscription "$SUBSCRIPTION" \
+    --query tenantId --output tsv 2>/dev/null)" || die \
+    'Azure sign-in or subscription access is unavailable; run az login and check SUBSCRIPTION'
+  [[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
+    "subscription is in tenant $ACTUAL_TENANT_ID, expected $EXPECTED_TENANT_ID"
+
+  KEY_VAULT_NAME="$(az deployment group show \
+    --subscription "$SUBSCRIPTION" --resource-group "$RESOURCE_GROUP" \
+    --name "$INFRA_DEPLOYMENT_NAME" --query 'properties.outputs.keyVaultName.value' \
+    --output tsv 2>/dev/null)" || die \
+    "could not read infrastructure deployment '$INFRA_DEPLOYMENT_NAME'; run scripts/buildout or check deployment settings"
+  [[ -n "$KEY_VAULT_NAME" ]] || die \
+    "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' has no keyVaultName output; run scripts/buildout"
+
+  log "Loading the eval credential from Key Vault $KEY_VAULT_NAME"
+  EVAL_OPENAI_API_KEY="$(az keyvault secret show \
+    --subscription "$SUBSCRIPTION" --vault-name "$KEY_VAULT_NAME" \
+    --name openai-api-key --query value --output tsv 2>/dev/null)" || die \
+    "could not read openai-api-key from '$KEY_VAULT_NAME'; check vault access or run scripts/secrets set openai-api-key"
+  [[ -n "${EVAL_OPENAI_API_KEY//[[:space:]]/}" ]] || die \
+    "Key Vault secret openai-api-key is empty; run scripts/secrets set openai-api-key"
+fi
+
+umask 077
+EVAL_INSTANCE="$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')"
+EVAL_OUTPUT="${EVAL_OUTPUT:-.promptfoo/runs/$(date -u '+%Y%m%dT%H%M%SZ')-$EVAL_INSTANCE}"
+EVAL_OUTPUT="${EVAL_OUTPUT:A}"
+mkdir -p "$EVAL_OUTPUT"
+export TRIPPLANNER_EVAL_MODEL="$EVAL_MODEL"
+export TRIPPLANNER_EVAL_SERVICE_TIER="$EVAL_SERVICE_TIER"
+export TRIPPLANNER_EVAL_URL="http://127.0.0.1:$EVAL_PORT"
+export TRIPPLANNER_EVAL_INSTANCE="$EVAL_INSTANCE"
+
+fixture_pid=''
+runner_pid=''
+cleanup() {
+  local exit_code=$?
+  if [[ -n "$runner_pid" ]]; then
+    kill "$runner_pid" 2>/dev/null || true
+    wait "$runner_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$fixture_pid" ]]; then
+    kill "$fixture_pid" 2>/dev/null || true
+    wait "$fixture_pid" 2>/dev/null || true
+  fi
+  return "$exit_code"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+log 'Building MCP fixtures'
+if ! dotnet build tests/TripPlanner.Api.Tests -c Release --nologo > "$EVAL_OUTPUT/build.log" 2>&1; then
+  die "fixture build failed; see $EVAL_OUTPUT/build.log"
+fi
+log "Starting MCP fixtures on port $EVAL_PORT"
+dotnet "$REPO_ROOT/tests/TripPlanner.Api.Tests/bin/Release/net10.0/TripPlanner.Api.Tests.dll" \
+  --mcp-eval-server "$EVAL_PORT" > "$EVAL_OUTPUT/fixtures.log" 2>&1 &
+fixture_pid=$!
+if ! node evals/mcp/wait-for-fixtures.cjs "$TRIPPLANNER_EVAL_URL" "$EVAL_INSTANCE" "$fixture_pid" > "$EVAL_OUTPUT/fixture.json"; then
+  die "fixture startup failed; see $EVAL_OUTPUT/fixtures.log"
+fi
+
+node - "$EVAL_OUTPUT" "$EVAL_MODE" "$EVAL_MODEL" "$EVAL_REPEAT" "$PROMPTFOO_VERSION" "$EVAL_SERVICE_TIER" <<'JS'
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const {execFileSync} = require('node:child_process');
+const [directory, mode, model, repeat, promptfooVersion, serviceTier] = process.argv.slice(2);
+const fixture = JSON.parse(fs.readFileSync(path.join(directory, 'fixture.json'), 'utf8'));
+const source = fs.readFileSync('src/TripPlanner.Api/Instructions/McpInstructions.cs');
+let revision = null;
+try { revision = execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim(); } catch {}
+fs.writeFileSync(path.join(directory, 'run.json'), JSON.stringify({
+  createdAt: new Date().toISOString(), mode, model: mode === 'run' ? model : null,
+  repeat: Number(repeat), promptfooVersion, requestedServiceTier: mode === 'run' ? serviceTier : null, serverGuidanceVersion: fixture.guidanceVersion,
+  instructionSourceSha256: crypto.createHash('sha256').update(source).digest('hex'), revision,
+}, null, 2) + '\n');
+JS
+
+if [[ "$EVAL_MODE" == smoke ]]; then
+  log 'Checking MCP discovery, prompts and planning context (no model calls)'
+  node evals/mcp/smoke.cjs
+else
+  log "Running MCP evals with $EVAL_MODEL (tier: $EVAL_SERVICE_TIER, repeat: $EVAL_REPEAT)"
+  eval_exit=0
+  OPENAI_API_KEY="$EVAL_OPENAI_API_KEY" node evals/mcp/run-command.cjs npx --yes "promptfoo@$PROMPTFOO_VERSION" eval \
+    --config evals/mcp/promptfooconfig.yaml --no-cache --repeat "$EVAL_REPEAT" \
+    --output "$EVAL_OUTPUT/results.json" "${EVAL_OPTIONS[@]}" &
+  runner_pid=$!
+  wait "$runner_pid" || eval_exit=$?
+  runner_pid=''
+  printf '\nEval artifacts: %s\nOpen saved results: ./scripts/evals --view\n' "$EVAL_OUTPUT"
+  exit "$eval_exit"
+fi
+printf '\nEval artifacts: %s\n' "$EVAL_OUTPUT"

@@ -22,6 +22,7 @@ public sealed class SanitizeHttpTelemetryProcessor : BaseProcessor<Activity>
     private static readonly HashSet<string> OperationTags =
     [
         "mcp.tool.name",
+        "mcp.guidance.version",
         "mcp.result.status_code",
         "rpc.error_code",
         "tripplanner.job.kind",

@@ -7,6 +7,7 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Services.ActivityPlanning;
 
@@ -33,9 +34,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "Read preferences and their ETag. Profile refers only to the connected user and takes no IDs. Trip needs tripId; Destination needs tripId and destinationCity. Other travellers' raw profile instructions are private."
-    )]
+    [Description(McpInstructions.Tools.GetActivityPreferences)]
     public Task<CallToolResult> GetPreferences(
         ActivityPreferenceScope scope,
         Guid? tripId = null,
@@ -62,9 +61,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Replace the complete preference document with the ETag from reading it. Preserve unrelated instructions and defaults. Shared scopes require planning permission. Text timing rules require acceptance as structured plan settings before they constrain scheduling."
-    )]
+    [Description(McpInstructions.Tools.ReplaceActivityPreferences)]
     public Task<CallToolResult> ReplacePreferences(
         ActivityPreferenceScope scope,
         ActivityPreferencesRequest request,
@@ -94,9 +91,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "Read the destination's shared schedule, selection, restrictions, assessment, shared context, ETag and input-context version. Read after creating activity ideas and before placing their IDs on dates/times with replace_activity_plan. context.visits supplies destination visit IDs for days[].stayId; these are not accommodation IDs. Planned activities may be selected but unscheduled. Stale saved calendar timing remains fixed until an updated plan is accepted."
-    )]
+    [Description(McpInstructions.Tools.GetActivityPlan)]
     public Task<CallToolResult> GetPlan(Guid tripId, string destinationCity) =>
         adapter.ExecuteAsync(
             false,
@@ -113,9 +108,7 @@ public sealed class ActivityPlanningTools(
 
     [McpServerTool(Name = "preview_activity_plan", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "Evaluate an unsaved draft using cached inputs without saving a plan, assessment, or job, and without calling providers. Return current timing and free-time totals. Supply the contextVersion from get_activity_plan; reread after a stale-context error. Estimates remain provisional when evidence is incomplete."
-    )]
+    [Description(McpInstructions.Tools.PreviewActivityPlan)]
     public Task<CallToolResult> PreviewPlan(
         Guid tripId,
         string destinationCity,
@@ -144,9 +137,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Save the complete shared plan when the user requests scheduling or chooses to apply a plan. Create missing activity ideas first with create_activity, or reuse existing ideas; schedule their returned IDs here, never by adding dates/times to activity names or descriptions. Include IDs in selectedActivityIds and days[].activityIds in order, with the destination visit's stayId and local date. For user-requested dates/times, add rules by activityId with fixedDate/fixedStart. Preserve all unrelated fields and restrictions. Supply current ETag and request.contextVersion from get_activity_plan read after activity creation. To accept a proposal, also supply proposalId, choiceId and its exact plan. A 409/412 requires rereading. Conflicting plans are allowed and explained; schedules are never silently optimized."
-    )]
+    [Description(McpInstructions.Tools.ReplaceActivityPlan)]
     public Task<CallToolResult> ReplacePlan(
         Guid tripId,
         string destinationCity,
@@ -178,9 +169,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = true
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Persist an explanation of a saved plan or unsaved draft without applying it. Use a fresh requestId, retaining it for retries with identical inputs. Cached evaluation is immediate; refreshEvidence/useAi may call providers and return an operationId. Poll get_operation, then get_activity_plan_assessment. AI requires the LLM feature flag."
-    )]
+    [Description(McpInstructions.Tools.CreateActivityPlanAssessment)]
     public Task<CallToolResult> CreateAssessment(
         Guid tripId,
         string destinationCity,
@@ -208,9 +197,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "Retrieve persisted or partial assessment results, conflicts, assumptions, provenance and operation status. This does not alter the saved schedule."
-    )]
+    [Description(McpInstructions.Tools.GetActivityPlanAssessment)]
     public Task<CallToolResult> GetAssessment(
         Guid tripId,
         string destinationCity,
@@ -238,9 +225,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = true
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Request draft alternatives or incremental improvements for review. Use kind=schedule to schedule exactly the selected activities, minimizing travel on daily routes starting and ending at each visit's saved accommodation. Visits without accommodation use no travel before the first or after the last activity. Never drops selected activities. Does not change the plan. Supply current contextVersion and a fresh requestId; identical retries are idempotent. Respect must-do, day/time/order and transport restrictions. Poll get_operation and inspect the proposal before offering a choice."
-    )]
+    [Description(McpInstructions.Tools.CreateActivityPlanProposal)]
     public Task<CallToolResult> CreateProposal(
         Guid tripId,
         string destinationCity,
@@ -268,9 +253,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "Read progressively available alternatives and improvements, their before/after assessments, base versions and review ETag. Timeout is not proof of infeasibility. Present the user's choice before applying it through replace_activity_plan."
-    )]
+    [Description(McpInstructions.Tools.GetActivityPlanProposal)]
     public Task<CallToolResult> GetProposal(Guid tripId, string destinationCity, Guid proposalId) =>
         adapter.ExecuteAsync(
             false,
@@ -294,9 +277,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Replace dismissed suggestion IDs using the review ETag and contextVersion. Dismissals last until relevant inputs change. To keep a choice permanently, replace the plan with the user's explicit must-do, fixed-day/time or relative-order restriction; a dismissal alone does not add a restriction."
-    )]
+    [Description(McpInstructions.Tools.ReplaceActivityPlanProposalReview)]
     public Task<CallToolResult> ReplaceReview(
         Guid tripId,
         string destinationCity,
@@ -323,9 +304,7 @@ public sealed class ActivityPlanningTools(
 
     [McpServerTool(Name = "list_operations", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "List the connected user's durable operations. Activity planning types are activityPlanAssessment and activityPlanProposal. Use returned IDs for polling and result retrieval."
-    )]
+    [Description(McpInstructions.Tools.ListOperations)]
     public Task<CallToolResult> ListOperations(
         [Range(1, 100)] int? top = null,
         [Range(0, 100000)] int? skip = null,
@@ -346,9 +325,7 @@ public sealed class ActivityPlanningTools(
 
     [McpServerTool(Name = "get_operation", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "Poll a durable operation's status and progress. Use the same ID with the corresponding assessment/proposal retrieval tool. Completed previews still require explicit plan replacement to apply."
-    )]
+    [Description(McpInstructions.Tools.GetOperation)]
     public Task<CallToolResult> GetOperation(Guid operationId) =>
         adapter.ExecuteAsync(
             false,
@@ -362,9 +339,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(
-        "List only the connected member's calendar subscription metadata. Bearer URLs and token hashes are never returned by this tool."
-    )]
+    [Description(McpInstructions.Tools.ListCalendarSubscriptions)]
     public Task<CallToolResult> ListCalendars(Guid tripId) =>
         adapter.ExecuteAsync(
             false,
@@ -379,9 +354,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Create a personal revocable calendar subscription for the connected trip member. Returns the bearer URL once. Treat it as a credential and show it only for the requested calendar setup, never in diagnostics. Includes saved dated activities, never proposals."
-    )]
+    [Description(McpInstructions.Tools.CreateCalendarSubscription)]
     public Task<CallToolResult> CreateCalendar(Guid tripId) =>
         adapter.ExecuteAsync(
             true,
@@ -396,9 +369,7 @@ public sealed class ActivityPlanningTools(
         OpenWorld = false
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(
-        "Revoke the connected member's subscription ID. Its bearer URL immediately stops serving the trip. Cannot revoke another member's subscription."
-    )]
+    [Description(McpInstructions.Tools.RevokeCalendarSubscription)]
     public Task<CallToolResult> RevokeCalendar(Guid tripId, Guid subscriptionId) =>
         adapter.ExecuteAsync(
             true,

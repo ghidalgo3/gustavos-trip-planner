@@ -10,6 +10,7 @@ using Microsoft.Extensions.AI;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using TripPlanner.Api.DTO;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Serialization;
 using TripPlanner.Api.Telemetry;
@@ -39,6 +40,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
     {
         typeof(TripPlannerTools),
         typeof(ActivityPlanningTools),
+        typeof(PlanningContextTools),
     }
         .SelectMany(type => type.GetMethods())
         .Where(method => method.IsDefined(typeof(McpServerToolAttribute)))
@@ -86,7 +88,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
             {
                 if (!parameter.HasDefaultValue)
                 {
-                    errors[parameter.Name!] = ["This parameter is required."];
+                    errors[parameter.Name!] = [McpInstructions.Messages.RequiredParameter];
                 }
 
                 continue;
@@ -100,7 +102,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
                         == NullabilityState.NotNull
                 )
                 {
-                    errors[parameter.Name!] = ["This parameter cannot be null."];
+                    errors[parameter.Name!] = [McpInstructions.Messages.NullParameter];
                 }
 
                 ApiInputValidation.ValidateAttributes(
@@ -116,7 +118,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
             }
             catch (JsonException)
             {
-                errors[parameter.Name!] = ["Use the type and format specified by the tool schema."];
+                errors[parameter.Name!] = [McpInstructions.Messages.InvalidParameterFormat];
             }
         }
         return errors.Count == 0
@@ -191,7 +193,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
                     : JsonValue.Create("string");
             node["format"] = "duration";
             node["pattern"] = IsoDurationConverter.Pattern;
-            node["description"] = "ISO 8601 elapsed duration, for example PT1H30M.";
+            node["description"] = McpInstructions.Schema.Duration;
         }
         if (Attribute<DurationRangeAttribute>() is { } duration)
         {
@@ -244,6 +246,11 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
             };
         }
 
+        if (context.GetCustomAttribute<UniqueItemsAttribute>() is not null)
+        {
+            node["uniqueItems"] = true;
+        }
+
         if (context.GetCustomAttribute<HttpUrlAttribute>() is not null)
         {
             node["format"] = "uri";
@@ -256,12 +263,11 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
         )
         {
             node["format"] = "date";
-            node["description"] = "ISO 8601 date (YYYY-MM-DD), within 2000–2100.";
+            node["description"] = McpInstructions.Schema.Date;
         }
         if (context.GetCustomAttribute<TimeZoneIdAttribute>() is not null)
         {
-            node["description"] =
-                "Recognized time zone ID, e.g. Europe/Paris. Omit it when unknown.";
+            node["description"] = McpInstructions.Schema.TimeZone;
         }
         // Converter-backed JsonElement properties can bypass the SDK's per-property
         // callback. Apply their declared contracts from the containing type too.
@@ -288,7 +294,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
                                 : JsonValue.Create("string"),
                         ["format"] = "duration",
                         ["pattern"] = IsoDurationConverter.Pattern,
-                        ["description"] = "ISO 8601 elapsed duration, for example PT1H30M.",
+                        ["description"] = McpInstructions.Schema.Duration,
                     };
                     if (
                         declared.OfType<DurationRangeAttribute>().FirstOrDefault() is
@@ -386,8 +392,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
             ["pattern"] = ClockTimeAttribute.Pattern,
             ["minLength"] = 8,
             ["maxLength"] = 16,
-            ["description"] =
-                "ISO 8601 local time (HH:mm:ss), with zero seconds and no UTC offset.",
+            ["description"] = McpInstructions.Schema.ClockTime,
         };
 
     private static void ApplyObjectRules(JsonObject node, Type type, JsonObjectValueAttribute rule)

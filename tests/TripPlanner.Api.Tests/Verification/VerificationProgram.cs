@@ -17,6 +17,19 @@ public static class VerificationProgram
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args is ["--mcp-eval-server"])
+        {
+            return await McpEvalServer.Run(5188);
+        }
+        if (args is ["--mcp-eval-server", var portText])
+        {
+            if (!int.TryParse(portText, out int port) || port is < 1024 or > 65535)
+            {
+                Console.Error.WriteLine("The fixture port must be 1024–65535.");
+                return 1;
+            }
+            return await McpEvalServer.Run(port);
+        }
         if (args is ["--verify-solver"])
         {
             ActivitySolverVerification.Run();
@@ -28,7 +41,7 @@ public static class VerificationProgram
         if (!verifyStay && !verifyActivity && args is not ["--verify-planning-providers"])
         {
             Console.Error.WriteLine(
-                "Use dotnet test, --verify-solver, --verify-planning-providers, --verify-stay-address, or --verify-activity-place, or --verify-zoo-place."
+                "Use dotnet test, --mcp-eval-server [PORT], --verify-solver, --verify-planning-providers, --verify-stay-address, or --verify-activity-place, or --verify-zoo-place."
             );
             return 1;
         }

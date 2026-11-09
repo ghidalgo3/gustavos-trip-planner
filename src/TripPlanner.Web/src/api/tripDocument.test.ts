@@ -393,3 +393,22 @@ test("calendar items retain hotel stays and unscheduled activity details", () =>
       ),
   ).toBe(true);
 });
+
+test.each(["missing", "empty", "unknown", "duplicate", "tickets", "address"])(
+  "invalid activity metadata %s is rejected",
+  (change) => {
+    const value = structuredClone(after);
+    const activity = value.itinerary.items.find(
+      (item: Record<string, unknown>) => item.kind === "activity",
+    );
+    if (change === "missing") delete activity.kinds;
+    if (change === "empty") activity.kinds = [];
+    if (change === "unknown") activity.kinds = ["Other"];
+    if (change === "duplicate") activity.kinds = ["Art", "Art"];
+    if (change === "tickets") activity.ticketRequirement = "Maybe";
+    if (change === "address") activity.address = 123;
+    expect(() => validateTripDocument(value, value.id)).toThrow(
+      "Invalid activity details",
+    );
+  },
+);

@@ -1,3 +1,4 @@
+import type { ActivityKind, TicketRequirement } from "./activityKinds";
 import { tripFetch } from "../../api/tripDocumentStore";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { apiBaseUrl, readTripError } from "../../api/api";
@@ -66,6 +67,9 @@ export type ActivityDetailsSuggestion = {
   cost: ActivityDetailSuggestion<ActivityCost> | null;
 };
 export type ActivityProperties = {
+  kinds: ActivityKind[];
+  address: string | null;
+  ticketRequirement: TicketRequirement;
   durationEvidence?: ActivityResearchEvidence | null;
   costEvidence?: ActivityResearchEvidence | null;
   locationSuggestion?: ActivityLocationSuggestion | null;

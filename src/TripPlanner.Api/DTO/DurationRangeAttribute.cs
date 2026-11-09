@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TripPlanner.Api.Instructions;
 
 namespace TripPlanner.Api.DTO;
 
@@ -10,7 +11,10 @@ public sealed class DurationRangeAttribute(int minimumMinutes, int maximumMinute
     public int MaximumMinutes { get; } = maximumMinutes;
 
     public string SchemaDescription =>
-        $"ISO 8601 elapsed duration, from {System.Xml.XmlConvert.ToString(TimeSpan.FromMinutes(MinimumMinutes))} to {System.Xml.XmlConvert.ToString(TimeSpan.FromMinutes(MaximumMinutes))}, in whole minutes.";
+        McpInstructions.Schema.DurationRange(
+            TimeSpan.FromMinutes(MinimumMinutes),
+            TimeSpan.FromMinutes(MaximumMinutes)
+        );
 
     public override bool IsValid(object? value) =>
         value is null

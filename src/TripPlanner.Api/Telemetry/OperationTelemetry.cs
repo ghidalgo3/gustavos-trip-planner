@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
+using TripPlanner.Api.Instructions;
 
 namespace TripPlanner.Api.Telemetry;
 
@@ -18,6 +19,7 @@ public static class OperationTelemetry
     {
         using var activity = Source.StartActivity($"MCP {toolName}", ActivityKind.Internal);
         activity?.SetTag("mcp.tool.name", toolName);
+        activity?.SetTag("mcp.guidance.version", McpInstructions.Planning.Version);
         try
         {
             var result = await action();

@@ -501,3 +501,25 @@
 .agenda-travel-card:disabled {
   cursor: default;
 }
+
+.activity-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.activity-card .activity-kinds > span {
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 0.5rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.activity-kind-fieldset {
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 0.5rem;
+  margin: 0;
+  padding: 0.75rem;
+}
+.activity-kinds-required {
+  color: var(--colorPaletteRedForeground1);
+}

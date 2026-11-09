@@ -131,3 +131,20 @@ public sealed class StringItemsAttribute(string pattern, int maxLength) : Valida
     public override string FormatErrorMessage(string name) =>
         $"{name} contains an invalid identifier or code.";
 }
+
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
+public sealed class UniqueItemsAttribute : ValidationAttribute
+{
+    public override bool IsValid(object? value) =>
+        value is null
+        || value is System.Collections.IEnumerable items && Unique(items.Cast<object?>());
+
+    private static bool Unique(IEnumerable<object?> items)
+    {
+        var seen = new HashSet<object?>();
+        return items.All(seen.Add);
+    }
+
+    public override string FormatErrorMessage(string name) =>
+        $"{name} must not contain duplicates.";
+}

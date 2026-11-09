@@ -393,7 +393,9 @@
             "placeId",
             "selection",
             "rule",
-            "links"
+            "links",
+            "kinds",
+            "ticketRequirement"
           ],
           "properties": {
             "id": {
@@ -728,6 +730,39 @@
             },
             "kind": {
               "const": "activity"
+            },
+            "kinds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 9,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "Food",
+                  "Shopping",
+                  "Culture",
+                  "Music",
+                  "Art",
+                  "Nature",
+                  "Relax",
+                  "Event",
+                  "Holiday"
+                ]
+              }
+            },
+            "address": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 2000
+            },
+            "ticketRequirement": {
+              "enum": [
+                "Unknown",
+                "Required",
+                "NotRequired"
+              ]
             }
           },
           "allOf": [

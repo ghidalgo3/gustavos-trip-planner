@@ -1,0 +1,13 @@
+// Application Insights Logs (classic table names): recent real MCP invocations.
+dependencies
+| where timestamp > ago(24h) and cloud_RoleName == "TripPlanner.Api"
+| where name startswith "MCP "
+| project timestamp,
+    tool = tostring(customDimensions["mcp.tool.name"]),
+    serverGuidanceVersion = tostring(customDimensions["mcp.guidance.version"]),
+    status = toint(customDimensions["mcp.result.status_code"]),
+    outcome = tostring(customDimensions["tripplanner.outcome"]),
+    error = tostring(customDimensions["error.type"]),
+    rpcError = customDimensions["rpc.error_code"],
+    duration, operation_Id, id, operation_ParentId
+| order by timestamp desc

@@ -13,7 +13,7 @@ public sealed class ModelEnumTests
     public void ActivityStates_RoundTripExistingStoredJson(ActivityState state, string name)
     {
         string json =
-            $$"""{"name":"Museum","duration":"PT1H","description":"Art","cost":null,"state":"{{name}}"}""";
+            $$"""{"name":"Museum","duration":"PT1H","description":"Art","cost":null,"kinds":["Culture"],"ticketRequirement":"Unknown","state":"{{name}}"}""";
         var activity = JsonSerializer.Deserialize<ActivityProperties>(
             json,
             JsonSerializerOptions.Web

@@ -1,3 +1,4 @@
+import { activityKinds, type TicketRequirement } from "./activityKinds";
 import { mapsClient } from "../../maps/mapsClient";
 import {
   useExplicitResourceRefresh,
@@ -45,6 +46,8 @@ import {
   MenuItemRadio,
   MenuItem,
   MenuDivider,
+  Checkbox,
+  Select,
 } from "@fluentui/react-components";
 import {
   ArrowExpand24Regular,
@@ -115,6 +118,9 @@ const emptyActivity = (): ActivityInput => ({
     description: "",
     cost: null,
     state: "Proposed",
+    kinds: [],
+    address: null,
+    ticketRequirement: "Unknown",
     placeName: null,
     links: [],
   },
@@ -528,7 +534,13 @@ export default function ActivityPlanning({
   }
 
   async function save() {
-    if (!destination || !editor || busy || !editor.value.properties.name.trim())
+    if (
+      !destination ||
+      !editor ||
+      busy ||
+      !editor.value.properties.name.trim() ||
+      editor.value.properties.kinds.length === 0
+    )
       return;
     if (
       (editor.value.properties.links ?? []).some(
@@ -760,6 +772,7 @@ export default function ActivityPlanning({
     const links = editor?.value.properties.links ?? [];
     updateEditor({
       placeName: place.label.slice(0, 200),
+      address: place.address ?? null,
       locationSuggestion: null,
       links: [place.source, place.locationSource].reduce(
         (current, source) =>
@@ -1003,6 +1016,12 @@ export default function ActivityPlanning({
           <h3>{item.properties.name}</h3>
           {renderActivityMenu(item)}
         </div>
+        <div className="activity-kinds" aria-label="Activity kinds">
+          {item.properties.kinds.map((kind) => (
+            <span key={kind}>{kind}</span>
+          ))}
+        </div>
+        {item.properties.address && <p>{item.properties.address}</p>}
         {!item.geometry && (
           <small className="activity-location-missing">Needs location</small>
         )}
@@ -1021,6 +1040,12 @@ export default function ActivityPlanning({
             <dd>{formatCost(item.properties.cost)}</dd>
           </div>
         </dl>
+        <p>
+          Tickets:{" "}
+          {item.properties.ticketRequirement === "NotRequired"
+            ? "Not required"
+            : item.properties.ticketRequirement}
+        </p>
         <ActivityDetailsEvidence properties={item.properties} />
         {(item.properties.links ?? []).some(validActivityLink) && (
           <ul
@@ -1418,6 +1443,57 @@ export default function ActivityPlanning({
                     onChange={(_, data) => updateEditor({ name: data.value })}
                   />
                 </label>
+                <fieldset className="activity-kind-fieldset">
+                  <legend>Kinds (required)</legend>
+                  <div className="activity-kinds">
+                    {activityKinds.map((kind) => (
+                      <Checkbox
+                        key={kind}
+                        label={kind}
+                        checked={editor.value.properties.kinds.includes(kind)}
+                        onChange={(_, data) =>
+                          updateEditor({
+                            kinds: data.checked
+                              ? [...editor.value.properties.kinds, kind]
+                              : editor.value.properties.kinds.filter(
+                                  (value) => value !== kind,
+                                ),
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                  {editor.value.properties.kinds.length === 0 && (
+                    <small className="activity-kinds-required">
+                      Choose at least one kind
+                    </small>
+                  )}
+                </fieldset>
+                <label>
+                  Address
+                  <Input
+                    value={editor.value.properties.address ?? ""}
+                    maxLength={2000}
+                    onChange={(_, data) =>
+                      updateEditor({ address: data.value || null })
+                    }
+                  />
+                </label>
+                <label>
+                  Tickets
+                  <Select
+                    value={editor.value.properties.ticketRequirement}
+                    onChange={(_, data) =>
+                      updateEditor({
+                        ticketRequirement: data.value as TicketRequirement,
+                      })
+                    }
+                  >
+                    <option value="Unknown">Unknown</option>
+                    <option value="Required">Required</option>
+                    <option value="NotRequired">Not required</option>
+                  </Select>
+                </label>
                 <label>
                   Description
                   <Textarea
@@ -1692,6 +1768,7 @@ export default function ActivityPlanning({
             disabled={
               busy ||
               !editor?.value.properties.name.trim() ||
+              !editor?.value.properties.kinds.length ||
               (editor?.value.properties.links ?? []).some(
                 (link) => !validActivityLink(link),
               )
@@ -1925,6 +2002,17 @@ export default function ActivityPlanning({
                               </button>
                               {renderActivityMenu(item)}
                             </div>
+                            <div
+                              className="activity-kinds"
+                              aria-label="Activity kinds"
+                            >
+                              {item.properties.kinds.map((kind) => (
+                                <span key={kind}>{kind}</span>
+                              ))}
+                            </div>
+                            {item.properties.address && (
+                              <p>{item.properties.address}</p>
+                            )}
                             {!item.geometry && (
                               <div className="activity-list-location">
                                 <span>Needs location · Not on map</span>

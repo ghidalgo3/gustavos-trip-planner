@@ -427,7 +427,8 @@ public class InputValidationTests
                 TimeSpan.FromHours(1),
                 "Art",
                 new(10, "EUR", "perPerson"),
-                ActivityState.Proposed
+                ActivityState.Proposed,
+                [ActivityKind.Culture]
             )
         );
         using var create = new HttpRequestMessage(HttpMethod.Post, url)
@@ -557,6 +558,7 @@ public class InputValidationTests
                     {
                         name = "Museum",
                         description = "",
+                        kinds = new[] { "Culture" },
                         state,
                     },
                 }

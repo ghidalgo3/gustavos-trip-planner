@@ -41,6 +41,7 @@ struct TripDocumentDestinations: Decodable {
         var coordinate: RouteCoordinate? = nil
     }
     let destinations: [DestinationVisit]
+    let activities: [TripDocumentActivity]
     let selectedFlights: [SavedTripFlight]
     let home: Destination?
     let resources: [String: ResourceVersion]?
@@ -59,6 +60,9 @@ struct TripDocumentDestinations: Decodable {
         }
         let places = document["places"].arrayValue
         let items = document["itinerary"]["items"].arrayValue
+        activities = try items.filter { $0["kind"] == .string("activity") }.map { item in
+            try TripDocumentActivity(item)
+        }
         let visits = items.filter { $0["kind"] == .string("visit") }
             .enumerated().sorted { ($0.element["order"].numberValue ?? Double($0.offset)) < ($1.element["order"].numberValue ?? Double($1.offset)) }.map(\.element)
         let preferences = document["preferences"]["destinations"].arrayValue
@@ -161,3 +165,39 @@ private extension JSONValue {
     var numberValue: Double? { if case .number(let value) = self { value } else { nil } }
 }
 
+
+/// Activity facts remain independent of their itinerary dates and times.
+struct TripDocumentActivity: Equatable {
+    enum Kind: String, CaseIterable { case Food, Shopping, Culture, Music, Art, Nature, Relax, Event, Holiday }
+    enum TicketRequirement: String { case Unknown, Required, NotRequired }
+    let id: String
+    let name: String
+    let destinationID: String
+    let kinds: [Kind]
+    let address: String?
+    let ticketRequirement: TicketRequirement
+    let description: String
+    let links: JSONValue
+
+    init(_ value: JSONValue) throws {
+        let rawValues = value["kinds"].arrayValue
+        let rawKinds = rawValues.compactMap { $0.stringValue }
+        let kinds = rawKinds.compactMap(Kind.init(rawValue:))
+        guard let id = value["id"].stringValue,
+              let name = value["name"].stringValue,
+              let destinationID = value["destinationId"].stringValue,
+              !kinds.isEmpty, kinds.count == rawValues.count,
+              Set(rawKinds).count == kinds.count,
+              let ticket = value["ticketRequirement"].stringValue.flatMap(TicketRequirement.init(rawValue:)) else {
+            throw APIError.invalidResponse
+        }
+        self.id = id
+        self.name = name
+        self.destinationID = destinationID
+        self.kinds = kinds
+        address = value["address"].stringValue
+        ticketRequirement = ticket
+        description = value["description"].stringValue ?? ""
+        links = value["links"]
+    }
+}

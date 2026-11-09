@@ -217,6 +217,9 @@ const activity: Activity = {
     description: "See the paintings",
     duration: "PT120M",
     cost: null,
+    kinds: ["Culture" as const],
+    address: null,
+    ticketRequirement: "Unknown" as const,
     state: "Proposed",
     placeName: "Louvre, Paris",
   },
@@ -266,11 +269,14 @@ function change(
   act(() => element.focus());
   fireEvent.change(element, options);
 }
-async function add() {
+async function add(chooseKind = true) {
   const trigger = await screen.findByRole("button", { name: "Add activity" });
   act(() => trigger.focus());
   click(trigger);
-  return screen.findByRole("dialog");
+  const drawer = await screen.findByRole("dialog");
+  if (chooseKind)
+    click(within(drawer).getByRole("checkbox", { name: "Culture" }));
+  return drawer;
 }
 
 test("an empty trip points back to Overview without destination forms", async () => {
@@ -350,6 +356,9 @@ test("Plan shows only Planned activity bubbles, and Ideas restores the others", 
         properties: {
           ...activity.properties,
           name: "Garden",
+          kinds: ["Culture" as const],
+          address: null,
+          ticketRequirement: "Unknown" as const,
           state: "Planned",
         },
       },
@@ -359,6 +368,9 @@ test("Plan shows only Planned activity bubbles, and Ideas restores the others", 
         properties: {
           ...activity.properties,
           name: "Rejected place",
+          kinds: ["Culture" as const],
+          address: null,
+          ticketRequirement: "Unknown" as const,
           state: "Rejected",
         },
       },
@@ -815,6 +827,9 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
       id: "museum",
       properties: expect.objectContaining({
         description: "Visit in the morning",
+        kinds: ["Culture" as const],
+        address: null,
+        ticketRequirement: "Unknown" as const,
         state: "Planned",
         links: [{ url: "https://museum.example/tickets", label: "Tickets" }],
       }),
@@ -1574,6 +1589,7 @@ test.each(["ideas", "map", "fullscreen"])(
         screen.queryByText("Please retry.", { selector: ".fui-ToastTitle" }),
       ).not.toBeInTheDocument(),
     );
+    dialog = await screen.findByRole("dialog", { name: "Delete Louvre?" });
     click(
       await within(dialog).findByRole("button", { name: "Delete activity" }),
     );
@@ -2043,6 +2059,9 @@ test("Find location fills missing pins, preserves latest fields and sources, and
     ...missing,
     properties: {
       ...missing.properties,
+      kinds: ["Culture" as const],
+      address: null,
+      ticketRequirement: "Unknown" as const,
       state: "Planned",
       description: "Latest edit",
       links: [{ url: "https://www.louvre.fr", label: "Official" }],
@@ -2172,4 +2191,65 @@ test("bulk locations limit concurrent research and cancel queued work when leavi
   });
   expect(researchActivityLocation).toHaveBeenCalledTimes(2);
   expect(saveActivity).not.toHaveBeenCalled();
+});
+
+test("activity details require a kind and save multiple kinds, address and tickets together", async () => {
+  show();
+  const drawer = await add(false);
+  change(within(drawer).getByLabelText("Name"), {
+    target: { value: "Gallery visit" },
+  });
+  const save = within(drawer).getByRole("button", { name: "Save activity" });
+  expect(save).toBeDisabled();
+  click(within(drawer).getByRole("checkbox", { name: "Art" }));
+  click(within(drawer).getByRole("checkbox", { name: "Culture" }));
+  change(within(drawer).getByLabelText("Address"), {
+    target: { value: "1 museum street" },
+  });
+  expect(within(drawer).getByRole("combobox", { name: "Tickets" })).toHaveValue(
+    "Unknown",
+  );
+  change(within(drawer).getByRole("combobox", { name: "Tickets" }), {
+    target: { value: "Required" },
+  });
+  expect(saveActivity).not.toHaveBeenCalled();
+  click(save);
+  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+  expect(vi.mocked(saveActivity).mock.calls[0][2].properties).toMatchObject({
+    name: "Gallery visit",
+    kinds: ["Art", "Culture"],
+    address: "1 museum street",
+    ticketRequirement: "Required",
+    duration: null,
+    cost: null,
+    links: [],
+  });
+});
+
+test("offline activity details show kinds, address and tickets", async () => {
+  const enriched = {
+    ...activity,
+    properties: {
+      ...activity.properties,
+      kinds: ["Art" as const, "Culture" as const],
+      address: "1 museum street",
+      ticketRequirement: "Required" as const,
+    },
+  };
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [enriched],
+  });
+  show(true);
+  click(await screen.findByRole("button", { name: "Louvre" }));
+  const details = screen.getByRole("region", {
+    name: "Selected activity details",
+  });
+  expect(within(details).getByText("Art")).toBeVisible();
+  expect(within(details).getByText("Culture")).toBeVisible();
+  expect(within(details).getByText("1 museum street")).toBeVisible();
+  expect(within(details).getByText("Tickets: Required")).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Edit activity: Louvre" }),
+  ).not.toBeInTheDocument();
 });

@@ -53,6 +53,7 @@ public static class ActivityPlanningProviderVerification
                 "Visit the Louvre Museum in Paris",
                 null,
                 ActivityState.Proposed,
+                [ActivityKind.Culture],
                 "Musée du Louvre, Paris"
             ),
             now,

@@ -16,7 +16,7 @@ namespace TripPlanner.Api.Tests.Services.Activities;
 public class OpenAiActivityAssistantTests
 {
     internal const string Candidates = """
-        {"activities":[{"name":"Louvre","placeName":"Louvre Museum","duration":"PT2H","description":"Explore art collections.","costAmount":null,"costCurrency":null,"costBasis":null}]}
+        {"activities":[{"name":"Louvre","kinds":["Art","Culture"],"address":null,"ticketRequirement":"Unknown","links":[],"placeName":"Louvre Museum","duration":"PT2H","description":"Explore art collections.","costAmount":null,"costCurrency":null,"costBasis":null}]}
         """;
 
     internal static string CompletedResponse(string text = Candidates) =>
@@ -55,6 +55,12 @@ public class OpenAiActivityAssistantTests
             default
         );
         Assert.AreEqual("Louvre", result.Single().Name);
+        CollectionAssert.AreEqual(
+            new[] { ActivityKind.Art, ActivityKind.Culture },
+            result.Single().Kinds.ToArray()
+        );
+        Assert.AreEqual("Unknown", result.Single().TicketRequirement);
+        Assert.IsNull(result.Single().Address);
         Assert.AreEqual(TimeSpan.FromHours(2), result.Single().Duration);
         Assert.IsNull(result.Single().CostAmount);
         Assert.IsNull(result.Single().Longitude);

@@ -957,10 +957,27 @@ operation ID.
 
 MCP transport requests at `/mcp` are collected. Each tool invocation adds a span named
 `MCP <registered-tool-name>` with `mcp.tool.name`, `mcp.result.status_code` when available,
-`tripplanner.outcome`, and a bounded error category (`error.type`). This records validation,
+`tripplanner.outcome`, the deployed server guidance version (`mcp.guidance.version`),
+and a bounded error category (`error.type`). This records validation,
 permission and business failures even when the MCP transport returns HTTP 200. Unknown
 tool requests use `unknown_tool` and the numeric `rpc.error_code`; arbitrary client-supplied
 names, arguments, results, error messages and exception stacks are not exported.
+
+The version tag identifies the deployed server catalog; it does not prove that a client
+refreshed cached instructions or that the model read them. Inspect recent real calls with
+[the MCP tool-call query](docs/observability/mcp-tool-calls.kql). Tool counts and errors
+help find missed context reads, invalid arguments and repeated version conflicts. Server
+traces have a request operation ID; they do not establish conversation identity across
+separate calls unless the client supplies shared trace context. Counts across unrelated
+requests are not a per-conversation instruction-following score.
+
+MCP does not receive the user's complete chat, the model's private reasoning, or its final
+answer outside tool calls. Evaluating themes and recommendation quality also needs a
+client-side transcript or a controlled eval. Production argument/result recording would
+need a separate, explicitly enabled capture path with field redaction and limited
+retention; general Application Insights traces continue to exclude those bodies. Start
+with a controlled test account, anonymize a real failure into a fixture, and replay it
+against instruction revisions rather than replaying writes against a user's live trip.
 
 Each claimed fare-search, activity-suggestion, trip-form or activity-planning job creates a
 `Job <kind>` server span. Idle polling creates no spans; handled failures and retries mark
@@ -984,6 +1001,7 @@ dependencies
 | project timestamp, name, success, duration,
     status = customDimensions["mcp.result.status_code"],
     outcome = customDimensions["tripplanner.outcome"],
+    serverGuidanceVersion = customDimensions["mcp.guidance.version"],
     error = customDimensions["error.type"],
     rpcError = customDimensions["rpc.error_code"], operation_Id
 | order by timestamp desc
@@ -1176,3 +1194,66 @@ and coordinate source separately; selecting and saving retains both citations.
 Research stays within a 60-second deadline with at most two coordinate lookups
 running concurrently. Use the verification executable's `--verify-zoo-place` mode
 to check the real Asahiyama Zoo search with configured credentials.
+
+
+### Travel-agent MCP planning
+
+Agents start activity recommendations and daily planning with `get_planning_context(tripId)`.
+This read-only MCP tool returns the portable trip document (destinations, visit dates,
+existing ideas and schedules), the connected user's profile preferences, shared trip
+and destination preferences, the current activity-kind catalog, and versioned guidance.
+It requires read or write scope and trip visibility. It excludes other travelers' raw
+private profiles. No new REST route is needed for this aggregate MCP read.
+
+`plan_destination(tripId, destinationCity)` is also available through MCP `prompts/list`
+and `prompts/get` for clients that support user-selected prompt templates. The first
+part of initialization instructions points agents to planning context so ordinary tool
+use does not depend on selecting that prompt. Refresh the MCP connection after release
+to discover the new tool, prompt and activity schemas.
+
+All MCP-facing instructions and prompt text live in
+`src/TripPlanner.Api/Instructions/McpInstructions.cs`: initialization instructions,
+versioned planning guidance and preference precedence, the destination prompt,
+tool and parameter descriptions, shared field/schema descriptions, and MCP recovery
+messages. Tool handlers, prompt registration and shared validation metadata reference
+this catalog instead of owning prose. Keep protocol names, validation constraints,
+authorization and handler logic at their existing call sites. Bump
+`McpInstructions.Planning.Version` when changing agent behavior. Rebuild/release the
+API and refresh the client's MCP connection to pick up revised instructions.
+
+Each day should have a coherent theme based on interests, geography or an anchor activity; this remains prompting guidance and is
+not a persisted theme or scheduling constraint. Conflicting preferences use the current
+explicit request, destination, trip, profile, then application defaults; unrelated
+preferences combine. Conversational preferences are saved only when the user requests
+or accepts remembering them.
+
+Activities now require a nonempty, duplicate-free `kinds` array containing one or more
+of `Food`, `Shopping`, `Culture`, `Music`, `Art`, `Nature`, `Relax`, `Event`, `Holiday`.
+`address` is nullable; `ticketRequirement` is `Unknown`, `Required`, or `NotRequired`
+(default `Unknown`). Existing `links` carry official websites and research sources.
+Unknown prices remain null rather than zero. Missing ticket evidence never implies free
+or ticketless entry. The web editor saves related metadata together with the complete
+activity; portable documents and the native decoder preserve it. Older activity payloads
+without classification must be updated before use with this contract; no classification
+is inferred during decoding. Activity data remains in the existing JSON document column.
+
+Run `./scripts/evals --smoke` to build, start, check and stop the isolated fixtures
+without model calls or Azure access. After `az login`, `./scripts/evals --repeat 3`
+loads `openai-api-key` from the deployed Azure Key Vault and runs behavioral evals
+using `gpt-6-luna` with Flex processing by default and up to four cases in parallel.
+Override concurrency with `-- --max-concurrency COUNT` (use `1` for serial runs).
+It uses the same deployment,
+subscription, resource-group and tenant settings as `scripts/server`; existing key
+environment variables are not used by this wrapper. The fetched key is passed in
+memory to the model runner and is not saved in artifacts.
+`--model MODEL` or `TRIPPLANNER_EVAL_MODEL` overrides the model;
+`--service-tier default` or `TRIPPLANNER_EVAL_SERVICE_TIER=default` selects Standard
+processing instead of discounted, slower Flex processing. Batch requires a separate asynchronous scheduler and is not
+supported by this interactive runner. The defaults live in `evals/mcp/defaults.json`.
+The runner saves results under `.promptfoo/runs`;
+`./scripts/evals --view` opens the saved results viewer. The runner pins Promptfoo in
+`evals/mcp/promptfoo-version`, waits for its own server's readiness, and cleans up its
+fixture and CLI processes on exit. Azure access is limited to account/deployment
+lookup and reading the OpenAI secret; the fixtures never access production trip data.
+See [MCP evals](evals/mcp/README.md) for options, assertions and human review rubrics. These evals exercise real MCP discovery and tool
+calls; model-based runs require an API key and allow model/tier overrides.

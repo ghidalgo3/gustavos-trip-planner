@@ -133,7 +133,7 @@ public class ActivityDetailsResearchTests
             Guid.NewGuid(),
             "paris-fr",
             null,
-            new("Museum", null, "Paintings", null, ActivityState.Proposed),
+            new("Museum", null, "Paintings", null, ActivityState.Proposed, [ActivityKind.Culture]),
             now,
             now
         );

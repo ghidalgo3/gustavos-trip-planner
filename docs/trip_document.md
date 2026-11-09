@@ -25,7 +25,7 @@ Each calendar item has `id`, `name`, `kind`, `type`, and `busy`:
 
 | Kind | Details and behavior |
 | --- | --- |
-| `activity` | Complete idea, estimated duration, cost, research, links, selection state, and scheduling rule. An assigned visit is referenced by `visitId`. |
+| `activity` | Complete idea, required nonempty `kinds` array, nullable `address`, explicit `ticketRequirement` (`Unknown`, `Required`, `NotRequired`), estimated duration, cost, research, links, selection state, and scheduling rule. An assigned visit is referenced by `visitId`. |
 | `flight` | A selected flight segment, its airports, flight number, purchase state, and visit associations. |
 | `connection` | An explicit journey between trip locations, with editable modes and segments. |
 | `transfer` | A calculated local journey between activities. |
@@ -163,4 +163,4 @@ without removing any data.
 format. It is a comparison fixture, not a fresh download from a deployed
 server. The API and client tests check its domain content, reference relationships,
 domain REST view reconstruction, API-only assessment loading, and edit validators. Both files contain real trip data;
-their synchronization metadata is historical.
+their synchronization metadata is historical. Activity kinds and explicit unknown ticket/address fields have been added to both comparison fixtures for the current contract; these annotations are not newly verified travel facts.

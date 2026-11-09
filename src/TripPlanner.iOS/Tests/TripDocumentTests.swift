@@ -42,3 +42,29 @@ struct TripDocumentTests {
     }
 
 }
+
+@MainActor
+struct TripDocumentActivityTests {
+    @Test func decodesMultipleKindsAndExplicitTicketUncertainty() throws {
+        let value: JSONValue = .object([
+            "id": .string(UUID().uuidString), "name": .string("Museum"),
+            "destinationId": .string("paris-fr"), "kinds": .array([.string("Art"), .string("Culture")]),
+            "address": .string("1 museum street"), "ticketRequirement": .string("Unknown"),
+            "description": .string("Paintings"), "links": .array([])
+        ])
+        let activity = try TripDocumentActivity(value)
+        #expect(activity.kinds == [.Art, .Culture])
+        #expect(activity.address == "1 museum street")
+        #expect(activity.ticketRequirement == .Unknown)
+    }
+
+    @Test(arguments: [[], ["Other"], ["Art", "Art"]])
+    func rejectsMissingUnknownAndDuplicateKinds(_ kinds: [String]) throws {
+        let value: JSONValue = .object([
+            "id": .string(UUID().uuidString), "name": .string("Museum"),
+            "destinationId": .string("paris-fr"), "kinds": .array(kinds.map(JSONValue.string)),
+            "ticketRequirement": .string("Unknown")
+        ])
+        #expect(throws: (any Error).self) { try TripDocumentActivity(value) }
+    }
+}

@@ -16,6 +16,83 @@ namespace TripPlanner.Api.Tests.Endpoints;
 public class ActivityEndpointTests
 {
     [TestMethod]
+    [DataRow("empty", "Unknown", false)]
+    [DataRow("invalid", "Unknown", false)]
+    [DataRow("duplicate", "Unknown", false)]
+    [DataRow("valid", "Maybe", false)]
+    [DataRow("valid", "Unknown", true)]
+    [DataRow("valid", "Required", true)]
+    [DataRow("valid", "NotRequired", true)]
+    public async Task ActivityClassification_IsValidatedAndRoundTrips(
+        string kindCase,
+        string tickets,
+        bool valid
+    )
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        await AddDestinations(client, trip, false);
+        var place = (await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, "paris-fr"))!;
+        var kinds = kindCase switch
+        {
+            "empty" => Array.Empty<ActivityKind>(),
+            "invalid" => new[] { ActivityKind.Culture },
+            "duplicate" => new[] { ActivityKind.Art, ActivityKind.Art },
+            _ => [ActivityKind.Art, ActivityKind.Culture],
+        };
+        var input = new ActivityInput(
+            "Feature",
+            null,
+            null,
+            new("Museum", null, "Paintings", null, ActivityState.Proposed, kinds)
+            {
+                Address = "1 museum street",
+                TicketRequirement = tickets,
+                Links = [new("https://example.com/museum", "Official website")],
+            }
+        );
+        var payload = System.Text.Json.Nodes.JsonNode.Parse(
+            JsonSerializer.Serialize(input, JsonSerializerOptions.Web)
+        )!;
+        if (kindCase == "invalid")
+        {
+            payload["properties"]!["kinds"] = new System.Text.Json.Nodes.JsonArray("Other");
+        }
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/trips/{trip.Id}/destinations/paris-fr/activities"
+        )
+        {
+            Content = JsonContent.Create(payload),
+        };
+        request.Headers.Add("Destination-Context", place.ContextVersion);
+        var response = await client.SendAsync(request);
+        Assert.AreEqual(
+            valid ? HttpStatusCode.Created : HttpStatusCode.BadRequest,
+            response.StatusCode,
+            await response.Content.ReadAsStringAsync()
+        );
+        if (valid)
+        {
+            var saved = (
+                await response.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>()
+            )!;
+            CollectionAssert.AreEqual(kinds, saved.Properties.Kinds.ToArray());
+            Assert.AreEqual(tickets, saved.Properties.TicketRequirement);
+            Assert.AreEqual("1 museum street", saved.Properties.Address);
+            var document = await client.GetStringAsync($"/trips/{trip.Id}/document");
+            StringAssert.Contains(document, "1 museum street");
+            StringAssert.Contains(document, "ticketRequirement");
+            StringAssert.Contains(document, "Culture");
+        }
+        else
+        {
+            Assert.IsEmpty(await factory.Database.GetActivitiesAsync(owner, trip.Id, "paris-fr"));
+        }
+    }
+
+    [TestMethod]
     public async Task RepeatVisits_SaveIndependentStayResourcesAndInvalidatePlanningContext()
     {
         await using var factory = new TestApplicationFactory();
@@ -406,7 +483,14 @@ public class ActivityEndpointTests
             trip.Id,
             original.Id,
             new("Point", GeographyPoint.Create(latitude: 48.85, longitude: 2.35)),
-            new("Museum", TimeSpan.FromHours(1), "Art", null, ActivityState.Planned),
+            new(
+                "Museum",
+                TimeSpan.FromHours(1),
+                "Art",
+                null,
+                ActivityState.Planned,
+                [ActivityKind.Culture]
+            ),
             now,
             now
         );
@@ -639,6 +723,7 @@ public class ActivityEndpointTests
                 "Sculpture galleries",
                 new(0, "EUR", "perPerson"),
                 ActivityState.Proposed,
+                [ActivityKind.Culture],
                 "Museum"
             )
         );
@@ -1323,7 +1408,7 @@ public class ActivityEndpointTests
             "Feature",
             null,
             null,
-            new("Museum", null, "", null, ActivityState.Proposed)
+            new("Museum", null, "", null, ActivityState.Proposed, [ActivityKind.Culture])
             {
                 Links =
                 [
@@ -1397,7 +1482,10 @@ public class ActivityEndpointTests
                     "Feature",
                     null,
                     null,
-                    new("Museum", null, "", null, ActivityState.Proposed) { Links = [new(url)] }
+                    new("Museum", null, "", null, ActivityState.Proposed, [ActivityKind.Culture])
+                    {
+                        Links = [new(url)],
+                    }
                 )
             ),
         };
@@ -1619,7 +1707,14 @@ public class ActivityEndpointTests
             trip.Id,
             destination.Id,
             null,
-            new("Museum", TimeSpan.FromHours(2), "Art", null, ActivityState.Proposed),
+            new(
+                "Museum",
+                TimeSpan.FromHours(2),
+                "Art",
+                null,
+                ActivityState.Proposed,
+                [ActivityKind.Culture]
+            ),
             now,
             now
         );
@@ -1715,7 +1810,14 @@ public class ActivityEndpointTests
             trip.Id,
             destination.Id,
             null,
-            new("Museum", TimeSpan.FromHours(2), "Art", null, ActivityState.Proposed),
+            new(
+                "Museum",
+                TimeSpan.FromHours(2),
+                "Art",
+                null,
+                ActivityState.Proposed,
+                [ActivityKind.Culture]
+            ),
             now,
             now
         );
@@ -1962,7 +2064,10 @@ public class ActivityEndpointTests
                     null,
                     null,
                     null
-                ),
+                )
+                {
+                    Kinds = [ActivityKind.Culture],
+                },
             ]);
         }
     }

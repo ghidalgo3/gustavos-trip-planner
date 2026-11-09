@@ -62,6 +62,7 @@ public sealed class PlanningValueSerializationTests
             {
                 duration = iso,
                 name = "Museum",
+                kinds = new[] { "Culture" },
                 state = "Proposed",
             }
         );
@@ -82,7 +83,7 @@ public sealed class PlanningValueSerializationTests
     {
         const string json = """
             {"type":"Feature","id":null,"geometry":{"type":"Point","coordinates":[2.35,48.86]},
-             "properties":{"name":"Museum","duration":"P1DT1H","description":"Art","cost":null,"state":"Proposed"}}
+             "properties":{"name":"Museum","duration":"P1DT1H","description":"Art","cost":null,"kinds":["Culture"],"ticketRequirement":"Unknown","state":"Proposed"}}
             """;
         var activity = JsonSerializer.Deserialize<ActivityInput>(json, JsonSerializerOptions.Web)!;
         Assert.AreEqual(TimeSpan.FromHours(25), activity.Properties.Duration);
@@ -151,7 +152,7 @@ public sealed class PlanningValueSerializationTests
     public void MissingDuration_RemainsUnknown_AndRangesUseFullElapsedTime()
     {
         var properties = JsonSerializer.Deserialize<ActivityProperties>(
-            """{"name":"Museum","duration":null,"description":"","state":"Proposed"}""",
+            """{"name":"Museum","duration":null,"description":"","kinds":["Culture"],"ticketRequirement":"Unknown","state":"Proposed"}""",
             JsonSerializerOptions.Web
         )!;
         Assert.IsNull(properties.Duration);

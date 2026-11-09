@@ -58,7 +58,7 @@ public sealed class PlanningWorkerTests
         Assert.IsTrue(await worker.ProcessNextAsync());
         Assert.HasCount(1, spans);
         var span = spans.Single();
-        Assert.AreEqual(ActivityKind.Server, span.Kind);
+        Assert.AreEqual(System.Diagnostics.ActivityKind.Server, span.Kind);
         Assert.AreEqual("fare_search", span.GetTagItem("tripplanner.job.kind"));
         Assert.AreEqual(fails ? ActivityStatusCode.Error : ActivityStatusCode.Ok, span.Status);
     }

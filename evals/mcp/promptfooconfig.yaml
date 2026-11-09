@@ -1,0 +1,33 @@
+description: TripPlanner travel-agent behavior through the actual MCP server
+prompts:
+  - "{{request}}"
+providers:
+  - id: file://provider.cjs
+# Each case starts its own disposable trip; never use a user's production trip.
+evaluateOptions:
+  maxConcurrency: 4
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://assertions.cjs
+tests:
+  - description: Reuse destinations and dates; propose a coherent day
+    vars:
+      scenario: known_dates
+      request: Suggest a relaxed day for this trip. Use the information I already saved. Explain the theme and practical grouping, but do not save changes yet.
+  - description: Clarify missing dates
+    vars:
+      scenario: missing_dates
+      request: Plan a date-specific day for this trip. Ask me for anything essential that is missing before scheduling it.
+  - description: Current request overrides destination preferences while preserving unrelated preferences
+    vars:
+      scenario: preferences
+      request: For this request, focus on food rather than music. Suggest a quiet, inexpensive afternoon with a coherent theme. Do not save anything yet.
+  - description: Upcoming event details require current evidence
+    vars:
+      scenario: event_unknown
+      request: Are there any special concerts during my visit? Tell me whether dates, prices and ticket requirements are verified. Do not save anything yet.
+  - description: Save one activity with multiple kinds and explicit unknowns
+    vars:
+      scenario: save_activity
+      request: Add a new undated activity called Modern art galleries, with kinds Art and Culture and description Explore contemporary galleries. I have not verified a venue, address, duration, price, tickets or website, so leave those unknown. Keep all existing activities and schedules.

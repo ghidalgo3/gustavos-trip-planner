@@ -1,17 +1,13 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Serialization;
 
 namespace TripPlanner.Api.DTO;
 
 public sealed record TravelEndpointRequest(
-    [property:
-        StringLength(500),
-        Description(
-            "Shared home or airport Place @id. Use ActivityId for a venue or VisitId for a destination/accommodation so deletion and location changes remain consistent."
-        )
-    ]
+    [property: StringLength(500), Description(McpInstructions.Fields.TravelPlaceId)]
         string? PlaceId = null,
     Guid? ActivityId = null,
     Guid? VisitId = null

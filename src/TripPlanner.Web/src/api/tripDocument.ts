@@ -1,3 +1,4 @@
+import { activityKinds } from "../features/activities/activityKinds";
 import type { ClientResource, TripView } from "./tripDocumentStore";
 
 type ObjectValue = Record<string, unknown>;
@@ -155,6 +156,23 @@ export function validateTripDocument(
       (item.type === "task" && item.busy !== false)
     )
       throw new Error("Invalid trip calendar item.");
+    if (
+      item.kind === "activity" &&
+      (!Array.isArray(item.kinds) ||
+        item.kinds.length === 0 ||
+        item.kinds.length > activityKinds.length ||
+        item.kinds.some(
+          (kind: unknown) =>
+            !activityKinds.includes(kind as (typeof activityKinds)[number]),
+        ) ||
+        new Set(item.kinds).size !== item.kinds.length ||
+        !["Unknown", "Required", "NotRequired"].includes(
+          text(item.ticketRequirement),
+        ) ||
+        (item.address != null &&
+          (typeof item.address !== "string" || item.address.length > 2000)))
+    )
+      throw new Error("Invalid activity details.");
     if (ids.has(text(item.id)))
       throw new Error("Duplicate trip calendar item.");
     ids.add(text(item.id));

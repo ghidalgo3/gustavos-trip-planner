@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 using TripPlanner.Api.DTO;
+using TripPlanner.Api.Instructions;
 
 namespace TripPlanner.Api.Validation;
 
@@ -35,8 +36,7 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                     Pattern = ClockTimeAttribute.Pattern,
                     MinLength = 8,
                     MaxLength = 16,
-                    Description =
-                        "ISO 8601 local time (HH:mm:ss), with zero seconds and no UTC offset.",
+                    Description = McpInstructions.Schema.ClockTime,
                 };
             }
             if (
@@ -53,9 +53,7 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                         | (property.PropertyType == typeof(TimeSpan?) ? JsonSchemaType.Null : 0),
                     Format = "duration",
                     Pattern = Serialization.IsoDurationConverter.Pattern,
-                    Description =
-                        range?.SchemaDescription
-                        ?? "ISO 8601 elapsed duration, for example PT1H30M.",
+                    Description = range?.SchemaDescription ?? McpInstructions.Schema.Duration,
                 };
             }
             if (
@@ -70,8 +68,7 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                         JsonSchemaType.Array | (property.IsGetNullable ? JsonSchemaType.Null : 0),
                     MinItems = 2,
                     MaxItems = 2,
-                    Description =
-                        "Exactly [longitude (-180–180), latitude (-90–90)]; both numbers must be finite.",
+                    Description = McpInstructions.Schema.Coordinates,
                     Items = new OpenApiSchema
                     {
                         Type = JsonSchemaType.Number,
@@ -114,7 +111,7 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                 | (context.JsonTypeInfo.Type == typeof(TimeSpan?) ? JsonSchemaType.Null : 0);
             schema.Format = "duration";
             schema.Pattern = Serialization.IsoDurationConverter.Pattern;
-            schema.Description = "ISO 8601 elapsed duration, for example PT1H30M.";
+            schema.Description = McpInstructions.Schema.Duration;
         }
         if (attributes.OfType<DurationRangeAttribute>().FirstOrDefault() is { } duration)
         {
@@ -131,14 +128,17 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
         {
             schema.Type = JsonSchemaType.Array;
             schema.MinItems = schema.MaxItems = 2;
-            schema.Description =
-                "Exactly [longitude (-180–180), latitude (-90–90)]; both numbers must be finite.";
+            schema.Description = McpInstructions.Schema.Coordinates;
             schema.Items = new OpenApiSchema
             {
                 Type = JsonSchemaType.Number,
                 Minimum = "-180",
                 Maximum = "180",
             };
+        }
+        if (attributes.OfType<UniqueItemsAttribute>().Any())
+        {
+            schema.UniqueItems = true;
         }
         if (attributes.OfType<HttpUrlAttribute>().Any())
         {
@@ -152,12 +152,11 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
         )
         {
             schema.Format = "date";
-            schema.Description = "ISO 8601 date (YYYY-MM-DD), within 2000–2100.";
+            schema.Description = McpInstructions.Schema.Date;
         }
         if (attributes.OfType<TimeZoneIdAttribute>().Any())
         {
-            schema.Description =
-                "Recognized time zone ID, e.g. Europe/Paris. Omit it when unknown.";
+            schema.Description = McpInstructions.Schema.TimeZone;
         }
 
         if (attributes.OfType<JsonObjectValueAttribute>().Any())

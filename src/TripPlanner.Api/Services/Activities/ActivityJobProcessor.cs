@@ -112,6 +112,12 @@ public sealed class ActivityJobProcessor(
                     warnings.Add("A duplicate or invalid suggestion was skipped.");
                     continue;
                 }
+                var kinds = (candidate.Kinds ?? []).Distinct().ToArray();
+                if (kinds.Length == 0 || kinds.Any(kind => !Enum.IsDefined(kind)))
+                {
+                    warnings.Add($"A suggestion without valid activity kinds was skipped: {name}.");
+                    continue;
+                }
                 GeoJsonPoint? point = null;
                 string placeName = string.IsNullOrWhiteSpace(candidate.PlaceName)
                     ? name
@@ -276,10 +282,29 @@ public sealed class ActivityJobProcessor(
                             ],
                             cost,
                             ActivityState.Proposed,
+                            kinds,
                             placeName
                         )
                         {
-                            Links = links,
+                            Links = links
+                                .Concat(
+                                    (candidate.Links ?? []).Where(link =>
+                                        new TripPlanner.Api.DTO.HttpUrlAttribute().IsValid(link.Url)
+                                        && link.Url.Length <= 2048
+                                        && (link.Label?.Length ?? 0) <= 200
+                                    )
+                                )
+                                .DistinctBy(link => link.Url)
+                                .Take(20)
+                                .ToArray(),
+                            Address = candidate.Address is { Length: <= 2000 }
+                                ? candidate.Address
+                                : null,
+                            TicketRequirement = candidate.TicketRequirement
+                                is "Required"
+                                    or "NotRequired"
+                                ? candidate.TicketRequirement
+                                : "Unknown",
                             LocationSuggestion = locationSuggestion,
                         },
                         now,

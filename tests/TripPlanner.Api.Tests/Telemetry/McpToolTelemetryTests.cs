@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Telemetry;
 using TripPlanner.Api.Tests.Mcp;
 using TripPlanner.Api.Tests.Support;
@@ -82,6 +83,7 @@ public sealed class McpToolTelemetryTests
             expectedStatus == 0 ? "unknown_tool" : tool,
             span.GetTagItem("mcp.tool.name")
         );
+        Assert.AreEqual(McpInstructions.Planning.Version, span.GetTagItem("mcp.guidance.version"));
         Assert.AreEqual(
             expectedStatus == 200 ? ActivityStatusCode.Ok : ActivityStatusCode.Error,
             span.Status

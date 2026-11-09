@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
+using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Serialization;
 
 namespace TripPlanner.Api.Models;
@@ -38,9 +39,7 @@ public sealed record DailyPlanningSettings
     public TimeSpan SlackDuration { get; init; } = TimeSpan.FromMinutes(60);
 
     [AllowedValues("fastest", "walking", "taxi", "driving")]
-    [Description(
-        "fastest compares walking and driving per leg. walking is a legacy alias for fastest; use a per-leg walking override to require walking."
-    )]
+    [Description(McpInstructions.Fields.DailyTransportMode)]
     public string TransportMode { get; init; } = "fastest";
 
     [DurationRange(0, 1440)]
@@ -59,24 +58,18 @@ public sealed record DailyPlanningSettings
 public sealed record ActivityPlan
 {
     [MaxLength(1000)]
-    [Description(
-        "IDs of activity ideas selected for planning. Selection alone does not assign a date or time; place them in days to schedule them."
-    )]
+    [Description(McpInstructions.Fields.SelectedActivityIds)]
     public Guid[] SelectedActivityIds { get; init; } = [];
 
     [MaxLength(1000)]
     public Guid[] ExcludedActivityIds { get; init; } = [];
 
     [MaxLength(366)]
-    [Description(
-        "Date-specific ordered placements of selected activity IDs. Use a destination visit ID from context.visits as stayId, not an accommodation ID. Keep itinerary dates and times here and in rules, independent of activity definitions."
-    )]
+    [Description(McpInstructions.Fields.PlanDays)]
     public ActivityPlanDay[] Days { get; init; } = [];
 
     [MaxLength(1000)]
-    [Description(
-        "Restrictions keyed by activityId. Use fixedDate and fixedStart (local HH:mm:ss) for a user-requested date/time; preserve existing restrictions. Do not encode scheduling in activity names or descriptions."
-    )]
+    [Description(McpInstructions.Fields.PlanRules)]
     public ActivityPlanRule[] Rules { get; init; } = [];
 
     [MaxLength(2000)]
@@ -97,9 +90,7 @@ public sealed record ActivityPlanDay(
 {
     public DailyPlanningSettings? Settings { get; init; }
 
-    [Description(
-        "Optional manual meal positions: the number of activities before each meal. Omit to let the scheduler place meals. Start times remain calculated from durations, travel, opening hours, and bookings."
-    )]
+    [Description(McpInstructions.Fields.MealPositions)]
     public ActivityMealPositions? MealPositions { get; init; }
 
     [ClockTime, JsonConverter(typeof(IsoTimeOnlyConverter))]
@@ -233,14 +224,10 @@ public sealed record ActivityDayAssessment(
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan TravelDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan MealDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan RestDuration,
-    [property: Description(
-        "Unallocated gaps before meals, bookings, or opening hours. Included in slackDuration, not deducted from free time."
-    )]
+    [property: Description(McpInstructions.Fields.WaitingDuration)]
     [property: JsonConverter(typeof(IsoDurationConverter))]
         TimeSpan WaitingDuration,
-    [property: Description(
-        "All unallocated time within the available day, including gaps between scheduled items, before required slack is reserved."
-    )]
+    [property: Description(McpInstructions.Fields.SlackDuration)]
     [property: JsonConverter(typeof(IsoDurationConverter))]
         TimeSpan SlackDuration,
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan RequiredSlackDuration,

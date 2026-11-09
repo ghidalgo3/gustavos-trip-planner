@@ -57,7 +57,14 @@ internal static class ActivityPlanningFixture
                             "Point",
                             GeographyPoint.Create(latitude: 48.86, longitude: 2.35 + i * .001)
                         ),
-                        new($"Activity {i + 1}", duration, "", null, ActivityState.Proposed),
+                        new(
+                            $"Activity {i + 1}",
+                            duration,
+                            "",
+                            null,
+                            ActivityState.Proposed,
+                            [ActivityKind.Culture]
+                        ),
                         Now,
                         Now
                     )
@@ -219,7 +226,14 @@ internal static class ActivityPlanningFixture
             trip.Id,
             place.CityId,
             new("Point", GeographyPoint.Create(latitude: 48.86, longitude: 2.35)),
-            new("Museum", TimeSpan.FromMinutes(90), "", null, ActivityState.Planned),
+            new(
+                "Museum",
+                TimeSpan.FromMinutes(90),
+                "",
+                null,
+                ActivityState.Planned,
+                [ActivityKind.Culture]
+            ),
             Now,
             Now
         );
