@@ -6,6 +6,7 @@ using TripPlanner.Api.DTO;
 using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Services.Documents;
+using TripPlanner.Api.Services.Maps;
 using TripPlanner.Api.Tests.Mcp;
 using TripPlanner.Api.Tests.Support;
 
@@ -104,9 +105,12 @@ internal static class McpEvalServer
         }
     }
 
-    internal static async Task<Session> CreateSession(TripDocument document)
+    internal static async Task<Session> CreateSession(
+        TripDocument document,
+        IAzureMapsClient? maps = null
+    )
     {
-        var factory = new TestApplicationFactory { McpEnabled = true };
+        var factory = new TestApplicationFactory { McpEnabled = true, MapsClient = maps };
         try
         {
             using var browser = McpEndpointTests.CreateClient(factory);

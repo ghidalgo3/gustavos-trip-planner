@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
+using Microsoft.Spatial;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using OpenIddict.Abstractions;
@@ -12,8 +13,10 @@ using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Instructions;
+using TripPlanner.Api.Models;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Services.Destinations;
+using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Mcp;
 
@@ -22,7 +25,8 @@ public sealed class TripPlannerTools(
     McpExecutionAdapter adapter,
     IPlannerDb database,
     ICurrentUser currentUser,
-    DestinationService destinations
+    DestinationService destinations,
+    IAzureMapsClient maps
 )
 {
     [McpServerTool(
@@ -370,6 +374,95 @@ public sealed class TripPlannerTools(
                     destinations,
                     currentUser
                 )
+        );
+
+    [McpServerTool(Name = "geocode_address", ReadOnly = true, OpenWorld = true)]
+    [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
+    [Description(McpInstructions.Tools.GeocodeAddress)]
+    public Task<CallToolResult> GeocodeAddress(
+        Guid tripId,
+        [Required, StringLength(200), Description(McpInstructions.Parameters.DestinationId)]
+            string destinationId,
+        [Required, StringLength(500), Description(McpInstructions.Parameters.GeocodingAddress)]
+            string address
+    ) =>
+        Execute(
+            false,
+            async context =>
+            {
+                var (_, user, error) = await PlanningEndpointHelpers.AuthorizeAsync(
+                    tripId,
+                    false,
+                    context,
+                    database,
+                    currentUser
+                );
+                if (error is not null)
+                {
+                    return error;
+                }
+
+                var destination = await database.GetDestinationPlaceAsync(
+                    user!.Id,
+                    tripId,
+                    destinationId,
+                    context.RequestAborted
+                );
+                if (destination is null)
+                {
+                    return Results.NotFound();
+                }
+
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
+                    context.RequestAborted
+                );
+                deadline.CancelAfter(TimeSpan.FromSeconds(8));
+                try
+                {
+                    var candidates = await maps.GeocodeAddressAsync(
+                        address.Trim(),
+                        destination.Name,
+                        destination.CountryCode,
+                        deadline.Token,
+                        new(
+                            "Point",
+                            GeographyPoint.Create(destination.Latitude, destination.Longitude)
+                        )
+                    );
+                    var match = candidates
+                        is [
+                            {
+                                Confidence: AddressMatchConfidence.High,
+                                Ambiguous: false,
+                                PostalCodeMismatch: false
+                            } precise,
+                        ]
+                        ? precise
+                        : null;
+                    return Results.Ok(
+                        new
+                        {
+                            geometry = match?.Geometry,
+                            formattedAddress = match?.FormattedAddress,
+                        }
+                    );
+                }
+                catch (Exception exception)
+                    when (exception
+                            is HttpRequestException
+                                or JsonException
+                                or IOException
+                                or InvalidOperationException
+                                or OperationCanceledException
+                    )
+                {
+                    context.RequestAborted.ThrowIfCancellationRequested();
+                    return Results.Problem(
+                        statusCode: 502,
+                        title: McpInstructions.Messages.GeocodingUnavailable
+                    );
+                }
+            }
         );
 
     [McpServerTool(

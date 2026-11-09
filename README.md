@@ -1183,6 +1183,14 @@ and destination preferences, the current activity-kind catalog, and versioned gu
 It requires read or write scope and trip visibility. It excludes other travelers' raw
 private profiles. No new REST route is needed for this aggregate MCP read.
 
+After researching a venue's street address, agents can call the read-only
+`geocode_address(tripId, destinationId, address)` tool. TripPlanner uses the saved
+destination's country and coordinates to guide the lookup. A single precise
+match returns a GeoJSON Point in `data.geometry` and a `data.formattedAddress`
+to check against the source. Agents can pass that Point as `request.geometry`
+to `create_activity` and keep the researched address and source link on the
+activity. The tool returns null fields when it cannot identify a precise match.
+
 `plan_destination(tripId, destinationCity)` is also available through MCP `prompts/list`
 and `prompts/get` for clients that support user-selected prompt templates. The first
 part of initialization instructions points agents to planning context so ordinary tool
