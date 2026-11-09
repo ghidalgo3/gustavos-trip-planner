@@ -98,6 +98,15 @@ public sealed class ActivityPlanningMcpTests
             plan.GetProperty("rules").GetProperty("description").GetString()!,
             "fixedDate and fixedStart"
         );
+        var dayName = plan.GetProperty("days")
+            .GetProperty("items")
+            .GetProperty("properties")
+            .GetProperty("name");
+        Assert.AreEqual(200, dayName.GetProperty("maxLength").GetInt32());
+        StringAssert.Contains(
+            dayName.GetProperty("description").GetString()!,
+            "not a scheduling constraint"
+        );
     }
 
     [TestMethod]

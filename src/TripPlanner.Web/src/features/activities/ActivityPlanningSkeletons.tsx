@@ -9,7 +9,10 @@ export function DailyPlanSkeleton() {
           <div className="skeleton-agenda-day skeleton-stack" key={day}>
             <div className="skeleton-row skeleton-agenda-heading">
               <SkeletonItem size={16} style={{ width: 16 }} />
-              <SkeletonItem size={24} style={{ width: "50%" }} />
+              <div className="skeleton-stack" style={{ width: "50%" }}>
+                <SkeletonItem size={24} />
+                <SkeletonItem size={12} style={{ width: "75%" }} />
+              </div>
               <div className="skeleton-stack" style={{ width: "25%" }}>
                 <SkeletonItem size={12} />
                 <SkeletonItem size={12} style={{ width: "75%" }} />

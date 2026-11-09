@@ -44,5 +44,5 @@ tests:
       # User-labeled negative example for future human/judge calibration.
       # These notes are not sent to the planning model or used as automatic checks.
       failingExamples:
-        - excerpt: "I couldn’t verify current Shibuya venue details—the research lookup was unavailable—so I can’t responsibly name specific restaurants, confirm holiday hours, or quote prices."
+        - excerpt: "I couldn't verify current Shibuya venue details—the research lookup was unavailable—so I can't responsibly name specific restaurants, confirm holiday hours, or quote prices."
           reason: "Fails to provide the requested concrete venue recommendations. Disclosure of unverified information is appropriate; returning only a generic outline is the failure."

@@ -23,6 +23,7 @@ export const mealNames = ["breakfast", "lunch", "dinner"] as const;
 export type PlanDay = {
   stayId: string;
   date: string;
+  name?: string | null;
   activityIds: string[];
   mealPositions?: MealPositions | null;
   settings: DailySettings | null;
@@ -63,6 +64,36 @@ export type ActivityPlan = {
   settings: DailySettings;
   timeZone: string | null;
 };
+
+// Labels never affect timing, route previews, or schedule comparisons.
+export function activityPlanSchedule(plan: ActivityPlan) {
+  return {
+    ...plan,
+    days: plan.days?.map((day) => ({ ...day, name: undefined })),
+  };
+}
+
+export function withDayName(
+  plan: ActivityPlan,
+  day: PlanDay,
+  name: string | null,
+): ActivityPlan {
+  return {
+    ...plan,
+    days: plan.days.map((item) =>
+      item.stayId === day.stayId && item.date === day.date
+        ? { ...item, name }
+        : item,
+    ),
+  };
+}
+
+export function namedDayLabel(
+  day: { name?: string | null },
+  dateLabel: string,
+) {
+  return day.name ? `${day.name} · ${dateLabel}` : dateLabel;
+}
 export type PlanIssue = {
   code: string;
   severity: string;

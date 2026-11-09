@@ -476,18 +476,32 @@ public static class ActivityPlanEndpoints
             return Results.BadRequest(new { title = "A choice ID requires a proposal ID." });
         }
 
-        var errors = ActivityPlanRules.Validate(plan, planningContext);
+        var previous = planningContext.SavedPlan;
+        bool preserveTiming =
+            previous is not null
+            && request.ProposalId is null
+            && ActivityPlanRules.OnlyDayNamesChanged(previous.Plan, plan);
+        // An unchanged saved schedule can contain stale flight candidates. Renaming
+        // validates its annotated input fields without revalidating or accepting timing.
+        var errors = preserveTiming
+            ? new Dictionary<string, string[]>()
+            : ActivityPlanRules.Validate(plan, planningContext);
         if (errors.Count > 0)
         {
             return Results.ValidationProblem(errors);
         }
 
-        var assessment = planningContext.Evaluate(plan, clock.GetUtcNow());
-        var flightConflicts = assessment
-            .Issues.Where(i => i.Code == "flight_unavailable")
-            .Select(i => i.Message)
-            .Distinct()
-            .ToArray();
+        plan = ActivityPlanRules.NormalizeDayNames(plan);
+        var assessment = preserveTiming
+            ? previous!.Assessment
+            : planningContext.Evaluate(plan, clock.GetUtcNow());
+        string[] flightConflicts = preserveTiming
+            ? []
+            : assessment
+                .Issues.Where(i => i.Code == "flight_unavailable")
+                .Select(i => i.Message)
+                .Distinct()
+                .ToArray();
         if (flightConflicts.Length > 0)
         {
             return Results.ValidationProblem(
@@ -499,9 +513,16 @@ public static class ActivityPlanEndpoints
             user.Id,
             tripId,
             destinationCity,
-            new(plan, assessment, version, planningContext.InputRevision, clock.GetUtcNow()),
+            new(
+                plan,
+                assessment,
+                version,
+                preserveTiming ? previous!.InputRevision : planningContext.InputRevision,
+                clock.GetUtcNow()
+            ),
             version,
             planningContext.InputRevision,
+            preserveTiming,
             context.RequestAborted
         );
         if (saved is null)

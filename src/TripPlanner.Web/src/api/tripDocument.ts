@@ -180,6 +180,15 @@ export function validateTripDocument(
   const fail = () => {
     throw new Error("Invalid trip document edit validator.");
   };
+  for (const destination of list(object(d.preferences).destinations)) {
+    for (const day of list(object(destination.schedule).days)) {
+      if (
+        day.name != null &&
+        (typeof day.name !== "string" || day.name.length > 200)
+      )
+        throw new Error("Invalid day name.");
+    }
+  }
   const token = (value: unknown) => /^[!#-~\u0080-\u00ff]+$/.test(text(value));
   const validateFields = (value: unknown) => {
     const fields = object(value);

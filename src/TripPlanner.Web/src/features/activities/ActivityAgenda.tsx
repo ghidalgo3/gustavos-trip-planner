@@ -3,6 +3,7 @@ import { addFlightItems, flightWindowForDay } from "./AgendaFlights";
 import { addDaylightDividers } from "./AgendaDaylight";
 import type { SolarLocation } from "../../shared/time/daylight";
 import ActivityOrderHandle from "./ActivityOrderHandle";
+import DayNameEditor from "./DayNameEditor";
 import {
   CalendarLtr24Regular,
   ArrowRight20Regular,
@@ -13,6 +14,7 @@ import { useId, useState, type ReactNode } from "react";
 import type { Activity } from "./activitiesApi";
 import {
   agendaMealPositions,
+  namedDayLabel,
   type Availability,
   type ActivityPlan,
   type PlanAssessment,
@@ -45,6 +47,8 @@ export default function ActivityAgenda({
   selectedRouteKey,
   onMove,
   onRemove,
+  onNameDay,
+  confirmedDays,
 }: {
   stateKey: string;
   plan: ActivityPlan;
@@ -67,6 +71,8 @@ export default function ActivityAgenda({
     mealsBefore?: number,
   ) => void;
   onRemove: (id: string) => void;
+  onNameDay: (day: PlanDay, name: string | null) => Promise<void>;
+  confirmedDays: PlanDay[];
 }) {
   const agendaId = useId();
   const [expandedDays, setExpandedDays] = useState<Set<string>>(
@@ -157,7 +163,7 @@ export default function ActivityAgenda({
                   key={`${option.stayId}-${option.date}`}
                   value={option.date}
                 >
-                  {dateLabel(option.date)}
+                  {namedDayLabel(option, dateLabel(option.date))}
                 </option>
               ))}
             </select>
@@ -490,14 +496,14 @@ export default function ActivityAgenda({
             <section
               className="agenda-group"
               data-order-day={day.date}
-              aria-label={dateLabel(day.date)}
+              aria-label={namedDayLabel(day, dateLabel(day.date))}
               key={`${day.stayId}-${day.date}`}
             >
               <h3 className="agenda-day-title">
                 <button
                   type="button"
                   className="agenda-day-toggle"
-                  aria-label={dateLabel(day.date)}
+                  aria-label={namedDayLabel(day, dateLabel(day.date))}
                   aria-describedby={`${contentId}-summary`}
                   aria-expanded={expanded}
                   aria-controls={contentId}
@@ -514,7 +520,10 @@ export default function ActivityAgenda({
                   ) : (
                     <ChevronRight20Regular aria-hidden="true" />
                   )}
-                  <time dateTime={day.date}>{dateLabel(day.date)}</time>
+                  <span className="agenda-day-label">
+                    {day.name && <span>{day.name}</span>}
+                    <time dateTime={day.date}>{dateLabel(day.date)}</time>
+                  </span>
                   <span
                     className="agenda-day-summary"
                     id={`${contentId}-summary`}
@@ -528,6 +537,17 @@ export default function ActivityAgenda({
                 </button>
               </h3>
               <div id={contentId} hidden={!expanded}>
+                <DayNameEditor
+                  day={day}
+                  disabled={disabled || readOnly}
+                  draftDay={
+                    !confirmedDays.some(
+                      (item) =>
+                        item.stayId === day.stayId && item.date === day.date,
+                    )
+                  }
+                  onCommit={onNameDay}
+                />
                 {day.activityIds.length === 0 && (
                   <p>No activities scheduled for this day.</p>
                 )}

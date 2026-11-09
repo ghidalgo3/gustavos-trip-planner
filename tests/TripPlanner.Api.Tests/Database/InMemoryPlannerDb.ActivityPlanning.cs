@@ -216,6 +216,7 @@ public sealed partial class InMemoryPlannerDb
         StoredActivityPlan plan,
         long expectedVersion,
         long expectedInputRevision,
+        bool preserveTiming = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -233,26 +234,29 @@ public sealed partial class InMemoryPlannerDb
                 return Task.FromResult<StoredActivityPlan?>(null);
             }
 
-            foreach (
-                var activity in _activities
-                    .Values.Where(a => a.TripId == tripId && a.CityId == cityId)
-                    .ToArray()
-            )
+            if (!preserveTiming)
             {
-                ActivityState state = ActivityPlanRules.SelectionState(activity, plan.Plan);
-                if (state != activity.Properties.State)
+                foreach (
+                    var activity in _activities
+                        .Values.Where(a => a.TripId == tripId && a.CityId == cityId)
+                        .ToArray()
+                )
                 {
-                    _activities[activity.Id] = activity with
+                    ActivityState state = ActivityPlanRules.SelectionState(activity, plan.Plan);
+                    if (state != activity.Properties.State)
                     {
-                        Properties = activity.Properties with { State = state },
-                        UpdatedAt = OperationClock.GetUtcNow(),
-                    };
+                        _activities[activity.Id] = activity with
+                        {
+                            Properties = activity.Properties with { State = state },
+                            UpdatedAt = OperationClock.GetUtcNow(),
+                        };
+                    }
                 }
             }
             var saved = plan with
             {
                 Version = expectedVersion + 1,
-                InputRevision = PlanningRevision(tripId),
+                InputRevision = preserveTiming ? plan.InputRevision : PlanningRevision(tripId),
             };
             _activityPlans[(tripId, cityId)] = saved;
             return Task.FromResult<StoredActivityPlan?>(saved);

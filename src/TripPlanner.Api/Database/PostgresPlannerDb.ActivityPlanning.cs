@@ -114,6 +114,7 @@ public sealed partial class PostgresPlannerDb
         StoredActivityPlan plan,
         long expectedVersion,
         long expectedInputRevision,
+        bool preserveTiming = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -158,30 +159,33 @@ public sealed partial class PostgresPlannerDb
             }
         }
         // Full activity properties are preserved; membership is changed in this same transaction.
-        await using (
-            var states = new NpgsqlCommand(
-                """
-                UPDATE activities SET properties=properties || jsonb_build_object('state',
-                    CASE WHEN id=ANY($3) THEN 'Planned' WHEN id=ANY($4) THEN 'Rejected' ELSE 'Proposed' END),updated_at=clock_timestamp()
-                WHERE trip_id=$1 AND city_id=$2 AND properties->>'state' IS DISTINCT FROM
-                    CASE WHEN id=ANY($3) THEN 'Planned' WHEN id=ANY($4) THEN 'Rejected'
-                        WHEN properties->>'state' IN ('Planned','Rejected') THEN 'Proposed' ELSE properties->>'state' END;
-                """,
-                connection,
-                transaction
-            )
-        )
+        if (!preserveTiming)
         {
-            states.Parameters.AddWithValue(tripId);
-            states.Parameters.AddWithValue(cityId);
-            states.Parameters.AddWithValue(plan.Plan.SelectedActivityIds);
-            states.Parameters.AddWithValue(plan.Plan.ExcludedActivityIds);
-            await states.ExecuteNonQueryAsync(cancellationToken);
+            await using (
+                var states = new NpgsqlCommand(
+                    """
+                    UPDATE activities SET properties=properties || jsonb_build_object('state',
+                        CASE WHEN id=ANY($3) THEN 'Planned' WHEN id=ANY($4) THEN 'Rejected' ELSE 'Proposed' END),updated_at=clock_timestamp()
+                    WHERE trip_id=$1 AND city_id=$2 AND properties->>'state' IS DISTINCT FROM
+                        CASE WHEN id=ANY($3) THEN 'Planned' WHEN id=ANY($4) THEN 'Rejected'
+                            WHEN properties->>'state' IN ('Planned','Rejected') THEN 'Proposed' ELSE properties->>'state' END;
+                    """,
+                    connection,
+                    transaction
+                )
+            )
+            {
+                states.Parameters.AddWithValue(tripId);
+                states.Parameters.AddWithValue(cityId);
+                states.Parameters.AddWithValue(plan.Plan.SelectedActivityIds);
+                states.Parameters.AddWithValue(plan.Plan.ExcludedActivityIds);
+                await states.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
         await using var save = new NpgsqlCommand(
             """
             INSERT INTO activity_plans(trip_id,city_id,version,input_revision,plan,assessment,saved_at)
-            SELECT $1,$2,1,revision,$3,$4,$5 FROM activity_planning_versions WHERE trip_id=$1
+            SELECT $1,$2,1,CASE WHEN $6 THEN $7 ELSE revision END,$3,$4,$5 FROM activity_planning_versions WHERE trip_id=$1
             ON CONFLICT(trip_id,city_id) DO UPDATE SET version=activity_plans.version+1,input_revision=EXCLUDED.input_revision,
                 plan=EXCLUDED.plan,assessment=EXCLUDED.assessment,saved_at=EXCLUDED.saved_at
             RETURNING version,input_revision;
@@ -194,6 +198,8 @@ public sealed partial class PostgresPlannerDb
         save.Parameters.AddWithValue(NpgsqlDbType.Jsonb, PlanningJson(plan.Plan));
         save.Parameters.AddWithValue(NpgsqlDbType.Jsonb, PlanningJson(plan.Assessment));
         save.Parameters.AddWithValue(plan.SavedAt);
+        save.Parameters.AddWithValue(preserveTiming);
+        save.Parameters.AddWithValue(plan.InputRevision);
         StoredActivityPlan saved;
         await using (var reader = await save.ExecuteReaderAsync(cancellationToken))
         {

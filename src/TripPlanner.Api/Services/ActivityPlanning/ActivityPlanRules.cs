@@ -21,6 +21,29 @@ public static class ActivityPlanRules
 
     public static string ETag(long version) => $"\"{version}\"";
 
+    public static ActivityPlan NormalizeDayNames(ActivityPlan plan) =>
+        plan with
+        {
+            Days = plan
+                .Days.Select(day =>
+                    day with
+                    {
+                        Name = string.IsNullOrWhiteSpace(day.Name) ? null : day.Name.Trim(),
+                    }
+                )
+                .ToArray(),
+        };
+
+    private static ActivityPlan WithoutDayNames(ActivityPlan plan) =>
+        plan with
+        {
+            Days = plan.Days.Select(day => day with { Name = null }).ToArray(),
+        };
+
+    public static bool OnlyDayNamesChanged(ActivityPlan before, ActivityPlan after) =>
+        Hash(before) != Hash(after)
+        && Hash(WithoutDayNames(before)) == Hash(WithoutDayNames(after));
+
     // A planning day starts at wake-up. A 01:00 booking belongs to the following
     // calendar date when that day's awake window extends past midnight.
     public static TimeSpan DayOffset(TimeOnly time, DailyPlanningSettings settings)
@@ -228,6 +251,11 @@ public static class ActivityPlanRules
         }
         else
         {
+            if (plan.Days.Any(day => day.Name is { Length: > 200 }))
+            {
+                errors["days.name"] = ["Day names cannot exceed 200 characters."];
+            }
+
             if (
                 plan.Days.Select(d => (d.StayId, d.Date)).Distinct().Count() != plan.Days.Length
                 || plan.Days.Select(d => d.Date).Distinct().Count() != plan.Days.Length

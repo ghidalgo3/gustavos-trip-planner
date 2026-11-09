@@ -63,6 +63,7 @@ public sealed class ActivityPlanningDbTests
                 await service.ReadAsync(user.Id, trip.Id, place.CityId, CancellationToken.None)
             )!;
             var plan = ActivityPlanningFixture.Plan(planningContext);
+            plan = plan with { Days = [plan.Days[0] with { Name = "Museum day" }] };
             var saved = await db.SaveActivityPlanAsync(
                 user.Id,
                 trip.Id,
@@ -105,9 +106,38 @@ public sealed class ActivityPlanningDbTests
             Assert.IsEmpty(saved!.Plan.SelectedActivityIds);
             Assert.Contains(activity.Id, saved.Plan.ExcludedActivityIds);
             Assert.IsEmpty(saved.Plan.Days.SelectMany(d => d.ActivityIds));
+            Assert.AreEqual("Museum day", saved.Plan.Days.Single().Name);
             planningContext = (
                 await service.ReadAsync(user.Id, trip.Id, place.CityId, CancellationToken.None)
             )!;
+            long previousInputRevision = saved.InputRevision;
+            var previousAssessment = saved.Assessment;
+            saved = await db.SaveActivityPlanAsync(
+                user.Id,
+                trip.Id,
+                place.CityId,
+                saved with
+                {
+                    Plan = saved.Plan with
+                    {
+                        Days = [saved.Plan.Days[0] with { Name = "Rest day" }],
+                    },
+                },
+                saved.Version,
+                planningContext.InputRevision,
+                preserveTiming: true
+            );
+            Assert.IsNotNull(saved);
+            var reloaded = (await db.GetActivityPlanAsync(user.Id, trip.Id, place.CityId))!;
+            Assert.AreEqual("Rest day", reloaded.Plan.Days.Single().Name);
+            Assert.AreEqual(previousInputRevision, reloaded.InputRevision);
+            Assert.AreEqual(
+                System.Text.Json.JsonSerializer.Serialize(previousAssessment),
+                System.Text.Json.JsonSerializer.Serialize(reloaded.Assessment)
+            );
+            Assert.IsTrue(
+                service.Response(planningContext with { SavedPlan = reloaded }).TimingStale
+            );
             var job = new ActivityPlanningJob(
                 Guid.NewGuid(),
                 user.Id,

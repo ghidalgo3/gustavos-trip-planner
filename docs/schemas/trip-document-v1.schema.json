@@ -160,7 +160,14 @@
                   "days": {
                     "type": "array",
                     "items": {
-                      "type": "object"
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": ["string", "null"],
+                          "maxLength": 200,
+                          "description": "Optional name for this destination's local day; does not constrain scheduling."
+                        }
+                      }
                     }
                   }
                 }

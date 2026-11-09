@@ -13,9 +13,12 @@ import ActivityOrderHandle from "./ActivityOrderHandle";
 import "./activityPlan.css";
 import {
   activityPlanPath,
+  activityPlanSchedule,
   activityRule,
   chooseActivity,
   moveActivity,
+  namedDayLabel,
+  withDayName,
   planningRequest,
   previewActivityPlan,
   type ActivityPlan,
@@ -263,14 +266,17 @@ export default function DailyActivityPlan({
   });
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [plan, setPlan] = useState<ActivityPlan>();
+  const scheduleKey = JSON.stringify(plan && activityPlanSchedule(plan));
   const invalidateRoute = useEffectEvent(() => onPlanChange?.());
   useEffect(() => {
     invalidateRoute();
-  }, [plan]);
+  }, [scheduleKey]);
   const [assessment, setAssessment] = useState<PlanAssessment>();
   const [error, setError] = useState("");
   const { notify, toaster } = useActionToast();
   const [busy, setBusy] = useState(false);
+  const operationInFlight = useRef(false);
+  const [nameSaveFailed, setNameSaveFailed] = useState(false);
   const [checkingMove, setCheckingMove] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [refresh, setRefresh] = useState(false);
@@ -430,6 +436,8 @@ export default function DailyActivityPlan({
     };
   }, [pending, path]);
   async function run(action: () => Promise<void>) {
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
     setBusy(true);
     setError("");
     try {
@@ -437,6 +445,51 @@ export default function DailyActivityPlan({
     } catch (e) {
       if (active.current) notify((e as Error).message, "error");
     } finally {
+      operationInFlight.current = false;
+      if (active.current) setBusy(false);
+    }
+  }
+  async function nameDay(day: PlanDay, name: string | null) {
+    if (!resource || readOnly || pending || operationInFlight.current)
+      throw new Error(
+        "Wait for the current operation before saving the day name.",
+      );
+    const confirmed = resource.data.plan.days.find(
+      (item) => item.stayId === day.stayId && item.date === day.date,
+    );
+    // A newly added day and its related values remain part of the explicit draft save.
+    if (!confirmed) {
+      setPlan((current) => current && withDayName(current, day, name));
+      return;
+    }
+    operationInFlight.current = true;
+    setBusy(true);
+    try {
+      const value = await planningRequest<PlanResponse>(path, {
+        method: "PUT",
+        etag: resource.etag,
+        body: {
+          plan: withDayName(resource.data.plan, day, name),
+          contextVersion: resource.data.contextVersion,
+        },
+      });
+      if (!active.current) return;
+      const savedName =
+        value.data.plan.days.find(
+          (item) => item.stayId === day.stayId && item.date === day.date,
+        )?.name ?? null;
+      setResource(value);
+      setPlan((current) => current && withDayName(current, day, savedName));
+      setAssessment(value.data.assessment);
+      setNameSaveFailed(false);
+      // Proposals use the previous plan version and can no longer be applied.
+      setPreview(undefined);
+      setJob(undefined);
+    } catch (reason) {
+      if (active.current) setNameSaveFailed(true);
+      throw reason;
+    } finally {
+      operationInFlight.current = false;
       if (active.current) setBusy(false);
     }
   }
@@ -448,6 +501,7 @@ export default function DailyActivityPlan({
     setAssessment(value.data.assessment);
     setJob(undefined);
     setPreview(undefined);
+    setNameSaveFailed(false);
   }
   async function save(choice?: PlanChoice) {
     if (!plan || !resource) return;
@@ -925,7 +979,7 @@ export default function DailyActivityPlan({
         <option value="">Selected, unscheduled</option>
         {plan.days.map((d) => (
           <option key={`${d.stayId}-${d.date}`} value={d.date}>
-            {dateName(d.date)}
+            {namedDayLabel(d, dateName(d.date))}
           </option>
         ))}
       </select>
@@ -939,7 +993,7 @@ export default function DailyActivityPlan({
         </p>
       )}
       {toaster}
-      {(dirty || resource.data.timingStale) && (
+      {(dirty || resource.data.timingStale || nameSaveFailed) && (
         <div className="planning-actions">
           {!readOnly && (
             <button
@@ -1014,6 +1068,8 @@ export default function DailyActivityPlan({
         }
         onMove={move}
         onRemove={(id) => state(id, "idea")}
+        onNameDay={nameDay}
+        confirmedDays={resource.data.plan.days}
       />
       <button
         type="button"
@@ -1212,7 +1268,15 @@ export default function DailyActivityPlan({
               <AssessmentSummary assessment={preview.assessment} />
               {preview.assessment.days.map((day) => (
                 <div key={`${day.stayId}-${day.date}`}>
-                  <h4>{dateName(day.date)}</h4>
+                  <h4>
+                    {namedDayLabel(
+                      preview.plan.days.find(
+                        (item) =>
+                          item.stayId === day.stayId && item.date === day.date,
+                      ) ?? {},
+                      dateName(day.date),
+                    )}
+                  </h4>
                   <DayTotals assessment={day} />
                   <ol>
                     {day.entries.map((entry) => (
@@ -1364,7 +1428,7 @@ export default function DailyActivityPlan({
                 key={`${day.stayId}-${day.date}`}
                 aria-label={dateName(day.date)}
               >
-                <h3>{dateName(day.date)}</h3>
+                <h3>{namedDayLabel(day, dateName(day.date))}</h3>
                 <DayTotals assessment={assessed} />
                 <details>
                   <summary>Day availability and overrides</summary>

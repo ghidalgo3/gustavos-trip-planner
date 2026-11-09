@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Tests.Support;
@@ -10,6 +11,151 @@ namespace TripPlanner.Api.Tests.Endpoints;
 [TestClass]
 public sealed class ActivityPlanEndpointTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DayNames_RoundTripNormalizeAndClear_WithoutAcceptingTiming(bool stale)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, user, place, activity) = await Seed(factory, client);
+        string path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
+        var read = await client.GetAsync(path);
+        var initial = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+        Assert.IsNull(initial.Plan.Days.Single().Name);
+        var plan = initial.Plan with
+        {
+            Days =
+            [
+                initial.Plan.Days[0] with
+                {
+                    ActivityIds = [activity.Id],
+                    Name = "EPCOT Visit",
+                },
+            ],
+            Rules = [new(activity.Id) { AlwaysAvailable = true }],
+        };
+        var write = await Put(
+            client,
+            path,
+            new ReplaceActivityPlanRequest(plan, initial.ContextVersion),
+            read.Headers.ETag!.ToString()
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            write.StatusCode,
+            await write.Content.ReadAsStringAsync()
+        );
+        var saved = (await factory.Database.GetActivityPlanAsync(user.Id, trip.Id, place.CityId))!;
+        if (stale)
+        {
+            await factory.Database.SaveActivityAsync(
+                user.Id,
+                activity with
+                {
+                    Properties = activity.Properties with { Duration = TimeSpan.FromHours(2) },
+                    UpdatedAt = Now.AddMinutes(1),
+                },
+                place.ContextVersion,
+                activity.UpdatedAt
+            );
+        }
+        var beforeDocument = (
+            await client.GetFromJsonAsync<TripDocument>($"/trips/{trip.Id}/document")
+        )!;
+        foreach (
+            var (supplied, expected) in new (string?, string?)[]
+            {
+                ("  京都 & EPCOT 🌐  ", "京都 & EPCOT 🌐"),
+                ("   ", null),
+                (" ", null),
+            }
+        )
+        {
+            read = await client.GetAsync(path);
+            var current = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+            var renamed = current.Plan with
+            {
+                Days = [current.Plan.Days[0] with { Name = supplied }],
+            };
+            write = await Put(
+                client,
+                path,
+                new ReplaceActivityPlanRequest(renamed, current.ContextVersion),
+                read.Headers.ETag!.ToString()
+            );
+            Assert.AreEqual(
+                HttpStatusCode.OK,
+                write.StatusCode,
+                await write.Content.ReadAsStringAsync()
+            );
+            var response = (await write.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+            Assert.AreEqual(expected, response.Plan.Days.Single().Name);
+            Assert.AreEqual(stale, response.TimingStale);
+            Assert.AreEqual(current.ContextVersion, response.ContextVersion);
+            Assert.AreEqual(current.Version + 1, response.Version);
+            var stored = (
+                await factory.Database.GetActivityPlanAsync(user.Id, trip.Id, place.CityId)
+            )!;
+            Assert.AreEqual(saved.InputRevision, stored.InputRevision);
+            Assert.AreEqual(
+                JsonSerializer.Serialize(saved.Assessment),
+                JsonSerializer.Serialize(stored.Assessment)
+            );
+            var document = (
+                await client.GetFromJsonAsync<TripDocument>($"/trips/{trip.Id}/document")
+            )!;
+            Assert.AreEqual(
+                expected,
+                document.Preferences["destinations"]![0]!["schedule"]!["days"]![0]!
+                    ["name"]
+                    ?.GetValue<string>()
+            );
+            Assert.AreNotEqual(beforeDocument.Revision, document.Revision);
+            Assert.AreEqual(
+                HttpStatusCode.PreconditionFailed,
+                (
+                    await Put(
+                        client,
+                        path,
+                        new ReplaceActivityPlanRequest(renamed, current.ContextVersion),
+                        read.Headers.ETag!.ToString()
+                    )
+                ).StatusCode
+            );
+        }
+    }
+
+    [TestMethod]
+    [DataRow(200, HttpStatusCode.OK)]
+    [DataRow(201, HttpStatusCode.BadRequest)]
+    public async Task DayNames_EnforceLengthEvenOnEmptyDays(int length, HttpStatusCode expected)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, _, place, _) = await Seed(factory, client);
+        string path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
+        var read = await client.GetAsync(path);
+        var initial = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+        var plan = initial.Plan with
+        {
+            Days = [initial.Plan.Days[0] with { Name = new string('a', length) }],
+        };
+        var write = await Put(
+            client,
+            path,
+            new ReplaceActivityPlanRequest(plan, initial.ContextVersion),
+            read.Headers.ETag!.ToString()
+        );
+        Assert.AreEqual(expected, write.StatusCode, await write.Content.ReadAsStringAsync());
+        if (expected == HttpStatusCode.OK)
+        {
+            var reloaded = (await client.GetFromJsonAsync<ActivityPlanResponse>(path))!;
+            Assert.AreEqual(new string('a', length), reloaded.Plan.Days.Single().Name);
+            Assert.IsEmpty(reloaded.Plan.Days.Single().ActivityIds);
+        }
+    }
+
     [TestMethod]
     public async Task ScheduleProposal_QueuesSelectedPlanWithoutApplyingIt()
     {

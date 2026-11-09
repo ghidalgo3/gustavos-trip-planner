@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -123,6 +124,254 @@ async function expandAgenda() {
 }
 
 beforeEach(() => expandedAgendaDays.clear());
+
+describe("day names", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(previewActivityPlan).mockResolvedValue(
+      structuredClone(response.assessment),
+    );
+    vi.mocked(planningRequest).mockResolvedValue({
+      data: structuredClone(response),
+      etag: '"1"',
+    });
+  });
+
+  it("keeps an overlong name local and leaves the confirmed heading unchanged", async () => {
+    render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
+    const day = screen.getByRole("region", { name: "Thursday, Jun 10" });
+    const field = within(day).getByRole("textbox", {
+      name: "Day name (optional)",
+    });
+    expect(field).toHaveAttribute("maxlength", "200");
+    fireEvent.change(field, { target: { value: "a".repeat(201) } });
+    fireEvent.blur(field);
+    expect(within(day).getByRole("alert")).toHaveTextContent(
+      "Use 200 characters or fewer.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Thursday, Jun 10" }),
+    ).toBeVisible();
+    expect(planningRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a newly added day's name in the explicit schedule draft", async () => {
+    const data = structuredClone(response);
+    data.context.visits = [
+      {
+        stayId: "visit-1",
+        arrivalDate: "2027-06-10",
+        departureDate: "2027-06-16",
+      },
+    ];
+    vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
+    render(<DailyActivityPlan {...props} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Planning tools" }),
+    );
+    fireEvent.click(screen.getByText("Add a day from a destination visit"));
+    fireEvent.change(screen.getByLabelText("Add a day for visit visit-1"), {
+      target: { value: "2027-06-16" },
+    });
+    const toggle = screen.getByRole("button", { name: "Wednesday, Jun 16" });
+    fireEvent.click(toggle);
+    const day = toggle.closest("section")!;
+    const field = within(day).getByRole("textbox", {
+      name: "Day name (optional)",
+    });
+    fireEvent.change(field, { target: { value: "Pool day" } });
+    fireEvent.blur(field);
+    await waitFor(() =>
+      expect(within(day).getByText("Unsaved day")).toBeVisible(),
+    );
+    expect(
+      vi
+        .mocked(planningRequest)
+        .mock.calls.filter(([, options]) => options?.method === "PUT"),
+    ).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(planningRequest)
+          .mock.calls.filter(([, options]) => options?.method === "PUT"),
+      ).toHaveLength(1),
+    );
+    const [, options] = vi
+      .mocked(planningRequest)
+      .mock.calls.find(([, options]) => options?.method === "PUT")!;
+    expect(
+      (options!.body as { plan: ActivityPlan }).plan.days.find(
+        (day) => day.date === "2027-06-16",
+      )?.name,
+    ).toBe("Pool day");
+  });
+
+  it("autosaves only the name, retaining manual schedule edits and using the new version on Save", async () => {
+    render(<DailyActivityPlan {...props} />);
+    await expandAgenda();
+    const day = screen.getByRole("region", { name: "Thursday, Jun 10" });
+    fireEvent.change(
+      within(day).getByRole("combobox", { name: "Day for Garden" }),
+      { target: { value: "2027-06-15" } },
+    );
+    const field = within(day).getByRole("textbox", {
+      name: "Day name (optional)",
+    });
+    fireEvent.change(field, { target: { value: "  EPCOT Visit  " } });
+    expect(planningRequest).toHaveBeenCalledTimes(1);
+    let finish!: (value: { data: PlanResponse; etag: string }) => void;
+    vi.mocked(planningRequest).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    fireEvent.blur(field);
+    fireEvent.blur(field);
+    expect(field).toBeDisabled();
+    expect(within(day).getByText("Saving…")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(planningRequest).toHaveBeenCalledTimes(2);
+    const renamed = structuredClone(response);
+    renamed.plan.days[0].name = "EPCOT Visit";
+    renamed.version = 2;
+    expect(vi.mocked(planningRequest).mock.calls[1][1]).toEqual({
+      method: "PUT",
+      etag: '"1"',
+      body: { plan: renamed.plan, contextVersion: response.contextVersion },
+    });
+    await act(async () => finish({ data: renamed, etag: '"2"' }));
+    expect(field).toHaveValue("EPCOT Visit");
+    expect(
+      screen.getByRole("button", { name: "EPCOT Visit · Thursday, Jun 10" }),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "Tuesday, Jun 15" })).getByRole(
+        "button",
+        { name: "Garden" },
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(planningRequest).toHaveBeenCalledTimes(3));
+    const options = vi.mocked(planningRequest).mock.calls[2][1]!;
+    expect(options.etag).toBe('"2"');
+    const body = options.body as { plan: ActivityPlan };
+    expect(body.plan.days[0]).toMatchObject({
+      name: "EPCOT Visit",
+      activityIds: [first],
+    });
+    expect(body.plan.days[1].activityIds).toEqual([second]);
+  });
+
+  it.each([
+    "Unable to save.",
+    "Planning inputs changed. Reload the plan before applying your changes.",
+  ])(
+    "preserves confirmed names and failed text for retry: %s",
+    async (message) => {
+      const initial = structuredClone(response);
+      initial.plan.days[0].name = "Confirmed day";
+      vi.mocked(planningRequest).mockResolvedValueOnce({
+        data: initial,
+        etag: '"1"',
+      });
+      render(<DailyActivityPlan {...props} />);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Confirmed day · Thursday, Jun 10",
+        }),
+      );
+      const day = screen.getByRole("region", {
+        name: "Confirmed day · Thursday, Jun 10",
+      });
+      const field = within(day).getByRole("textbox", {
+        name: "Day name (optional)",
+      });
+      vi.mocked(planningRequest).mockRejectedValueOnce(new Error(message));
+      fireEvent.change(field, { target: { value: "Attempted name" } });
+      fireEvent.blur(field);
+      expect(await within(day).findByRole("alert")).toHaveTextContent(message);
+      expect(field).toHaveValue("Attempted name");
+      expect(
+        screen.getByRole("button", {
+          name: "Confirmed day · Thursday, Jun 10",
+        }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: "Refresh plan" }),
+      ).toBeEnabled();
+      const saved = structuredClone(initial);
+      saved.plan.days[0].name = "Attempted name";
+      vi.mocked(planningRequest).mockResolvedValueOnce({
+        data: saved,
+        etag: '"2"',
+      });
+      fireEvent.click(within(day).getByRole("button", { name: "Retry" }));
+      expect(
+        await screen.findByRole("button", {
+          name: "Attempted name · Thursday, Jun 10",
+        }),
+      ).toBeVisible();
+      expect(within(day).queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
+
+  it("clears a name on blur and includes names with dates in day choices", async () => {
+    const initial = structuredClone(response);
+    initial.plan.days[1].name = "Rest day";
+    vi.mocked(planningRequest).mockResolvedValueOnce({
+      data: initial,
+      etag: '"1"',
+    });
+    render(<DailyActivityPlan {...props} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Rest day · Tuesday, Jun 15" }),
+    );
+    const day = screen.getByRole("region", {
+      name: "Rest day · Tuesday, Jun 15",
+    });
+    expect(
+      screen.getAllByRole("option", {
+        name: "Rest day · Tuesday, Jun 15",
+        hidden: true,
+      }).length,
+    ).toBeGreaterThan(0);
+    const field = within(day).getByRole("textbox", {
+      name: "Day name (optional)",
+    });
+    fireEvent.change(field, { target: { value: "   " } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(planningRequest).toHaveBeenCalledTimes(2));
+    expect(
+      (
+        vi.mocked(planningRequest).mock.calls[1][1]!.body as {
+          plan: ActivityPlan;
+        }
+      ).plan.days[1].name,
+    ).toBeNull();
+  });
+
+  it("keeps names visible and editing disabled for offline and read-only viewers", async () => {
+    const data = structuredClone(response);
+    data.plan.days[0].name = "EPCOT Visit";
+    vi.mocked(planningRequest).mockResolvedValueOnce({ data, etag: '"1"' });
+    render(<DailyActivityPlan {...props} readOnly />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "EPCOT Visit · Thursday, Jun 10",
+      }),
+    );
+    const field = within(
+      screen.getByRole("region", { name: "EPCOT Visit · Thursday, Jun 10" }),
+    ).getByRole("textbox", { name: "Day name (optional)" });
+    expect(field).toHaveValue("EPCOT Visit");
+    expect(field).toBeDisabled();
+    fireEvent.blur(field);
+    expect(planningRequest).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("daily planning", () => {
   it("reserves an agenda with day headings and time columns while loading", () => {

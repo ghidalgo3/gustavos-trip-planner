@@ -77,6 +77,32 @@
 .agenda-day-toggle time {
   font-weight: 600;
 }
+.agenda-day-label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.agenda-day-label:has(> span) time {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--colorNeutralForeground2);
+}
+.agenda-day-name-editor {
+  margin-bottom: 16px;
+}
+.agenda-day-name-editor > p {
+  color: var(--colorNeutralForeground2);
+  font-size: 0.85rem;
+}
+.agenda-day-name-error {
+  color: var(--colorPaletteRedForeground1);
+  margin-top: 8px;
+}
+.agenda-day-name-editor input:disabled {
+  color: var(--colorNeutralForeground2);
+  background: var(--colorNeutralBackground2);
+}
 .agenda-day-summary {
   display: grid;
   gap: 4px;

@@ -88,6 +88,12 @@ public sealed record ActivityPlanDay(
     [property: MaxLength(1000)] Guid[] ActivityIds
 )
 {
+    [StringLength(200)]
+    [Description(
+        "Optional name for this destination's local day. A label, not a scheduling constraint."
+    )]
+    public string? Name { get; init; }
+
     public DailyPlanningSettings? Settings { get; init; }
 
     [Description(McpInstructions.Fields.MealPositions)]

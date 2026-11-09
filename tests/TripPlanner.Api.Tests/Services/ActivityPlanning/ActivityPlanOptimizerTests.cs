@@ -113,7 +113,7 @@ public sealed class ActivityPlanOptimizerTests
         var plan = Plan(context) with
         {
             SelectedActivityIds = ids,
-            Days = [Plan(context).Days[0] with { ActivityIds = [] }],
+            Days = [Plan(context).Days[0] with { ActivityIds = [], Name = "EPCOT Visit" }],
             TransportOverrides = [.. routes],
         };
         int reference = int.MaxValue;
@@ -135,6 +135,7 @@ public sealed class ActivityPlanOptimizerTests
         var choice = result.Alternatives.Single();
         CollectionAssert.AreEquivalent(ids, choice.Plan.SelectedActivityIds);
         CollectionAssert.AreEquivalent(ids, choice.Plan.Days.Single().ActivityIds);
+        Assert.AreEqual("EPCOT Visit", choice.Plan.Days.Single().Name);
         CollectionAssert.AreEqual(plan.Rules, choice.Plan.Rules);
         Assert.AreEqual(TimeSpan.FromMinutes(reference), choice.Assessment.TravelDuration);
         var legs = choice.Assessment.Days.Single().Travel;

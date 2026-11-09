@@ -7,7 +7,10 @@ import {
 } from "./activityPlanApi";
 import { useActivityPlanPreview } from "./useActivityPlanPreview";
 
-vi.mock("./activityPlanApi", () => ({ previewActivityPlan: vi.fn() }));
+vi.mock("./activityPlanApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./activityPlanApi")>()),
+  previewActivityPlan: vi.fn(),
+}));
 // The hook forwards complete plans; this fixture exercises request lifecycle only.
 const plan = { selectedActivityIds: ["first"] } as ActivityPlan;
 const assessment = { days: [] } as unknown as PlanAssessment;
@@ -93,5 +96,26 @@ describe("live plan preview", () => {
     unmount();
     await act(() => vi.advanceTimersByTimeAsync(500));
     expect(previewActivityPlan).not.toHaveBeenCalled();
+  });
+
+  it("retains live timing without another preview when only a day name changes", async () => {
+    vi.mocked(previewActivityPlan).mockResolvedValue(assessment);
+    const draft = {
+      ...plan,
+      days: [
+        { stayId: "visit", date: "2027-06-10", name: null, activityIds: [] },
+      ],
+    } as unknown as ActivityPlan;
+    const { result, rerender } = renderHook(
+      ({ draft }) => useActivityPlanPreview("/plan", draft, "v1", true),
+      { initialProps: { draft } },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    rerender({
+      draft: { ...draft, days: [{ ...draft.days[0], name: "EPCOT Visit" }] },
+    });
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(previewActivityPlan).toHaveBeenCalledTimes(1);
+    expect(result.current?.assessment).toBe(assessment);
   });
 });

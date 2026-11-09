@@ -37,6 +37,7 @@ public interface IActivityPlanningDb
         StoredActivityPlan plan,
         long expectedVersion,
         long expectedInputRevision,
+        bool preserveTiming = false,
         CancellationToken cancellationToken = default
     );
     Task<ActivityPlanningEvidence> GetActivityPlanningEvidenceAsync(

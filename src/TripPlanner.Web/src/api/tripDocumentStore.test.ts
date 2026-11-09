@@ -121,6 +121,72 @@ test("a successful save remains successful if the subsequent refresh fails", asy
   ).toHaveLength(1);
 });
 
+test.each(["current", "newer plan", "newer context"])(
+  "a saved activity plan survives offline navigation only when its document is current: %s",
+  async (outcome) => {
+    const planPath = `${path}/destinations/tokyo-jp/activity-plan`;
+    const document = fixture("Named days", "2");
+    document.places.push({
+      id: "tokyo",
+      name: "Tokyo",
+      type: "Place",
+      destinationId: "tokyo-jp",
+      location: null,
+      active: true,
+      etag: "1",
+      activitiesEtag: "1",
+    });
+    document.preferences.destinations = [
+      {
+        destinationId: "tokyo-jp",
+        constraints: {},
+        activities: { instructions: "", defaults: null },
+        schedule: {
+          etag: outcome === "newer plan" ? "3" : "2",
+          contextVersion:
+            outcome === "newer context" ? "context-3" : "context-2",
+          days: [{ name: "EPCOT Visit" }],
+        },
+      },
+    ];
+    const saved = {
+      plan: { days: [{ name: "EPCOT Visit" }] },
+      contextVersion: "context-2",
+      version: 2,
+    };
+    const network = vi
+      .fn()
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(saved), {
+          headers: { ETag: '"2"', "Planning-Context": "context-2" },
+        }),
+      )
+      .mockResolvedValueOnce(response(document))
+      .mockRejectedValue(new TypeError("Offline"));
+    vi.stubGlobal("fetch", network);
+    await openTripDocument("owner", tripId, "");
+    await tripFetch(planPath, {
+      method: "PUT",
+      body: JSON.stringify({ plan: saved.plan }),
+      headers: { "If-Match": '"1"' },
+    });
+    if (outcome === "current")
+      expect(cachedTripResource(planPath)).toEqual(saved);
+    else expect(cachedTripResource(planPath)).toBeUndefined();
+    const envelope = storage.get(`tripplanner.document.v1:owner:${tripId}`)!;
+    clearTripDocumentCache();
+    storage.set(`tripplanner.document.v1:owner:${tripId}`, envelope);
+    await openTripDocument("owner", tripId, "");
+    if (outcome === "current")
+      expect(await (await tripFetch(planPath)).json()).toEqual(saved);
+    else
+      await expect(tripFetch(planPath)).rejects.toThrow(
+        "not been saved offline",
+      );
+  },
+);
+
 test("a document requested before a save cannot replace newer confirmed state", async () => {
   let completeOld!: (value: Response) => void;
   const network = vi

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import {
+  activityPlanSchedule,
   previewActivityPlan,
   type ActivityPlan,
   type PlanAssessment,
@@ -11,13 +12,19 @@ export function useActivityPlanPreview(
   contextVersion: string | undefined,
   enabled: boolean,
 ) {
-  const key = JSON.stringify([path, contextVersion, plan]);
+  const key = JSON.stringify([
+    path,
+    contextVersion,
+    plan && activityPlanSchedule(plan),
+  ]);
+  const currentPlan = useEffectEvent(() => plan);
   const [result, setResult] = useState<{
     key: string;
     assessment?: PlanAssessment;
     error?: string;
   }>();
   useEffect(() => {
+    const plan = currentPlan();
     if (!enabled || !plan || !contextVersion) return;
     const abort = new AbortController();
     const timer = setTimeout(() => {
@@ -41,6 +48,6 @@ export function useActivityPlanPreview(
       clearTimeout(timer);
       abort.abort();
     };
-  }, [path, plan, contextVersion, enabled, key]);
+  }, [path, contextVersion, enabled, key]);
   return enabled && result?.key === key ? result : undefined;
 }

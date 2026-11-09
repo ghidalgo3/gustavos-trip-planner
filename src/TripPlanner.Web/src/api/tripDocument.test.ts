@@ -77,6 +77,8 @@ test.each([
   "embedded-body",
   "weak-validator",
   "quoted-validator",
+  "day-name-type",
+  "day-name-length",
 ])("invalid document %s is rejected", (change) => {
   const value = structuredClone(after);
   if (change === "identity") value.id = "another-trip";
@@ -91,6 +93,10 @@ test.each([
     value.itinerary.items.find(
       (item: Record<string, unknown>) => item.kind === "visit",
     ).etag = 'W/"1"';
+  if (change === "day-name-type")
+    value.preferences.destinations[0].schedule.days[0].name = 123;
+  if (change === "day-name-length")
+    value.preferences.destinations[0].schedule.days[0].name = "a".repeat(201);
   expect(() => validateTripDocument(value, after.id)).toThrow();
 });
 
@@ -158,7 +164,9 @@ test("API results are cached outside the trip document, survive offline restart,
   const path = Object.keys(before.resources).find((p) =>
     p.endsWith("/activity-plan"),
   )!;
-  const expected = before.resources[path];
+  const expected = structuredClone(before.resources[path]);
+  (expected.data as { plan: { days: { name?: string }[] } }).plan.days[0].name =
+    "EPCOT Visit";
   const network = vi
     .fn()
     .mockResolvedValueOnce(new Response(JSON.stringify(after)))

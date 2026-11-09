@@ -89,6 +89,28 @@ function persistApiResults() {
     /* API results remain available in memory if storage is unavailable. */
   }
 }
+function cacheApiResult(
+  path: string,
+  response: Response,
+  data: unknown,
+  revision: string,
+) {
+  apiResults = {
+    revision,
+    resources: {
+      ...apiResults.resources,
+      [path]: {
+        href: path,
+        etag: response.headers.get("ETag") ?? "",
+        status: response.status,
+        contentType: response.headers.get("Content-Type") ?? "application/json",
+        contextVersion: response.headers.get("Planning-Context") ?? undefined,
+        data,
+      },
+    },
+  };
+  persistApiResults();
+}
 function restoreApiResults(
   value: ApiResults | undefined,
   tripId: string,
@@ -553,23 +575,7 @@ export async function tripFetch(
     ) {
       const data: unknown = await response.clone().json();
       if (stillActive() && readGeneration === generation && state.document) {
-        apiResults = {
-          revision: state.document.revision,
-          resources: {
-            ...apiResults.resources,
-            [key]: {
-              href: key,
-              etag: etag ?? "",
-              status: response.status,
-              contentType:
-                response.headers.get("Content-Type") ?? "application/json",
-              contextVersion:
-                response.headers.get("Planning-Context") ?? undefined,
-              data,
-            },
-          },
-        };
-        persistApiResults();
+        cacheApiResult(key, response, data, state.document.revision);
       }
     }
     if (
@@ -606,6 +612,33 @@ export async function tripFetch(
       !key.includes("-proposals")
     ) {
       const updated = await refreshTripDocument().catch(() => undefined);
+      if (
+        updated &&
+        !state.offline &&
+        stillActive() &&
+        method === "PUT" &&
+        key.endsWith("/activity-plan") &&
+        response.status === 200
+      ) {
+        const latest = tripDocumentValidators(updated.document)[key];
+        // A save returns the same view as GET. Retain it for offline navigation,
+        // provided the subsequent document still describes this exact plan/context.
+        if (
+          latest?.etag === etag &&
+          latest.contextVersion === response.headers.get("Planning-Context")
+        ) {
+          const data: unknown = await response
+            .clone()
+            .json()
+            .catch(() => undefined);
+          if (
+            data !== undefined &&
+            stillActive() &&
+            state.document?.revision === updated.revision
+          )
+            cacheApiResult(key, response, data, updated.revision);
+        }
+      }
       if (!updated || state.offline)
         publish({
           ...state,
