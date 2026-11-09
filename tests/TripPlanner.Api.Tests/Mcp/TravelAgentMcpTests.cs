@@ -9,6 +9,118 @@ namespace TripPlanner.Api.Tests.Mcp;
 public sealed class TravelAgentMcpTests
 {
     [TestMethod]
+    public async Task JapanEvalRestoresDocumentForRealToolsInIndependentSessions()
+    {
+        var document = JsonSerializer.Deserialize<TripPlanner.Api.DTO.TripDocument>(
+            File.ReadAllText(Endpoints.TripDocumentEndpointTests.RepositoryFile("docs/after.json")),
+            TripPlanner.Api.Services.Documents.TripResourceProjection.JsonOptions
+        )!;
+        await using var first = await Verification.McpEvalServer.CreateSession(document);
+        await using var second = await Verification.McpEvalServer.CreateSession(document);
+        Assert.AreNotEqual(first.TripId, second.TripId);
+        var rpc = await McpEndpointTests.Result(
+            await McpEndpointTests.Rpc(
+                first.Agent,
+                "tools/call",
+                new { name = "get_planning_context", arguments = new { tripId = first.TripId } }
+            )
+        );
+        Assert.IsFalse(
+            rpc.TryGetProperty("isError", out var error) && error.GetBoolean(),
+            rpc.ToString()
+        );
+        var trip = rpc.GetProperty("structuredContent").GetProperty("data").GetProperty("trip");
+        Assert.AreEqual(document.Name, trip.GetProperty("name").GetString());
+        Assert.AreEqual(document.Description, trip.GetProperty("description").GetString());
+        Assert.AreEqual(2, trip.GetProperty("people").GetArrayLength());
+        var items = trip.GetProperty("itinerary").GetProperty("items").EnumerateArray().ToArray();
+        foreach (var kind in new[] { "visit", "activity", "lodging", "flight" })
+        {
+            var expected = document.Itinerary["items"]!
+                .AsArray()
+                .Count(i => i!["kind"]!.GetValue<string>() == kind);
+            Assert.AreEqual(
+                expected,
+                items.Count(i => i.GetProperty("kind").GetString() == kind),
+                kind
+            );
+        }
+        foreach (
+            var source in document.Itinerary["items"]!
+                .AsArray()
+                .Where(i => i!["kind"]!.GetValue<string>() == "activity")
+        )
+        {
+            var restored = items.Single(i =>
+                i.GetProperty("id").GetString() == source!["id"]!.GetValue<string>()
+            );
+            foreach (
+                var field in new[]
+                {
+                    "name",
+                    "description",
+                    "cost",
+                    "kinds",
+                    "address",
+                    "ticketRequirement",
+                    "state",
+                    "links",
+                    "estimatedDuration",
+                    "destinationId",
+                    "selection",
+                    "rule",
+                }
+            )
+            {
+                Assert.IsTrue(
+                    System.Text.Json.Nodes.JsonNode.DeepEquals(
+                        source![field],
+                        System.Text.Json.Nodes.JsonNode.Parse(
+                            restored.GetProperty(field).GetRawText()
+                        )
+                    ),
+                    $"{source!["id"]}: {field}"
+                );
+            }
+        }
+        var visits = await first.Factory.Database.GetDestinationVisitsAsync(
+            first.UserId,
+            first.TripId
+        );
+        Assert.AreEqual(
+            new DateOnly(2026, 12, 25),
+            visits.OrderBy(v => v.Order).First().ArrivalDate
+        );
+        var activities = await first.Factory.Database.GetActivitiesAsync(
+            first.UserId,
+            first.TripId,
+            "tokyo-jp"
+        );
+        var activity = activities.First();
+        var place = await first.Factory.Database.GetDestinationPlaceAsync(
+            first.UserId,
+            first.TripId,
+            "tokyo-jp"
+        );
+        await first.Factory.Database.SaveActivityAsync(
+            first.UserId,
+            activity with
+            {
+                Properties = activity.Properties with { Description = "Changed in one eval" },
+            },
+            place!.ContextVersion,
+            null
+        );
+        var original = await second.Factory.Database.GetActivityAsync(
+            second.UserId,
+            second.TripId,
+            "tokyo-jp",
+            activity.Id
+        );
+        Assert.AreEqual(activity.Properties.Description, original!.Properties.Description);
+    }
+
+    [TestMethod]
     public async Task EvalFixtures_AreIsolatedAndCanRepresentMissingDates()
     {
         await using var dated = await Verification.McpEvalServer.CreateSession("known_dates");

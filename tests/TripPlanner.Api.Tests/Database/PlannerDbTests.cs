@@ -5,7 +5,6 @@ using Microsoft.Spatial;
 using Npgsql;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.TripForms;
 using static TripPlanner.Api.Tests.Support.OperationFixture;
 
 namespace TripPlanner.Api.Tests.Database;
@@ -19,7 +18,6 @@ public sealed class PlannerDbTests
         var db = new InMemoryPlannerDb();
         await QueueContract(db);
         await QueuePriorityContract(db);
-        await TripFormQueueContract(db);
         await DestinationContract(db);
         await ResourceConstraintsContract(db);
         await PartyRolesContract(db);
@@ -82,14 +80,12 @@ public sealed class PlannerDbTests
             var db = new PostgresPlannerDb(source);
             await QueueContract(db);
             await QueuePriorityContract(db);
-            await TripFormQueueContract(db);
             await DestinationContract(db);
             await ResourceConstraintsContract(db);
             await PartyRolesContract(db);
             await VisitStayLocationsContract(db);
             await MigrationPreservesVisitStayLocations(source);
             await MigrationPreservesFlightPlanning(source);
-            await MigrationUpgradesActivityJobs(source);
             await MigrationUpgradesClockTimes(source);
             await MigrationUpgradesDurations(source);
             await MigrationRetiresTransit(source);
@@ -465,6 +461,44 @@ public sealed class PlannerDbTests
         Assert.AreEqual("09:00:00", window.GetProperty("start").GetString());
     }
 
+    private static async Task ResourceConstraintsContract(IPlannerDb db)
+    {
+        var (user, trip, _) = await Seed(db);
+        var constraints = JsonSerializer.SerializeToElement(new { budget = 1234 });
+        var flightConstraints = JsonSerializer.SerializeToElement(
+            new PlanningDocument { AiPrompt = "Direct flights" },
+            JsonSerializerOptions.Web
+        );
+        await db.UpdateTripAsync(user.Id, trip.Id, "Europe", "Museums", constraints: constraints);
+        await db.SetFlightConstraintsAsync(user.Id, trip.Id, flightConstraints);
+        var fetched = (await db.GetVisibleTripAsync(user.Id, trip.Id))!;
+        Assert.AreEqual(1234, fetched.Constraints.GetProperty("budget").GetInt32());
+        Assert.AreEqual(
+            "Direct flights",
+            PlanningDocument.FromJson(fetched.FlightConstraints).AiPrompt
+        );
+        var place = await db.SaveDestinationPlaceAsync(
+            user.Id,
+            new(trip.Id, "paris-fr", "Paris", "FR", "", 2.35, 48.85) { Constraints = constraints }
+        );
+        Assert.AreEqual(1234, place.Constraints.GetProperty("budget").GetInt32());
+        await db.AddDestinationVisitAsync(
+            user.Id,
+            new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+        );
+        place = (await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
+        var saved = await db.ReplaceDestinationPlaceAsync(
+            user.Id,
+            place with
+            {
+                Name = "Paris city",
+                Constraints = JsonSerializer.SerializeToElement(new { accessible = true }),
+            }
+        );
+        Assert.IsNotNull(saved);
+        Assert.IsTrue(saved.Constraints.GetProperty("accessible").GetBoolean());
+    }
+
     private static async Task PartyRolesContract(IPlannerDb db)
     {
         var (owner, trip, party) = await Seed(db);
@@ -571,215 +605,6 @@ public sealed class PlannerDbTests
                 .Single()
                 .MemberRoles.ContainsKey(member.Id)
         );
-    }
-
-    private static async Task ResourceConstraintsContract(IPlannerDb db)
-    {
-        var (user, trip, _) = await Seed(db);
-        var constraints = JsonSerializer.SerializeToElement(new { budget = 1234 });
-        var flightConstraints = JsonSerializer.SerializeToElement(
-            new PlanningDocument { AiPrompt = "Direct flights" },
-            JsonSerializerOptions.Web
-        );
-        await db.UpdateTripAsync(user.Id, trip.Id, "Europe", "Museums", constraints: constraints);
-        await db.SetFlightConstraintsAsync(user.Id, trip.Id, flightConstraints);
-        var fetched = (await db.GetVisibleTripAsync(user.Id, trip.Id))!;
-        Assert.AreEqual(1234, fetched.Constraints.GetProperty("budget").GetInt32());
-        Assert.AreEqual(
-            "Direct flights",
-            PlanningDocument.FromJson(fetched.FlightConstraints).AiPrompt
-        );
-        var place = await db.SaveDestinationPlaceAsync(
-            user.Id,
-            new(trip.Id, "paris-fr", "Paris", "FR", "", 2.35, 48.85) { Constraints = constraints }
-        );
-        Assert.AreEqual(1234, place.Constraints.GetProperty("budget").GetInt32());
-        await db.AddDestinationVisitAsync(
-            user.Id,
-            new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
-        );
-        place = (await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
-        var operationId = Guid.NewGuid();
-        await db.CreateActivityJobAsync(
-            user.Id,
-            trip.Id,
-            operationId,
-            place.CityId,
-            place.ContextVersion,
-            "Museum",
-            null,
-            null
-        );
-        Assert.IsNull(
-            await db.GetActivityJobResultAsync(user.Id, trip.Id, place.CityId, operationId)
-        );
-        Assert.IsNull(
-            await db.GetActivityJobResultAsync(user.Id, trip.Id, place.CityId, Guid.NewGuid())
-        );
-        var workerJob = (await db.ClaimActivityJobAsync(TimeSpan.FromMinutes(1)))!;
-        Assert.IsNull(
-            await db.GetActivityJobResultAsync(user.Id, trip.Id, place.CityId, operationId)
-        );
-        var log = new InMemoryActivityLogStore(db);
-        var audited = AuditedPlannerDb.Create(
-            db,
-            log,
-            new HttpContextAccessor(),
-            TimeProvider.System
-        );
-        var saved = await db.ReplaceDestinationPlaceAsync(
-            user.Id,
-            place with
-            {
-                Name = "Paris city",
-                Longitude = 2.3,
-                Constraints = JsonSerializer.SerializeToElement(new { accessible = true }),
-            }
-        );
-        Assert.IsNotNull(saved);
-        Assert.AreEqual("Paris city", saved.Name);
-        Assert.AreEqual(2.3, saved.Longitude);
-        Assert.IsTrue(saved.Constraints.GetProperty("accessible").GetBoolean());
-        Assert.AreNotEqual(place.ContextVersion, saved.ContextVersion);
-        // Failure must commit even when auditing reads the job's null result.
-        Assert.IsTrue(await audited.CompleteActivityJobAsync(workerJob, [], [], null));
-        Assert.AreEqual("Failed", (await db.GetOperationAsync(user.Id, operationId))!.Status);
-        Assert.IsNull(
-            await db.GetActivityJobResultAsync(user.Id, trip.Id, place.CityId, operationId)
-        );
-        Assert.IsNull(await db.ClaimActivityJobAsync(TimeSpan.FromMinutes(1)));
-        Assert.IsEmpty(await log.ListAsync(user.Id, 10, 0, CancellationToken.None));
-        var now = DateTimeOffset.UtcNow;
-        var activity = new Activity(
-            Guid.NewGuid(),
-            trip.Id,
-            place.CityId,
-            null,
-            new(
-                "Museum",
-                TimeSpan.FromHours(1),
-                "",
-                null,
-                ActivityState.Planned,
-                [ActivityKind.Culture]
-            ),
-            now,
-            now
-        );
-        var nextOperationId = Guid.NewGuid();
-        await db.CreateActivityJobAsync(
-            user.Id,
-            trip.Id,
-            nextOperationId,
-            place.CityId,
-            saved.ContextVersion,
-            "Museum",
-            null,
-            null
-        );
-        var freshJob = (await db.ClaimActivityJobAsync(TimeSpan.FromMinutes(1)))!;
-        Assert.IsTrue(await audited.CompleteActivityJobAsync(freshJob, [activity], [], null));
-        Assert.AreEqual(
-            "Completed",
-            (await db.GetOperationAsync(user.Id, nextOperationId))!.Status
-        );
-        Assert.IsNotNull(await db.GetActivityAsync(user.Id, trip.Id, place.CityId, activity.Id));
-        var result = await db.GetActivityJobResultAsync(
-            user.Id,
-            trip.Id,
-            place.CityId,
-            nextOperationId
-        );
-        Assert.IsNotNull(result);
-        Assert.AreEqual(activity.Id.ToString(), result.Activities.Features.Single().Id);
-        Assert.IsNull(
-            await db.GetActivityJobResultAsync(
-                Guid.NewGuid(),
-                trip.Id,
-                place.CityId,
-                nextOperationId
-            )
-        );
-        Assert.HasCount(1, await log.ListAsync(user.Id, 10, 0, CancellationToken.None));
-        Assert.IsTrue(await db.DeleteDestinationAsync(user.Id, trip.Id, place.CityId));
-        Assert.IsNull(await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId));
-        Assert.IsEmpty(await db.GetDestinationVisitsAsync(user.Id, trip.Id));
-        Assert.IsNull(await db.GetActivityAsync(user.Id, trip.Id, place.CityId, activity.Id));
-        Assert.IsNull(await db.GetOperationAsync(user.Id, operationId));
-        Assert.IsNull(await db.GetOperationAsync(user.Id, nextOperationId));
-        Assert.IsFalse(await db.DeleteDestinationAsync(user.Id, trip.Id, place.CityId));
-    }
-
-    private static async Task MigrationUpgradesActivityJobs(NpgsqlDataSource source)
-    {
-        var db = new PostgresPlannerDb(source);
-        var (user, trip, _) = await Seed(db);
-        var place = await db.SaveDestinationPlaceAsync(
-            user.Id,
-            new(trip.Id, "paris-fr", "Paris", "FR", "", 2.35, 48.85)
-        );
-        await db.AddDestinationVisitAsync(
-            user.Id,
-            new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
-        );
-        place = (await db.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
-        var id = Guid.NewGuid();
-        byte[] image = [1, 2, 3];
-        await db.CreateActivityJobAsync(
-            user.Id,
-            trip.Id,
-            id,
-            place.CityId,
-            place.ContextVersion,
-            "Museum",
-            image,
-            "image/png"
-        );
-        // Reproduce a database that applied the earlier activity migration.
-        await using (
-            var rollback = source.CreateCommand(
-                "ALTER TABLE activity_jobs DROP COLUMN image_sha256; DELETE FROM schema_migrations WHERE version = 6;"
-            )
-        )
-        {
-            await rollback.ExecuteNonQueryAsync();
-        }
-
-        await new DatabaseMigrator(source, NullLogger<DatabaseMigrator>.Instance).MigrateAsync();
-        var retried = await db.CreateActivityJobAsync(
-            user.Id,
-            trip.Id,
-            id,
-            place.CityId,
-            place.ContextVersion,
-            "Museum",
-            image,
-            "image/png"
-        );
-        Assert.AreEqual(id, retried.Id);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            db.CreateActivityJobAsync(
-                user.Id,
-                trip.Id,
-                id,
-                place.CityId,
-                place.ContextVersion,
-                "Museum",
-                [4, 5, 6],
-                "image/png"
-            )
-        );
-        var prompt = await db.CreateActivityJobAsync(
-            user.Id,
-            trip.Id,
-            Guid.NewGuid(),
-            place.CityId,
-            place.ContextVersion,
-            "Find museums",
-            null,
-            null
-        );
-        Assert.AreEqual("pending", prompt.Status);
     }
 
     private static async Task MigrationPreservesFlightPlanning(NpgsqlDataSource source)
@@ -1110,54 +935,6 @@ public sealed class PlannerDbTests
         claimed = await db.ClaimFareWorkAsync(TimeSpan.FromMinutes(2));
         Assert.IsNotNull(claimed);
         Assert.AreEqual("NRT", claimed.Request.Origin);
-    }
-
-    private static async Task TripFormQueueContract(IPlannerDb db)
-    {
-        var (user, trip, _) = await Seed(db);
-        Guid id = Guid.NewGuid();
-        var draft = new PlanningDocument();
-        TrackedOperation created = await db.CreateTripFormOperationAsync(
-            user.Id,
-            trip.Id,
-            id,
-            "Paris January 5 to 15",
-            draft
-        );
-        Assert.AreEqual(OperationState.TripFormFill, created.Type);
-        Assert.AreEqual("pending", created.Status);
-        Assert.AreEqual(
-            id,
-            (
-                await db.CreateTripFormOperationAsync(
-                    user.Id,
-                    trip.Id,
-                    id,
-                    "Paris January 5 to 15",
-                    draft
-                )
-            ).Id
-        );
-        Assert.IsNull(await db.GetTripFormProposalAsync(Guid.NewGuid(), trip.Id, id));
-        TripFormWork? work = await db.ClaimTripFormWorkAsync(TimeSpan.FromMinutes(2));
-        Assert.IsNotNull(work);
-        Assert.AreEqual(id, work.OperationId);
-        Assert.IsNull(await db.ClaimTripFormWorkAsync(TimeSpan.FromMinutes(2)));
-        var proposal = new TripFormProposal(
-            draft with
-            {
-                Destination = new SearchLocation("CDG", "Europe/Paris"),
-                AiPrompt = work.Input,
-            },
-            []
-        );
-        Assert.IsTrue(await db.CompleteTripFormWorkAsync(work, proposal, null));
-        Assert.IsFalse(await db.CompleteTripFormWorkAsync(work, proposal, null));
-        Assert.AreEqual("Completed", (await db.GetOperationAsync(user.Id, id))?.Status);
-        Assert.AreEqual(
-            "CDG",
-            (await db.GetTripFormProposalAsync(user.Id, trip.Id, id))?.Document.Destination?.Code
-        );
     }
 
     [TestMethod]

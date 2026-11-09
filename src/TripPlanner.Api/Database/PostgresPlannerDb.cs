@@ -120,7 +120,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at, preferred_airlines, "FeatureFlags", preferred_airport
+                created_at, updated_at, preferred_airlines, preferred_airport
             FROM users
             WHERE id = $1;
             """
@@ -143,7 +143,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at, preferred_airlines, "FeatureFlags", preferred_airport
+                created_at, updated_at, preferred_airlines, preferred_airport
             FROM users
             WHERE email = $1;
             """
@@ -187,26 +187,6 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
 
         return await GetUserAsync(userId, cancellationToken)
             ?? throw new InvalidOperationException("The user's profile could not be saved.");
-    }
-
-    public async Task<User> SetUserFeatureFlagsAsync(
-        Guid userId,
-        string featureFlags,
-        CancellationToken cancellationToken = default
-    )
-    {
-        await using var command = dataSource.CreateCommand(
-            "UPDATE users SET \"FeatureFlags\" = $1, updated_at = now() WHERE id = $2;"
-        );
-        command.Parameters.AddWithValue(featureFlags);
-        command.Parameters.AddWithValue(userId);
-        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
-        {
-            throw new InvalidOperationException("The user could not be found.");
-        }
-
-        return await GetUserAsync(userId, cancellationToken)
-            ?? throw new InvalidOperationException("The user could not be found.");
     }
 
     public async Task<IReadOnlyList<Trip>> GetTripsAsync(
@@ -414,7 +394,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
                 home_city_name,
                 ST_X(home_city_location::geometry) AS home_city_longitude,
                 ST_Y(home_city_location::geometry) AS home_city_latitude,
-                created_at, updated_at, preferred_airlines, "FeatureFlags", preferred_airport
+                created_at, updated_at, preferred_airlines, preferred_airport
             FROM users
             WHERE email = $1;
             """
@@ -450,8 +430,7 @@ public sealed partial class PostgresPlannerDb(NpgsqlDataSource dataSource) : IPl
             reader.GetFieldValue<string[]>(9),
             reader.GetFieldValue<DateTimeOffset>(7),
             reader.GetFieldValue<DateTimeOffset>(8),
-            reader.GetString(10),
-            GetNullableString(reader, 11)
+            GetNullableString(reader, 10)
         );
     }
 

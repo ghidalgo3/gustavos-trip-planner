@@ -77,7 +77,7 @@ test.each(["Activities", "Plan activities"])(
         <Routes>
           <Route
             path="/trips/:tripId/*"
-            element={<TripPlanningPage userId="owner" featureFlags={[]} />}
+            element={<TripPlanningPage userId="owner" />}
           />
         </Routes>
       </MemoryRouter>,
@@ -127,7 +127,7 @@ test.each([false, true])(
             element={
               <TripPlanningPage
                 userId="owner"
-                featureFlags={[]}
+
                 offline={offline}
               />
             }

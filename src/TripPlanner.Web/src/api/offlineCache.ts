@@ -47,7 +47,6 @@ export function rememberOfflineUser(user: CurrentUser): boolean {
     email: user.email,
     provider: user.provider,
     completedOnboarding: user.completedOnboarding,
-    featureFlags: user.featureFlags,
     profile: user.profile,
   });
 }

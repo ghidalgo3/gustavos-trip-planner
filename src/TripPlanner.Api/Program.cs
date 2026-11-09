@@ -9,13 +9,11 @@ using TripPlanner.Api.Hosting;
 using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
 using TripPlanner.Api.Serialization;
-using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.ActivityPlanning;
 using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.Maps;
-using TripPlanner.Api.Services.TripForms;
 using TripPlanner.Api.Telemetry;
 using TripPlanner.Api.Validation;
 
@@ -55,35 +53,8 @@ builder.Services.AddScoped<TripReader>();
 builder.Services.AddScoped<TripResourceProjection>();
 builder.Services.AddSingleton<AirportCatalog>();
 builder.Services.AddSingleton<DestinationService>();
-builder.Services.AddTransient<IStayAddressResearch, StayAddressResearch>();
-builder.Services.AddTransient<IActivityPlaceResearch, ActivityPlaceResearch>();
-builder.Services.AddTransient<VenueAddressLookup>();
 builder.Services.AddSingleton<DestinationFlightPlanning>();
 builder.Services.AddHttpClient<IAzureMapsClient, AzureMapsClient>();
-builder.Services.AddHttpClient<IActivityDetailsResearch, OpenAiActivityDetailsResearch>(client =>
-    client.Timeout = TimeSpan.FromSeconds(30)
-);
-builder.Services.AddHttpClient<IActivityCoordinateResearch, OpenAiActivityCoordinateResearch>(
-    client => client.Timeout = TimeSpan.FromSeconds(20)
-);
-builder.Services.AddHttpClient<IActivityAssistant, OpenAiActivityAssistant>(client =>
-    client.Timeout = TimeSpan.FromSeconds(120)
-);
-builder.Services.AddHttpClient<IActivityVenueSearch, OpenAiActivityVenueResearch>(client =>
-    client.Timeout = TimeSpan.FromSeconds(20)
-);
-builder.Services.AddHttpClient<IStayVenueSearch, OpenAiActivityVenueResearch>(client =>
-    client.Timeout = TimeSpan.FromSeconds(20)
-);
-builder.Services.AddHttpClient<IActivityVenueResearch, OpenAiActivityVenueResearch>(client =>
-    client.Timeout = TimeSpan.FromSeconds(20)
-);
-builder.Services.Configure<OpenAiOptions>(
-    builder.Configuration.GetSection(OpenAiOptions.SectionName)
-);
-builder.Services.AddHttpClient<ITripFormAssistant, OpenAiTripFormAssistant>(client =>
-    client.Timeout = TimeSpan.FromSeconds(90)
-);
 builder.AddIgnav();
 builder.AddActivityPlanning();
 builder.Services.AddSingleton<IMapTokenProvider>(serviceProvider =>
@@ -219,7 +190,6 @@ api.MapDestinationsEndpoints();
 api.MapActivityEndpoints();
 api.MapPartyEndpoints();
 api.MapTravellersEndpoints();
-api.MapTripFormEndpoints();
 api.MapOperationsEndpoints();
 api.MapActivityPlanEndpoints();
 api.MapActivityRouteEndpoints();

@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Options;
 using TripPlanner.Api.Options;
-using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Jobs;
-using TripPlanner.Api.Services.TripForms;
 
 namespace TripPlanner.Api.Services.Flights;
 
@@ -38,8 +36,6 @@ public static class IgnavServiceExtensions
             services.GetRequiredService<IOptions<IgnavOptions>>(),
             services.GetRequiredService<ILogger<IgnavClient>>()
         ));
-        builder.Services.AddSingleton<TripFormJobProcessor>();
-        builder.Services.AddSingleton<ActivityJobProcessor>();
         if (planning.WorkerEnabled)
         {
             builder.Services.AddHostedService<PlanningWorker>();

@@ -28,8 +28,7 @@ public sealed record CurrentUserResponse(
     string? Email,
     string? Provider,
     bool CompletedOnboarding,
-    UserProfile Profile,
-    string[]? FeatureFlags = null
+    UserProfile Profile
 );
 
 public sealed record User(
@@ -42,6 +41,5 @@ public sealed record User(
     string[] PreferredAirlines,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    string FeatureFlags = "",
     string? PreferredAirport = null
 );

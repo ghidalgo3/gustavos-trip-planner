@@ -1,20 +1,20 @@
-import { apiBaseUrl } from "./config";
 import { mapsClient } from "../maps/mapsClient";
+import { apiBaseUrl } from "./config";
 import { HttpResponseError } from "./httpErrors";
 import {
   forgetOfflineTrip,
-  rememberTrip,
   readTripCatalog,
+  rememberTrip,
   rememberTripCatalog,
 } from "./offlineCache";
 import {
-  tripFetch,
   rememberResourceEtag,
   ResourceConflictError,
+  tripFetch,
 } from "./tripDocumentStore";
-export { apiBaseUrl } from "./config";
-export type { CitySuggestion, PlaceSuggestion } from "../maps/IMapsClient";
 export { formatCityLabel } from "../maps/AzureMapsClient";
+export type { CitySuggestion, PlaceSuggestion } from "../maps/IMapsClient";
+export { apiBaseUrl } from "./config";
 export const {
   getToken: getMapToken,
   searchCities,
@@ -29,7 +29,6 @@ export type CurrentUser = {
   email?: string;
   provider?: string;
   completedOnboarding: boolean;
-  featureFlags?: string[];
   profile: UserProfile;
 };
 

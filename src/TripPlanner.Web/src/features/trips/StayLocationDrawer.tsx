@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import {
   Button,
   DrawerBody,
@@ -7,25 +6,25 @@ import {
   DrawerHeaderTitle,
   Field,
   Input,
-  Link,
   OverlayDrawer,
   Radio,
   RadioGroup,
   Text,
 } from "@fluentui/react-components";
 import { Dismiss24Regular, Search20Regular } from "@fluentui/react-icons";
-import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
-import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
-import { useActionToast } from "../../shared/hooks/useActionToast";
+import { useEffect, useRef, useState } from "react";
 import ActivityMap from "../../maps/ActivityMap";
+import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
+import { useActionToast } from "../../shared/hooks/useActionToast";
 import {
   saveStayLocation,
-  researchStayAddress,
-  type StayAddressSuggestion,
-  type Destination,
+  searchStayPlaces,
   type Activity,
-  type StayLocation,
+  type Destination,
   type Stay,
+  type StayLocation,
+  type StayPlaceResult,
 } from "../activities/activitiesApi";
 
 const noActivities: Activity[] = [];
@@ -56,7 +55,7 @@ export default function StayLocationDrawer({
     location: StayLocation | null;
     index: string;
   }>();
-  const [results, setResults] = useState<StayAddressSuggestion[]>([]);
+  const [results, setResults] = useState<StayPlaceResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<string>("");
   const [searched, setSearched] = useState(false);
   const [researching, setResearching] = useState(false);
@@ -74,9 +73,8 @@ export default function StayLocationDrawer({
     setResults([]);
     setSearched(false);
     try {
-      const matches = await researchStayAddress(
-        tripId,
-        destination.id,
+      const matches = await searchStayPlaces(
+        destination,
         query.trim(),
         controller.signal,
       );
@@ -232,24 +230,9 @@ export default function StayLocationDrawer({
                             address: match.address,
                           }}
                         />
-                        {match.mapAddress &&
-                          match.mapAddress !== match.address && (
-                            <span className="stay-map-address">
-                              Map address: {match.mapAddress}
-                            </span>
-                          )}
                       </div>
                     }
                   />
-                  <Link
-                    href={match.source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`Source for ${match.name}`}
-                  >
-                    {match.source.label}
-                  </Link>
-                  {match.warning && <Text size={200}>{match.warning}</Text>}
                 </div>
               ))}
             </RadioGroup>

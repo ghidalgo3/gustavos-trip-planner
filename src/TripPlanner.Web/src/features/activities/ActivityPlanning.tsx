@@ -1,80 +1,65 @@
-import { activityKinds, type TicketRequirement } from "./activityKinds";
-import { mapsClient } from "../../maps/mapsClient";
-import {
-  useExplicitResourceRefresh,
-  useTripResourceVersion,
-} from "../../api/tripDocumentStore";
-import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
-import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
-import { trackBehavior } from "../../telemetry/telemetry";
-import { findActivityLocations } from "./findActivityLocations";
-import { useActionToast } from "../../shared/hooks/useActionToast";
-import { durationMinutes } from "../../shared/time/durations";
-import { useEffect, useRef, useState } from "react";
 import {
   Button,
+  Checkbox,
   Dialog,
-  DialogSurface,
-  DialogBody,
-  DialogTitle,
-  DialogContent,
   DialogActions,
-  Input,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DrawerBody,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerHeaderTitle,
   Field,
+  Input,
+  Menu,
+  MenuButton,
+  MenuDivider,
+  MenuItem,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
+  OverlayDrawer,
   SearchBox,
-  Spinner,
-  Toast,
-  ToastTitle,
-  ToastBody,
-  ToastTrigger,
-  useId,
+  Select,
   Tab,
   TabList,
   Text,
   Textarea,
   Title2,
-  DrawerBody,
-  DrawerHeader,
-  DrawerHeaderTitle,
-  DrawerFooter,
-  OverlayDrawer,
-  Menu,
-  MenuTrigger,
-  MenuButton,
-  MenuPopover,
-  MenuList,
-  MenuItemRadio,
-  MenuItem,
-  MenuDivider,
-  Checkbox,
-  Select,
+  useId,
 } from "@fluentui/react-components";
 import {
   ArrowExpand24Regular,
   ChevronDown24Regular,
-  ChevronUp24Regular,
   ChevronRight24Regular,
-  Dismiss24Regular,
+  ChevronUp24Regular,
   Delete24Regular,
+  Dismiss24Regular,
   Share24Regular,
 } from "@fluentui/react-icons";
-import { destinationDates } from "../trips/tripDates";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
 import type { PlaceSuggestion, Trip } from "../../api/api";
-import { activityMapLink } from "../../maps/activityMapLink";
-import ActivityDetailsResearch, {
-  ActivityDetailsEvidence,
-} from "./ActivityDetailsResearch";
-import ActivityLinksEditor from "./ActivityLinksEditor";
-import ActivityDurationSlider from "./ActivityDurationSlider";
-import { validActivityLink } from "./activityLinks";
 import {
-  activityRouteKey,
-  useActivityRoute,
-  type ActivityRouteSelection,
-} from "./activityRouteApi";
+  useExplicitResourceRefresh,
+  useTripResourceVersion,
+} from "../../api/tripDocumentStore";
 import ActivityMap from "../../maps/ActivityMap";
+import { activityMapLink } from "../../maps/activityMapLink";
+import { mapsClient } from "../../maps/mapsClient";
+import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
+import { useActionToast } from "../../shared/hooks/useActionToast";
+import { durationMinutes } from "../../shared/time/durations";
+import { trackBehavior } from "../../telemetry/telemetry";
+import { destinationDates } from "../trips/tripDates";
+import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
+import ActivityDurationSlider from "./ActivityDurationSlider";
+import ActivityLinksEditor from "./ActivityLinksEditor";
+import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
 import DailyActivityPlan from "./DailyActivityPlan";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
 import {
@@ -82,21 +67,22 @@ import {
   getActivities,
   getActivity,
   getDestinations,
-  getSuggestionResult,
-  importActivityImages,
   saveActivity,
-  researchActivityLocation,
-  researchActivityPlaces,
-  type ActivityLink,
-  suggestActivities,
-  waitForActivityJob,
   type Activity,
   type ActivityCollection,
   type ActivityCost,
   type ActivityInput,
+  type ActivityLink,
   type Destination,
   type DestinationCollection,
 } from "./activitiesApi";
+import { activityKinds, type TicketRequirement } from "./activityKinds";
+import { validActivityLink } from "./activityLinks";
+import {
+  activityRouteKey,
+  useActivityRoute,
+  type ActivityRouteSelection,
+} from "./activityRouteApi";
 
 const currencyNames = new Intl.DisplayNames(["en"], { type: "currency" });
 const currencies = Intl.supportedValuesOf("currency");
@@ -148,13 +134,11 @@ function formatCost(cost: ActivityCost | null) {
 export default function ActivityPlanning({
   trip,
   readOnly,
-  featureFlags,
   onDestinationChange,
   active = true,
 }: {
   trip: Trip;
   readOnly: boolean;
-  featureFlags: string[];
   onDestinationChange?: (destination: Destination | undefined) => void;
   active?: boolean;
 }) {
@@ -175,11 +159,7 @@ export default function ActivityPlanning({
   }>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const locationAbort = useRef<AbortController | undefined>(undefined);
-  const [locationProgress, setLocationProgress] = useState<{
-    completed: number;
-    total: number;
-  }>();
+
   const [deleteTarget, setDeleteTarget] = useState<Activity>();
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
   const editorCloseRef = useRef<HTMLButtonElement>(null);
@@ -197,25 +177,17 @@ export default function ActivityPlanning({
     useState<HTMLDivElement | null>(null);
   const [fullscreenMapHost, setFullscreenMapHost] =
     useState<HTMLDivElement | null>(null);
-  const { notify, dispatchToast, toaster } = useActionToast();
+  const { notify, toaster } = useActionToast();
   const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
   const [searching, setSearching] = useState(false);
-  const [researchingPlaces, setResearchingPlaces] = useState(false);
+
   const [chosenPlace, setChosenPlace] = useState<ActivityPlaceResult>();
   const [placeSearchActive, setPlaceSearchActive] = useState(false);
   const placeAbort = useRef<AbortController | undefined>(undefined);
   const [placeQuery, setPlaceQuery] = useState("");
   const [places, setPlaces] = useState<ActivityPlaceResult[]>([]);
-  const [prompt, setPrompt] = useState("");
-  const [images, setImages] = useState<File[]>([]);
-  const [imageWarnings, setImageWarnings] = useState<string[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [entryMode, setEntryMode] = useState<"lookup" | "prompt" | "image">(
-    "lookup",
-  );
-  const operationAbort = useRef<AbortController | undefined>(undefined);
-  const imageInput = useRef<HTMLInputElement>(null);
+
   const [selectedCity, setSelectedCity] = useState(
     query.get("destination") ?? undefined,
   );
@@ -261,9 +233,7 @@ export default function ActivityPlanning({
   });
   const selected = activities.features.find((item) => item.id === selectedId);
   const canEdit = !readOnly && destination?.properties.isActive === true;
-  const canGenerate = canEdit && featureFlags.includes("LLM");
-  const missingLocations = activities.features.some((item) => !item.geometry);
-  useEffect(() => () => locationAbort.current?.abort(), [trip.id, cityId]);
+
   const deleteOpen = Boolean(deleteTarget && active);
   const editorOpen = Boolean(editor && canEdit && active);
 
@@ -317,15 +287,8 @@ export default function ActivityPlanning({
     return () => controller.abort();
   }, [trip.id, cityId, active, documentVersion]);
 
-  useEffect(() => {
-    return () => {
-      imagePreviews.forEach(URL.revokeObjectURL);
-    };
-  }, [imagePreviews]);
-
   useEffect(
     () => () => {
-      operationAbort.current?.abort();
       placeAbort.current?.abort();
     },
     [],
@@ -338,7 +301,7 @@ export default function ActivityPlanning({
         )
       : activities.features;
   const draftOnMap =
-    editor && entryMode === "lookup" && editor.value.geometry
+    editor && editor.value.geometry
       ? { ...editor.value, id: editor.value.id ?? "draft-activity" }
       : undefined;
   const activitiesForMap = draftOnMap
@@ -349,7 +312,7 @@ export default function ActivityPlanning({
       : [...savedActivitiesForMap, draftOnMap]
     : savedActivitiesForMap;
   const placeSearch =
-    editor && canEdit && entryMode === "lookup" && placeSearchActive
+    editor && canEdit && placeSearchActive
       ? {
           results: places,
           onSelect: (index: number) => choosePlace(places[index]),
@@ -396,7 +359,7 @@ export default function ActivityPlanning({
     setError(undefined);
     try {
       const current = await getActivity(trip.id, destination.id, item.id);
-      setEntryMode("lookup");
+
       setPlaces([]);
       setChosenPlace(undefined);
       setPlaceSearchActive(false);
@@ -418,89 +381,6 @@ export default function ActivityPlanning({
       if (editor?.value.id) await openEdit(editor.value as Activity);
     },
   );
-
-  async function findMissingLocations() {
-    if (!destination || !canGenerate || busy || !missingLocations) return;
-    const controller = new AbortController();
-    locationAbort.current = controller;
-    setBusy(true);
-    setLocationProgress({
-      completed: 0,
-      total: activities.features.filter((item) => !item.geometry).length,
-    });
-    try {
-      const counts = await findActivityLocations({
-        tripId: trip.id,
-        destination,
-        activities: activities.features,
-        signal: controller.signal,
-        onSaved: (saved) =>
-          setActivityData((current) =>
-            current?.cityId === destination.id
-              ? {
-                  ...current,
-                  collection: {
-                    ...current.collection,
-                    features: current.collection.features.map((item) =>
-                      item.id === saved.id ? saved : item,
-                    ),
-                  },
-                }
-              : current,
-          ),
-        onProgress: (completed, total) =>
-          setLocationProgress({ completed, total }),
-      });
-      if (!controller.signal.aborted) {
-        notify(
-          `${counts.found} location${counts.found === 1 ? "" : "s"} found and saved.${counts.skipped ? ` ${counts.skipped} already located.` : ""}${counts.unresolved ? ` ${counts.unresolved} could not be verified.` : ""}${counts.failed ? ` ${counts.failed} failed; try again.` : ""}`,
-          counts.failed ? "error" : counts.unresolved ? "info" : "success",
-        );
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted)
-        notify(
-          reason instanceof Error
-            ? reason.message
-            : "Could not find activity locations.",
-          "error",
-        );
-    } finally {
-      if (locationAbort.current === controller) {
-        locationAbort.current = undefined;
-        setLocationProgress(undefined);
-        setBusy(false);
-      }
-    }
-  }
-
-  async function researchLocation() {
-    if (!destination || !editor?.value.id || !editor.etag || busy) return;
-    setBusy(true);
-    try {
-      const suggestion = await researchActivityLocation(
-        trip.id,
-        destination,
-        editor.value.id,
-        editor.etag,
-      );
-      updateEditor({ locationSuggestion: suggestion });
-      if (!suggestion)
-        notify(
-          "No published location could be verified. Try Azure Maps or select a location manually.",
-          "error",
-        );
-    } catch (reason) {
-      notify(
-        reason instanceof Error
-          ? reason.message
-          : "Could not research the location.",
-        "error",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function useSuggestedLocation() {
     const suggestion = editor?.value.properties.locationSuggestion;
@@ -677,15 +557,8 @@ export default function ActivityPlanning({
     }
   }
 
-  async function searchPlace(webOnly = false) {
-    if (
-      !destination ||
-      !placeQuery.trim() ||
-      busy ||
-      searching ||
-      (webOnly && !canGenerate)
-    )
-      return;
+  async function searchPlace() {
+    if (!destination || !placeQuery.trim() || busy || searching) return;
     setPlaceSearchActive(true);
     setMapCollapsed(false);
     setShowMapCard(false);
@@ -693,52 +566,20 @@ export default function ActivityPlanning({
     const controller = new AbortController();
     placeAbort.current = controller;
     setSearching(true);
-    setResearchingPlaces(webOnly);
     setError(undefined);
     setPlaces([]);
     setChosenPlace(undefined);
     try {
-      let results: ActivityPlaceResult[] = [];
-      if (!webOnly) {
-        try {
-          results = await mapsClient.searchPlaces(
-            placeQuery.trim(),
-            controller.signal,
-            destination.geometry.coordinates,
-            destination.properties.countryCode,
-          );
-        } catch (reason) {
-          if (controller.signal.aborted || !canGenerate) throw reason;
-        }
-      }
-      if (controller.signal.aborted) return;
-      if (!results.length && canGenerate) {
-        setResearchingPlaces(true);
-        const matches = await researchActivityPlaces(
-          trip.id,
-          destination.id,
-          placeQuery.trim(),
-          controller.signal,
-        );
-        results = matches.map((match, index) => ({
-          id: `researched-${index}`,
-          name: match.name,
-          label: `${match.name}, ${match.address}`,
-          address: match.address,
-          longitude: match.geometry?.coordinates[0],
-          latitude: match.geometry?.coordinates[1],
-          source: match.source,
-          locationSource: match.locationSource,
-          warning: match.warning,
-          mapAddress: match.mapAddress,
-        }));
-      }
+      const results = await mapsClient.searchPlaces(
+        placeQuery.trim(),
+        controller.signal,
+        destination.geometry.coordinates,
+        destination.properties.countryCode,
+      );
       if (!controller.signal.aborted) {
         setPlaces(results);
         if (!results.length)
-          setError(
-            `No matching places found near ${destination.properties.name}. Try another name or address.${!canGenerate ? " Enable AI in your profile to search venue websites too." : ""}`,
-          );
+          setError("No matching places found. Try another name or address.");
       }
     } catch (reason) {
       if (!controller.signal.aborted)
@@ -746,10 +587,7 @@ export default function ActivityPlanning({
           reason instanceof Error ? reason.message : "Could not search places.",
         );
     } finally {
-      if (!controller.signal.aborted) {
-        setSearching(false);
-        setResearchingPlaces(false);
-      }
+      if (!controller.signal.aborted) setSearching(false);
     }
   }
 
@@ -793,121 +631,6 @@ export default function ActivityPlanning({
     setPlaceSearchActive(false);
   }
 
-  async function generate(kind: "text" | "image") {
-    if (
-      !destination ||
-      busy ||
-      (kind === "image" && images.length === 0) ||
-      (kind === "text" && !prompt.trim())
-    )
-      return;
-    const cityId = destination.id;
-    trackBehavior("activity_suggestions_started");
-    setBusy(true);
-    setError(undefined);
-    const controller = new AbortController();
-    operationAbort.current = controller;
-    try {
-      const operation =
-        kind === "image"
-          ? await importActivityImages(trip.id, destination, images, prompt)
-          : await suggestActivities(trip.id, destination, prompt);
-      const completed = await waitForActivityJob(
-        operation.id,
-        controller.signal,
-      );
-      if (completed.status === "Failed")
-        throw new Error(
-          "Activity generation failed. Check the destination and try again.",
-        );
-      const result = await getSuggestionResult(trip.id, cityId, operation.id);
-      trackBehavior("activity_suggestions_completed");
-      if (destination.id === cityId)
-        setActivityData({
-          cityId,
-          collection: await getActivities(trip.id, cityId),
-        });
-      dispatchToast(
-        <Toast>
-          <ToastTitle
-            action={
-              <ToastTrigger>
-                <Button
-                  aria-label="Dismiss activity summary"
-                  icon={<Dismiss24Regular />}
-                />
-              </ToastTrigger>
-            }
-          >
-            {kind === "image"
-              ? "Photo import complete"
-              : "Activity suggestions complete"}
-          </ToastTitle>
-          <ToastBody>
-            {result.activities.features.length} activities added as Proposed.
-            {result.warnings.length > 0 && (
-              <ul>
-                {result.warnings.map((warning, index) => (
-                  <li key={index}>{warning}</li>
-                ))}
-              </ul>
-            )}
-          </ToastBody>
-        </Toast>,
-        { intent: result.warnings.length ? "warning" : "success", timeout: -1 },
-      );
-      chooseImages([]);
-      setPrompt("");
-      setEditor(undefined);
-    } catch (reason) {
-      trackBehavior("activity_suggestions_failed");
-      if (!(reason instanceof DOMException && reason.name === "AbortError"))
-        notify(
-          reason instanceof Error
-            ? reason.message
-            : "Could not generate activities.",
-          "error",
-        );
-    } finally {
-      setBusy(false);
-      operationAbort.current = undefined;
-    }
-  }
-
-  function chooseImages(files: File[]) {
-    const accepted: File[] = [];
-    const warnings: string[] = [];
-    let totalBytes = 0;
-    if (files.length > 10) {
-      warnings.push(
-        "Only the first 10 photos were accepted. Additional photos were not added (maximum 10).",
-      );
-    }
-    for (const file of files.slice(0, 10)) {
-      let reason: string | undefined;
-      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-        reason = "unsupported format. Choose JPEG, PNG, or WebP.";
-      } else if (file.size === 0) {
-        reason = "the file is empty.";
-      } else if (file.size > 10_000_000) {
-        reason = "exceeds the 10 MB limit per photo.";
-      } else if (totalBytes + file.size > 50_000_000) {
-        reason = "would exceed the 50 MB total upload limit.";
-      }
-      if (reason) {
-        warnings.push(`${file.name}: not added because ${reason}`);
-      } else {
-        accepted.push(file);
-        totalBytes += file.size;
-      }
-    }
-    setImageWarnings(warnings);
-    setImages(accepted);
-    setImagePreviews(accepted.map((file) => URL.createObjectURL(file)));
-    setError(undefined);
-    if (imageInput.current) imageInput.current.value = "";
-  }
-
   function closeDrawer() {
     if (busy) return;
     placeAbort.current?.abort();
@@ -918,21 +641,18 @@ export default function ActivityPlanning({
     setChosenPlace(undefined);
     setPlaceSearchActive(false);
     setPlaceQuery("");
-    setPrompt("");
-    chooseImages([]);
   }
   function openAdd() {
     trackBehavior("activity_creation_started");
     placeAbort.current?.abort();
     setSearching(false);
     setError(undefined);
-    setPrompt("");
-    chooseImages([]);
+
     setPlaces([]);
     setChosenPlace(undefined);
     setPlaceSearchActive(false);
     setPlaceQuery("");
-    setEntryMode("lookup");
+
     setEditor({ value: emptyActivity() });
   }
 
@@ -1228,35 +948,10 @@ export default function ActivityPlanning({
         </DrawerHeaderTitle>
       </DrawerHeader>
       <DrawerBody className="activity-drawer-body">
-        {!editor?.value.id && (
-          <TabList
-            aria-label="Add activity method"
-            selectedValue={entryMode}
-            onTabSelect={(_, data) =>
-              setEntryMode(data.value as typeof entryMode)
-            }
-          >
-            <Tab value="lookup" disabled={busy}>
-              Place lookup
-            </Tab>
-            <Tab value="prompt" disabled={busy || !canGenerate}>
-              AI prompt
-            </Tab>
-            <Tab value="image" disabled={busy || !canGenerate}>
-              Images
-            </Tab>
-          </TabList>
-        )}
-        {!canGenerate && !editor?.value.id && (
-          <Text size={200}>
-            Enable AI in your profile to generate suggestions or import an
-            image.
-          </Text>
-        )}
         {error && <Text role="alert">{error}</Text>}
         {editor && (
           <fieldset disabled={busy} className="activity-drawer-fields">
-            {entryMode === "lookup" ? (
+            {
               <div className="activity-editor">
                 <Field label="Activity or place name">
                   <SearchBox
@@ -1266,7 +961,7 @@ export default function ActivityPlanning({
                     onChange={(_, data) => {
                       placeAbort.current?.abort();
                       setSearching(false);
-                      setResearchingPlaces(false);
+
                       setPlaceQuery(data.value);
                       setPlaces([]);
                       setChosenPlace(undefined);
@@ -1291,31 +986,12 @@ export default function ActivityPlanning({
                   >
                     {searching ? "Searching…" : "Search places"}
                   </Button>
-                  {canGenerate && (
-                    <Button
-                      disabled={searching || !placeQuery.trim()}
-                      onClick={() => void searchPlace(true)}
-                    >
-                      Search web
-                    </Button>
-                  )}
-                  {canGenerate && editor.value.id && !editor.value.geometry && (
-                    <Button
-                      disabled={busy || searching}
-                      onClick={() => void researchLocation()}
-                    >
-                      {busy ? "Working…" : "Research saved activity location"}
-                    </Button>
-                  )}
+
                   {editor.value.geometry && <Text>Location selected</Text>}
                 </div>
                 {searching && (
                   <SearchResultsSkeleton
-                    label={
-                      researchingPlaces
-                        ? "Researching places and addresses"
-                        : "Loading place results"
-                    }
+                    label={"Loading place results"}
                     appearance="places"
                   />
                 )}
@@ -1503,18 +1179,8 @@ export default function ActivityPlanning({
                     }
                   />
                 </label>
-                <ActivityDetailsResearch
-                  key={editor.value.id ?? "new"}
-                  tripId={trip.id}
-                  destination={destination}
-                  activity={editor.value}
-                  etag={editor.etag}
-                  canResearch={canGenerate}
-                  busy={busy}
-                  onBusyChange={setBusy}
-                  onChange={updateEditor}
-                  notify={notify}
-                />
+
+                <ActivityDetailsEvidence properties={editor.value.properties} />
                 <div className="activity-editor-grid">
                   <ActivityDurationSlider
                     value={editor.value.properties.duration}
@@ -1638,92 +1304,7 @@ export default function ActivityPlanning({
                   onChange={(links) => updateEditor({ links })}
                 />
               </div>
-            ) : (
-              <div className="activity-composer">
-                <label htmlFor="activity-prompt">
-                  {entryMode === "prompt"
-                    ? "What would you like to do?"
-                    : "Image instructions (optional)"}
-                </label>
-                <Textarea
-                  id="activity-prompt"
-                  placeholder={
-                    entryMode === "image"
-                      ? "Optional: extract only food activities mentioned in these images"
-                      : "Find relaxed art and food activities"
-                  }
-                  value={prompt}
-                  onChange={(_, data) => setPrompt(data.value)}
-                />
-                {entryMode === "image" && (
-                  <>
-                    <Button onClick={() => imageInput.current?.click()}>
-                      Choose images
-                    </Button>
-                    <Text size={200}>
-                      Up to 10 images · 10 MB each · 50 MB total. Only
-                      activities explicitly mentioned in the images will be
-                      extracted.
-                    </Text>
-                    <input
-                      ref={imageInput}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      multiple
-                      onChange={(event) =>
-                        chooseImages([
-                          ...images,
-                          ...Array.from(event.target.files ?? []),
-                        ])
-                      }
-                      className="activity-file-input"
-                      aria-label="Activity images"
-                    />
-                    {imageWarnings.length > 0 && (
-                      <div role="alert">
-                        {imageWarnings.map((warning) => (
-                          <p key={warning}>{warning}</p>
-                        ))}
-                      </div>
-                    )}
-                    {images.length > 0 && (
-                      <Text role="status">
-                        {images.length} of 10 photos ready to upload
-                      </Text>
-                    )}
-                    {images.map((file, index) => (
-                      <div
-                        className="activity-upload-preview"
-                        key={`${index}-${file.name}`}
-                      >
-                        {imagePreviews[index] && (
-                          <img
-                            src={imagePreviews[index]}
-                            alt={`Activity source ${index + 1}: ${file.name}`}
-                          />
-                        )}
-                        <span>{file.name}</span>
-                        <Button
-                          aria-label={`Remove image ${index + 1}: ${file.name}`}
-                          onClick={() =>
-                            chooseImages(
-                              images.filter(
-                                (_, imageIndex) => imageIndex !== index,
-                              ),
-                            )
-                          }
-                        >
-                          Remove image
-                        </Button>
-                      </div>
-                    ))}
-                  </>
-                )}
-                <Text size={200}>
-                  AI saves activities immediately with state Proposed.
-                </Text>
-              </div>
-            )}
+            }
           </fieldset>
         )}
       </DrawerBody>
@@ -1734,24 +1315,7 @@ export default function ActivityPlanning({
             role="status"
             aria-live="polite"
           >
-            {entryMode === "lookup" ? (
-              <Text>Saving activity…</Text>
-            ) : (
-              <Spinner
-                size="small"
-                label={
-                  entryMode === "image"
-                    ? "Extracting activities from your photos…"
-                    : "Generating activities…"
-                }
-              />
-            )}
-            {entryMode !== "lookup" && (
-              <Text size={200}>
-                Please wait while we find activities and resolve their
-                locations.
-              </Text>
-            )}
+            {<Text>Saving activity…</Text>}
           </div>
         )}
         {editor?.value.id && (
@@ -1762,7 +1326,7 @@ export default function ActivityPlanning({
         <Button disabled={busy} onClick={closeDrawer}>
           Cancel
         </Button>
-        {entryMode === "lookup" ? (
+        {
           <Button
             appearance="primary"
             disabled={
@@ -1777,23 +1341,7 @@ export default function ActivityPlanning({
           >
             Save activity
           </Button>
-        ) : (
-          <Button
-            appearance="primary"
-            disabled={
-              busy ||
-              !canGenerate ||
-              (entryMode === "prompt" ? !prompt.trim() : images.length === 0)
-            }
-            onClick={() =>
-              void generate(entryMode === "image" ? "image" : "text")
-            }
-          >
-            {entryMode === "image"
-              ? "Extract activities"
-              : "Suggest activities"}
-          </Button>
-        )}
+        }
       </DrawerFooter>
     </OverlayDrawer>
   );
@@ -1888,7 +1436,7 @@ export default function ActivityPlanning({
               destination={destination}
               activities={activities.features}
               readOnly={!canEdit}
-              useAiAllowed={canGenerate}
+
               onSelect={selectActivity}
               selectedRouteKey={
                 routeSelection ? activityRouteKey(routeSelection) : undefined
@@ -1919,24 +1467,10 @@ export default function ActivityPlanning({
                     >
                       Add activity
                     </Button>
-                    {canGenerate && missingLocations && (
-                      <Button
-                        appearance="secondary"
-                        disabled={busy}
-                        onClick={() => void findMissingLocations()}
-                      >
-                        Find location
-                      </Button>
-                    )}
                   </div>
                 )}
               </div>
-              {locationProgress && (
-                <p role="status">
-                  Finding locations: {locationProgress.completed} of{" "}
-                  {locationProgress.total}
-                </p>
-              )}
+
               <ul
                 className="activity-cards activity-state-groups"
                 aria-label={`${destination.properties.name} activities`}

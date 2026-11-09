@@ -14,13 +14,9 @@ public sealed class AzureMapsConsumerTests
     public async Task PlanningAppliesTaxiPickupTimeToTheTypedRouteEstimate()
     {
         var maps = new Maps();
-        using var http = new HttpClient(new NoRequests());
         var provider = new ActivityPlanningProviders(
-            http,
             maps,
-            Microsoft.Extensions.Options.Options.Create(new OpenAiOptions()),
-            Microsoft.Extensions.Options.Options.Create(new ActivityPlanningOptions()),
-            TimeProvider.System
+            Microsoft.Extensions.Options.Options.Create(new ActivityPlanningOptions())
         );
         using var budget = new PlanningProviderBudget(1);
         var evidence = await provider.RoutesAsync(
@@ -34,14 +30,6 @@ public sealed class AzureMapsConsumerTests
         Assert.AreEqual(TimeSpan.FromMinutes(21), evidence.Single().Duration);
         Assert.AreEqual(maps.Estimate.RetrievedAt, evidence.Single().RetrievedAt);
         Assert.AreEqual(maps.Estimate.ExpiresAt, evidence.Single().ExpiresAt);
-    }
-
-    private sealed class NoRequests : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken
-        ) => throw new AssertFailedException("Routing must use typed mapping operations.");
     }
 
     private sealed class Maps : AzureMapsStub

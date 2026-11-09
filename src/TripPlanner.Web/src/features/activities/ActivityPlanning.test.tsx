@@ -6,35 +6,27 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import ColorSchemeProvider from "../../app/ColorSchemeProvider";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import ActivityPlanning from "./ActivityPlanning";
 import type { Trip } from "../../api/api";
+import ColorSchemeProvider from "../../app/ColorSchemeProvider";
+import type { PlaceSearch } from "../../maps/ActivityMap";
 import { mapsClient } from "../../maps/mapsClient";
+import PersistentMapSurface from "../../maps/PersistentMapSurface";
 import {
-  getDestinations,
+  deleteActivity,
   getActivities,
   getActivity,
+  getDestinations,
   saveActivity,
-  researchActivityLocation,
-  researchActivityPlaces,
-  researchActivityDetails,
-  deleteActivity,
-  suggestActivities,
-  importActivityImages,
-  waitForActivityJob,
-  getSuggestionResult,
-  type DestinationCollection,
   type Activity,
+  type DestinationCollection,
 } from "./activitiesApi";
-import type { TrackedOperation } from "../../api/operationsApi";
-import type { PlaceSearch } from "../../maps/ActivityMap";
-import PersistentMapSurface from "../../maps/PersistentMapSurface";
 import { planningRequest } from "./activityPlanApi";
+import ActivityPlanning from "./ActivityPlanning";
 import type {
-  ActivityRouteSelection,
   ActivityRoutePreview,
+  ActivityRouteSelection,
 } from "./activityRouteApi";
 vi.mock("./activityPlanApi", async (original) => ({
   ...(await original<typeof import("./activityPlanApi")>()),
@@ -227,18 +219,14 @@ const activity: Activity = {
 function Location() {
   return <span data-testid="location">{useLocation().search}</span>;
 }
-function show(
-  readOnly = false,
-  featureFlags: string[] = [],
-  onDestinationChange = vi.fn(),
-) {
+function show(readOnly = false, onDestinationChange = vi.fn()) {
   return render(
     <ColorSchemeProvider>
       <MemoryRouter initialEntries={["/trips/trip/activities"]}>
         <ActivityPlanning
           trip={trip}
           readOnly={readOnly}
-          featureFlags={featureFlags}
+
           onDestinationChange={onDestinationChange}
         />
         <Location />
@@ -248,7 +236,6 @@ function show(
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(researchActivityPlaces).mockResolvedValue([]);
   vi.mocked(getDestinations).mockResolvedValue(destinations);
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -404,7 +391,7 @@ test("Plan shows only Planned activity bubbles, and Ideas restores the others", 
 
 test("destination tabs show every visit's dates and switch the selected city without duplicate headings or destination details", async () => {
   const onDestinationChange = vi.fn();
-  show(false, [], onDestinationChange);
+  show(false, onDestinationChange);
   const paris = await screen.findByRole("tab", { name: /Paris/ });
   expect(paris).toHaveTextContent("Jun 10, 2027 – Jun 14, 2027");
   expect(paris).toHaveTextContent("Jun 18, 2027 – Jun 20, 2027");
@@ -524,244 +511,6 @@ test("the place SearchBox searches on Enter without submitting the editor or sta
   ).toBeEnabled();
 });
 
-test.each(["empty", "failure", "explicit"])(
-  "web place research handles Azure %s results and preserves sourced candidates for review",
-  async (outcome) => {
-    if (outcome === "failure")
-      vi.mocked(mapsClient.searchPlaces).mockRejectedValue(
-        new Error("Map search failed"),
-      );
-    else vi.mocked(mapsClient.searchPlaces).mockResolvedValue([]);
-    const source = {
-      url: "https://venue.example/access",
-      label: "Venue source",
-    };
-    const locationSource = {
-      url: "https://www.wikidata.org/wiki/Q106738687",
-      label: "Published coordinates",
-    };
-    vi.mocked(researchActivityPlaces).mockResolvedValue([
-      {
-        name: "teamLab Planets TOKYO",
-        address: "6-1-16 Toyosu, Tokyo",
-        mapAddress: "6 Chome 1-16, Toyosu, Tokyo",
-        source,
-        locationSource,
-        geometry: { type: "Point", coordinates: [139.795, 35.649] },
-        warning:
-          "Possible address match. Check the map address and pin before saving.",
-      },
-      {
-        name: "Another branch",
-        address: "Unknown map address",
-        source,
-        geometry: null,
-        warning: "Address found, but no usable street-address pin.",
-      },
-    ]);
-    show(false, ["LLM"]);
-    const drawer = await add();
-    change(
-      within(drawer).getByRole("searchbox", { name: "Activity or place name" }),
-      { target: { value: "teamlabs planets" } },
-    );
-    click(
-      within(drawer).getByRole("button", {
-        name: outcome === "explicit" ? "Search web" : "Search places",
-      }),
-    );
-    const result = await within(drawer).findByRole("button", {
-      name: "1. teamLab Planets TOKYO, 6-1-16 Toyosu, Tokyo",
-    });
-    expect(researchActivityPlaces).toHaveBeenCalledWith(
-      "trip",
-      "paris-fr",
-      "teamlabs planets",
-      expect.any(AbortSignal),
-    );
-    if (outcome === "explicit")
-      expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
-    expect(within(drawer).getByText("6-1-16 Toyosu, Tokyo")).toBeVisible();
-    expect(
-      within(drawer).getByText("Map address: 6 Chome 1-16, Toyosu, Tokyo"),
-    ).toBeVisible();
-    expect(
-      within(drawer).getByRole("link", {
-        name: "Source for teamLab Planets TOKYO",
-      }),
-    ).toHaveAttribute("href", source.url);
-    expect(
-      within(drawer).getByRole("link", {
-        name: "Map location source for teamLab Planets TOKYO",
-      }),
-    ).toHaveAttribute("href", locationSource.url);
-    expect(
-      within(drawer).getByRole("button", {
-        name: "2. Another branch, Unknown map address",
-      }),
-    ).toBeDisabled();
-    expect(saveActivity).not.toHaveBeenCalled();
-    expect(within(drawer).getByLabelText("Name")).toHaveValue("");
-    if (outcome === "explicit") {
-      change(within(drawer).getByLabelText("Name"), {
-        target: { value: "Explore immersive art" },
-      });
-      change(within(drawer).getByLabelText("Description"), {
-        target: { value: "Keep this description" },
-      });
-    }
-    click(result);
-    expect(within(drawer).getByLabelText("Name")).toHaveValue(
-      outcome === "explicit"
-        ? "Explore immersive art"
-        : "teamLab Planets TOKYO",
-    );
-    expect(
-      screen.getByRole("button", {
-        name: `Map marker: ${outcome === "explicit" ? "Explore immersive art" : "teamLab Planets TOKYO"}`,
-      }),
-    ).toBeInTheDocument();
-    if (outcome === "explicit")
-      expect(within(drawer).getByLabelText("Description")).toHaveValue(
-        "Keep this description",
-      );
-    expect(
-      within(drawer).getByText(
-        "Possible address match. Check the map address and pin before saving.",
-      ),
-    ).toBeVisible();
-    click(within(drawer).getByRole("button", { name: "Save activity" }));
-    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
-    const saved = vi.mocked(saveActivity).mock.calls[0][2];
-    expect(saved.geometry?.coordinates).toEqual([139.795, 35.649]);
-    expect(saved.properties.links).toContainEqual(source);
-    expect(saved.properties.links).toContainEqual(locationSource);
-  },
-);
-
-test("changing the query cancels web research and ignores its old results", async () => {
-  let finish!: (
-    value: Awaited<ReturnType<typeof researchActivityPlaces>>,
-  ) => void;
-  vi.mocked(researchActivityPlaces).mockReturnValue(
-    new Promise((resolve) => {
-      finish = resolve;
-    }),
-  );
-  show(false, ["LLM"]);
-  const drawer = await add();
-  const input = within(drawer).getByRole("searchbox", {
-    name: "Activity or place name",
-  });
-  change(input, { target: { value: "Old venue" } });
-  click(within(drawer).getByRole("button", { name: "Search web" }));
-  const signal = vi.mocked(researchActivityPlaces).mock.calls[0][3]!;
-  change(input, { target: { value: "New venue" } });
-  expect(signal.aborted).toBe(true);
-  await act(async () =>
-    finish([
-      {
-        name: "Old venue",
-        address: "Old address",
-        source: { url: "https://venue.example", label: "Source" },
-        geometry: { type: "Point", coordinates: [2.35, 48.86] },
-        warning: null,
-      },
-    ]),
-  );
-  expect(
-    within(drawer).queryByRole("button", { name: "1. Old venue, Old address" }),
-  ).toBeNull();
-  expect(
-    within(drawer).getByRole("button", { name: "Search places" }),
-  ).toBeEnabled();
-  expect(saveActivity).not.toHaveBeenCalled();
-});
-
-test("successful Azure lookup skips AI research", async () => {
-  vi.mocked(mapsClient.searchPlaces).mockResolvedValue([
-    { id: "venue", label: "Venue, Paris", longitude: 2.35, latitude: 48.86 },
-  ]);
-  show(false, ["LLM"]);
-  const drawer = await add();
-  change(
-    within(drawer).getByRole("searchbox", { name: "Activity or place name" }),
-    { target: { value: "Venue" } },
-  );
-  click(within(drawer).getByRole("button", { name: "Search places" }));
-  await within(drawer).findByRole("button", { name: "1. Venue, Paris" });
-  expect(researchActivityPlaces).not.toHaveBeenCalled();
-});
-
-test("place lookup populates the activity's name and location, and saving updates the cards", async () => {
-  vi.mocked(mapsClient.searchPlaces).mockResolvedValue([
-    {
-      id: "louvre",
-      label: "Louvre, Paris",
-      name: "Louvre",
-      address: "Paris",
-      longitude: 2.33,
-      latitude: 48.86,
-    },
-  ]);
-  show();
-  const drawer = await add();
-  expect(within(drawer).getByRole("tab", { name: "AI prompt" })).toBeDisabled();
-  expect(
-    within(drawer).queryByRole("button", { name: "Search web" }),
-  ).toBeNull();
-  change(within(drawer).getByLabelText("Activity or place name"), {
-    target: { value: "Louvre" },
-  });
-  click(within(drawer).getByRole("button", { name: "Search places" }));
-  const result = await within(drawer).findByRole("button", {
-    name: "1. Louvre, Paris",
-  });
-  expect(within(result).getByText("Louvre")).toBeVisible();
-  expect(within(result).getByText("Paris")).toHaveClass(
-    "place-search-result-address",
-  );
-  click(result);
-  expect(mapsClient.searchPlaces).toHaveBeenCalledWith(
-    "Louvre",
-    expect.any(AbortSignal),
-    [2.35, 48.86],
-    "FR",
-  );
-  expect(drawer.closest(".activity-map-panel")).toBeNull();
-  expect(drawer).not.toHaveAttribute("aria-modal", "true");
-  expect(document.querySelector(".fui-DialogSurface__backdrop")).toBeNull();
-  expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [activity],
-  });
-  click(within(drawer).getByRole("button", { name: "Save activity" }));
-  await waitFor(() =>
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-  );
-  const savedToast = await screen.findByText("Activity saved.");
-  expect(savedToast.closest(".fui-Toast")).not.toBeNull();
-  expect(savedToast.closest(".activity-planning")).toBeNull();
-  click(screen.getByRole("button", { name: "Dismiss notification" }));
-  await waitFor(() => expect(savedToast).not.toBeInTheDocument());
-  expect(saveActivity).toHaveBeenCalledWith(
-    "trip",
-    destinations.features[0],
-    expect.objectContaining({
-      geometry: activity.geometry,
-      properties: expect.objectContaining({
-        name: "Louvre",
-        placeName: "Louvre, Paris",
-      }),
-    }),
-    undefined,
-  );
-  expect(
-    await screen.findByRole("list", { name: "Paris activities" }),
-  ).toHaveTextContent("Louvre");
-});
-
 test("editing uses a drawer and preserves changes after a failed save for retry", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -871,122 +620,6 @@ test("shared trip members see the cards without add or edit actions", async () =
   ).not.toBeInTheDocument();
 });
 
-test.each(["prompt", "image"] as const)(
-  "%s generation runs inside the drawer and refreshes saved Proposed activities",
-  async (method) => {
-    const operation: TrackedOperation = {
-      id: "op",
-      resourceId: null,
-      type: "activities",
-      status: "Completed",
-      progress: { items: 1, completedItems: 1, failedItems: 0 },
-      createdAt: "",
-      updatedAt: "",
-      pollingUrl: "",
-    };
-    vi.mocked(suggestActivities).mockResolvedValue(operation);
-    vi.mocked(importActivityImages).mockResolvedValue(operation);
-    let complete!: (operation: TrackedOperation) => void;
-    vi.mocked(waitForActivityJob).mockReturnValue(
-      new Promise((resolve) => {
-        complete = resolve;
-      }),
-    );
-    vi.mocked(getSuggestionResult).mockResolvedValue({
-      operationId: "op",
-      activities: { type: "FeatureCollection", features: [activity] },
-      warnings: [],
-    });
-    vi.stubGlobal(
-      "URL",
-      class extends URL {
-        static createObjectURL() {
-          return "blob:test";
-        }
-        static revokeObjectURL() {}
-      },
-    );
-    show(false, ["LLM"]);
-    const drawer = await add();
-    click(
-      within(drawer).getByRole("tab", {
-        name: method === "prompt" ? "AI prompt" : "Images",
-      }),
-    );
-    change(
-      within(drawer).getByLabelText(
-        method === "prompt"
-          ? "What would you like to do?"
-          : "Image instructions (optional)",
-      ),
-      { target: { value: "Art museums" } },
-    );
-    const file = new File(["image"], "museum.png", { type: "image/png" });
-    if (method === "image")
-      change(within(drawer).getByLabelText("Activity images"), {
-        target: { files: [file] },
-      });
-    vi.mocked(getActivities).mockResolvedValue({
-      type: "FeatureCollection",
-      features: [activity],
-    });
-    click(
-      within(drawer).getByRole("button", {
-        name: method === "prompt" ? "Suggest activities" : "Extract activities",
-      }),
-    );
-    await waitFor(() => expect(waitForActivityJob).toHaveBeenCalled());
-    const progress = drawer.querySelector(
-      ".activity-drawer-progress",
-    ) as HTMLElement;
-    expect(progress).toHaveAttribute("role", "status");
-    expect(progress).toHaveTextContent(
-      method === "image"
-        ? "Extracting activities from your photos"
-        : "Generating activities",
-    );
-    expect(progress.closest(".activity-drawer-footer")).not.toBeNull();
-    expect(within(progress).getByRole("progressbar")).toBeInTheDocument();
-    expect(
-      within(drawer).getByRole("button", { name: "Cancel" }),
-    ).toBeDisabled();
-    await act(async () => complete(operation));
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
-    if (method === "prompt")
-      expect(suggestActivities).toHaveBeenCalledWith(
-        "trip",
-        destinations.features[0],
-        "Art museums",
-      );
-    else
-      expect(importActivityImages).toHaveBeenCalledWith(
-        "trip",
-        destinations.features[0],
-        [file],
-        "Art museums",
-      );
-    expect(
-      await screen.findByRole("list", { name: "Paris activities" }),
-    ).toHaveTextContent("Louvre");
-    const summary = await screen.findByText("1 activities added as Proposed.");
-    expect(summary).toBeVisible();
-    expect(summary.closest(".activity-planning")).toBeNull();
-    vi.useFakeTimers();
-    try {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
-      });
-      expect(summary).toBeVisible();
-    } finally {
-      vi.useRealTimers();
-    }
-    click(screen.getByRole("button", { name: "Dismiss activity summary" }));
-    await waitFor(() => expect(summary).not.toBeInTheDocument());
-  },
-);
-
 afterEach(() => vi.unstubAllGlobals());
 
 test("activity links appear in the cards and can be removed in the edit drawer", async () => {
@@ -1090,70 +723,6 @@ test.each([false, true])(
     ).not.toBeInTheDocument();
   },
 );
-
-test("image import accepts ten images, removes individual images, and preserves the selection after an invalid batch", async () => {
-  vi.stubGlobal(
-    "URL",
-    class extends URL {
-      static createObjectURL() {
-        return "blob:test";
-      }
-      static revokeObjectURL() {}
-    },
-  );
-  const operation: TrackedOperation = {
-    id: "op",
-    resourceId: null,
-    type: "activities",
-    status: "Completed",
-    progress: { items: 1, completedItems: 1, failedItems: 0 },
-    createdAt: "",
-    updatedAt: "",
-    pollingUrl: "",
-  };
-  vi.mocked(importActivityImages).mockResolvedValue(operation);
-  vi.mocked(waitForActivityJob).mockResolvedValue(operation);
-  vi.mocked(getSuggestionResult).mockResolvedValue({
-    operationId: "op",
-    activities: { type: "FeatureCollection", features: [] },
-    warnings: [],
-  });
-  show(false, ["LLM"]);
-  const drawer = await add();
-  click(within(drawer).getByRole("tab", { name: "Images" }));
-  const input = within(drawer).getByLabelText("Activity images");
-  expect(input).toHaveAttribute("multiple");
-  const files = ["first.png", "second.png", "third.png"].map(
-    (name) => new File(["image"], name, { type: "image/png" }),
-  );
-  change(input, { target: { files: files.slice(0, 2) } });
-  expect(within(drawer).getAllByRole("img")).toHaveLength(2);
-  click(
-    within(drawer).getByRole("button", { name: "Remove image 1: first.png" }),
-  );
-  change(input, { target: { files: [files[2]] } });
-  expect(within(drawer).getAllByRole("img")).toHaveLength(2);
-  const additionalFiles = Array.from(
-    { length: 8 },
-    (_, index) => new File(["image"], `${index}.png`, { type: "image/png" }),
-  );
-  change(input, { target: { files: additionalFiles } });
-  expect(within(drawer).getAllByRole("img")).toHaveLength(10);
-  change(input, { target: { files: [files[0]] } });
-  expect(within(drawer).getByRole("alert")).toHaveTextContent(
-    "Only the first 10 photos were accepted",
-  );
-  expect(within(drawer).getAllByRole("img")).toHaveLength(10);
-  click(within(drawer).getByRole("button", { name: "Extract activities" }));
-  await waitFor(() =>
-    expect(importActivityImages).toHaveBeenCalledWith(
-      "trip",
-      destinations.features[0],
-      [files[1], files[2], ...additionalFiles],
-      "",
-    ),
-  );
-});
 
 test.each([false, true])(
   "full-screen map shows a dismissible activity card after marker selection, read-only=%s",
@@ -1345,69 +914,6 @@ test("activity costs use a known currency selection and save the selected curren
     ),
   );
 });
-
-test.each([
-  {
-    kind: "count",
-    reason: "Only the first 10 photos were accepted",
-    count: 10,
-  },
-  { kind: "format", reason: "unsupported format", count: 1 },
-  { kind: "empty", reason: "the file is empty", count: 1 },
-  { kind: "size", reason: "10 MB limit per photo", count: 1 },
-  { kind: "total", reason: "50 MB total upload limit", count: 5 },
-])(
-  "photo selection previews accepted files and explains $kind rejections",
-  async ({ kind, reason, count }) => {
-    vi.stubGlobal(
-      "URL",
-      class extends URL {
-        static createObjectURL() {
-          return "blob:preview";
-        }
-        static revokeObjectURL() {}
-      },
-    );
-    const photo = (name: string, size = 5) => {
-      const file = new File(["photo"], name, { type: "image/jpeg" });
-      Object.defineProperty(file, "size", { value: size });
-      return file;
-    };
-    const files =
-      kind === "count"
-        ? Array.from({ length: 12 }, (_, i) => photo(`${i}.jpg`))
-        : kind === "total"
-          ? [
-              ...Array.from({ length: 5 }, (_, index) =>
-                photo(`${index}.jpg`, 10_000_000),
-              ),
-              photo("rejected.jpg", 1),
-            ]
-          : [
-              photo("accepted.jpg"),
-              kind === "format"
-                ? new File(["gif"], "rejected.gif", { type: "image/gif" })
-                : photo("rejected.jpg", kind === "empty" ? 0 : 10_000_001),
-            ];
-    show(false, ["LLM"]);
-    const drawer = await add();
-    click(within(drawer).getByRole("tab", { name: "Images" }));
-    change(within(drawer).getByLabelText("Activity images"), {
-      target: { files },
-    });
-    expect(within(drawer).getAllByRole("img")).toHaveLength(count);
-    expect(within(drawer).getByRole("status")).toHaveTextContent(
-      `${count} of 10 photos ready to upload`,
-    );
-    expect(within(drawer).getByRole("alert")).toHaveTextContent(reason);
-    if (kind !== "count")
-      expect(within(drawer).getByRole("alert")).toHaveTextContent("rejected.");
-    expect(within(drawer).getAllByRole("img")[0]).toHaveAttribute(
-      "src",
-      "blob:preview",
-    );
-  },
-);
 
 test("the map can collapse for list browsing and reopen when selecting an activity", async () => {
   vi.mocked(getActivities).mockResolvedValue({
@@ -1623,54 +1129,6 @@ const locationSuggestion = {
   retrievedAt: "2026-10-20T12:00:00Z",
 };
 
-test("researched coordinates remain a preview until selected and saved", async () => {
-  const unlocated = { ...activity, geometry: null };
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [unlocated],
-  });
-  vi.mocked(getActivity).mockResolvedValue({
-    activity: unlocated,
-    etag: '"7"',
-  });
-  vi.mocked(researchActivityLocation).mockResolvedValue(locationSuggestion);
-  show(false, ["LLM"]);
-  click(await screen.findByRole("button", { name: "Set location for Louvre" }));
-  const drawer = await screen.findByRole("dialog");
-  click(
-    within(drawer).getByRole("button", {
-      name: "Research saved activity location",
-    }),
-  );
-  expect(
-    await within(drawer).findByRole("link", { name: "View coordinate source" }),
-  ).toHaveAttribute("href", locationSuggestion.source.url);
-  expect(within(drawer).getByText(/entrance not verified/)).toBeVisible();
-  expect(researchActivityLocation).toHaveBeenCalledWith(
-    "trip",
-    destinations.features[0],
-    activity.id,
-    '"7"',
-  );
-  expect(saveActivity).not.toHaveBeenCalled();
-  expect(
-    screen.queryByRole("button", { name: "Map marker: Louvre" }),
-  ).not.toBeInTheDocument();
-  click(within(drawer).getByRole("button", { name: "Use this location" }));
-  expect(saveActivity).not.toHaveBeenCalled();
-  click(within(drawer).getByRole("button", { name: "Save activity" }));
-  await waitFor(() => expect(saveActivity).toHaveBeenCalled());
-  expect(vi.mocked(saveActivity).mock.calls[0][2]).toMatchObject({
-    ...activity,
-    geometry: locationSuggestion.geometry,
-    properties: {
-      ...activity.properties,
-      locationSuggestion: null,
-      links: [locationSuggestion.source],
-    },
-  });
-});
-
 test("a generated candidate can be dismissed without applying its geometry", async () => {
   const unlocated = {
     ...activity,
@@ -1717,66 +1175,6 @@ const detailsSuggestion = {
     },
   },
 };
-
-test.each(["duration", "cost", "dismiss"])(
-  "duration/cost research only applies the reviewed %s choice",
-  async (choice) => {
-    vi.mocked(getActivities).mockResolvedValue({
-      type: "FeatureCollection",
-      features: [activity],
-    });
-    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"7"' });
-    vi.mocked(researchActivityDetails).mockResolvedValue(detailsSuggestion);
-    show(false, ["LLM"]);
-    click(await screen.findByRole("button", { name: "Louvre" }));
-    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
-    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
-    click(
-      within(drawer).getByRole("button", {
-        name: "Research duration and cost",
-      }),
-    );
-    expect(
-      await within(drawer).findByRole("link", { name: "Duration source" }),
-    ).toHaveAttribute("href", detailsSuggestion.duration.evidence.source.url);
-    expect(
-      within(drawer).getByText("Adult admission; future prices unconfirmed."),
-    ).toBeVisible();
-    expect(researchActivityDetails).toHaveBeenCalledWith(
-      "trip",
-      destinations.features[0],
-      activity.id,
-      '"7"',
-    );
-    expect(saveActivity).not.toHaveBeenCalled();
-    click(
-      within(drawer).getByRole("button", {
-        name:
-          choice === "dismiss" ? "Dismiss suggestions" : `Use this ${choice}`,
-      }),
-    );
-    expect(saveActivity).not.toHaveBeenCalled();
-    click(within(drawer).getByRole("button", { name: "Save activity" }));
-    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
-    const saved = vi.mocked(saveActivity).mock.calls[0][2];
-    expect(saved.properties.duration).toBe(
-      choice === "duration" ? "PT1H30M" : activity.properties.duration,
-    );
-    expect(saved.properties.cost).toEqual(
-      choice === "cost" ? detailsSuggestion.cost.value : null,
-    );
-    expect(saved.properties.description).toBe(activity.properties.description);
-    expect(saved.geometry).toEqual(activity.geometry);
-    if (choice === "duration")
-      expect(saved.properties.durationEvidence).toEqual(
-        detailsSuggestion.duration.evidence,
-      );
-    if (choice === "cost")
-      expect(saved.properties.costEvidence).toEqual(
-        detailsSuggestion.cost.evidence,
-      );
-  },
-);
 
 test.each([
   [0.5, "PT30M", "30 min"],
@@ -1889,43 +1287,6 @@ test.each([3, null])(
   },
 );
 
-test.each(["empty", "failure"])(
-  "research %s keeps the editor values and shows a toast",
-  async (outcome) => {
-    vi.mocked(getActivities).mockResolvedValue({
-      type: "FeatureCollection",
-      features: [activity],
-    });
-    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"7"' });
-    if (outcome === "empty")
-      vi.mocked(researchActivityDetails).mockResolvedValue(null);
-    else
-      vi.mocked(researchActivityDetails).mockRejectedValue(
-        new Error("Research unavailable."),
-      );
-    show(false, ["LLM"]);
-    click(await screen.findByRole("button", { name: "Louvre" }));
-    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
-    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
-    click(
-      within(drawer).getByRole("button", {
-        name: "Research duration and cost",
-      }),
-    );
-    const message =
-      outcome === "empty"
-        ? "No supported duration or cost was found. You can still enter them manually."
-        : "Research unavailable.";
-    expect(
-      (await screen.findByText(message)).closest(".fui-Toast"),
-    ).not.toBeNull();
-    expect(
-      within(drawer).getByRole("slider", { name: "Duration" }),
-    ).toHaveValue("2");
-    expect(saveActivity).not.toHaveBeenCalled();
-  },
-);
-
 test("read-only members can see accepted research sources and conditions", async () => {
   const researched = {
     ...activity,
@@ -2008,189 +1369,16 @@ test.each([false, true])(
   },
 );
 
-test.each([
-  [false, true, true],
-  [false, false, false],
-  [true, true, false],
-])(
-  "Find location visibility for readOnly=%s and AI=%s",
-  async (readOnly, ai, visible) => {
-    vi.mocked(getActivities).mockResolvedValue({
-      type: "FeatureCollection",
-      features: [{ ...activity, geometry: null }],
-    });
-    show(readOnly, ai ? ["LLM"] : []);
-    await screen.findByText("Needs location · Not on map");
-    expect(
-      screen.queryByRole("button", { name: "Find location" }) !== null,
-    ).toBe(visible);
-  },
-);
-
 test("Find location is hidden when all activities already have locations", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
     features: [activity],
   });
-  show(false, ["LLM"]);
+  show(false);
   await screen.findByRole("button", { name: "Louvre" });
   expect(
     screen.queryByRole("button", { name: "Find location" }),
   ).not.toBeInTheDocument();
-});
-
-test("Find location fills missing pins, preserves latest fields and sources, and skips existing locations", async () => {
-  const missing = { ...activity, geometry: null };
-  const second = {
-    ...missing,
-    id: "garden",
-    properties: { ...activity.properties, name: "Garden" },
-  };
-  const located = {
-    ...activity,
-    id: "located",
-    properties: { ...activity.properties, name: "Already located" },
-  };
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [missing, second, located],
-  });
-  const latest = {
-    ...missing,
-    properties: {
-      ...missing.properties,
-      kinds: ["Culture" as const],
-      address: null,
-      ticketRequirement: "Unknown" as const,
-      state: "Planned",
-      description: "Latest edit",
-      links: [{ url: "https://www.louvre.fr", label: "Official" }],
-    },
-  };
-  vi.mocked(getActivity).mockImplementation(async (_trip, _city, id) => ({
-    activity: id === missing.id ? latest : second,
-    etag: `"${id}-latest"`,
-  }));
-  vi.mocked(researchActivityLocation).mockResolvedValue(locationSuggestion);
-  show(false, ["LLM"]);
-  click(await screen.findByRole("button", { name: "Find location" }));
-  await screen.findByText("2 locations found and saved.");
-  expect(getActivity).toHaveBeenCalledTimes(2);
-  expect(researchActivityLocation).toHaveBeenCalledTimes(2);
-  expect(saveActivity).toHaveBeenCalledWith(
-    "trip",
-    destinations.features[0],
-    {
-      ...latest,
-      geometry: locationSuggestion.geometry,
-      properties: {
-        ...latest.properties,
-        locationSuggestion: null,
-        links: [...latest.properties.links, locationSuggestion.source],
-      },
-    },
-    '"museum-latest"',
-    expect.any(AbortSignal),
-  );
-  expect(
-    screen.getByRole("button", { name: "Map marker: Louvre" }),
-  ).toBeVisible();
-  expect(
-    screen.getByRole("button", { name: "Map marker: Garden" }),
-  ).toBeVisible();
-  expect(
-    screen.queryByRole("button", { name: "Find location" }),
-  ).not.toBeInTheDocument();
-});
-
-test("bulk locations retain partial successes and leave unknown or stale activities unchanged", async () => {
-  const items = [
-    "found",
-    "unknown",
-    "provider-error",
-    "stale",
-    "already-filled",
-  ].map((id) => ({
-    ...activity,
-    id,
-    geometry: null,
-    properties: { ...activity.properties, name: id },
-  }));
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: items,
-  });
-  vi.mocked(getActivity).mockImplementation(async (_trip, _city, id) => ({
-    activity: {
-      ...items.find((item) => item.id === id)!,
-      geometry: id === "already-filled" ? activity.geometry : null,
-    },
-    etag: '"current"',
-  }));
-  vi.mocked(researchActivityLocation).mockImplementation(
-    async (_trip, _destination, id) => {
-      if (id === "unknown") return null;
-      if (id === "provider-error") throw new Error("Provider unavailable");
-      return locationSuggestion;
-    },
-  );
-  vi.mocked(saveActivity).mockImplementation(
-    async (_trip, _destination, input) => {
-      if (input.id === "stale") throw new Error("The activity changed");
-      return { ...input, id: input.id! };
-    },
-  );
-  show(false, ["LLM"]);
-  click(await screen.findByRole("button", { name: "Find location" }));
-  await screen.findByText(
-    "1 location found and saved. 1 already located. 1 could not be verified. 2 failed; try again.",
-  );
-  expect(researchActivityLocation).toHaveBeenCalledTimes(4);
-  expect(saveActivity).toHaveBeenCalledTimes(2);
-  expect(
-    screen.getByRole("button", { name: "Map marker: found" }),
-  ).toBeVisible();
-  expect(
-    screen.queryByRole("button", { name: "Map marker: stale" }),
-  ).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Find location" })).toBeEnabled();
-});
-
-test("bulk locations limit concurrent research and cancel queued work when leaving", async () => {
-  const items = ["one", "two", "three"].map((id) => ({
-    ...activity,
-    id,
-    geometry: null,
-  }));
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: items,
-  });
-  vi.mocked(getActivity).mockImplementation(async (_trip, _city, id) => ({
-    activity: items.find((item) => item.id === id)!,
-    etag: '"current"',
-  }));
-  const resolvers: (() => void)[] = [];
-  vi.mocked(researchActivityLocation).mockImplementation(
-    () =>
-      new Promise((resolve) =>
-        resolvers.push(() => resolve(locationSuggestion)),
-      ),
-  );
-  const view = show(false, ["LLM"]);
-  click(await screen.findByRole("button", { name: "Find location" }));
-  await waitFor(() =>
-    expect(researchActivityLocation).toHaveBeenCalledTimes(2),
-  );
-  expect(screen.getByRole("button", { name: "Find location" })).toBeDisabled();
-  const signal = vi.mocked(researchActivityLocation).mock.calls[0][4]!;
-  view.unmount();
-  expect(signal.aborted).toBe(true);
-  await act(async () => {
-    resolvers.forEach((resolve) => resolve());
-  });
-  expect(researchActivityLocation).toHaveBeenCalledTimes(2);
-  expect(saveActivity).not.toHaveBeenCalled();
 });
 
 test("activity details require a kind and save multiple kinds, address and tickets together", async () => {

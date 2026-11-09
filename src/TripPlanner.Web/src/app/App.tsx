@@ -1,16 +1,3 @@
-import { readOfflineUser, rememberOfflineUser } from "../api/offlineCache";
-import { HttpResponseError, isAccessDenied } from "../api/httpErrors";
-import { clearTripDocumentCache } from "../api/tripDocumentStore";
-import ContentSkeleton from "../shared/components/ContentSkeleton";
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Link,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from "react-router";
 import {
   Avatar,
   Button,
@@ -27,6 +14,15 @@ import {
   Person24Regular,
   SignOut24Regular,
 } from "@fluentui/react-icons";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import {
   getCurrentUser,
   loginUrl,
@@ -35,13 +31,17 @@ import {
   type CurrentUser,
   type UserProfile,
 } from "../api/api";
+import { HttpResponseError, isAccessDenied } from "../api/httpErrors";
+import { readOfflineUser, rememberOfflineUser } from "../api/offlineCache";
+import { clearTripDocumentCache } from "../api/tripDocumentStore";
 import HomeCityPicker from "../features/profile/HomeCityPicker";
 import ProfilePage from "../features/profile/ProfilePage";
-import TripsDashboard from "../features/trips/TripsDashboard";
 import TripPlanningPage from "../features/trips/TripPlanningPage";
-import ScrollPositionRestoration from "./ScrollPositionRestoration";
+import TripsDashboard from "../features/trips/TripsDashboard";
+import ContentSkeleton from "../shared/components/ContentSkeleton";
 import BehaviorTracking from "../telemetry/BehaviorTracking";
 import { trackBehavior } from "../telemetry/telemetry";
+import ScrollPositionRestoration from "./ScrollPositionRestoration";
 
 const emptyProfile: UserProfile = { homeCity: null, preferredAirlines: [] };
 
@@ -203,7 +203,6 @@ export default function App() {
                 userId={user.id}
                 offline={offline}
                 homeCity={profile.homeCity?.name ?? null}
-                featureFlags={user.featureFlags ?? []}
               />
             }
           />

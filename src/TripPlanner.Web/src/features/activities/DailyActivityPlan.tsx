@@ -1,17 +1,16 @@
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useExplicitResourceRefresh } from "../../api/tripDocumentStore";
-import { DailyPlanSkeleton } from "./ActivityPlanningSkeletons";
-import ActivityOrderHandle from "./ActivityOrderHandle";
-import type { ActivityRouteSelection } from "./activityRouteApi";
-import ActivityAgenda from "./ActivityAgenda";
-import { useActivityPlanPreview } from "./useActivityPlanPreview";
-import { isTimeZoneId } from "../../shared/time/timeZones";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import {
   durationFromMinutes,
   durationMinutes,
 } from "../../shared/time/durations";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { isTimeZoneId } from "../../shared/time/timeZones";
 import type { Activity, Destination } from "./activitiesApi";
+import ActivityAgenda from "./ActivityAgenda";
+import ActivityCalendarSubscriptions from "./ActivityCalendarSubscriptions";
+import ActivityOrderHandle from "./ActivityOrderHandle";
+import "./activityPlan.css";
 import {
   activityPlanPath,
   activityRule,
@@ -31,9 +30,10 @@ import {
   type PlanRule,
   type Versioned,
 } from "./activityPlanApi";
+import { DailyPlanSkeleton } from "./ActivityPlanningSkeletons";
 import ActivityPreferencesEditor from "./ActivityPreferencesEditor";
-import ActivityCalendarSubscriptions from "./ActivityCalendarSubscriptions";
-import "./activityPlan.css";
+import type { ActivityRouteSelection } from "./activityRouteApi";
+import { useActivityPlanPreview } from "./useActivityPlanPreview";
 
 // HTML time inputs emit HH:mm; resources use ISO 8601 with seconds.
 const isoClockTime = (value: string) =>
@@ -233,7 +233,6 @@ export default function DailyActivityPlan({
   destination,
   activities,
   readOnly,
-  useAiAllowed,
   onSelect,
   onSaved,
   onChooseActivities,
@@ -246,7 +245,6 @@ export default function DailyActivityPlan({
   destination?: Destination;
   activities: Activity[];
   readOnly: boolean;
-  useAiAllowed: boolean;
   onSelect: (id: string) => void;
   onSaved: () => Promise<void>;
   onChooseActivities?: () => void;
@@ -275,7 +273,6 @@ export default function DailyActivityPlan({
   const [busy, setBusy] = useState(false);
   const [checkingMove, setCheckingMove] = useState(false);
   const [showTools, setShowTools] = useState(false);
-  const [useAi, setUseAi] = useState(false);
   const [refresh, setRefresh] = useState(false);
   const [job, setJob] = useState<Versioned<PlanJob>>();
   const [pending, setPending] = useState<{
@@ -504,7 +501,6 @@ export default function DailyActivityPlan({
         contextVersion: resource.data.contextVersion,
         plan,
         refreshEvidence: kind === "schedule" || refresh,
-        useAi: kind === "schedule" ? false : useAi,
         ...(kind !== "assessments" ? { kind } : {}),
       },
     });
@@ -1043,8 +1039,9 @@ export default function DailyActivityPlan({
           )}
           {staleDraft && (
             <p className="planning-attention">
-              Research refreshed the planning inputs. Proposal choices carry the
-              refreshed versions. Reload before saving other manual changes.
+              Route estimates refreshed the planning inputs. Proposal choices
+              carry the refreshed versions. Reload before saving other manual
+              changes.
             </p>
           )}
           {assessment && (
@@ -1071,16 +1068,7 @@ export default function DailyActivityPlan({
                 />{" "}
                 Refresh routing evidence
               </label>
-              {useAiAllowed && (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={useAi}
-                    onChange={(e) => setUseAi(e.target.checked)}
-                  />{" "}
-                  Research opening hours and score preferences with AI
-                </label>
-              )}
+
               <div className="planning-actions">
                 <button
                   type="button"

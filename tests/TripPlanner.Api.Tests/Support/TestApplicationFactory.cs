@@ -12,11 +12,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TripPlanner.Api.Database;
-using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Flights;
 using TripPlanner.Api.Services.Maps;
-using TripPlanner.Api.Services.TripForms;
 using TripPlanner.Api.Tests.Database;
 
 namespace TripPlanner.Api.Tests.Support;
@@ -27,14 +25,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public bool McpEnabled { get; set; }
     public bool UseNativeAuthentication { get; set; }
     public IIgnavClient? FlightClient { get; set; }
-    public ITripFormAssistant? FormAssistant { get; set; }
-    public IActivityAssistant? ActivityAssistant { get; set; }
     public IAzureMapsClient? MapsClient { get; set; }
-    public IActivityVenueResearch? ActivityVenueResearch { get; set; }
-    public IStayVenueSearch? StayVenueSearch { get; set; }
-    public IActivityVenueSearch? ActivityVenueSearch { get; set; }
-    public IActivityDetailsResearch? ActivityDetailsResearch { get; set; }
-    public IActivityCoordinateResearch? ActivityCoordinateResearch { get; set; }
     public MapToken? MapTokenOverride { get; set; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -91,34 +82,6 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMapTokenProvider>();
             services.RemoveAll<IAzureMapsClient>();
             services.AddSingleton<IAzureMapsClient>(MapsClient ?? new AzureMapsStub());
-            services.RemoveAll<IActivityDetailsResearch>();
-            services.AddSingleton<IActivityDetailsResearch>(
-                ActivityDetailsResearch ?? new NoDetailsResearch()
-            );
-            services.RemoveAll<IActivityCoordinateResearch>();
-            services.AddSingleton<IActivityCoordinateResearch>(
-                ActivityCoordinateResearch ?? new NoCoordinateResearch()
-            );
-            services.RemoveAll<IActivityVenueSearch>();
-            services.AddSingleton<IActivityVenueSearch>(
-                ActivityVenueSearch ?? new NoActivityVenueSearch()
-            );
-            services.RemoveAll<IStayVenueSearch>();
-            services.AddSingleton<IStayVenueSearch>(StayVenueSearch ?? new NoStayVenueSearch());
-            services.RemoveAll<IActivityVenueResearch>();
-            services.AddSingleton<IActivityVenueResearch>(
-                ActivityVenueResearch ?? new NoVenueResearch()
-            );
-            if (ActivityAssistant is not null)
-            {
-                services.RemoveAll<IActivityAssistant>();
-                services.AddSingleton(ActivityAssistant);
-            }
-            if (FormAssistant is not null)
-            {
-                services.RemoveAll<ITripFormAssistant>();
-                services.AddSingleton(FormAssistant);
-            }
             services.AddSingleton<IDatabaseMigrator, NoOpDatabaseMigrator>();
             services.AddSingleton<IPlannerDb>(provider =>
                 AuditedPlannerDb.Create(
@@ -166,59 +129,6 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     {
         public Task<MapToken> GetTokenAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(token);
-    }
-
-    private sealed class NoDetailsResearch : IActivityDetailsResearch
-    {
-        public Task<TripPlanner.Api.DTO.ActivityDetailsSuggestion?> FindAsync(
-            TripPlanner.Api.Models.Activity activity,
-            TripPlanner.Api.Models.GeoJsonFeature<TripPlanner.Api.Models.DestinationProperties> destination,
-            CancellationToken cancellationToken
-        ) => Task.FromResult<TripPlanner.Api.DTO.ActivityDetailsSuggestion?>(null);
-    }
-
-    private sealed class NoCoordinateResearch : IActivityCoordinateResearch
-    {
-        public Task<TripPlanner.Api.Models.ActivityLocationSuggestion?> FindAsync(
-            TripPlanner.Api.Models.ActivityCandidate activity,
-            string city,
-            TripPlanner.Api.Models.GeoJsonPoint center,
-            CancellationToken cancellationToken
-        ) => Task.FromResult<TripPlanner.Api.Models.ActivityLocationSuggestion?>(null);
-    }
-
-    private sealed class NoActivityVenueSearch : IActivityVenueSearch
-    {
-        public Task<IReadOnlyList<ActivityVenue>> SearchActivitiesAsync(
-            string query,
-            string city,
-            string countryCode,
-            IReadOnlyList<TripPlanner.Api.Models.DestinationStay> stays,
-            CancellationToken cancellationToken
-        ) => Task.FromResult<IReadOnlyList<ActivityVenue>>([]);
-    }
-
-    private sealed class NoStayVenueSearch : IStayVenueSearch
-    {
-        public Task<IReadOnlyList<ActivityVenue>> SearchAsync(
-            string query,
-            string city,
-            string countryCode,
-            IReadOnlyList<TripPlanner.Api.Models.DestinationStay> stays,
-            CancellationToken cancellationToken
-        ) => Task.FromResult<IReadOnlyList<ActivityVenue>>([]);
-    }
-
-    private sealed class NoVenueResearch : IActivityVenueResearch
-    {
-        public Task<ActivityVenue?> FindAsync(
-            TripPlanner.Api.Models.ActivityCandidate activity,
-            string city,
-            string countryCode,
-            IReadOnlyList<TripPlanner.Api.Models.DestinationStay> stays,
-            CancellationToken cancellationToken,
-            string userPrompt = ""
-        ) => Task.FromResult<ActivityVenue?>(null);
     }
 
     private sealed class TestAuthenticationHandler(

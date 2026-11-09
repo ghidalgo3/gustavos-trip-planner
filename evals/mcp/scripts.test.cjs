@@ -101,6 +101,7 @@ if (process.env.FAKE_RUNNER_HANG === 'true') {
     EXPECTED_TENANT_ID: "fixture-tenant",
     TRIPPLANNER_EVAL_MODEL: "fixture-model",
     TRIPPLANNER_EVAL_SERVICE_TIER: "default",
+    TRIPPLANNER_EVAL_TOOL_LOADING: "deferred",
     TRIPPLANNER_EVAL_PORT: String(port),
     FAKE_FIXTURE: fixture,
     FAKE_PID: path.join(directory, "pid"),
@@ -233,6 +234,7 @@ test("runner defaults to Luna Flex processing without a model or tier override",
   );
   assert.equal(manifest.model, "gpt-6-luna");
   assert.equal(manifest.requestedServiceTier, "flex");
+  assert.equal(manifest.toolLoading, "deferred");
 });
 
 test("runner records explicit model and Flex overrides", async (t) => {

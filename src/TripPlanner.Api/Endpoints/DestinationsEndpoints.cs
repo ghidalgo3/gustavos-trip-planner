@@ -16,9 +16,6 @@ public static class DestinationsEndpoints
             .WithTags("Destinations")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
         destinations
-            .MapPost("/{destinationCity}/stay/address-proposals", CreateStayAddressProposal)
-            .WithName("CreateStayAddressProposal");
-        destinations
             .MapGet("/{destinationCity}/stays/{stayId:guid}/location", GetStayLocation)
             .WithName("GetDestinationStayLocation");
         destinations
@@ -42,78 +39,6 @@ public static class DestinationsEndpoints
         destinations
             .MapPut("/{destinationCity}/stays/{stayId:guid}", ReplaceDestinationStay)
             .WithName("ReplaceTripDestinationStay");
-    }
-
-    internal static async Task<IResult> CreateStayAddressProposal(
-        Guid tripId,
-        string destinationCity,
-        StayAddressSearchRequest request,
-        HttpContext context,
-        IPlannerDb database,
-        ICurrentUser currentUser,
-        DestinationService destinations,
-        IStayAddressResearch research
-    )
-    {
-        var (trip, user, error) = await AuthorizeAsync(
-            tripId,
-            true,
-            context,
-            database,
-            currentUser
-        );
-        if (error is not null)
-        {
-            return error;
-        }
-        if (!user!.FeatureFlags.Split(',').Contains("LLM", StringComparer.Ordinal))
-        {
-            return Results.Forbid();
-        }
-        var (readView, resolveError) = await ResolveAsync(
-            user.Id,
-            trip!,
-            destinationCity,
-            destinations,
-            context
-        );
-        if (resolveError is not null)
-        {
-            return resolveError;
-        }
-        context.Response.Headers.CacheControl = "no-store";
-        try
-        {
-            var suggestions = await research.FindAsync(
-                request.Query.Trim(),
-                readView!.Find(destinationCity)!,
-                context.RequestAborted
-            );
-            // Preview only: the ordinary stay replacement saves the user's accepted location.
-            return Results.Ok(new { suggestions });
-        }
-        catch (Exception exception)
-            when (exception
-                    is HttpRequestException
-                        or InvalidOperationException
-                        or JsonException
-                        or OperationCanceledException
-                        or IOException
-            )
-        {
-            context.RequestAborted.ThrowIfCancellationRequested();
-            context
-                .RequestServices.GetRequiredService<ILoggerFactory>()
-                .CreateLogger("StayAddressResearch")
-                .LogWarning(
-                    "Stay address research unavailable ({FailureType})",
-                    exception.GetType().Name
-                );
-            return Results.Problem(
-                "Address search is unavailable. Please try again.",
-                statusCode: 502
-            );
-        }
     }
 
     internal static async Task<IResult> GetStayLocation(

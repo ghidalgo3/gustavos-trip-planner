@@ -46,13 +46,7 @@ public sealed class ActivityPlanningJobProcessor(
             Math.Clamp(options.Value.ProviderRequestLimit, 0, 500)
         );
         async Task<bool> Authorized() =>
-            await database.GetTripAsync(job.UserId, job.TripId, stoppingToken) is not null
-            && (
-                !job.UseAi
-                || (await database.GetUserAsync(job.UserId, stoppingToken))
-                    ?.FeatureFlags.Split(',')
-                    .Contains("LLM") == true
-            );
+            await database.GetTripAsync(job.UserId, job.TripId, stoppingToken) is not null;
         async Task Publish(ActivityPlanningResult result)
         {
             if (!await Authorized())
@@ -103,13 +97,11 @@ public sealed class ActivityPlanningJobProcessor(
                     Status = "enriching",
                 }
             );
-            if (job.RefreshEvidence || job.UseAi)
+            if (job.RefreshEvidence)
             {
                 var evidence = await enrichment.EnrichAsync(
                     planningContext,
                     job.Plan,
-                    job.UseAi,
-                    job.RefreshEvidence,
                     budget,
                     timeout.Token
                 );
@@ -166,7 +158,6 @@ public sealed class ActivityPlanningJobProcessor(
                     var evidence = await enrichment.RoutesAsync(
                         planningContext,
                         latest.Alternatives.Select(a => a.Plan).ToArray(),
-                        job.UseAi,
                         budget,
                         timeout.Token
                     );

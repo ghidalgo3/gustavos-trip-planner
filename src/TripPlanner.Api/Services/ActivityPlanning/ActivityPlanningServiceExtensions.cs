@@ -12,14 +12,8 @@ public static class ActivityPlanningServiceExtensions
         builder.Services.AddSingleton<ActivityFlightAvailability>();
         builder.Services.AddSingleton<ActivityPlanningService>();
         builder.Services.AddSingleton<IActivityPlanOptimizer, ActivityPlanOptimizer>();
-        builder.Services.AddHttpClient<ActivityPlanningProviders>().RemoveAllLoggers();
+        builder.Services.AddSingleton<ActivityPlanningProviders>();
         builder.Services.AddSingleton<IActivityRoutingProvider>(s =>
-            s.GetRequiredService<ActivityPlanningProviders>()
-        );
-        builder.Services.AddSingleton<IActivityPreferenceScorer>(s =>
-            s.GetRequiredService<ActivityPlanningProviders>()
-        );
-        builder.Services.AddSingleton<IActivityPlanningResearch>(s =>
             s.GetRequiredService<ActivityPlanningProviders>()
         );
         builder.Services.AddSingleton<ActivityPlanningEnrichment>();

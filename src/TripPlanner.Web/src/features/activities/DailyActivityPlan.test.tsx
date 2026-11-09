@@ -7,7 +7,6 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DailyActivityPlan from "./DailyActivityPlan";
-import { expandedAgendaDays } from "./agendaDayState";
 import {
   chooseActivity,
   moveActivity,
@@ -17,6 +16,7 @@ import {
   type PlanResponse,
   type PlanResult,
 } from "./activityPlanApi";
+import { expandedAgendaDays } from "./agendaDayState";
 
 vi.mock("./activityPlanApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./activityPlanApi")>()),
@@ -110,7 +110,6 @@ const props = {
   destinationId: "paris-fr",
   activities,
   readOnly: false,
-  useAiAllowed: false,
   onSelect: vi.fn(),
   onSaved: vi.fn(async () => {}),
 };
@@ -174,7 +173,6 @@ describe("daily planning", () => {
           body: expect.objectContaining({
             kind: "schedule",
             refreshEvidence: true,
-            useAi: false,
             plan: data.plan,
           }),
         }),

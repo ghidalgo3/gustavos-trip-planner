@@ -1,4 +1,11 @@
 const defaults = require("./defaults.json");
+const fs = require("node:fs");
+const path = require("node:path");
+const {
+  buildTools,
+  initialVisibleTools,
+  resultForModel,
+} = require("./tool-context.cjs");
 
 // OpenAI Responses adapter for Promptfoo. Uses the actual MCP initialization, tools
 // and handlers; only the user request is templated by the eval configuration.
@@ -7,7 +14,7 @@ module.exports = class TripPlannerProvider {
     this.config = options.config ?? {};
   }
   id() {
-    return `tripplanner-mcp:${this.model()}:${this.serviceTier()}`;
+    return `tripplanner-mcp:${this.model()}:${this.serviceTier()}:${this.toolLoading()}:web-${this.webSearch()}`;
   }
   model() {
     return (
@@ -21,9 +28,53 @@ module.exports = class TripPlannerProvider {
       defaults.serviceTier
     );
   }
+  toolLoading() {
+    return (
+      this.config.toolLoading ||
+      process.env.TRIPPLANNER_EVAL_TOOL_LOADING ||
+      defaults.toolLoading
+    );
+  }
+  webSearch() {
+    return this.config.webSearch ?? defaults.webSearch;
+  }
   async callApi(prompt, context) {
+    if (!prompt.trim())
+      throw new Error(
+        "Fill in vars.request in promptfooconfig.yaml before running this case.",
+      );
+    const conversation = context.vars.conversation ?? [];
+    if (
+      !Array.isArray(conversation) ||
+      conversation.some(
+        (message) =>
+          !["user", "assistant"].includes(message?.role) ||
+          typeof message.content !== "string" ||
+          !message.content.trim(),
+      )
+    ) {
+      throw new Error(
+        "vars.conversation must be a list of user/assistant messages with nonempty content.",
+      );
+    }
+    const start = context.vars.tripDocument
+      ? {
+          document: JSON.parse(
+            fs.readFileSync(
+              path.resolve(__dirname, context.vars.tripDocument),
+              "utf8",
+            ),
+          ),
+        }
+      : { scenario: context.vars.scenario };
     const model = this.model();
     const serviceTier = this.serviceTier();
+    const toolLoading = this.toolLoading();
+    const webSearch = this.webSearch();
+    if (typeof webSearch !== "boolean")
+      throw new Error("webSearch must be true or false.");
+    if (!["deferred", "full"].includes(toolLoading))
+      throw new Error("toolLoading must be deferred or full.");
     if (!["default", "flex"].includes(serviceTier))
       throw new Error(
         "This agent loop supports serviceTier default or flex; Batch needs a separate asynchronous scheduler.",
@@ -50,7 +101,7 @@ module.exports = class TripPlannerProvider {
         throw new Error(result.error ?? `Fixture HTTP ${response.status}`);
       return result;
     }
-    const fixture = await bridge("/start", { scenario: context.vars.scenario });
+    const fixture = await bridge("/start", start);
     sessionId = fixture.sessionId;
     let rpcId = 0;
     const rpc = async (method, params = {}) =>
@@ -58,6 +109,9 @@ module.exports = class TripPlannerProvider {
         .result;
     const calls = [];
     const servedServiceTiers = new Set();
+    const requests = [];
+    const toolSearches = [];
+    const webSearches = [];
     let after;
     try {
       const initialized = await rpc("initialize", {
@@ -66,21 +120,33 @@ module.exports = class TripPlannerProvider {
         clientInfo: { name: "TripPlanner eval", version: "1" },
       });
       const listed = await rpc("tools/list");
-      const tools = listed.tools.map((tool) => ({
-        type: "function",
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-        strict: false,
-      }));
+      const tools = buildTools(listed.tools, toolLoading);
+      if (webSearch) tools.push({ type: "web_search" });
+      const catalogContext = {
+        toolLoading,
+        webSearchEnabled: webSearch,
+        toolCount: listed.tools.length,
+        fullSchemaCharacters: JSON.stringify(buildTools(listed.tools, "full"))
+          .length,
+        initialVisibleToolsCharacters: JSON.stringify(
+          initialVisibleTools(tools),
+        ).length,
+      };
       let input = [
+        ...conversation.map(({ role, content }) => ({ role, content })),
         {
           role: "user",
           content: `${prompt}\nTrip ID: ${fixture.tripId}. Destination city ID: ${fixture.destinationCity}.`,
         },
       ];
       let answer = "";
-      let usage = { total: 0, prompt: 0, completion: 0 };
+      let usage = {
+        total: 0,
+        prompt: 0,
+        completion: 0,
+        cached: 0,
+        numRequests: 0,
+      };
       for (let turn = 0; turn < 16; turn++) {
         const response = await fetch("https://api.openai.com/v1/responses", {
           method: "POST",
@@ -92,7 +158,10 @@ module.exports = class TripPlannerProvider {
             model,
             service_tier: serviceTier,
             store: false,
-            include: ["reasoning.encrypted_content"],
+            include: [
+              "reasoning.encrypted_content",
+              ...(webSearch ? ["web_search_call.action.sources"] : []),
+            ],
             instructions: initialized.instructions,
             input,
             tools,
@@ -110,7 +179,39 @@ module.exports = class TripPlannerProvider {
         usage.prompt += result.usage?.input_tokens ?? 0;
         usage.completion += result.usage?.output_tokens ?? 0;
         usage.total += result.usage?.total_tokens ?? 0;
+        usage.cached += result.usage?.input_tokens_details?.cached_tokens ?? 0;
+        usage.numRequests++;
+        requests.push({
+          turn: turn + 1,
+          inputTokens: result.usage?.input_tokens ?? 0,
+          outputTokens: result.usage?.output_tokens ?? 0,
+          cachedInputTokens:
+            result.usage?.input_tokens_details?.cached_tokens ?? 0,
+          reasoningTokens:
+            result.usage?.output_tokens_details?.reasoning_tokens ?? 0,
+        });
+        if (result.status === "incomplete" || result.status === "failed")
+          throw new Error(`Model response ${result.status}.`);
         input = [...input, ...result.output];
+        webSearches.push(
+          ...result.output.filter((item) => item.type === "web_search_call"),
+        );
+        toolSearches.push(
+          ...result.output.filter(
+            (item) =>
+              item.type === "tool_search_call" ||
+              item.type === "tool_search_output",
+          ),
+        );
+        if (
+          result.output.some(
+            (item) =>
+              item.type === "tool_search_call" && item.execution === "client",
+          )
+        )
+          throw new Error(
+            "Expected hosted tool search, received a client-executed search.",
+          );
         const toolCalls = result.output.filter(
           (item) => item.type === "function_call",
         );
@@ -120,6 +221,20 @@ module.exports = class TripPlannerProvider {
             .filter((item) => item.type === "output_text")
             .map((item) => item.text)
             .join("\n");
+          // A search-only response has not completed the user's request yet.
+          if (
+            !answer &&
+            result.output.some(
+              (item) =>
+                item.type === "tool_search_output" ||
+                item.type === "web_search_call",
+            )
+          )
+            continue;
+          if (!answer)
+            throw new Error(
+              "Model response contained neither a final answer nor executable tool calls.",
+            );
           after = await bridge("/finish", {});
           sessionId = undefined;
           return {
@@ -131,6 +246,12 @@ module.exports = class TripPlannerProvider {
                 servedServiceTiers: [...servedServiceTiers],
               },
               calls,
+              webSearches,
+              citations: result.output
+                .flatMap((item) => item.content ?? [])
+                .flatMap((content) => content.annotations ?? [])
+                .filter((annotation) => annotation.type === "url_citation"),
+              contextUsage: { ...catalogContext, requests, toolSearches },
               before: fixture.before,
               after,
             }),
@@ -148,11 +269,14 @@ module.exports = class TripPlannerProvider {
             arguments: args,
             isError: output.isError === true,
             result: output,
+            resultCharacters: JSON.stringify(output).length,
+            modelResultCharacters: JSON.stringify(resultForModel(output))
+              .length,
           });
           input.push({
             type: "function_call_output",
             call_id: call.call_id,
-            output: JSON.stringify(output),
+            output: JSON.stringify(resultForModel(output)),
           });
         }
       }

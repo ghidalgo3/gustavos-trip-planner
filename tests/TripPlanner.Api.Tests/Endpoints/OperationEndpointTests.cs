@@ -85,8 +85,7 @@ public sealed class OperationEndpointTests
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             TimeProvider.System,
-            NullLogger<PlanningWorker>.Instance,
-            null
+            NullLogger<PlanningWorker>.Instance
         );
         while (await worker.ProcessNextAsync()) { }
         using (var fareResponse = await client.GetAsync(path))

@@ -1,11 +1,15 @@
+import { mapsClient } from "../../maps/mapsClient";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   addDestination,
   deleteDestination,
-  importActivityImages,
+  searchStayPlaces,
   type Destination,
 } from "./activitiesApi";
 
+vi.mock("../../maps/mapsClient", () => ({
+  mapsClient: { searchPlaces: vi.fn() },
+}));
 afterEach(() => vi.unstubAllGlobals());
 
 test("creates a destination using the selected city as a GeoJSON Feature", async () => {
@@ -70,19 +74,15 @@ test("reports a failed destination deletion", async () => {
   );
 });
 
-test("uploads the selected image batch in one multipart request", async () => {
-  const fetchMock = vi.fn<typeof fetch>(async () =>
-    Response.json({ id: "operation" }, { status: 202 }),
-  );
-  vi.stubGlobal("fetch", fetchMock);
+test("accommodation lookup uses Maps without a server research request", async () => {
   const destination: Destination = {
     type: "Feature",
     id: "tokyo-jp",
-    geometry: { type: "Point", coordinates: [139.69, 35.69] },
+    geometry: { type: "Point", coordinates: [139.69, 35.68] },
     properties: {
       name: "Tokyo",
       countryCode: "JP",
-      timeZone: null,
+      timeZone: "Asia/Tokyo",
       contextVersion: "context",
       arrivalDate: null,
       departureDate: null,
@@ -90,27 +90,36 @@ test("uploads the selected image batch in one multipart request", async () => {
       isActive: true,
     },
   };
-  const files = [
-    new File(["first"], "first.png", { type: "image/png" }),
-    new File(["second"], "second.jpg", { type: "image/jpeg" }),
-  ];
-  await importActivityImages(
-    "trip",
+  vi.mocked(mapsClient.searchPlaces).mockResolvedValue([
+    {
+      id: "hotel",
+      name: "Hotel",
+      label: "Hotel, Shibuya",
+      address: "Shibuya, Tokyo",
+      longitude: 139.7,
+      latitude: 35.65,
+    },
+  ]);
+  const fetchMock = vi.fn<typeof fetch>();
+  vi.stubGlobal("fetch", fetchMock);
+  const controller = new AbortController();
+  const results = await searchStayPlaces(
     destination,
-    files,
-    "Extract food activities",
+    "Hotel",
+    controller.signal,
   );
-  const [url, request] = fetchMock.mock.calls[0];
-  expect(url).toMatch(/\/trips\/trip\/destinations\/tokyo-jp:import$/);
-  const form = request!.body as FormData;
-  expect(
-    (form.getAll("images") as File[]).map((file) => [
-      file.name,
-      file.size,
-      file.type,
-    ]),
-  ).toEqual(files.map((file) => [file.name, file.size, file.type]));
-  expect(form.get("destinationContext")).toBe("context");
-  expect(form.get("input")).toBe("Extract food activities");
-  expect(form.get("requestId")).toBeTruthy();
+  expect(mapsClient.searchPlaces).toHaveBeenCalledWith(
+    "Hotel",
+    controller.signal,
+    [139.69, 35.68],
+    "JP",
+  );
+  expect(results).toEqual([
+    {
+      name: "Hotel",
+      address: "Shibuya, Tokyo",
+      geometry: { type: "Point", coordinates: [139.7, 35.65] },
+    },
+  ]);
+  expect(fetchMock).not.toHaveBeenCalled();
 });

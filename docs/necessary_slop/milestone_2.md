@@ -1,5 +1,10 @@
 # Milestone 2: Destination and activity planning
 
+Historical milestone notes: server-side LLM features described here have been
+removed. Current architecture and workflows are documented in [README](../../README.md);
+the connected user agent performs and pays for model calls and research.
+
+
 Status: Implemented scope documented as of 2026-10-15. Remaining work is listed under Follow-ups and validation below.
 
 ## Planning model and permissions

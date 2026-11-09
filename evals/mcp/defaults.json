@@ -1,4 +1,6 @@
 {
   "model": "gpt-6-luna",
-  "serviceTier": "flex"
+  "serviceTier": "flex",
+  "toolLoading": "deferred",
+  "webSearch": true
 }

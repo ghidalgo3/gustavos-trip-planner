@@ -24,6 +24,8 @@ with az login first; manage the credential with scripts/secrets set openai-api-k
 Smoke checks and the viewer do not access Azure. Model calls incur API charges;
 fixtures never access the production database.
 Model and tier defaults are configured in evals/mcp/defaults.json.
+Tool schemas load on demand. Set TRIPPLANNER_EVAL_TOOL_LOADING=full to compare
+against a client that loads every tool into context immediately.
 Cases run with up to four in parallel; override with -- --max-concurrency COUNT.
 Optional overrides: RESOURCE_GROUP, SUBSCRIPTION, INFRA_DEPLOYMENT_NAME,
 EXPECTED_TENANT_ID, TRIPPLANNER_EVAL_PORT, PROMPTFOO_VERSION.
@@ -70,6 +72,8 @@ for command_name in node; do
 done
 [[ -n "$EVAL_MODEL" ]] || EVAL_MODEL="$(node -e 'process.stdout.write(require("./evals/mcp/defaults.json").model)')"
 [[ -n "$EVAL_SERVICE_TIER" ]] || EVAL_SERVICE_TIER="$(node -e 'process.stdout.write(require("./evals/mcp/defaults.json").serviceTier)')"
+EVAL_TOOL_LOADING="${TRIPPLANNER_EVAL_TOOL_LOADING:-$(node -e 'process.stdout.write(require("./evals/mcp/defaults.json").toolLoading)')}"
+[[ "$EVAL_TOOL_LOADING" == deferred || "$EVAL_TOOL_LOADING" == full ]] || die 'TRIPPLANNER_EVAL_TOOL_LOADING must be deferred or full'
 case "$EVAL_SERVICE_TIER" in
   default|flex) ;;
   batch) die 'Batch needs an asynchronous scheduler; this runner supports --service-tier default or flex' ;;
@@ -120,6 +124,7 @@ EVAL_OUTPUT="${EVAL_OUTPUT:A}"
 mkdir -p "$EVAL_OUTPUT"
 export TRIPPLANNER_EVAL_MODEL="$EVAL_MODEL"
 export TRIPPLANNER_EVAL_SERVICE_TIER="$EVAL_SERVICE_TIER"
+export TRIPPLANNER_EVAL_TOOL_LOADING="$EVAL_TOOL_LOADING"
 export TRIPPLANNER_EVAL_URL="http://127.0.0.1:$EVAL_PORT"
 export TRIPPLANNER_EVAL_INSTANCE="$EVAL_INSTANCE"
 
@@ -153,12 +158,12 @@ if ! node evals/mcp/wait-for-fixtures.cjs "$TRIPPLANNER_EVAL_URL" "$EVAL_INSTANC
   die "fixture startup failed; see $EVAL_OUTPUT/fixtures.log"
 fi
 
-node - "$EVAL_OUTPUT" "$EVAL_MODE" "$EVAL_MODEL" "$EVAL_REPEAT" "$PROMPTFOO_VERSION" "$EVAL_SERVICE_TIER" <<'JS'
+node - "$EVAL_OUTPUT" "$EVAL_MODE" "$EVAL_MODEL" "$EVAL_REPEAT" "$PROMPTFOO_VERSION" "$EVAL_SERVICE_TIER" "$EVAL_TOOL_LOADING" <<'JS'
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
-const [directory, mode, model, repeat, promptfooVersion, serviceTier] = process.argv.slice(2);
+const [directory, mode, model, repeat, promptfooVersion, serviceTier, toolLoading] = process.argv.slice(2);
 const fixture = JSON.parse(fs.readFileSync(path.join(directory, 'fixture.json'), 'utf8'));
 const source = fs.readFileSync('src/TripPlanner.Api/Instructions/McpInstructions.cs');
 let revision = null;
@@ -166,6 +171,7 @@ try { revision = execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8', s
 fs.writeFileSync(path.join(directory, 'run.json'), JSON.stringify({
   createdAt: new Date().toISOString(), mode, model: mode === 'run' ? model : null,
   repeat: Number(repeat), promptfooVersion, requestedServiceTier: mode === 'run' ? serviceTier : null, serverGuidanceVersion: fixture.guidanceVersion,
+  toolLoading: mode === 'run' ? toolLoading : null,
   instructionSourceSha256: crypto.createHash('sha256').update(source).digest('hex'), revision,
 }, null, 2) + '\n');
 JS

@@ -295,16 +295,6 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             }
 
             foreach (
-                var key in _activityJobs
-                    .Where(pair => pair.Value.TripId == tripId)
-                    .Select(pair => pair.Key)
-                    .ToArray()
-            )
-            {
-                _activityJobs.Remove(key);
-            }
-
-            foreach (
                 Guid partyId in _parties
                     .Values.Where(party => party.TripId == tripId)
                     .Select(party => party.Id)
@@ -331,23 +321,6 @@ public sealed partial class InMemoryPlannerDb : IPlannerDb
             PreferredAirport = profile.PreferredAirport,
             HomeCityLocation = new(profile.HomeCity.Longitude, profile.HomeCity.Latitude),
             PreferredAirlines = profile.PreferredAirlines!,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        _users[existing.Email] = updated;
-        return Task.FromResult(updated);
-    }
-
-    public Task<User> SetUserFeatureFlagsAsync(
-        Guid userId,
-        string featureFlags,
-        CancellationToken cancellationToken = default
-    )
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        User existing = _users.Values.Single(user => user.Id == userId);
-        User updated = existing with
-        {
-            FeatureFlags = featureFlags,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         _users[existing.Email] = updated;

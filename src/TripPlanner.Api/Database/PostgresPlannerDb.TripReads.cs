@@ -52,7 +52,7 @@ public sealed partial class PostgresPlannerDb
                                 'latitude', ST_Y(u.home_city_location::geometry)) END,
                         'createdAt', u.created_at, 'updatedAt', u.updated_at,
                         'preferredAirlines', u.preferred_airlines,
-                        'featureFlags', u."FeatureFlags", 'preferredAirport', u.preferred_airport)
+                        'preferredAirport', u.preferred_airport)
                         ORDER BY u.id)
                     FROM users u JOIN people p ON p.id = u.id), '[]'),
                 'destinations', COALESCE((

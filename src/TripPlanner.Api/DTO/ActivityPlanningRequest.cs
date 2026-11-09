@@ -29,9 +29,3 @@ public sealed record ActivityInput(
     GeoJsonPoint? Geometry,
     ActivityProperties Properties
 );
-
-public sealed record ActivitySuggestionRequest(
-    Guid RequestId,
-    [property: StringLength(4000)] string Input,
-    [property: Required, StringLength(200)] string DestinationContext
-);

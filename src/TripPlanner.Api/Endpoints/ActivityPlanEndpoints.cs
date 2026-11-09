@@ -545,7 +545,6 @@ public static class ActivityPlanEndpoints
             request.ContextVersion,
             request.Plan,
             request.RefreshEvidence,
-            request.UseAi,
             "assessment",
             request,
             context,
@@ -573,7 +572,6 @@ public static class ActivityPlanEndpoints
                 request.ContextVersion,
                 request.Plan,
                 request.RefreshEvidence,
-                request.UseAi,
                 request.Kind,
                 request,
                 context,
@@ -593,7 +591,6 @@ public static class ActivityPlanEndpoints
         string contextVersion,
         ActivityPlan? draft,
         bool refresh,
-        bool ai,
         string kind,
         object request,
         HttpContext c,
@@ -618,14 +615,6 @@ public static class ActivityPlanEndpoints
         if (id == Guid.Empty)
         {
             return Results.BadRequest(new { title = "A nonempty request ID is required." });
-        }
-
-        if (ai && !user!.FeatureFlags.Split(',', StringSplitOptions.TrimEntries).Contains("LLM"))
-        {
-            return Results.Problem(
-                statusCode: 403,
-                title: "AI enrichment requires the LLM feature flag."
-            );
         }
 
         string hash = ActivityPlanRules.Hash(
@@ -676,7 +665,7 @@ public static class ActivityPlanEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        bool immediate = kind == "assessment" && !refresh && !ai;
+        bool immediate = kind == "assessment" && !refresh;
         string source =
             c.Request.Path.StartsWithSegments("/mcp")
             || c.User.HasScope(McpServiceExtensions.ReadScope)
@@ -696,7 +685,6 @@ public static class ActivityPlanEndpoints
             planningContext.InputRevision,
             planningContext.SavedPlan?.Version ?? 0,
             refresh,
-            ai,
             source,
             clock.GetUtcNow()
         )

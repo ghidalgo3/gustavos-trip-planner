@@ -35,8 +35,7 @@ public sealed record CreateActivityAssessmentRequest(
     Guid RequestId,
     [property: Required, StringLength(200)] string ContextVersion,
     ActivityPlan? Plan = null,
-    bool RefreshEvidence = false,
-    bool UseAi = false
+    bool RefreshEvidence = false
 );
 
 public sealed record CreateActivityProposalRequest(
@@ -44,7 +43,6 @@ public sealed record CreateActivityProposalRequest(
     [property: Required, StringLength(200)] string ContextVersion,
     ActivityPlan? Plan = null,
     bool RefreshEvidence = true,
-    bool UseAi = false,
     [property: AllowedValues("draft", "improvements", "schedule")] string Kind = "draft"
 );
 

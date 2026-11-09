@@ -41,7 +41,6 @@ public class AuditedPlannerDb : DispatchProxy
         [nameof(IPlannerDb.SetFlightChoicesAsync)] = "Updated flight choices",
         [nameof(IPlannerDb.SetSelectedFlightAsync)] = "Updated selected flights",
         [nameof(IPlannerDb.DeleteSelectedFlightAsync)] = "Removed selected flights",
-        [nameof(IPlannerDb.CompleteActivityJobAsync)] = "Added assistant activities",
     };
     private IPlannerDb database = null!;
     private IActivityLogStore store = null!;
@@ -117,20 +116,15 @@ public class AuditedPlannerDb : DispatchProxy
             .Select((parameter, index) => (parameter.Name!, Value: args[index]))
             .ToDictionary(pair => pair.Item1, pair => pair.Value);
         var cancellationToken = parameters.Values.OfType<CancellationToken>().FirstOrDefault();
-        var job = parameters.Values.OfType<ActivityJob>().FirstOrDefault();
-        Guid actorId =
-            job?.UserId
-            ?? (Guid)(parameters.GetValueOrDefault("ownerUserId") ?? parameters["userId"])!;
-        Guid tripId =
-            job?.TripId
-            ?? (
-                parameters.GetValueOrDefault("tripId") as Guid?
-                ?? parameters.Values.OfType<DestinationPlace>().FirstOrDefault()?.TripId
-                ?? parameters.Values.OfType<DestinationVisit>().FirstOrDefault()?.TripId
-                ?? parameters.Values.OfType<Activity>().FirstOrDefault()?.TripId
-                ?? parameters.Values.OfType<SelectedFlight>().FirstOrDefault()?.TripId
-                ?? Guid.Empty
-            );
+        Guid actorId = (Guid)(parameters.GetValueOrDefault("ownerUserId") ?? parameters["userId"])!;
+        Guid tripId = (
+            parameters.GetValueOrDefault("tripId") as Guid?
+            ?? parameters.Values.OfType<DestinationPlace>().FirstOrDefault()?.TripId
+            ?? parameters.Values.OfType<DestinationVisit>().FirstOrDefault()?.TripId
+            ?? parameters.Values.OfType<Activity>().FirstOrDefault()?.TripId
+            ?? parameters.Values.OfType<SelectedFlight>().FirstOrDefault()?.TripId
+            ?? Guid.Empty
+        );
         using var transaction =
             database is PostgresPlannerDb
                 ? new TransactionScope(
@@ -187,17 +181,6 @@ public class AuditedPlannerDb : DispatchProxy
                 result is not PartyMemberChangeStatus status
                 || status == PartyMemberChangeStatus.Success
             );
-        if (job is not null)
-        {
-            var completed = await database.GetActivityJobResultAsync(
-                actorId,
-                job.TripId,
-                job.CityId,
-                job.OperationId,
-                cancellationToken
-            );
-            succeeded = succeeded && completed?.Activities.Features.Count > 0;
-        }
         var trip = result as Trip ?? before;
         if (succeeded && trip is not null)
         {
@@ -206,17 +189,17 @@ public class AuditedPlannerDb : DispatchProxy
                 ?? throw new InvalidOperationException("The mutation actor was not found.");
             var context = contexts.HttpContext;
             string source =
-                job is not null ? "Activity assistant"
-                : context?.Request.Path.StartsWithSegments("/mcp") == true
+                context?.Request.Path.StartsWithSegments("/mcp") == true
                     ? context.User.GetPresenters().Contains(McpServiceExtensions.ClientId)
-                            ? "ChatGPT"
+                        ? "ChatGPT"
                         : "MCP"
-                : context
-                    ?.Request.Headers.Authorization.ToString()
-                    .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true
-                    ? "API client"
-                : context is not null ? "Website"
-                : "Service";
+                    : context
+                        ?.Request.Headers.Authorization.ToString()
+                        .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true
+                        ? "API client"
+                        : context is not null
+                            ? "Website"
+                            : "Service";
             string? resourceId =
                 parameters.GetValueOrDefault("activityId")?.ToString()
                 ?? parameters.GetValueOrDefault("stayId")?.ToString()
@@ -231,8 +214,6 @@ public class AuditedPlannerDb : DispatchProxy
                 DestinationPlace place => place.Name,
                 DestinationVisit visit =>
                     $"{visit.CityId}: {visit.ArrivalDate?.ToString("yyyy-MM-dd") ?? "Undated"} – {visit.DepartureDate?.ToString("yyyy-MM-dd") ?? "Undated"}",
-                _ when job is not null =>
-                    $"{((IReadOnlyList<Activity>?)parameters["activities"])?.Count ?? 0} activities",
                 _ => deletedName ?? Actions[method.Name],
             };
             await store.AppendAsync(

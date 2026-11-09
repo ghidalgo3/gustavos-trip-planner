@@ -2,7 +2,6 @@ using System.Text.Json;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
-using TripPlanner.Api.Services.TripForms;
 
 namespace TripPlanner.Api.Database;
 
@@ -129,35 +128,6 @@ public interface IPlannerDb : IActivityPlanningDb
         DateTimeOffset expectedUpdatedAt,
         CancellationToken cancellationToken = default
     );
-    Task<TrackedOperation> CreateActivityJobAsync(
-        Guid ownerUserId,
-        Guid tripId,
-        Guid requestId,
-        string cityId,
-        string contextVersion,
-        string input,
-        byte[]? image,
-        string? mimeType,
-        CancellationToken cancellationToken = default
-    );
-    Task<ActivityJob?> ClaimActivityJobAsync(
-        TimeSpan leaseDuration,
-        CancellationToken cancellationToken = default
-    );
-    Task<bool> CompleteActivityJobAsync(
-        ActivityJob job,
-        IReadOnlyList<Activity>? activities,
-        string[] warnings,
-        string? error,
-        CancellationToken cancellationToken = default
-    );
-    Task<ActivitySuggestionResult?> GetActivityJobResultAsync(
-        Guid viewerUserId,
-        Guid tripId,
-        string cityId,
-        Guid operationId,
-        CancellationToken cancellationToken = default
-    );
     Task<IReadOnlyList<FlightChoiceProgress>> GetFlightChoicesAsync(
         Guid viewerUserId,
         Guid tripId,
@@ -183,30 +153,6 @@ public interface IPlannerDb : IActivityPlanningDb
         Guid ownerUserId,
         Guid tripId,
         Guid partyId,
-        CancellationToken cancellationToken = default
-    );
-    Task<TrackedOperation> CreateTripFormOperationAsync(
-        Guid userId,
-        Guid tripId,
-        Guid operationId,
-        string input,
-        PlanningDocument draft,
-        CancellationToken cancellationToken = default
-    );
-    Task<TripFormWork?> ClaimTripFormWorkAsync(
-        TimeSpan leaseDuration,
-        CancellationToken cancellationToken = default
-    );
-    Task<bool> CompleteTripFormWorkAsync(
-        TripFormWork work,
-        TripFormProposal? proposal,
-        string? error,
-        CancellationToken cancellationToken = default
-    );
-    Task<TripFormProposal?> GetTripFormProposalAsync(
-        Guid userId,
-        Guid tripId,
-        Guid operationId,
         CancellationToken cancellationToken = default
     );
     Task<TrackedOperation> CreateFlightSearchOperationAsync(
@@ -292,12 +238,6 @@ public interface IPlannerDb : IActivityPlanningDb
     Task<User> SetUserProfileAsync(
         Guid userId,
         UserProfile profile,
-        CancellationToken cancellationToken = default
-    );
-
-    Task<User> SetUserFeatureFlagsAsync(
-        Guid userId,
-        string featureFlags,
         CancellationToken cancellationToken = default
     );
 

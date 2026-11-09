@@ -78,14 +78,14 @@ with search path `gustavo_planner,public` to include database integration tests.
 Without it, those cases are skipped. Normal tests do not call live providers;
 the explicit verification commands are documented in the repository README.
 
-Location research tests in `Services/Activities/ActivityCoordinateResearchTests.cs` verify that OpenAI identifies a consulted source while coordinates come from independently fetched Wikidata data. They reject different venues, distant points, deprecated claims, and non-Earth coordinates, and check that credentials are not sent to Wikidata. `Endpoints/ActivityEndpointTests.cs` covers preview-only research, the LLM gate, concurrency, provider failure, explicit saving, and unaccepted candidates in suggestion/import jobs. The frontend activity tests cover reviewing, accepting, and dismissing candidates.
+`Mcp/AgentOwnedResearchTests` verifies that retired research/generation routes and
+MCP tools are absent, the current-user contract has no feature flags, and an agent
+can save sourced activity metadata in the Japan trip without a flag. Server-side
+OpenAI provider and generation queue tests were removed with those features.
+Maps geocoding/routing tests, deterministic optimizer checks, manual resource
+validation, permissions and concurrency coverage remain.
 
-`Services/Activities/ActivityDetailsResearchTests.cs` checks duration/cost research against consulted sources, ISO duration rules, free versus unknown prices, partial results, and malformed or incomplete model output. Endpoint and MCP tests verify preview-only behavior, version/scope checks, and accepting one field while preserving the other. Frontend tests cover source display, individual acceptance, dismissal, failure toasts, and clearing evidence on manual edits.
-
-`Services/Maps/AzureAddressGeocoderTests.cs` uses a captured Sapporo response to show why a structured query can recover street addresses from a failed free-form query. Medium/ambiguous candidates are available for review; country, postcode, precision and distance checks still apply. `Services/Destinations/StayAddressResearchTests.cs` covers sourced components, multiple pin choices, bounded concurrency, cancellation and partial failures. `Verification/StayAddressVerification.cs` is the opt-in live OpenAI/Azure smoke test (`--verify-stay-address`); normal tests use fake providers.
-
-Repeat-visit accommodation coverage checks independent REST/MCP resources, scope and planning permissions, audit attribution, planning-context invalidation, separate hotel travel legs, cascading visit deletion, and migration of existing city-wide hotel choices. `PlannerDbTests` runs the same accommodation contract against in-memory and PostgreSQL storage when `TRIPPLANNER_TEST_POSTGRES` is configured.
-
-Activity place-search coverage verifies the activity-specific web prompt, consulted sources, structured address components, the shared bounded geocoder, REST/MCP authorization and preview-only behavior, and frontend Azure fallback, explicit web search, unresolved candidates, and preserving selected source links. `--verify-activity-place` runs the opt-in Tokyo teamLab Planets provider smoke test without saving data.
-
-`--mcp-eval-server` starts the loopback-only, in-memory MCP eval fixtures. See [the eval guide](../../evals/mcp/README.md).
+`--mcp-eval-server` starts the loopback-only, in-memory MCP eval fixtures. Authored
+cases restore `docs/after.json` into independent hosts; `TravelAgentMcpTests` checks
+Japan document restoration, activity metadata, and isolation after edits. Synthetic
+Paris fixtures are retained only for harness checks. See [the eval guide](../../evals/mcp/README.md).

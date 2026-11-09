@@ -10,6 +10,5 @@ public sealed class ActivityPlanningOptions
     public int ProviderRequestLimit { get; init; } = 120;
     public int ProviderTimeoutSeconds { get; init; } = 15;
     public int EvidenceHours { get; init; } = 24;
-    public string DecisionsModel { get; init; } = "gpt-6-luna";
     public string? PublicBaseUrl { get; init; }
 }

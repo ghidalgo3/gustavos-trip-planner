@@ -44,8 +44,7 @@ public sealed class PlanningWorkerTests
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             clock,
-            NullLogger<PlanningWorker>.Instance,
-            null
+            NullLogger<PlanningWorker>.Instance
         );
         Assert.IsFalse(await worker.ProcessNextAsync());
         Assert.IsEmpty(spans);
@@ -77,8 +76,7 @@ public sealed class PlanningWorkerTests
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             clock,
-            NullLogger<PlanningWorker>.Instance,
-            null
+            NullLogger<PlanningWorker>.Instance
         );
         await db.CreateFlightSearchOperationAsync(user.Id, trip.Id, Guid.NewGuid(), preview);
         Assert.IsTrue(await worker.ProcessNextAsync());
@@ -120,8 +118,7 @@ public sealed class PlanningWorkerTests
             Microsoft.Extensions.Options.Options.Create(new IgnavOptions()),
             Microsoft.Extensions.Options.Options.Create(new PlanningOptions()),
             clock,
-            NullLogger<PlanningWorker>.Instance,
-            null
+            NullLogger<PlanningWorker>.Instance
         );
         var operation = await db.CreateFlightSearchOperationAsync(
             user.Id,

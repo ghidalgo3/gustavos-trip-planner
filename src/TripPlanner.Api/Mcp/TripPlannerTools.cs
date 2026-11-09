@@ -13,7 +13,6 @@ using TripPlanner.Api.DTO;
 using TripPlanner.Api.Endpoints;
 using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Options;
-using TripPlanner.Api.Services.Activities;
 using TripPlanner.Api.Services.Destinations;
 
 namespace TripPlanner.Api.Mcp;
@@ -23,11 +22,7 @@ public sealed class TripPlannerTools(
     McpExecutionAdapter adapter,
     IPlannerDb database,
     ICurrentUser currentUser,
-    DestinationService destinations,
-    IActivityCoordinateResearch coordinateResearch,
-    IActivityDetailsResearch detailsResearch,
-    IStayAddressResearch stayAddressResearch,
-    IActivityPlaceResearch activityPlaceResearch
+    DestinationService destinations
 )
 {
     [McpServerTool(
@@ -59,64 +54,6 @@ public sealed class TripPlannerTools(
     private const string ReadSecurity = "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.read\"]}]";
     private const string WriteSecurity =
         "[{\"type\":\"oauth2\",\"scopes\":[\"tripplanner.write\"]}]";
-
-    [McpServerTool(
-        Name = "create_stay_address_proposal",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = false,
-        OpenWorld = true
-    )]
-    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(McpInstructions.Tools.CreateStayAddressProposal)]
-    public Task<CallToolResult> CreateStayAddressProposal(
-        Guid tripId,
-        [Required, StringLength(200)] string destinationId,
-        StayAddressSearchRequest request
-    ) =>
-        Execute(
-            true,
-            context =>
-                DestinationsEndpoints.CreateStayAddressProposal(
-                    tripId,
-                    destinationId,
-                    request,
-                    context,
-                    database,
-                    currentUser,
-                    destinations,
-                    stayAddressResearch
-                )
-        );
-
-    [McpServerTool(
-        Name = "create_activity_place_proposal",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = false,
-        OpenWorld = true
-    )]
-    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(McpInstructions.Tools.CreateActivityPlaceProposal)]
-    public Task<CallToolResult> CreateActivityPlaceProposal(
-        Guid tripId,
-        [Required, StringLength(200)] string destinationId,
-        ActivityPlaceSearchRequest request
-    ) =>
-        Execute(
-            true,
-            context =>
-                ActivityEndpoints.CreatePlaceProposal(
-                    tripId,
-                    destinationId,
-                    request,
-                    context,
-                    database,
-                    currentUser,
-                    destinations,
-                    activityPlaceResearch
-                )
-        );
 
     [McpServerTool(Name = "get_visit_stay_location", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
@@ -536,72 +473,6 @@ public sealed class TripPlannerTools(
                     database,
                     destinations,
                     currentUser
-                ),
-            contextVersion,
-            etag
-        );
-
-    [McpServerTool(
-        Name = "create_activity_location_proposal",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = false,
-        OpenWorld = true
-    )]
-    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(McpInstructions.Tools.CreateActivityLocationProposal)]
-    public Task<CallToolResult> CreateActivityLocationProposal(
-        Guid tripId,
-        [Required, StringLength(200)] string destinationId,
-        Guid activityId,
-        [Required, StringLength(200)] string contextVersion,
-        [Required, StringLength(32), RegularExpression("^\"[0-9]{1,19}\"$")] string etag
-    ) =>
-        Execute(
-            true,
-            context =>
-                ActivityEndpoints.CreateLocationProposal(
-                    tripId,
-                    destinationId,
-                    activityId,
-                    context,
-                    database,
-                    destinations,
-                    currentUser,
-                    coordinateResearch
-                ),
-            contextVersion,
-            etag
-        );
-
-    [McpServerTool(
-        Name = "create_activity_details_proposal",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = false,
-        OpenWorld = true
-    )]
-    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(McpInstructions.Tools.CreateActivityDetailsProposal)]
-    public Task<CallToolResult> CreateActivityDetailsProposal(
-        Guid tripId,
-        [Required, StringLength(200)] string destinationId,
-        Guid activityId,
-        [Required, StringLength(200)] string contextVersion,
-        [Required, StringLength(32), RegularExpression("^\"[0-9]{1,19}\"$")] string etag
-    ) =>
-        Execute(
-            true,
-            context =>
-                ActivityEndpoints.CreateDetailsProposal(
-                    tripId,
-                    destinationId,
-                    activityId,
-                    context,
-                    database,
-                    destinations,
-                    currentUser,
-                    detailsResearch
                 ),
             contextVersion,
             etag

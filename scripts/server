@@ -9,7 +9,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/server [DOCKER_COMPOSE_UP_OPTIONS]
 
-Load local authentication credentials and the Ignav and OpenAI API keys from the deployed Azure Key Vault, issue
+Load local authentication credentials and the Ignav API key from the deployed Azure Key Vault, issue
 a 23-hour Azure Maps development SAS, then start the API and web development
 containers with Docker Compose.
 
@@ -75,8 +75,6 @@ read_secret() {
 log "Loading local authentication configuration from $KEY_VAULT_NAME"
 LOCAL_IGNAV_API_KEY="$(read_secret ignav-api-key)"
 export LOCAL_IGNAV_API_KEY
-LOCAL_OPENAI_API_KEY="$(read_secret openai-api-key)"
-export LOCAL_OPENAI_API_KEY
 LOCAL_GOOGLE_CLIENT_ID="$(read_secret google-client-id)"
 LOCAL_GOOGLE_CLIENT_SECRET="$(read_secret google-client-secret)"
 LOCAL_MICROSOFT_CLIENT_ID="$(read_secret microsoft-client-id)"

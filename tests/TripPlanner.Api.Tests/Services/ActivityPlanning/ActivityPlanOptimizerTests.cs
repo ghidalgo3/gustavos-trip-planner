@@ -260,7 +260,6 @@ public sealed class ActivityPlanOptimizerTests
             1,
             0,
             false,
-            false,
             "Website",
             Now
         );
@@ -348,7 +347,6 @@ public sealed class ActivityPlanOptimizerTests
             initial,
             1,
             0,
-            false,
             false,
             "Website",
             Now
@@ -464,7 +462,6 @@ public sealed class ActivityPlanOptimizerTests
             1,
             0,
             false,
-            false,
             "Website",
             Now
         );
@@ -527,7 +524,6 @@ public sealed class ActivityPlanOptimizerTests
             plan,
             1,
             0,
-            false,
             false,
             "Website",
             Now

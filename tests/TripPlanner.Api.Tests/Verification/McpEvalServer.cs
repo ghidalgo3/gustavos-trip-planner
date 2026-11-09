@@ -1,30 +1,31 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using TripPlanner.Api.DTO;
 using TripPlanner.Api.Instructions;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Tests.Mcp;
 using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Verification;
 
-// Loopback-only bridge to the real MCP handlers in disposable, in-memory test hosts.
-// It never connects to a production database, research provider or booking service.
 internal static class McpEvalServer
 {
     internal sealed class Session(
         TestApplicationFactory factory,
         HttpClient agent,
         Guid userId,
-        Guid tripId
+        Guid tripId,
+        string destinationCity = "paris-fr"
     ) : IAsyncDisposable
     {
         internal TestApplicationFactory Factory { get; } = factory;
         internal HttpClient Agent { get; } = agent;
         internal Guid UserId { get; } = userId;
         internal Guid TripId { get; } = tripId;
+        internal string DestinationCity { get; } = destinationCity;
 
         public async ValueTask DisposeAsync()
         {
@@ -35,6 +36,19 @@ internal static class McpEvalServer
 
     internal static async Task<Session> CreateSession(string scenario)
     {
+        if (
+            scenario
+            is not (
+                "known_dates"
+                or "missing_dates"
+                or "preferences"
+                or "event_unknown"
+                or "save_activity"
+            )
+        )
+        {
+            throw new InvalidOperationException("Unknown harness scenario.");
+        }
         var factory = new TestApplicationFactory { McpEnabled = true };
         try
         {
@@ -81,16 +95,7 @@ internal static class McpEvalServer
                 new("For Paris, focus on music rather than nature."),
                 0
             );
-            var token = await McpEndpointTests.Tokens(
-                browser,
-                "tripplanner.read tripplanner.write"
-            );
-            var agent = McpEndpointTests.CreateClient(factory);
-            agent.DefaultRequestHeaders.Authorization = new(
-                "Bearer",
-                token.GetProperty("access_token").GetString()
-            );
-            return new(factory, agent, user.Id, trip.Id);
+            return await Connect(factory, browser, user.Id, trip.Id, place.CityId);
         }
         catch
         {
@@ -99,28 +104,80 @@ internal static class McpEvalServer
         }
     }
 
-    internal static async Task<object> State(Session session) =>
-        new
+    internal static async Task<Session> CreateSession(TripDocument document)
+    {
+        var factory = new TestApplicationFactory { McpEnabled = true };
+        try
         {
-            activities = await session.Factory.Database.GetActivitiesAsync(
-                session.UserId,
-                session.TripId,
-                "paris-fr"
-            ),
+            using var browser = McpEndpointTests.CreateClient(factory);
+            var user = await McpEndpointTests.SeedAndSetCookie(factory, browser);
+            var trip = factory.Database.SeedEvalDocument(user, document);
+            var visits = await factory.Database.GetDestinationVisitsAsync(user.Id, trip.Id);
+            return await Connect(
+                factory,
+                browser,
+                user.Id,
+                trip.Id,
+                visits.OrderBy(v => v.Order).First().CityId
+            );
+        }
+        catch
+        {
+            await factory.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static async Task<Session> Connect(
+        TestApplicationFactory factory,
+        HttpClient browser,
+        Guid userId,
+        Guid tripId,
+        string city
+    )
+    {
+        var token = await McpEndpointTests.Tokens(browser, "tripplanner.read tripplanner.write");
+        var agent = McpEndpointTests.CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            token.GetProperty("access_token").GetString()
+        );
+        return new(factory, agent, userId, tripId, city);
+    }
+
+    internal static async Task<object> State(Session session)
+    {
+        var places = await session.Factory.Database.GetDestinationPlacesAsync(
+            session.UserId,
+            session.TripId
+        );
+        var activities = new List<Activity>();
+        foreach (var place in places)
+        {
+            activities.AddRange(
+                await session.Factory.Database.GetActivitiesAsync(
+                    session.UserId,
+                    session.TripId,
+                    place.CityId
+                )
+            );
+        }
+        return new
+        {
+            activities = activities.OrderBy(a => a.Id).ToArray(),
             visits = await session.Factory.Database.GetDestinationVisitsAsync(
                 session.UserId,
                 session.TripId
             ),
         };
+    }
 
     public static async Task<int> Run(int port)
     {
-        // MVC's generated content-root manifest is beside the test executable.
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
         using var listener = new HttpListener();
         listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         listener.Start();
-        Console.WriteLine($"MCP eval fixtures: http://127.0.0.1:{port}");
         var sessions = new Dictionary<string, Session>();
         try
         {
@@ -158,28 +215,25 @@ internal static class McpEvalServer
                                     "Too many active eval sessions."
                                 );
                             }
-                            string scenario = body.RootElement.GetProperty("scenario").GetString()!;
-                            if (
-                                scenario
-                                is not (
-                                    "known_dates"
-                                    or "missing_dates"
-                                    or "preferences"
-                                    or "event_unknown"
-                                    or "save_activity"
-                                )
+                            var session = body.RootElement.TryGetProperty(
+                                "document",
+                                out var document
                             )
-                            {
-                                throw new InvalidOperationException("Unknown eval scenario.");
-                            }
-                            var session = await CreateSession(scenario);
-                            string id = Guid.NewGuid().ToString("N");
+                                ? await CreateSession(
+                                    document.Deserialize<TripDocument>(
+                                        TripResourceProjection.JsonOptions
+                                    )!
+                                )
+                                : await CreateSession(
+                                    body.RootElement.GetProperty("scenario").GetString()!
+                                );
+                            var id = Guid.NewGuid().ToString("N");
                             sessions.Add(id, session);
                             result = new
                             {
                                 sessionId = id,
                                 tripId = session.TripId,
-                                destinationCity = "paris-fr",
+                                destinationCity = session.DestinationCity,
                                 before = await State(session),
                             };
                             break;
@@ -203,14 +257,16 @@ internal static class McpEvalServer
                                     new MediaTypeWithQualityHeaderValue("text/event-stream")
                                 );
                                 message.Headers.Add("MCP-Protocol-Version", "2025-06-18");
-                                var rpc = await McpEndpointTests.Result(
-                                    await active.Agent.SendAsync(message)
-                                );
-                                result = new { result = rpc };
+                                result = new
+                                {
+                                    result = await McpEndpointTests.Result(
+                                        await active.Agent.SendAsync(message)
+                                    ),
+                                };
                             }
                             break;
                         case "/finish":
-                            string key = request.Request.Headers["X-Eval-Session"]!;
+                            var key = request.Request.Headers["X-Eval-Session"]!;
                             var completed = sessions[key];
                             result = await State(completed);
                             sessions.Remove(key);

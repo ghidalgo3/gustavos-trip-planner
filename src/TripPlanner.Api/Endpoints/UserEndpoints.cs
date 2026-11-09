@@ -254,7 +254,6 @@ public static class UserEndpoints
                     ),
                 user.PreferredAirlines,
                 user.PreferredAirport
-            ),
-            user.FeatureFlags.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            )
         );
 }

@@ -19,14 +19,13 @@ public sealed class ActivityPlanningEnrichmentTests
     )
     {
         var provider = new Routes(walkingMinutes, drivingMinutes);
-        var enrichment = new ActivityPlanningEnrichment(provider, provider, provider, new Clock());
+        var enrichment = new ActivityPlanningEnrichment(provider, new Clock());
         var context = Context(TimeSpan.FromHours(1));
         var plan = Plan(context) with { TransportOverrides = [] };
         using var budget = new PlanningProviderBudget(100);
         var evidence = await enrichment.RoutesAsync(
             context,
             [plan],
-            true,
             budget,
             CancellationToken.None
         );
@@ -56,10 +55,7 @@ public sealed class ActivityPlanningEnrichmentTests
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
-    private sealed class Routes(int walkingMinutes, int drivingMinutes)
-        : IActivityRoutingProvider,
-            IActivityPreferenceScorer,
-            IActivityPlanningResearch
+    private sealed class Routes(int walkingMinutes, int drivingMinutes) : IActivityRoutingProvider
     {
         public ConcurrentBag<string> Requested { get; } = [];
 
@@ -95,33 +91,5 @@ public sealed class ActivityPlanningEnrichmentTests
                 }
             );
         }
-
-        public Task<ActivityRouteEvidence[]> TransportAsync(
-            ActivityPlanningContext context,
-            ActivityRouteEvidence[] choices,
-            PlanningProviderBudget budget,
-            CancellationToken ct
-        ) => Task.FromResult(choices);
-
-        public Task<ActivityAffinity[]> AffinityAsync(
-            ActivityPlanningContext context,
-            PlanningProviderBudget budget,
-            CancellationToken ct
-        ) => throw new NotSupportedException();
-
-        public Task<ActivityHoursEvidence?> HoursAsync(
-            Activity activity,
-            string city,
-            DateOnly[] dates,
-            PlanningProviderBudget budget,
-            CancellationToken ct
-        ) => throw new NotSupportedException();
-
-        public Task<SuggestedPlanningRule[]> InterpretAsync(
-            ActivityPlanningContext context,
-            ActivityPlan plan,
-            PlanningProviderBudget budget,
-            CancellationToken ct
-        ) => throw new NotSupportedException();
     }
 }

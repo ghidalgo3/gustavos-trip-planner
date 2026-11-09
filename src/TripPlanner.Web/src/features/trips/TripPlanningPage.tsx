@@ -1,36 +1,34 @@
-import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
-import { ActivityWorkspaceSkeleton } from "../activities/ActivityPlanningSkeletons";
-import { FlightPlanningSkeleton } from "../flights/FlightSkeletons";
-import PartySkeleton from "../party/PartySkeleton";
-import { useEffect } from "react";
 import { Button, Text, Title1 } from "@fluentui/react-components";
-import { NavLink, useNavigate, useParams } from "react-router";
 import {
   Airplane24Regular,
   Home24Regular,
   Map24Regular,
   People24Regular,
 } from "@fluentui/react-icons";
+import { useEffect } from "react";
+import { NavLink, useNavigate, useParams } from "react-router";
 import { apiBaseUrl, type Trip } from "../../api/api";
 import {
   openTripDocument,
   refreshConflictedResource,
   useTripDocumentState,
 } from "../../api/tripDocumentStore";
+import { ActivityWorkspaceSkeleton } from "../activities/ActivityPlanningSkeletons";
 import ActivityPlanningTab from "../activities/ActivityPlanningTab";
+import { FlightPlanningSkeleton } from "../flights/FlightSkeletons";
 import TripPlanning from "../flights/TripPlanning";
-import TripOverview from "./TripOverview";
+import PartySkeleton from "../party/PartySkeleton";
 import TripParties from "../party/TripParties";
+import TripOverview from "./TripOverview";
+import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
 
 export default function TripPlanningPage({
   userId,
   homeCity,
-  featureFlags,
   offline = false,
 }: {
   userId: string;
   homeCity?: string | null;
-  featureFlags: string[];
   offline?: boolean;
 }) {
   const { tripId, "*": section } = useParams();
@@ -185,7 +183,6 @@ export default function TripPlanningPage({
             active={activeTab === "activities"}
             trip={trip}
             readOnly={readOnly}
-            featureFlags={featureFlags}
           />
         </div>
       </div>

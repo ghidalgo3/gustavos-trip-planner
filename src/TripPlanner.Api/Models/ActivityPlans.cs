@@ -387,7 +387,6 @@ public sealed record ActivityPlanningJob(
     long InputRevision,
     long PlanVersion,
     bool RefreshEvidence,
-    bool UseAi,
     string Source,
     DateTimeOffset CreatedAt
 )

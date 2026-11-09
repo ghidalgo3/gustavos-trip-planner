@@ -27,7 +27,6 @@ test("visiting other trip tabs retains the activity workspace and draft until le
   const props = {
     trip: { id: "trip" } as Trip,
     readOnly: false,
-    featureFlags: [],
   };
   const { rerender, unmount } = render(
     <ActivityPlanningTab {...props} active={false} />,

@@ -119,7 +119,6 @@ public sealed class ActivityPlanningDbTests
                 planningContext.InputRevision,
                 saved.Version,
                 false,
-                false,
                 "MCP",
                 ActivityPlanningFixture.Now
             );

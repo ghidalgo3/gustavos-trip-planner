@@ -1,8 +1,8 @@
-import type { ActivityKind, TicketRequirement } from "./activityKinds";
-import { tripFetch } from "../../api/tripDocumentStore";
-import { trackBehavior } from "../../telemetry/telemetry";
 import { apiBaseUrl, readTripError } from "../../api/api";
-import { getOperation, type TrackedOperation } from "../../api/operationsApi";
+import { tripFetch } from "../../api/tripDocumentStore";
+import { mapsClient } from "../../maps/mapsClient";
+import { trackBehavior } from "../../telemetry/telemetry";
+import type { ActivityKind, TicketRequirement } from "./activityKinds";
 
 export type Point = { type: "Point"; coordinates: [number, number] };
 export type Stay = {
@@ -58,14 +58,7 @@ export type ActivityResearchEvidence = {
   source: ActivityLink;
   researchedAt: string;
 };
-export type ActivityDetailSuggestion<T> = {
-  value: T;
-  evidence: ActivityResearchEvidence;
-};
-export type ActivityDetailsSuggestion = {
-  duration: ActivityDetailSuggestion<string> | null;
-  cost: ActivityDetailSuggestion<ActivityCost> | null;
-};
+
 export type ActivityProperties = {
   kinds: ActivityKind[];
   address: string | null;
@@ -96,11 +89,6 @@ export type ActivityInput = {
 export type ActivityCollection = {
   type: "FeatureCollection";
   features: Activity[];
-};
-export type SuggestionResult = {
-  operationId: string;
-  activities: ActivityCollection;
-  warnings: string[];
 };
 
 function collectionUrl(tripId: string) {
@@ -265,52 +253,6 @@ export async function getActivity(
   };
 }
 
-export async function researchActivityLocation(
-  tripId: string,
-  destination: Destination,
-  id: string,
-  etag: string,
-  signal?: AbortSignal,
-): Promise<ActivityLocationSuggestion | null> {
-  const response = await tripFetch(
-    `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}/location-proposals`,
-    {
-      method: "POST",
-      signal,
-      credentials: "include",
-      headers: {
-        "Destination-Context": destination.properties.contextVersion,
-        "If-Match": etag,
-      },
-    },
-  );
-  if (!response.ok)
-    await readTripError(response, "researching the activity location");
-  return (await response.json()).suggestion;
-}
-
-export async function researchActivityDetails(
-  tripId: string,
-  destination: Destination,
-  id: string,
-  etag: string,
-): Promise<ActivityDetailsSuggestion | null> {
-  const response = await tripFetch(
-    `${destinationUrl(tripId, destination.id)}/activities/${encodeURIComponent(id)}/details-proposals`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Destination-Context": destination.properties.contextVersion,
-        "If-Match": etag,
-      },
-    },
-  );
-  if (!response.ok)
-    await readTripError(response, "researching duration and cost");
-  return (await response.json()).suggestion;
-}
-
 export async function saveActivity(
   tripId: string,
   destination: Destination,
@@ -354,138 +296,6 @@ export async function deleteActivity(
   if (!response.ok) await readTripError(response, "deleting the activity");
 }
 
-export async function suggestActivities(
-  tripId: string,
-  destination: Destination,
-  input: string,
-): Promise<TrackedOperation> {
-  const response = await tripFetch(
-    `${destinationUrl(tripId, destination.id)}:suggest`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        requestId: crypto.randomUUID(),
-        input,
-        destinationContext: destination.properties.contextVersion,
-      }),
-    },
-  );
-  if (!response.ok)
-    await readTripError(response, "starting activity suggestions");
-  return response.json();
-}
-
-export async function importActivityImages(
-  tripId: string,
-  destination: Destination,
-  files: File[],
-  input: string,
-): Promise<TrackedOperation> {
-  const form = new FormData();
-  form.set("requestId", crypto.randomUUID());
-  form.set("destinationContext", destination.properties.contextVersion);
-  form.set("input", input);
-  files.forEach((file) => form.append("images", file));
-  const response = await tripFetch(
-    `${destinationUrl(tripId, destination.id)}:import`,
-    { method: "POST", credentials: "include", body: form },
-  );
-  if (!response.ok) await readTripError(response, "importing the images");
-  return response.json();
-}
-
-export async function getSuggestionResult(
-  tripId: string,
-  cityId: string,
-  operationId: string,
-): Promise<SuggestionResult> {
-  const response = await tripFetch(
-    `${destinationUrl(tripId, cityId)}/suggestions/${encodeURIComponent(operationId)}`,
-    { credentials: "include", cache: "no-store" },
-  );
-  if (!response.ok)
-    await readTripError(response, "loading activity suggestions");
-  return response.json();
-}
-
-export async function waitForActivityJob(
-  operationId: string,
-  signal?: AbortSignal,
-): Promise<TrackedOperation> {
-  while (!signal?.aborted) {
-    const operation = await getOperation(operationId, signal);
-    if (operation.status === "Completed" || operation.status === "Failed")
-      return operation;
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, 2000);
-      signal?.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timer);
-          reject(new DOMException("Aborted", "AbortError"));
-        },
-        { once: true },
-      );
-    });
-  }
-  throw new DOMException("Aborted", "AbortError");
-}
-
-export type VenueAddressSuggestion = {
-  name: string;
-  address: string;
-  source: { url: string; label: string };
-  geometry: Point | null;
-  warning: string | null;
-  mapAddress?: string | null;
-  locationSource?: ActivityLink | null;
-};
-
-export type StayAddressSuggestion = VenueAddressSuggestion;
-
-export async function researchActivityPlaces(
-  tripId: string,
-  cityId: string,
-  query: string,
-  signal?: AbortSignal,
-): Promise<VenueAddressSuggestion[]> {
-  const response = await tripFetch(
-    `${destinationUrl(tripId, cityId)}/activities/place-proposals`,
-    {
-      method: "POST",
-      credentials: "include",
-      signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
-    },
-  );
-  if (!response.ok)
-    await readTripError(response, "researching activity places");
-  return (await response.json()).suggestions;
-}
-
-export async function researchStayAddress(
-  tripId: string,
-  cityId: string,
-  query: string,
-  signal?: AbortSignal,
-): Promise<StayAddressSuggestion[]> {
-  const response = await tripFetch(
-    `${destinationUrl(tripId, cityId)}/stay/address-proposals`,
-    {
-      method: "POST",
-      credentials: "include",
-      signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
-    },
-  );
-  if (!response.ok) await readTripError(response, "searching the stay address");
-  return (await response.json()).suggestions;
-}
-
 export async function saveStayLocation(
   tripId: string,
   cityId: string,
@@ -506,4 +316,30 @@ export async function saveStayLocation(
     },
   );
   if (!response.ok) await readTripError(response, "saving Stay location");
+}
+
+export type StayPlaceResult = {
+  name: string;
+  address: string;
+  geometry: Point | null;
+};
+export async function searchStayPlaces(
+  destination: Destination,
+  query: string,
+  signal?: AbortSignal,
+): Promise<StayPlaceResult[]> {
+  const matches = await mapsClient.searchPlaces(
+    query,
+    signal,
+    destination.geometry.coordinates,
+    destination.properties.countryCode,
+  );
+  return matches.map((place) => ({
+    name: place.name ?? place.label,
+    address: place.address ?? place.label,
+    geometry:
+      place.longitude == null || place.latitude == null
+        ? null
+        : { type: "Point", coordinates: [place.longitude, place.latitude] },
+  }));
 }

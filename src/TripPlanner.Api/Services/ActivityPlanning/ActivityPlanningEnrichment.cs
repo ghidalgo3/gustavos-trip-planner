@@ -5,155 +5,23 @@ using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.Services.ActivityPlanning;
 
-public sealed class ActivityPlanningEnrichment(
-    IActivityRoutingProvider routing,
-    IActivityPreferenceScorer preferences,
-    IActivityPlanningResearch research,
-    TimeProvider clock
-)
+public sealed class ActivityPlanningEnrichment(IActivityRoutingProvider routing, TimeProvider clock)
 {
     public async Task<ActivityPlanningEvidence> EnrichAsync(
         ActivityPlanningContext planningContext,
         ActivityPlan plan,
-        bool useAi,
-        bool refresh,
         PlanningProviderBudget budget,
         CancellationToken ct
     )
     {
         var evidence = planningContext.Evidence;
         var warnings = new ConcurrentBag<string>();
-        async Task Try(Func<Task> work, string label)
-        {
-            try
-            {
-                await work();
-            }
-            catch (Exception e)
-                when (e
-                        is PlanningProviderException
-                            or JsonException
-                            or InvalidOperationException
-                            or KeyNotFoundException
-                            or FormatException
-                            or OverflowException
-                            or OperationCanceledException
-                )
-            {
-                warnings.Add(
-                    label
-                        + ": "
-                        + (
-                            e is PlanningProviderException
-                                ? e.Message
-                                : "Evidence unavailable or malformed; existing estimates are retained."
-                        )
-                );
-            }
-        }
-        if (useAi)
-        {
-            await Try(
-                async () =>
-                    evidence = evidence with
-                    {
-                        Affinities = await preferences.AffinityAsync(planningContext, budget, ct),
-                        AffinityContext = planningContext.AffinityContext(),
-                    },
-                "Preference scoring"
-            );
-            if (
-                evidence.AffinityContext == planningContext.AffinityContext()
-                && evidence.Affinities.Length
-                    < planningContext.Travellers.Length * planningContext.Activities.Length
-            )
-            {
-                warnings.Add(
-                    "Preference scoring is partial. Unscored activities retain an explicit neutral estimate."
-                );
-            }
-
-            await Try(
-                async () =>
-                    evidence = evidence with
-                    {
-                        SuggestedRules = await research.InterpretAsync(
-                            planningContext,
-                            plan,
-                            budget,
-                            ct
-                        ),
-                    },
-                "Preference interpretation"
-            );
-            var hours = new ConcurrentDictionary<Guid, ActivityHoursEvidence>(
-                evidence.Hours.ToDictionary(h => h.ActivityId)
-            );
-            var dates = plan.Days.Select(d => d.Date).Distinct().Order().Take(30).ToArray();
-            await Parallel.ForEachAsync(
-                planningContext.Activities.Take(100),
-                new ParallelOptions { MaxDegreeOfParallelism = 4 },
-                async (activity, _) =>
-                {
-                    if (
-                        ct.IsCancellationRequested
-                        || budget.Exhausted
-                        || plan.Rules.Any(r => r.ActivityId == activity.Id && r.AlwaysAvailable)
-                    )
-                    {
-                        return;
-                    }
-
-                    if (
-                        !refresh
-                        && hours.TryGetValue(activity.Id, out var saved)
-                        && saved.ActivityContext
-                            == ActivityPlanningContext.ActivityContext(activity)
-                        && (saved.ExpiresAt ?? saved.RetrievedAt.AddHours(24)) > clock.GetUtcNow()
-                        && dates.All(d =>
-                            saved.ClosedDates.Contains(d) || saved.Windows.Any(w => w.Date == d)
-                        )
-                    )
-                    {
-                        return;
-                    }
-
-                    await Try(
-                        async () =>
-                        {
-                            if (
-                                await research.HoursAsync(
-                                    activity,
-                                    planningContext.Place.Name,
-                                    dates,
-                                    budget,
-                                    ct
-                                ) is
-                                { } researched
-                            )
-                            {
-                                hours[activity.Id] = researched;
-                            }
-                            else
-                            {
-                                warnings.Add(
-                                    "Opening hours remain unverified for some activities."
-                                );
-                            }
-                        },
-                        "Opening-hours research"
-                    );
-                }
-            );
-            evidence = evidence with { Hours = hours.Values.OrderBy(h => h.ActivityId).ToArray() };
-        }
         evidence = await RoutesAsync(
             planningContext with
             {
                 Evidence = evidence,
             },
             [plan],
-            useAi,
             budget,
             ct
         );
@@ -176,7 +44,6 @@ public sealed class ActivityPlanningEnrichment(
     public async Task<ActivityPlanningEvidence> RoutesAsync(
         ActivityPlanningContext planningContext,
         ActivityPlan[] plans,
-        bool useAi,
         PlanningProviderBudget budget,
         CancellationToken ct
     )
@@ -287,30 +154,6 @@ public sealed class ActivityPlanningEnrichment(
                             budget,
                             ct
                         );
-                        if (useAi && choices.Length > 1 && !budget.Exhausted)
-                        {
-                            try
-                            {
-                                choices = await preferences.TransportAsync(
-                                    planningContext,
-                                    choices,
-                                    budget,
-                                    ct
-                                );
-                            }
-                            catch (Exception e)
-                                when (e
-                                        is PlanningProviderException
-                                            or JsonException
-                                            or InvalidOperationException
-                                            or OperationCanceledException
-                                )
-                            {
-                                warnings.Add(
-                                    "Transport preference scoring unavailable; fastest returned route retained."
-                                );
-                            }
-                        }
                         if (
                             choices
                                 .OrderBy(c => c.Duration)

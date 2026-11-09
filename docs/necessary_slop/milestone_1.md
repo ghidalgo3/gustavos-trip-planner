@@ -1,5 +1,10 @@
 # Milestone 1: Collaborative trip planning and ranked flight suggestions
 
+Historical milestone notes: server-side LLM features described here have been
+removed. Current architecture and workflows are documented in [README](../../README.md);
+the connected user agent performs and pays for model calls and research.
+
+
 Status: Living design document; implementation is in progress.
 
 Last updated: 2026-09-27.
