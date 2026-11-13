@@ -25,7 +25,7 @@ Each calendar item has `id`, `name`, `kind`, `type`, and `busy`:
 
 | Kind | Details and behavior |
 | --- | --- |
-| `activity` | Complete idea, required nonempty `kinds` array, nullable `address`, explicit `ticketRequirement` (`Unknown`, `Required`, `NotRequired`), estimated duration, cost, research, links, selection state, and scheduling rule. An assigned visit is referenced by `visitId`. |
+| `activity` | Complete idea, required nonempty `kinds` array of unique, nonblank free-form strings (up to 200 characters each), nullable `address`, explicit `ticketRequirement` (`Unknown`, `Required`, `NotRequired`), estimated duration, cost, research, links, selection state, and scheduling rule. An assigned visit is referenced by `visitId`. |
 | `flight` | A selected flight segment, its airports, flight number, purchase state, and visit associations. |
 | `connection` | An explicit journey between trip locations, with editable modes and segments. |
 | `transfer` | A calculated local journey between activities. |

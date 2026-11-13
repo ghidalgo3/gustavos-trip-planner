@@ -6,7 +6,6 @@ namespace TripPlanner.Api.DTO;
 public sealed record PlanningContextResponse(
     string GuidanceVersion,
     string Guidance,
-    string[] ActivityKinds,
     string[] PreferencePrecedence,
     TripDocument Trip,
     ActivityPreferences ProfilePreferences,

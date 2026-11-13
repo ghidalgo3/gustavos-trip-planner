@@ -10,7 +10,7 @@ public static class McpInstructions
         Use your own model and browsing tools; TripPlanner never calls an LLM.
         Before recommending activities or planning days, call get_planning_context for the trip.
         Reuse saved destinations, visit dates, activities and preferences; ask only for missing information.
-        Follow the returned versioned planning guidance and activity-kind catalog.
+        Follow the returned versioned planning guidance.
         Give each day a coherent theme based on interests, a place or an anchor activity.
         Manage the connected user's trips.
         Read a resource before replacing it.
@@ -48,7 +48,7 @@ public static class McpInstructions
 
     public static class Planning
     {
-        public const string Version = "2026-11-12.2";
+        public const string Version = "2026-11-13.2";
 
         public const string Instructions = $"""
             Before recommending activities or planning days, call get_planning_context for the trip.
@@ -65,8 +65,8 @@ public static class McpInstructions
             Fill in supported location, address, description, duration, cost with currency and pricing basis, and website/source links.
             Never invent prices, addresses, coordinates, ticket requirements or availability to fill a field.
             Leave unverified details unknown; missing ticket information means Unknown, not NotRequired.
-            Assign one or more applicable kinds from the returned catalog, including multiple kinds when relevant.
-            Read the catalog on each planning task rather than assuming a fixed set.
+            Assign one or more descriptive, free-form activity kinds, including multiple kinds when relevant.
+            Use list_activity_kinds to find and reuse relevant existing labels across the connected user's own trips; there is no fixed catalog.
             {LocationResolution.Instructions}
             Create undated activity ideas or reuse existing ideas before scheduling them.
             Preserve existing bookings, activities, unrelated plan fields and explicit timing restrictions.
@@ -129,6 +129,13 @@ public static class McpInstructions
 
     public static class Tools
     {
+        public const string ListActivityKinds = """
+            List distinct activity kind labels from trips owned by the connected user, across all their trips.
+            Optional search is a case-insensitive literal substring; omit it to browse existing labels.
+            Results are sorted by label, with top (default 20, maximum 100), skip, and hasMore for pagination.
+            Reuse relevant labels when creating or editing activities; new free-form labels are also allowed.
+            Does not include labels from trips owned by other users, even shared trips.
+            """;
         public const string GetTripDocument = """
             Read the portable trip document in one call: people, shared places, an itinerary calendar of events and tasks with activity, transportation and lodging details, planning preferences, and optional edit validators without cached REST response bodies.
             Private profiles, credentials and transient searches are excluded.
@@ -244,7 +251,7 @@ public static class McpInstructions
             """;
 
         public const string CreateActivity = """
-            Create an undated activity idea with its complete GeoJSON Feature: what to do, one or more kinds from get_planning_context, place, duration and supported details.
+            Create an undated activity idea with its complete GeoJSON Feature: what to do, one or more free-form kinds, place, duration and supported details.
             Always include a researched physical address in properties.address, even when geometry remains unresolved, plus website/source links and ticketRequirement.
             Follow the geographic workflow in get_planning_context: try geocode_address, independently research coordinates on null, failed or incorrect results, and save a reliably supported Point in request.geometry with provenance and precision classification in notes and links.
             Explicitly label approximate points; leave geometry null for nonphysical or unresolved destinations.
@@ -402,7 +409,7 @@ public static class McpInstructions
             """;
 
         public const string GetPlanningContext = """
-            Read a trip's destinations, visit dates, existing activities and schedules, the connected user's profile preferences, shared trip/destination preferences, current activity-kind catalog and versioned travel-planning guidance.
+            Read a trip's destinations, visit dates, existing activities and schedules, the connected user's profile preferences, shared trip/destination preferences, versioned travel-planning guidance.
             This is the starting context for activity recommendations and themed days.
             Other travelers' raw private preferences are excluded.
             Does not research, save or book anything.
@@ -504,8 +511,8 @@ public static class McpInstructions
             "Proposed is an idea; Planned selects it for the plan but does not assign a day or time; Rejected excludes it.";
 
         public const string ActivityKinds = """
-            One or more applicable kinds.
-            Use every relevant kind from the supported catalog.
+            One or more unique, nonblank, free-form kind labels (up to 200 characters each).
+            For example: Art, Food, Architecture, or Nightlife. There is no fixed catalog.
             """;
 
         public const string ActivityAddress = """

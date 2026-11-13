@@ -188,7 +188,7 @@ public sealed class AgentOwnedResearchTests
                                 duration = "PT1H",
                                 cost = (object?)null,
                                 state = "Proposed",
-                                kinds = new[] { "Food" },
+                                kinds = new[] { "Food", "Vegan dining", "郷土料理" },
                                 address,
                                 ticketRequirement = "Unknown",
                                 links = new[]
@@ -215,6 +215,10 @@ public sealed class AgentOwnedResearchTests
             "tokyo-jp"
         );
         var saved = activities.Single(a => a.Properties.Name == "Agent-researched vegan lunch");
+        CollectionAssert.AreEqual(
+            new[] { "Food", "Vegan dining", "郷土料理" },
+            saved.Properties.Kinds.ToArray()
+        );
         Assert.AreEqual("https://venue.example/menu", saved.Properties.Links.Single().Url);
         Assert.AreEqual(address, saved.Properties.Address);
         Assert.AreEqual(
@@ -275,6 +279,7 @@ public sealed class AgentOwnedResearchTests
         var properties = activity.Properties with
         {
             State = state,
+            Kinds = ["Architecture & design", "夜景"],
             Description = "Keep the existing visit notes.",
             Cost = new(12, "EUR", "perPerson"),
             TicketRequirement = "Required",

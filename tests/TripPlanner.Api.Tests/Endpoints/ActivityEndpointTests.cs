@@ -46,7 +46,7 @@ public class ActivityEndpointTests
                 "Paintings and sculpture",
                 null,
                 ActivityState.Proposed,
-                [ActivityKind.Culture]
+                ["Architecture & design", "夜景"]
             )
             {
                 Notes = notes,
@@ -108,6 +108,10 @@ public class ActivityEndpointTests
                 await client.GetFromJsonAsync<GeoJsonFeature<ActivityProperties>>(resource)
             )!;
             Assert.AreEqual(nextNotes, saved.Properties.Notes);
+            CollectionAssert.AreEqual(
+                input.Properties.Kinds.ToArray(),
+                saved.Properties.Kinds.ToArray()
+            );
             Assert.AreEqual(input.Properties.Description, saved.Properties.Description);
             var stored = (
                 await factory.Database.GetActivityAsync(
@@ -131,7 +135,13 @@ public class ActivityEndpointTests
 
     [TestMethod]
     [DataRow("empty", "Unknown", false)]
-    [DataRow("invalid", "Unknown", false)]
+    [DataRow("custom", "Unknown", true)]
+    [DataRow("many", "Unknown", true)]
+    [DataRow("blank", "Unknown", false)]
+    [DataRow("whitespace", "Unknown", false)]
+    [DataRow("null", "Unknown", false)]
+    [DataRow("long", "Unknown", false)]
+    [DataRow("max-length", "Unknown", true)]
     [DataRow("duplicate", "Unknown", false)]
     [DataRow("valid", "Maybe", false)]
     [DataRow("valid", "Unknown", true)]
@@ -150,10 +160,16 @@ public class ActivityEndpointTests
         var place = (await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, "paris-fr"))!;
         var kinds = kindCase switch
         {
-            "empty" => Array.Empty<ActivityKind>(),
-            "invalid" => new[] { ActivityKind.Culture },
-            "duplicate" => new[] { ActivityKind.Art, ActivityKind.Art },
-            _ => [ActivityKind.Art, ActivityKind.Culture],
+            "empty" => Array.Empty<string>(),
+            "custom" => new[] { "Architecture & design", "夜景", "Culture" },
+            "many" => Enumerable.Range(0, 10).Select(i => $"Kind {i}").ToArray(),
+            "blank" => new[] { "" },
+            "whitespace" => new[] { " \t\n" },
+            "null" => new string[] { null! },
+            "long" => new[] { new string('k', 201) },
+            "max-length" => new[] { new string('k', 200) },
+            "duplicate" => new[] { "Art", "Art" },
+            _ => ["Art", "Culture"],
         };
         var input = new ActivityInput(
             "Feature",
@@ -169,10 +185,6 @@ public class ActivityEndpointTests
         var payload = System.Text.Json.Nodes.JsonNode.Parse(
             JsonSerializer.Serialize(input, JsonSerializerOptions.Web)
         )!;
-        if (kindCase == "invalid")
-        {
-            payload["properties"]!["kinds"] = new System.Text.Json.Nodes.JsonArray("Other");
-        }
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             $"/trips/{trip.Id}/destinations/paris-fr/activities"
@@ -198,7 +210,23 @@ public class ActivityEndpointTests
             var document = await client.GetStringAsync($"/trips/{trip.Id}/document");
             StringAssert.Contains(document, "1 museum street");
             StringAssert.Contains(document, "ticketRequirement");
-            StringAssert.Contains(document, "Culture");
+            var stored = (
+                await factory.Database.GetActivitiesAsync(owner, trip.Id, "paris-fr")
+            ).Single();
+            CollectionAssert.AreEqual(kinds, stored.Properties.Kinds.ToArray());
+            using var exported = JsonDocument.Parse(document);
+            var item = exported
+                .RootElement.GetProperty("itinerary")
+                .GetProperty("items")
+                .EnumerateArray()
+                .Single(item => item.GetProperty("id").GetString() == saved.Id);
+            CollectionAssert.AreEqual(
+                kinds,
+                item.GetProperty("kinds")
+                    .EnumerateArray()
+                    .Select(kind => kind.GetString())
+                    .ToArray()
+            );
         }
         else
         {
@@ -597,14 +625,7 @@ public class ActivityEndpointTests
             trip.Id,
             original.Id,
             new("Point", GeographyPoint.Create(latitude: 48.85, longitude: 2.35)),
-            new(
-                "Museum",
-                TimeSpan.FromHours(1),
-                "Art",
-                null,
-                ActivityState.Planned,
-                [ActivityKind.Culture]
-            ),
+            new("Museum", TimeSpan.FromHours(1), "Art", null, ActivityState.Planned, ["Culture"]),
             now,
             now
         );
@@ -837,7 +858,7 @@ public class ActivityEndpointTests
                 "Sculpture galleries",
                 new(0, "EUR", "perPerson"),
                 ActivityState.Proposed,
-                [ActivityKind.Culture],
+                ["Culture"],
                 "Museum"
             )
         );
@@ -1058,7 +1079,7 @@ public class ActivityEndpointTests
             "Feature",
             null,
             null,
-            new("Museum", null, "", null, ActivityState.Proposed, [ActivityKind.Culture])
+            new("Museum", null, "", null, ActivityState.Proposed, ["Culture"])
             {
                 Links =
                 [
@@ -1132,7 +1153,7 @@ public class ActivityEndpointTests
                     "Feature",
                     null,
                     null,
-                    new("Museum", null, "", null, ActivityState.Proposed, [ActivityKind.Culture])
+                    new("Museum", null, "", null, ActivityState.Proposed, ["Culture"])
                     {
                         Links = [new(url)],
                     }

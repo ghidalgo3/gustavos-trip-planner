@@ -80,7 +80,7 @@ public sealed class TripDocumentResourceTests
                 "An idea",
                 null,
                 ActivityState.Proposed,
-                [ActivityKind.Culture]
+                ["Culture"]
             ),
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow

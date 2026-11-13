@@ -24,6 +24,8 @@ import {
 } from "./activitiesApi";
 import { planningRequest } from "./activityPlanApi";
 import ActivityPlanning from "./ActivityPlanning";
+import { listActivityKinds } from "./activityKindsApi";
+vi.mock("./activityKindsApi", () => ({ listActivityKinds: vi.fn() }));
 import type {
   ActivityRoutePreview,
   ActivityRouteSelection,
@@ -237,6 +239,7 @@ function show(readOnly = false, onDestinationChange = vi.fn()) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(listActivityKinds).mockResolvedValue({ kinds: [], hasMore: false });
   vi.mocked(getDestinations).mockResolvedValue(destinations);
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -262,8 +265,11 @@ async function add(chooseKind = true) {
   act(() => trigger.focus());
   click(trigger);
   const drawer = await screen.findByRole("dialog");
-  if (chooseKind)
-    click(within(drawer).getByRole("checkbox", { name: "Culture" }));
+  if (chooseKind) {
+    const input = within(drawer).getByRole("combobox", { name: "Kinds" });
+    change(input, { target: { value: "Culture" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+  }
   return drawer;
 }
 
@@ -444,7 +450,7 @@ test.each(["map", "list", "cancel"])(
       await screen.findByRole("button", { name: "Map marker: Louvre" }),
     ).toBeInTheDocument();
     const drawer = await add();
-    change(within(drawer).getByLabelText("Activity or place name"), {
+    change(within(drawer).getByLabelText("Find a place"), {
       target: { value: "Garden" },
     });
     click(within(drawer).getByRole("button", { name: "Search places" }));
@@ -475,7 +481,9 @@ test.each(["map", "list", "cancel"])(
       screen.queryByRole("button", { name: "Search marker: 1. Garden, Paris" }),
     ).not.toBeInTheDocument();
     if (action !== "cancel")
-      expect(within(drawer).getByLabelText("Name")).toHaveValue("Garden");
+      expect(within(drawer).getByLabelText("Activity name")).toHaveValue(
+        "Garden",
+      );
   },
 );
 
@@ -489,7 +497,7 @@ test("the place SearchBox searches on Enter without submitting the editor or sta
   show();
   const drawer = await add();
   const input = within(drawer).getByRole("searchbox", {
-    name: "Activity or place name",
+    name: "Find a place",
   });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(mapsClient.searchPlaces).not.toHaveBeenCalled();
@@ -539,7 +547,9 @@ test.each([
           : within(card).getByText("Culture"),
     );
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
-    expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
+    expect(within(drawer).getByLabelText("Activity name")).toHaveValue(
+      "Louvre",
+    );
     expect(getActivity).toHaveBeenCalledExactlyOnceWith(
       "trip",
       "paris-fr",
@@ -565,7 +575,7 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   expect(drawer.closest(".activity-map-panel")).toBeNull();
   expect(drawer).not.toHaveAttribute("aria-modal", "true");
   expect(document.querySelector(".fui-DialogSurface__backdrop")).toBeNull();
-  expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
+  expect(within(drawer).getByLabelText("Activity name")).toHaveValue("Louvre");
   expect(within(drawer).getByLabelText("Notes")).toHaveValue(
     "Book morning entry.",
   );
@@ -660,7 +670,7 @@ test.each(["", "Visit after lunch.\nBring the booking confirmation."])(
 test("canceling the activity drawer discards its draft", async () => {
   show();
   const drawer = await add();
-  change(within(drawer).getByLabelText("Name"), {
+  change(within(drawer).getByLabelText("Activity name"), {
     target: { value: "Unsaved" },
   });
   change(within(drawer).getByLabelText("Description"), {
@@ -674,7 +684,7 @@ test("canceling the activity drawer discards its draft", async () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
   const reopened = await add();
-  expect(within(reopened).getByLabelText("Name")).toHaveValue("");
+  expect(within(reopened).getByLabelText("Activity name")).toHaveValue("");
   expect(within(reopened).getByLabelText("Description")).toHaveValue("");
   expect(within(reopened).getByLabelText("Notes")).toHaveValue("");
   expect(saveActivity).not.toHaveBeenCalled();
@@ -965,7 +975,7 @@ test("activity costs use a known currency selection and save the selected curren
   const currency = within(drawer).getByRole("combobox", { name: "Currency" });
   expect(currency.tagName).toBe("SELECT");
   expect(currency).toBeDisabled();
-  change(within(drawer).getByLabelText("Name"), {
+  change(within(drawer).getByLabelText("Activity name"), {
     target: { value: "Museum" },
   });
   change(within(drawer).getByLabelText("Cost amount"), {
@@ -1079,6 +1089,10 @@ test.each([
     await within(container).findByRole("button", {
       name: `State for Louvre: ${nextState}`,
     });
+    expect(
+      screen.queryByRole("dialog", { name: "Edit activity" }),
+    ).not.toBeInTheDocument();
+    expect(getActivity).toHaveBeenCalledTimes(1);
     expect(
       within(
         screen.getByRole("list", { name: `${nextState} activities` }),
@@ -1270,7 +1284,7 @@ test.each([
   async (hours, expected, text) => {
     show();
     const drawer = await add();
-    change(within(drawer).getByLabelText("Name"), {
+    change(within(drawer).getByLabelText("Activity name"), {
       target: { value: "Explore the museum" },
     });
     const slider = within(drawer).getByRole("slider", { name: "Duration" });
@@ -1467,13 +1481,24 @@ test("Find location is hidden when all activities already have locations", async
 test("activity details require a kind and save multiple kinds, address and tickets together", async () => {
   show();
   const drawer = await add(false);
-  change(within(drawer).getByLabelText("Name"), {
+  change(within(drawer).getByLabelText("Activity name"), {
     target: { value: "Gallery visit" },
   });
   const save = within(drawer).getByRole("button", { name: "Save activity" });
   expect(save).toBeDisabled();
-  click(within(drawer).getByRole("checkbox", { name: "Art" }));
-  click(within(drawer).getByRole("checkbox", { name: "Culture" }));
+  const kinds = within(drawer).getByRole("combobox", { name: "Kinds" });
+  const addKind = (value: string) => {
+    change(kinds, { target: { value } });
+    fireEvent.keyDown(kinds, { key: "Enter", code: "Enter" });
+  };
+  addKind("   ");
+  expect(save).toBeDisabled();
+  addKind("Architecture & design");
+  expect(save).toBeEnabled();
+  addKind("Architecture & design");
+  addKind("夜景");
+  addKind("Temporary");
+  click(within(drawer).getByLabelText("Remove Temporary"));
   change(within(drawer).getByLabelText("Address"), {
     target: { value: "1 museum street" },
   });
@@ -1488,7 +1513,7 @@ test("activity details require a kind and save multiple kinds, address and ticke
   await waitFor(() => expect(saveActivity).toHaveBeenCalled());
   expect(vi.mocked(saveActivity).mock.calls[0][2].properties).toMatchObject({
     name: "Gallery visit",
-    kinds: ["Art", "Culture"],
+    kinds: ["Architecture & design", "夜景"],
     address: "1 museum street",
     ticketRequirement: "Required",
     duration: null,
@@ -1502,7 +1527,7 @@ test("offline activity details show description, notes, kinds, address and ticke
     ...activity,
     properties: {
       ...activity.properties,
-      kinds: ["Art" as const, "Culture" as const],
+      kinds: ["Architecture & design", "夜景"],
       address: "1 museum street",
       ticketRequirement: "Required" as const,
     },
@@ -1516,8 +1541,8 @@ test("offline activity details show description, notes, kinds, address and ticke
   const details = screen.getByRole("region", {
     name: "Selected activity details",
   });
-  expect(within(details).getByText("Art")).toBeVisible();
-  expect(within(details).getByText("Culture")).toBeVisible();
+  expect(within(details).getByText("Architecture & design")).toBeVisible();
+  expect(within(details).getByText("夜景")).toBeVisible();
   expect(within(details).getByText("1 museum street")).toBeVisible();
   expect(within(details).getByText("Tickets: Required")).toBeVisible();
   expect(within(details).getByText("See the paintings")).toBeVisible();

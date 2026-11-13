@@ -2,7 +2,7 @@ import { apiBaseUrl, readTripError } from "../../api/api";
 import { tripFetch } from "../../api/tripDocumentStore";
 import { mapsClient } from "../../maps/mapsClient";
 import { trackBehavior } from "../../telemetry/telemetry";
-import type { ActivityKind, TicketRequirement } from "./activityKinds";
+import type { TicketRequirement } from "./activityKinds";
 
 export type Point = { type: "Point"; coordinates: [number, number] };
 export type Stay = {
@@ -60,7 +60,7 @@ export type ActivityResearchEvidence = {
 };
 
 export type ActivityProperties = {
-  kinds: ActivityKind[];
+  kinds: string[];
   address: string | null;
   ticketRequirement: TicketRequirement;
   durationEvidence?: ActivityResearchEvidence | null;

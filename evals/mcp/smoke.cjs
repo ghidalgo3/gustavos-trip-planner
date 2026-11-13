@@ -97,7 +97,7 @@ async function main() {
           );
         }
         const data = context.structuredContent.data;
-        assert.ok(data.activityKinds.includes("Art"));
+        assert.ok(data.guidance.includes("free-form"));
         assert.ok(data.guidanceVersion);
         assert.equal(data.trip.name, document.name);
         for (const kind of ["visit", "activity", "lodging", "flight"]) {

@@ -99,6 +99,12 @@ public interface IPlannerDb : IActivityPlanningDb
         Guid stayId,
         CancellationToken cancellationToken = default
     );
+    Task<ActivityKindPage> GetActivityKindPageAsync(
+        Guid userId,
+        ActivityKindQuery query,
+        CancellationToken cancellationToken = default
+    );
+
     Task<IReadOnlyList<Activity>> GetActivitiesAsync(
         Guid viewerUserId,
         Guid tripId,

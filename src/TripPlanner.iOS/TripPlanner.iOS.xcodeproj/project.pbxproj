@@ -28,12 +28,12 @@
 		EC964D4B3097909C00F8131C /* azure-sapporo-stream.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "azure-sapporo-stream.json"; sourceTree = "<group>"; };
 		EC964D4C3097909C00F8131C /* overture-sapporo-stream.geojson */ = {isa = PBXFileReference; lastKnownFileType = text; path = "overture-sapporo-stream.geojson"; sourceTree = "<group>"; };
 		EC964D4E3097909C00F8131C /* trip-document-v1.schema.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "trip-document-v1.schema.json"; sourceTree = "<group>"; };
-		EC964D503097909C00F8131C /* later_milestones.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = later_milestones.md; path = "necessary_slop/later_milestones.md"; sourceTree = "<group>"; };
-		EC964D513097909C00F8131C /* milestone_1.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_1.md; path = "necessary_slop/milestone_1.md"; sourceTree = "<group>"; };
-		EC964D523097909C00F8131C /* milestone_2.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_2.md; path = "necessary_slop/milestone_2.md"; sourceTree = "<group>"; };
-		EC964D533097909C00F8131C /* milestone_3.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_3.md; path = "necessary_slop/milestone_3.md"; sourceTree = "<group>"; };
-		EC964D543097909C00F8131C /* milestone_5.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_5.md; path = "necessary_slop/milestone_5.md"; sourceTree = "<group>"; };
-		EC964D553097909C00F8131C /* milestone_6.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_6.md; path = "necessary_slop/milestone_6.md"; sourceTree = "<group>"; };
+		EC964D503097909C00F8131C /* later_milestones.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = later_milestones.md; path = necessary_slop/later_milestones.md; sourceTree = "<group>"; };
+		EC964D513097909C00F8131C /* milestone_1.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_1.md; path = necessary_slop/milestone_1.md; sourceTree = "<group>"; };
+		EC964D523097909C00F8131C /* milestone_2.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_2.md; path = necessary_slop/milestone_2.md; sourceTree = "<group>"; };
+		EC964D533097909C00F8131C /* milestone_3.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_3.md; path = necessary_slop/milestone_3.md; sourceTree = "<group>"; };
+		EC964D543097909C00F8131C /* milestone_5.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_5.md; path = necessary_slop/milestone_5.md; sourceTree = "<group>"; };
+		EC964D553097909C00F8131C /* milestone_6.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = milestone_6.md; path = necessary_slop/milestone_6.md; sourceTree = "<group>"; };
 		EC964D8A3097D39400F8131C /* TripPlanner-iOS-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripPlanner-iOS-Info.plist"; sourceTree = "<group>"; };
 		ECDFB504309958E800F3DDC3 /* ios-local-to-cloud.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "ios-local-to-cloud.md"; path = "necessary_slop/ios-local-to-cloud.md"; sourceTree = "<group>"; };
 /* End PBXFileReference section */

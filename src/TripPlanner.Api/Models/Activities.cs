@@ -116,11 +116,11 @@ public sealed record ActivityProperties(
     [property:
         Required,
         MinLength(1),
-        MaxLength(9),
+        StringItems(@"\S", 200),
         UniqueItems,
         Description(McpInstructions.Fields.ActivityKinds)
     ]
-        IReadOnlyList<ActivityKind> Kinds,
+        IReadOnlyList<string> Kinds,
     [property: StringLength(200)] string? PlaceName = null
 )
 {

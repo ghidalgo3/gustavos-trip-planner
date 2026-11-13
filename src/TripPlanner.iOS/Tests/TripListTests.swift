@@ -4,6 +4,24 @@ import Testing
 
 @MainActor
 struct TripListTests {
+    @Test func queriesOwnedActivityKindsWithoutLosingLiteralSearchCharacters() async throws {
+        let transport = ActivityKindTransport()
+        let api = TripPlannerAPI(tokenStore: TripListTokens(), transport: transport)
+        _ = try api.restoreSession()
+        let page = try await api.activityKinds(search: "Art & food + 100%", top: 3, skip: 6)
+        #expect(page.kinds == ["Art & food + 100%", "夜景"])
+        #expect(page.hasMore)
+        let request = try #require(transport.request)
+        let url = try #require(request.url)
+        #expect(url.path == "/user/activity-kinds")
+        #expect(!url.query!.contains("+"))
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: true)?.queryItems)
+        #expect(query.first(where: { $0.name == "search" })?.value == "Art & food + 100%")
+        #expect(query.first(where: { $0.name == "top" })?.value == "3")
+        #expect(query.first(where: { $0.name == "skip" })?.value == "6")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
+    }
+
     @Test func followsTripListPagesAndDecodesDates() async throws {
         let transport = TripListTransport()
         let api = TripPlannerAPI(tokenStore: TripListTokens(), transport: transport)
@@ -18,6 +36,17 @@ struct TripListTests {
         }
         #expect(queries.map { $0.first(where: { $0.name == "skip" })?.value } == ["0", "10"])
         #expect(queries.allSatisfy { $0.first(where: { $0.name == "today" })?.value?.count == 10 })
+    }
+}
+
+@MainActor
+private final class ActivityKindTransport: TripHTTPTransport {
+    private(set) var request: URLRequest?
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        self.request = request
+        let url = try #require(request.url)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        return (try JSONSerialization.data(withJSONObject: ["kinds": ["Art & food + 100%", "夜景"], "hasMore": true]), response)
     }
 }
 

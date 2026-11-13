@@ -1258,7 +1258,7 @@ untouched; the application no longer reads or writes them.
 Agents start activity recommendations and daily planning with `get_planning_context(tripId)`.
 This read-only MCP tool returns the portable trip document (destinations, visit dates,
 existing ideas and schedules), the connected user's profile preferences, shared trip
-and destination preferences, the current activity-kind catalog, and versioned guidance.
+and destination preferences, and versioned guidance.
 It requires read or write scope and trip visibility. It excludes other travelers' raw
 private profiles. No new REST route is needed for this aggregate MCP read.
 
@@ -1314,8 +1314,21 @@ explicit request, destination, trip, profile, then application defaults; unrelat
 preferences combine. Conversational preferences are saved only when the user requests
 or accepts remembering them.
 
-Activities now require a nonempty, duplicate-free `kinds` array containing one or more
-of `Food`, `Shopping`, `Culture`, `Music`, `Art`, `Nature`, `Relax`, `Event`, `Holiday`.
+Activities require a nonempty, duplicate-free `kinds` array of free-form strings.
+Each label must be nonblank and at most 200 characters; there is no fixed catalog.
+The web editor supports adding, editing, and removing custom kind labels, with
+suggestions from the signed-in user's existing activities.
+
+`GET /user/activity-kinds` and the read-only MCP `list_activity_kinds` tool list
+distinct labels across trips owned by the connected user. Shared trips owned by
+someone else are excluded. Optional `search` matches a case-insensitive literal
+substring (up to 200 characters); `top` defaults to 20 (maximum 100) and `skip`
+defaults to 0 (maximum 100000). Results are sorted by label and return
+`{ "kinds": [...], "hasMore": true|false }`. Labels are read directly from saved
+activities, so changes and deletions affect subsequent queries. Responses are
+private and not cached. Autocomplete remains optional: users and agents can
+always enter new labels. The iOS API client supports the same query contract.
+
 `address` is nullable; `ticketRequirement` is `Unknown`, `Required`, or `NotRequired`
 (default `Unknown`). Existing `links` carry official websites and research sources.
 Unknown prices remain null rather than zero. Missing ticket evidence never implies free

@@ -162,6 +162,26 @@ public sealed class TripPlannerTools(
                 TripsEndpoints.ListTrips(null, query ?? new(), context, database, currentUser)
         );
 
+    [McpServerTool(
+        Name = "list_activity_kinds",
+        ReadOnly = true,
+        Idempotent = true,
+        OpenWorld = false
+    )]
+    [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
+    [Description(McpInstructions.Tools.ListActivityKinds)]
+    public Task<CallToolResult> ListActivityKinds(ActivityKindQuery? query = null) =>
+        Execute(
+            false,
+            context =>
+                ActivityKindEndpoints.ListActivityKinds(
+                    query ?? new(),
+                    context,
+                    database,
+                    currentUser
+                )
+        );
+
     [McpServerTool(Name = "get_trip", ReadOnly = true, OpenWorld = false)]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
     [Description(McpInstructions.Tools.GetTrip)]

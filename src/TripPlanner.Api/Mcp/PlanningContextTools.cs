@@ -72,7 +72,6 @@ public sealed class PlanningContextTools(
                     new PlanningContextResponse(
                         McpInstructions.Planning.Version,
                         McpInstructions.Planning.Instructions,
-                        Enum.GetNames<ActivityKind>(),
                         McpInstructions.Planning.PreferencePrecedence,
                         projection.Project(data).Document,
                         profile.Preferences,

@@ -528,24 +528,50 @@
   cursor: default;
 }
 
-.activity-kinds {
+.activity-kinds.fui-TagGroup {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
-.activity-card .activity-kinds > span {
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 0.5rem;
-  padding: 0.125rem 0.5rem;
-  font-size: 0.8rem;
+.activity-kinds .activity-kind-tag {
+  max-width: 100%;
+  height: auto;
+  min-height: 24px;
 }
 
-.activity-kind-fieldset {
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 0.5rem;
-  margin: 0;
-  padding: 0.75rem;
+.activity-kinds-picker,
+.activity-kinds-picker .activity-kinds-control,
+.activity-kinds-picker .activity-kind-tags {
+  min-width: 0;
+  max-width: 100%;
 }
-.activity-kinds-required {
-  color: var(--colorPaletteRedForeground1);
+.activity-kinds-picker .activity-kinds-control {
+  width: 100%;
+}
+.activity-kinds-picker .fui-Field__label {
+  display: inline-flex;
+  align-items: baseline;
+}
+.activity-kinds-picker .activity-kind-tags {
+  flex-wrap: wrap;
+}
+.activity-kinds-picker .activity-kind-tag {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+}
+.activity-kind-tag .fui-Tag__primaryText {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.activity-kinds-picker .activity-kinds-input {
+  min-width: 7rem;
+  max-width: 100%;
+  flex-grow: 1;
+}
+.activity-kind-suggestion-loading {
+  padding: 8px 12px;
+  min-width: 120px;
 }

@@ -513,7 +513,7 @@ public sealed class TripReadPostgresTests
         );
     }
 
-    private static async Task WithDatabase(Func<NpgsqlDataSource, PostgresPlannerDb, Task> test)
+    internal static async Task WithDatabase(Func<NpgsqlDataSource, PostgresPlannerDb, Task> test)
     {
         var connection = Environment.GetEnvironmentVariable("TRIPPLANNER_TEST_POSTGRES");
         if (string.IsNullOrWhiteSpace(connection))

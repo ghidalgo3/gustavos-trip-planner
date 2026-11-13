@@ -13,12 +13,22 @@ source commit. Failed releases and `--check` runs leave entries unreleased.
 
 ### Added
 
+- Activity-kind autocomplete reuses labels from your own trips, with searchable
+  REST and MCP lists of existing labels.
 - Started this changelog and documented how to use Travel connections.
 
 ### Changed
 
+- Activity editing uses a mobile-friendly kind TagPicker and clearer activity-name
+  and place-search labels.
+- Activity cards and details display kinds as wrapping tags.
+- Activity kinds accept custom text labels across the API, web, iOS, and MCP tools.
 - Releases require a clean Git checkout and create an annotated `YYYY.MM.DD.N`
   tag after deployment verification, with a daily sequence starting at 1.
+
+### Fixed
+
+- Changing an activity's state from its card menu no longer opens the edit drawer.
 
 ## Existing feature baseline — 2026-11-13
 

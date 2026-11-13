@@ -188,6 +188,7 @@ api.MapFlightPlanningEndpoints();
 api.MapSelectedFlightsEndpoints();
 api.MapDestinationsEndpoints();
 api.MapActivityEndpoints();
+api.MapActivityKindEndpoints();
 api.MapPartyEndpoints();
 api.MapTravellersEndpoints();
 api.MapOperationsEndpoints();

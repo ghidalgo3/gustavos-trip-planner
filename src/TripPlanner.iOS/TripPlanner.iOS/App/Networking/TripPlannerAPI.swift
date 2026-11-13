@@ -91,6 +91,14 @@ final class TripPlannerAPI: TripPlannerServing {
         try await send(path: "user")
     }
 
+    func activityKinds(search: String? = nil, top: Int = 20, skip: Int = 0) async throws -> ActivityKindPage {
+        var query = URLComponents()
+        query.queryItems = [URLQueryItem(name: "top", value: String(top)), URLQueryItem(name: "skip", value: String(skip))]
+        if let search { query.queryItems?.append(URLQueryItem(name: "search", value: search)) }
+        let encoded = (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
+        return try await send(path: "user/activity-kinds?\(encoded)")
+    }
+
     func trips() async throws -> [Trip] {
         struct Page: Decodable {
             let trips: [Trip]

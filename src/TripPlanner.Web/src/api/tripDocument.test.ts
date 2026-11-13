@@ -415,7 +415,11 @@ test("calendar items retain hotel stays and unscheduled activity details", () =>
 test.each([
   "missing",
   "empty",
-  "unknown",
+  "blank",
+  "whitespace",
+  "null-kind",
+  "number-kind",
+  "long-kind",
   "duplicate",
   "tickets",
   "address",
@@ -429,7 +433,11 @@ test.each([
   );
   if (change === "missing") delete activity.kinds;
   if (change === "empty") activity.kinds = [];
-  if (change === "unknown") activity.kinds = ["Other"];
+  if (change === "blank") activity.kinds = [""];
+  if (change === "whitespace") activity.kinds = [" \t\n"];
+  if (change === "null-kind") activity.kinds = [null];
+  if (change === "number-kind") activity.kinds = [123];
+  if (change === "long-kind") activity.kinds = ["k".repeat(201)];
   if (change === "duplicate") activity.kinds = ["Art", "Art"];
   if (change === "tickets") activity.ticketRequirement = "Maybe";
   if (change === "address") activity.address = 123;
@@ -456,4 +464,26 @@ test("activity notes remain separate from descriptions in document views", () =>
   expect(feature).toMatchObject({
     properties: { description: item.description, notes: item.notes },
   });
+});
+
+test("custom activity kinds survive portable document validation and hydration", () => {
+  const value = structuredClone(after);
+  const item = value.itinerary.items.find(
+    (item: Record<string, unknown>) => item.kind === "activity",
+  );
+  const kinds = [
+    "Architecture & design",
+    "夜景",
+    ...Array.from({ length: 10 }, (_, i) => `Kind ${i}`),
+    "k".repeat(200),
+  ];
+  item.kinds = kinds;
+  validateTripDocument(value, value.id);
+  const view = hydrateTripDocument(value);
+  const resource = Object.values(view.resources).find(
+    (resource) => (resource.data as { id?: string })?.id === item.id,
+  );
+  expect(
+    (resource?.data as { properties: { kinds: string[] } }).properties.kinds,
+  ).toEqual(kinds);
 });

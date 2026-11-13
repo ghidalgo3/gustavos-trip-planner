@@ -106,6 +106,13 @@ public class InputValidationTests
                 ? schemas.GetProperty(reference.GetString()!.Split('/')[^1])
                 : schema;
         var activity = schemas.GetProperty("ActivityProperties").GetProperty("properties");
+        var kinds = activity.GetProperty("kinds");
+        var kind = Resolve(kinds.GetProperty("items"));
+        Assert.AreEqual("string", kind.GetProperty("type").GetString());
+        Assert.IsFalse(kind.TryGetProperty("enum", out _));
+        Assert.AreEqual(200, kind.GetProperty("maxLength").GetInt32());
+        Assert.IsTrue(kinds.GetProperty("uniqueItems").GetBoolean());
+        Assert.IsFalse(kinds.TryGetProperty("maxItems", out _));
         var choiceItemType = schemas
             .GetProperty("SetFlightChoicesRequest")
             .GetProperty("properties")
@@ -387,6 +394,13 @@ public class InputValidationTests
     [DataRow("geometry.coordinates", "[0]")]
     [DataRow("geometry.coordinates", "[0,0,0]")]
     [DataRow("geometry.coordinates", "[\"2\",48]")]
+    [DataRow("properties.kinds", "null")]
+    [DataRow("properties.kinds", "[]")]
+    [DataRow("properties.kinds", "[null]")]
+    [DataRow("properties.kinds", "[123]")]
+    [DataRow("properties.kinds", "[\"\"]")]
+    [DataRow("properties.kinds", "[\"   \"]")]
+    [DataRow("properties.kinds", "[\"Custom\",\"Custom\"]")]
     [DataRow("properties.links", "null")]
     [DataRow("properties.links", "[null]")]
     [DataRow("properties.links", "[{\"url\":\"javascript:alert(1)\"}]")]
@@ -428,7 +442,7 @@ public class InputValidationTests
                 "Art",
                 new(10, "EUR", "perPerson"),
                 ActivityState.Proposed,
-                [ActivityKind.Culture]
+                ["Culture"]
             )
         );
         using var create = new HttpRequestMessage(HttpMethod.Post, url)

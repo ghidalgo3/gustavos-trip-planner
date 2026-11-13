@@ -15,6 +15,13 @@ public sealed class TravelAgentMcpTests
             File.ReadAllText(Endpoints.TripDocumentEndpointTests.RepositoryFile("docs/after.json")),
             TripPlanner.Api.Services.Documents.TripResourceProjection.JsonOptions
         )!;
+        var customActivity = document.Itinerary["items"]!
+            .AsArray()
+            .First(item => item!["kind"]!.GetValue<string>() == "activity")!;
+        customActivity["kinds"] = new System.Text.Json.Nodes.JsonArray(
+            "Architecture & design",
+            "夜景"
+        );
         await using var first = await Verification.McpEvalServer.CreateSession(document);
         await using var second = await Verification.McpEvalServer.CreateSession(document);
         Assert.AreNotEqual(first.TripId, second.TripId);
@@ -234,10 +241,8 @@ public sealed class TravelAgentMcpTests
         StringAssert.Contains(data.ToString(), "Focus on sculpture");
         StringAssert.Contains(data.ToString(), "2027-06-10");
         Assert.DoesNotContain("PRIVATE_COMPANION_PREFERENCES", result.ToString());
-        CollectionAssert.AreEqual(
-            Enum.GetNames<ActivityKind>(),
-            data.GetProperty("activityKinds").EnumerateArray().Select(v => v.GetString()).ToArray()
-        );
+        Assert.IsFalse(data.TryGetProperty("activityKinds", out _));
+        StringAssert.Contains(data.GetProperty("guidance").GetString()!, "free-form");
         Assert.IsFalse(string.IsNullOrWhiteSpace(data.GetProperty("guidanceVersion").GetString()));
         var guidance = data.GetProperty("guidance").GetString()!;
         StringAssert.Contains(guidance, "coherent theme");
@@ -345,7 +350,11 @@ public sealed class TravelAgentMcpTests
             var kinds = properties.GetProperty("properties").GetProperty("kinds");
             Assert.AreEqual(1, kinds.GetProperty("minItems").GetInt32());
             Assert.IsTrue(kinds.GetProperty("uniqueItems").GetBoolean());
-            StringAssert.Contains(kinds.ToString(), "Food");
+            var item = kinds.GetProperty("items");
+            Assert.AreEqual("string", item.GetProperty("type").GetString());
+            Assert.IsFalse(item.TryGetProperty("enum", out _));
+            Assert.AreEqual(200, item.GetProperty("maxLength").GetInt32());
+            Assert.IsFalse(kinds.TryGetProperty("maxItems", out _));
             StringAssert.Contains(properties.ToString(), "ticketRequirement");
         }
     }

@@ -11,22 +11,11 @@ module.exports = (output, context) => {
   );
   if (firstWrite >= 0 && (read < 0 || firstWrite < read))
     failures.push("Wrote before reading planning context.");
-  const kinds = new Set([
-    "Food",
-    "Shopping",
-    "Culture",
-    "Music",
-    "Art",
-    "Nature",
-    "Relax",
-    "Event",
-    "Holiday",
-  ]);
   for (const activity of data.after.activities) {
     const p = activity.properties;
     if (
       !p.kinds?.length ||
-      p.kinds.some((kind) => !kinds.has(kind)) ||
+      p.kinds.some((kind) => typeof kind !== "string" || !kind.trim() || kind.length > 200) ||
       new Set(p.kinds).size !== p.kinds.length
     )
       failures.push("Invalid activity classification.");

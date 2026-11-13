@@ -591,7 +591,7 @@ public class TripsEndpointTests
                         "",
                         null,
                         ActivityState.Proposed,
-                        [ActivityKind.Culture]
+                        ["Culture"]
                     )
                 )
             ),

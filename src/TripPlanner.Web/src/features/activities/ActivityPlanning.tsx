@@ -1,6 +1,5 @@
 import {
   Button,
-  Checkbox,
   Dialog,
   DialogActions,
   DialogBody,
@@ -26,6 +25,8 @@ import {
   Select,
   Tab,
   TabList,
+  Tag,
+  TagGroup,
   Text,
   Title2,
   useId,
@@ -59,6 +60,7 @@ import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
 import ActivityDurationSlider from "./ActivityDurationSlider";
 import ActivityLinksEditor from "./ActivityLinksEditor";
+import ActivityKindsPicker from "./ActivityKindsPicker";
 import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
 import DailyActivityPlan from "./DailyActivityPlan";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
@@ -76,7 +78,7 @@ import {
   type Destination,
   type DestinationCollection,
 } from "./activitiesApi";
-import { activityKinds, type TicketRequirement } from "./activityKinds";
+import { validActivityKinds, type TicketRequirement } from "./activityKinds";
 import { validActivityLink } from "./activityLinks";
 import {
   activityRouteKey,
@@ -420,7 +422,7 @@ export default function ActivityPlanning({
       !editor ||
       busy ||
       !editor.value.properties.name.trim() ||
-      editor.value.properties.kinds.length === 0
+      !validActivityKinds(editor.value.properties.kinds)
     )
       return;
     if (
@@ -689,7 +691,7 @@ export default function ActivityPlanning({
             {item.properties.state}
           </MenuButton>
         </MenuTrigger>
-        <MenuPopover>
+        <MenuPopover onClick={(event) => event.stopPropagation()}>
           <MenuList>
             {Array.from(new Set(["Proposed", "Planned", "Rejected"])).map(
               (state) => (
@@ -743,11 +745,22 @@ export default function ActivityPlanning({
           <h3>{item.properties.name}</h3>
           {renderActivityMenu(item)}
         </div>
-        <div className="activity-kinds" aria-label="Activity kinds">
+        <TagGroup
+          className="activity-kinds"
+          aria-label="Activity kinds"
+          size="small"
+        >
           {item.properties.kinds.map((kind) => (
-            <span key={kind}>{kind}</span>
+            <Tag
+              key={kind}
+              value={kind}
+              appearance="outline"
+              className="activity-kind-tag"
+            >
+              {kind}
+            </Tag>
           ))}
-        </div>
+        </TagGroup>
         {item.properties.address && <p>{item.properties.address}</p>}
         {!item.geometry && (
           <small className="activity-location-missing">Needs location</small>
@@ -966,7 +979,15 @@ export default function ActivityPlanning({
           <fieldset disabled={busy} className="activity-drawer-fields">
             {
               <div className="activity-editor">
-                <Field label="Activity or place name">
+                <label>
+                  Activity name
+                  <Input
+                    value={editor.value.properties.name}
+                    maxLength={200}
+                    onChange={(_, data) => updateEditor({ name: data.value })}
+                  />
+                </label>
+                <Field label="Find a place">
                   <SearchBox
                     placeholder="Search attractions, restaurants, or places"
                     maxLength={200}
@@ -1124,40 +1145,11 @@ export default function ActivityPlanning({
                     ))}
                   </div>
                 )}
-                <label>
-                  Name
-                  <Input
-                    value={editor.value.properties.name}
-                    maxLength={200}
-                    onChange={(_, data) => updateEditor({ name: data.value })}
-                  />
-                </label>
-                <fieldset className="activity-kind-fieldset">
-                  <legend>Kinds (required)</legend>
-                  <div className="activity-kinds">
-                    {activityKinds.map((kind) => (
-                      <Checkbox
-                        key={kind}
-                        label={kind}
-                        checked={editor.value.properties.kinds.includes(kind)}
-                        onChange={(_, data) =>
-                          updateEditor({
-                            kinds: data.checked
-                              ? [...editor.value.properties.kinds, kind]
-                              : editor.value.properties.kinds.filter(
-                                  (value) => value !== kind,
-                                ),
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                  {editor.value.properties.kinds.length === 0 && (
-                    <small className="activity-kinds-required">
-                      Choose at least one kind
-                    </small>
-                  )}
-                </fieldset>
+                <ActivityKindsPicker
+                  value={editor.value.properties.kinds}
+                  disabled={busy}
+                  onChange={(kinds) => updateEditor({ kinds })}
+                />
                 <label>
                   Address
                   <Input
@@ -1346,7 +1338,7 @@ export default function ActivityPlanning({
             disabled={
               busy ||
               !editor?.value.properties.name.trim() ||
-              !editor?.value.properties.kinds.length ||
+              !validActivityKinds(editor?.value.properties.kinds) ||
               (editor?.value.properties.links ?? []).some(
                 (link) => !validActivityLink(link),
               )
@@ -1562,14 +1554,22 @@ export default function ActivityPlanning({
                               </button>
                               {renderActivityMenu(item)}
                             </div>
-                            <div
+                            <TagGroup
                               className="activity-kinds"
                               aria-label="Activity kinds"
+                              size="small"
                             >
                               {item.properties.kinds.map((kind) => (
-                                <span key={kind}>{kind}</span>
+                                <Tag
+                                  key={kind}
+                                  value={kind}
+                                  appearance="outline"
+                                  className="activity-kind-tag"
+                                >
+                                  {kind}
+                                </Tag>
                               ))}
-                            </div>
+                            </TagGroup>
                             {item.properties.address && (
                               <p>{item.properties.address}</p>
                             )}

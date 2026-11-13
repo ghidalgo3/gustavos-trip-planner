@@ -48,20 +48,20 @@ struct TripDocumentActivityTests {
     @Test func decodesMultipleKindsAndExplicitTicketUncertainty() throws {
         let value: JSONValue = .object([
             "id": .string(UUID().uuidString), "name": .string("Museum"),
-            "destinationId": .string("paris-fr"), "kinds": .array([.string("Art"), .string("Culture")]),
+            "destinationId": .string("paris-fr"), "kinds": .array([.string("Architecture & design"), .string("夜景")]),
             "address": .string("1 museum street"), "ticketRequirement": .string("Unknown"),
             "description": .string("Paintings"), "notes": .string("Book morning entry.\nMeet at the entrance."), "links": .array([])
         ])
         let activity = try TripDocumentActivity(value)
-        #expect(activity.kinds == [.Art, .Culture])
+        #expect(activity.kinds == ["Architecture & design", "夜景"])
         #expect(activity.address == "1 museum street")
         #expect(activity.ticketRequirement == .Unknown)
         #expect(activity.description == "Paintings")
         #expect(activity.notes == "Book morning entry.\nMeet at the entrance.")
     }
 
-    @Test(arguments: [[], ["Other"], ["Art", "Art"]])
-    func rejectsMissingUnknownAndDuplicateKinds(_ kinds: [String]) throws {
+    @Test(arguments: [[], [""], [" \t\n"], [String(repeating: "k", count: 201)], ["Art", "Art"]])
+    func rejectsEmptyBlankLongAndDuplicateKinds(_ kinds: [String]) throws {
         let value: JSONValue = .object([
             "id": .string(UUID().uuidString), "name": .string("Museum"),
             "destinationId": .string("paris-fr"), "kinds": .array(kinds.map(JSONValue.string)),

@@ -5,6 +5,105 @@ for (const width of [320, 390, 1280]) {
   test.describe(`activity drawer at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
 
+    test("autocompletes known kinds with the keyboard and preserves new labels", async ({
+      page,
+      request,
+    }, testInfo) => {
+      await request.post("/__test/session", { data: { authenticated: true } });
+      await page.route("**/user/activity-kinds?**", async (route) => {
+        const search =
+          new URL(route.request().url()).searchParams.get("search") ?? "";
+        await route.fulfill({
+          json: {
+            kinds: ["Architecture", "Art"].filter((kind) =>
+              kind.toLowerCase().includes(search.toLowerCase()),
+            ),
+            hasMore: false,
+          },
+        });
+      });
+      await page.goto(`/trips/${fixtures.trip.id}/activities`);
+      await page
+        .getByRole("button", { name: "Add activity", exact: true })
+        .click();
+      const drawer = page.getByRole("dialog", {
+        name: "Add activity",
+        exact: true,
+      });
+      const input = drawer.getByRole("combobox", {
+        name: "Kinds",
+        exact: true,
+      });
+      await input.fill("arch");
+      await expect(
+        page.getByRole("option", { name: "Architecture", exact: true }),
+      ).toBeVisible();
+      await input.press("ArrowDown");
+      await input.press("Enter");
+      await expect(
+        drawer.getByLabel("Remove Architecture", { exact: true }),
+      ).toBeVisible();
+      await expect(input).toHaveValue("");
+      await input.fill("Street photography");
+      await drawer
+        .getByLabel("Activity name", { exact: true })
+        .fill("Photo walk");
+      await expect(
+        drawer.getByLabel("Remove Street photography", { exact: true }),
+      ).toBeVisible();
+      await expect(input).toHaveValue("");
+      await input.fill("A".repeat(200));
+      await input.press("Enter");
+      await expect(
+        drawer.getByLabel(`Remove ${"A".repeat(200)}`, { exact: true }),
+      ).toBeVisible();
+      const longText = drawer
+        .getByLabel(`Remove ${"A".repeat(200)}`, { exact: true })
+        .locator(".fui-Tag__primaryText");
+      expect(
+        await longText.evaluate(
+          (element) => element.scrollWidth - element.clientWidth,
+        ),
+      ).toBeLessThanOrEqual(1);
+      await drawer
+        .getByLabel(`Remove ${"A".repeat(200)}`, { exact: true })
+        .click();
+      await input.fill("Shopping");
+      await input.press("Enter");
+      await expect(
+        drawer.getByLabel("Remove Shopping", { exact: true }),
+      ).toBeVisible();
+      await drawer.locator(".activity-kinds-picker").scrollIntoViewIfNeeded();
+      expect(
+        (await drawer
+          .locator(".activity-kinds-picker .fui-Field__label")
+          .boundingBox())!.height,
+      ).toBeLessThanOrEqual(24);
+      const fits = await drawer
+        .locator(".activity-kinds-control")
+        .evaluate((control) => {
+          const bounds = control.getBoundingClientRect();
+          return Array.from(
+            control.querySelectorAll(".activity-kind-tag"),
+          ).every((tag) => {
+            const rect = tag.getBoundingClientRect();
+            return rect.left >= bounds.left && rect.right <= bounds.right + 1;
+          });
+        });
+      expect(fits).toBe(true);
+      await drawer.screenshot({
+        path: testInfo.outputPath("activity-kinds.png"),
+      });
+      await expect(
+        drawer.getByRole("button", { name: "Save activity", exact: true }),
+      ).toBeEnabled();
+      expect(
+        await drawer.evaluate(
+          (element) => element.scrollWidth - element.clientWidth,
+        ),
+      ).toBeLessThanOrEqual(1);
+    });
+
     test("keeps balanced gutters and fits Description and Notes to their text", async ({
       page,
       request,
