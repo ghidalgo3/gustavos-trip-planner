@@ -77,6 +77,8 @@ Set `TRIPPLANNER_TEST_POSTGRES` to an isolated PostgreSQL/PostGIS test database
 with search path `gustavo_planner,public` to include database integration tests.
 Without it, those cases are skipped. Normal tests do not call live providers;
 the explicit verification commands are documented in the repository README.
+The shared test host supplies static Microsoft OpenID Connect metadata so login
+challenge tests also run without contacting Microsoft's discovery service.
 
 `Mcp/AgentOwnedResearchTests` verifies that retired research/generation routes and
 MCP tools are absent, the current-user contract has no feature flags, and an agent

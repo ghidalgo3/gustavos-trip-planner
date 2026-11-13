@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -11,6 +12,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Services.Destinations;
 using TripPlanner.Api.Services.Flights;
@@ -57,6 +60,22 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
             .UseSetting("Authentication:Microsoft:ClientSecret", "microsoft-client-secret");
         builder.ConfigureTestServices(services =>
         {
+            // Login challenges use fixed metadata rather than live Microsoft discovery.
+            services.PostConfigure<OpenIdConnectOptions>(
+                "aad",
+                options =>
+                    options.ConfigurationManager =
+                        new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                            new OpenIdConnectConfiguration
+                            {
+                                Issuer = options.Authority,
+                                AuthorizationEndpoint = new Uri(
+                                    new Uri(options.Authority!),
+                                    "oauth2/v2.0/authorize"
+                                ).AbsoluteUri,
+                            }
+                        )
+            );
             if (FlightClient is not null)
             {
                 services.AddSingleton(FlightClient);

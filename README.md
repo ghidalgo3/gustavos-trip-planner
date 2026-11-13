@@ -20,7 +20,8 @@ Starter architecture for a React single-page application and a C# API deployed t
 | `scripts/secrets` | Store and rotate authentication and Ignav credentials, plus developer eval keys in Azure Key Vault |
 | `scripts/server` | Load local auth configuration and start the development containers |
 | `scripts/seed_database` | Seed sample trips through the C# database services in the local development database |
-| `scripts/release` | Test, build, configure, deploy, and verify a release |
+| `scripts/release` | Run the Task release graph to test, build, deploy, and verify |
+| `Taskfile.yml` | Release dependencies and parallel execution |
 
 Users, trips, and travel parties are stored through `IPlannerDb`, with `PostgresPlannerDb` used by the application. The in-memory planner and activity-log stores live in `tests/TripPlanner.Api.Tests/Database`; they are test doubles and are not included in the API assembly. Planner data uses Npgsql; OAuth storage uses Entity Framework through OpenIddict.
 
@@ -245,7 +246,7 @@ scripts/setup
 scripts/install
 ```
 
-The local scripts use zsh. `scripts/setup` targets macOS and installs Azure CLI, Corepack and Node, .NET 10, Git, Docker Desktop, Azure Bicep, and the pinned pnpm version. It does not silently launch Docker Desktop. Check the machine toolchain without changing it with `scripts/setup --check`. `scripts/install` performs no Homebrew or machine setup; it restores the repository's .NET tools and NuGet packages and installs the frozen pnpm dependencies.
+The local scripts use zsh. `scripts/setup` targets macOS and installs Azure CLI, Corepack and Node, .NET 10, Git, Docker Desktop, Azure Bicep, Task (`go-task` in Homebrew), and the pinned pnpm version. It does not silently launch Docker Desktop. Check the machine toolchain without changing it with `scripts/setup --check`. `scripts/install` performs no Homebrew or machine setup; it restores the repository's .NET tools and NuGet packages and installs the frozen pnpm dependencies.
 
 After provisioning Azure, storing the provider credentials, and signing in with Azure CLI, start Docker Desktop and run:
 
@@ -282,7 +283,7 @@ Running `docker compose up` directly still starts the application, but local sig
 
 The API requires `ConnectionStrings:TripPlanner`. Docker Compose supplies a local PostgreSQL connection string with development-only password authentication. In Azure, `buildout` provisions an Azure Database for PostgreSQL Flexible Server with password authentication disabled and assigns the App Service managed identity as its Microsoft Entra administrator. `release` supplies a passwordless TLS connection string and enables managed-identity token acquisition. Npgsql periodically refreshes the database access token through `Azure.Identity`.
 
-At startup, the API acquires a PostgreSQL advisory transaction lock, creates the `gustavo_planner` schema when needed, then creates `gustavo_planner.schema_migrations` and loads and sorts the `.sql` files in `src/TripPlanner.Api/migrations`. Application connections use `gustavo_planner` as their search path, so all application tables and indexes live in that schema. Migration filenames use `0001_MigrationName.sql`; the four-digit prefix is the unique migration version. Applied versions and filenames are recorded in `gustavo_planner.schema_migrations`, and startup fails if an applied version has since been renamed. The trip document cleanup renamed migration `0018` to `0018_TripModificationTime.sql`; databases that applied its former name must be recreated before running this version. New migration files are copied into build and publish output automatically.
+At startup, the API acquires a PostgreSQL advisory transaction lock, creates the `gustavo_planner` schema when needed, then creates `gustavo_planner.schema_migrations` and loads and sorts the `.sql` files in `src/TripPlanner.Api/migrations`. Application connections use `gustavo_planner` as their search path, so all application tables and indexes live in that schema. Migration filenames use `0001_MigrationName.sql`; the four-digit prefix is the unique migration version. Applied versions and filenames are recorded in `gustavo_planner.schema_migrations`, and startup fails if an applied version has since been renamed. Keep the filename of each applied migration, including `0018_SnapshotModificationTime.sql`. New migration files are copied into build and publish output automatically.
 
 Run `scripts/drop_db` to permanently drop the production `gustavo_planner` schema. It authenticates with the signed-in user's Microsoft Entra token and requires typing `drop gustavo_planner` before executing the drop. The API recreates the schema and its objects at its next startup, then restores contributor table grants and default privileges. Dropping the schema removes those grants from the old objects; role membership alone does not grant access to tables created afterward.
 
@@ -831,6 +832,8 @@ through their action buttons. Overview keeps destination names and dates above
 the card actions. Action results use dismissible Fluent UI toasts anchored at the viewport’s top-right, above drawers and dialogs without moving when focus changes: successes close
 automatically, while failures stay visible for review. Field validation and
 loading failures remain beside the relevant content.
+Dismissing a focused toast restores focus to its previous control so an open
+dialog remains accessible for retrying the action.
 
 Manual planning and deterministic assessments need no AI or provider credentials.
 Unknown durations, travel and hours stay provisional with explicit assumptions.
@@ -892,8 +895,9 @@ requires it; this is storage for the application telemetry.
 Run `./scripts/buildout` before the next `./scripts/release` to provision the workspace
 and Application Insights resource. Release configures `ApplicationInsights__ConnectionString`
 for the API. The release script checks that infrastructure exposes Application Insights
-and that the resource is accessible, then compiles the release Bicep files before
-building or pushing the container. Rerun buildout after adding infrastructure resources;
+and that the resource is accessible. These checks and release Bicep compilation
+run alongside the local tests and builds; all must succeed before pushing the container.
+Rerun buildout after adding infrastructure resources;
 an older successful infrastructure deployment does not contain newly added resources.
 The browser fetches only this public ingestion identifier from
 `GET /telemetry/config` before mounting React; no rebuild or frontend secret is needed.
@@ -1020,7 +1024,7 @@ The intended target is **Gustavo Hidalgo personal subscription**, region **East 
 - managed-identity access to pull images and read Key Vault secrets
 - API-managed Google and personal Microsoft account authentication configuration
 
-Release prerequisites are installed by `scripts/setup`: Azure CLI, Docker with a running daemon, .NET 10 SDK, Node.js with Corepack, Git, and curl. Repository dependencies are installed by `scripts/install`.
+Release prerequisites are installed by `scripts/setup`: Azure CLI, Docker with a running daemon, .NET 10 SDK, Node.js with Corepack, Task 3.54 or newer (`brew install go-task`), Git, and curl. Repository dependencies are installed by `scripts/install`.
 The signed-in Azure identity needs permission to create resources and role assignments in the target resource group (Owner, or Contributor plus Role Based Access Control Administrator).
 
 Sign into the correct tenant, then provision the infrastructure:
@@ -1048,6 +1052,23 @@ Deploy application code and runtime configuration separately:
 ```
 
 `release` runs API and web tests, builds the production client, packages it into the API container, pushes `tripplanner-api:release`, applies `infra/release.bicep` with `infra/release.bicepparam`, restarts the application, and verifies both `/health` and the web root. It also checks OAuth discovery and requires an unauthenticated JSON-RPC POST to `/mcp` to return `401`. The stateless MCP transport supports POST only: other methods return `405` with `Allow: POST`, unknown MCP paths return `404`, and the namespace never serves the website fallback (including when MCP is disabled). Reusing the stable tag leaves the previous manifest untagged; the purge task installed by `buildout` removes it on its next run.
+
+`scripts/release` runs the dependency graph in `Taskfile.yml`, with zsh stages in `scripts/release-tasks`. Azure preflight checks, Bicep validation, C# formatting checks, and frontend dependency installation can overlap. Frontend lint, tests, and the production build share one frozen pnpm install and then run independently. The API test suite and Docker image build wait for the frontend tests to finish, so native solver threads and container compilation do not compete with timed UI interactions. The Docker image also waits for the frontend build because it packages `dist` into `wwwroot`. Publishing the stable image tag waits for every required check and the image build to succeed; deployment, restart, and readiness verification follow in order. A failed prerequisite cancels the remaining preparation work immediately. Infrastructure outputs are fetched once per release.
+
+The release defaults to four concurrent Task commands. Reduce CPU and memory pressure with `RELEASE_CONCURRENCY=2 ./scripts/release` (or use `1` for sequential execution). `--skip-tests` skips C# formatting checks, API tests, and frontend lint/tests while retaining preflight checks, builds, and deployed-app verification. Each invocation uses a temporary context directory that is removed on success or failure; deployment steps always run and are not cached.
+Only one release or release check can run in a checkout at a time, since they
+share build outputs and the local image tag. If a process is forcibly killed,
+verify the PID in `.task/release.lock/pid` has stopped before removing that lock.
+
+The Task entry point forwards the same script options after `--`:
+
+```zsh
+task release -- --resource-group rg-tripplanner-dev
+```
+
+Use `./scripts/release --check` (or `task release:check`) to run the same Azure
+preflight checks, validations, and builds through the local Docker image without
+publishing the registry tag, deploying, or restarting the application.
 
 Authentication credentials live only in the provisioned Key Vault. A release requires all four Google and Microsoft credentials plus the Ignav API key and rejects an incomplete set. Run the scripts with `--help` for their options.
 

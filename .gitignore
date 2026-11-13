@@ -492,3 +492,6 @@ $RECYCLE.BIN/
 
 # Local MCP eval results
 .promptfoo/
+
+# Task runner state
+.task/

@@ -35,7 +35,7 @@ cd "$REPO_ROOT"
 
 report_tools() {
   local missing=false
-  for command_name in az node corepack pnpm docker dotnet git curl; do
+  for command_name in az node corepack pnpm docker dotnet git curl task; do
     if command -v "$command_name" >/dev/null 2>&1; then
       printf '  %-10s %s\n' "$command_name" "$(command -v "$command_name")"
     else
@@ -72,7 +72,7 @@ if [[ "$CHECK_ONLY" == true ]]; then
 fi
 
 log "Installing command-line tools"
-brew install azure-cli corepack dotnet git libpq
+brew install azure-cli corepack dotnet git libpq go-task
 
 if ! brew list --cask docker-desktop >/dev/null 2>&1 \
   && [[ ! -d /Applications/Docker.app ]] \

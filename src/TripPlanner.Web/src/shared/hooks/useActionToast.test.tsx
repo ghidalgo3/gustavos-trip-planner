@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { expect, test } from "vitest";
 import {
@@ -30,6 +31,9 @@ function Example() {
         <DialogSurface>
           <DialogBody>
             <DialogTitle>Example dialog</DialogTitle>
+            <Button onClick={() => notify("Dialog notification", "error")}>
+              Notify from dialog
+            </Button>
             <Button onClick={() => setOpen(false)}>Close dialog</Button>
           </DialogBody>
         </DialogSurface>
@@ -71,3 +75,34 @@ test("notifications keep the same viewport host when modal focus changes and rem
   fireEvent.click(dismiss);
   await waitFor(() => expect(toast).not.toBeInTheDocument());
 });
+
+test.each(["button", "Escape"])(
+  "dismissing a focused notification with %s restores focus and accessibility to the open dialog",
+  async (method) => {
+    render(
+      <ColorSchemeProvider>
+        <Example />
+      </ColorSchemeProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open dialog" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Example dialog",
+    });
+    const notify = within(dialog).getByRole("button", {
+      name: "Notify from dialog",
+    });
+    act(() => notify.focus());
+    fireEvent.click(notify);
+    const toast = await screen.findByText("Dialog notification");
+    const dismiss = await screen.findByRole("button", {
+      name: "Dismiss notification",
+    });
+    act(() => dismiss.focus());
+    await waitFor(() => expect(dialog).toHaveAttribute("aria-hidden", "true"));
+    if (method === "button") fireEvent.click(dismiss);
+    else fireEvent.keyDown(dismiss, { key: "Escape" });
+    await waitFor(() => expect(toast).not.toBeInTheDocument());
+    expect(notify).toHaveFocus();
+    expect(screen.getByRole("dialog", { name: "Example dialog" })).toBe(dialog);
+  },
+);

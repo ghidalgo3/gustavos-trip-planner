@@ -1,0 +1,143 @@
+version: "3.54"
+
+output: prefixed
+
+tasks:
+  release:
+    desc: Test, build, deploy, and verify a release (options after --)
+    cmds:
+      - ./scripts/release {{.CLI_ARGS}}
+
+  release:check:
+    desc: Run release checks and builds without publishing or deploying
+    cmds:
+      - ./scripts/release --check {{.CLI_ARGS}}
+
+  # scripts/release supplies an isolated context and cleans it up on exit.
+  # Run the public release task or script instead of this entry point.
+  release:pipeline:
+    requires:
+      vars: [RELEASE_STATE_DIR]
+    cmds:
+      - task: release:verify
+
+  release:check-pipeline:
+    requires:
+      vars: [RELEASE_STATE_DIR]
+    cmds:
+      - task: release:prepare
+      - echo 'Release checks complete.'
+
+  release:preflight:
+    internal: true
+    run: once
+    cmds:
+      - zsh scripts/release-tasks/preflight.zsh
+
+  release:bicep:
+    internal: true
+    run: once
+    cmds:
+      - az bicep build --file infra/release.bicep --stdout > /dev/null
+      - az bicep build-params --file infra/release.bicepparam --stdout > /dev/null
+
+  release:format:
+    internal: true
+    run: once
+    status:
+      - test "$RELEASE_SKIP_TESTS" = true
+    cmds:
+      - dotnet tool restore
+      - dotnet csharpier check .
+
+  release:api-test:
+    internal: true
+    run: once
+    # Native solver tests use many threads; keep them away from timed UI tests.
+    deps: [release:web-test]
+    status:
+      - test "$RELEASE_SKIP_TESTS" = true
+    cmds:
+      - dotnet test GustavoTripPlanner.sln -c Release
+
+  release:web-install:
+    internal: true
+    run: once
+    dir: src/TripPlanner.Web
+    env:
+      CI: "true"
+    cmds:
+      - corepack pnpm install --frozen-lockfile
+
+  release:web-lint:
+    internal: true
+    run: once
+    deps: [release:web-install]
+    dir: src/TripPlanner.Web
+    env:
+      CI: "true"
+    status:
+      - test "$RELEASE_SKIP_TESTS" = true
+    cmds:
+      - corepack pnpm run lint
+
+  release:web-test:
+    internal: true
+    run: once
+    deps: [release:web-install]
+    dir: src/TripPlanner.Web
+    env:
+      CI: "true"
+    status:
+      - test "$RELEASE_SKIP_TESTS" = true
+    cmds:
+      - corepack pnpm test
+
+  release:web-build:
+    internal: true
+    run: once
+    deps: [release:web-install]
+    cmds:
+      - zsh scripts/release-tasks/build-web.zsh
+
+  release:image:
+    internal: true
+    run: once
+    deps: [release:web-build, release:web-test]
+    cmds:
+      - zsh scripts/release-tasks/build-image.zsh
+
+  release:prepare:
+    internal: true
+    run: once
+    failfast: true
+    # Every release prerequisite shares this gate, including validation-only runs.
+    deps:
+      - release:preflight
+      - release:bicep
+      - release:format
+      - release:api-test
+      - release:web-lint
+      - release:web-test
+      - release:image
+
+  release:publish:
+    internal: true
+    run: once
+    deps: [release:prepare]
+    cmds:
+      - zsh scripts/release-tasks/publish.zsh
+
+  release:deploy:
+    internal: true
+    run: once
+    deps: [release:publish]
+    cmds:
+      - zsh scripts/release-tasks/deploy.zsh
+
+  release:verify:
+    internal: true
+    run: once
+    deps: [release:deploy]
+    cmds:
+      - zsh scripts/release-tasks/verify.zsh

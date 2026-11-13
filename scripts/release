@@ -7,10 +7,10 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-tripplanner-dev}"
 SUBSCRIPTION="${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}"
 NAME_PREFIX="${NAME_PREFIX:-tripplanner}"
 IMAGE_NAME="${IMAGE_NAME:-tripplanner-api}"
-IMAGE_TAG="release"
 INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
 CONFIG_DEPLOYMENT_NAME="${CONFIG_DEPLOYMENT_NAME:-tripplanner-release}"
-SKIP_TESTS=false
+RELEASE_SKIP_TESTS=false
+RELEASE_TARGET=release:pipeline
 
 usage() {
   cat <<'USAGE'
@@ -23,12 +23,13 @@ Options:
   -g, --resource-group NAME   Resource group (default: rg-tripplanner-dev)
   -s, --subscription ID|NAME  Azure subscription
   -p, --name-prefix PREFIX    Resource name prefix (default: tripplanner)
-      --skip-tests            Skip local API and web tests
+      --check                 Run checks and builds without publishing or deploying
+      --skip-tests            Skip formatting, API tests, and web lint/tests
   -h, --help                  Show this help
 
 Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, NAME_PREFIX, IMAGE_NAME,
 INFRA_DEPLOYMENT_NAME, CONFIG_DEPLOYMENT_NAME, EXPECTED_TENANT_ID,
-NUGET_SOURCE, HEALTH_ATTEMPTS, HEALTH_INTERVAL.
+NUGET_SOURCE, HEALTH_ATTEMPTS, HEALTH_INTERVAL, RELEASE_CONCURRENCY (default: 4).
 MCP_REDIRECT_URI overrides the exact ChatGPT OAuth callback URL.
 
 All four authentication credentials must be stored in the deployed Key Vault
@@ -45,7 +46,8 @@ while [[ $# -gt 0 ]]; do
     -g|--resource-group) RESOURCE_GROUP="${2:?missing value for $1}"; shift 2 ;;
     -s|--subscription) SUBSCRIPTION="${2:?missing value for $1}"; shift 2 ;;
     -p|--name-prefix) NAME_PREFIX="${2:?missing value for $1}"; shift 2 ;;
-    --skip-tests) SKIP_TESTS=true; shift ;;
+    --check) RELEASE_TARGET=release:check-pipeline; shift ;;
+    --skip-tests) RELEASE_SKIP_TESTS=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "unknown argument: $1" ;;
   esac
@@ -54,166 +56,34 @@ done
 REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
 
-run_pnpm() {
-  (cd "$REPO_ROOT/src/TripPlanner.Web" && CI=true corepack pnpm "$@")
-}
-
-for command_name in az corepack curl docker dotnet shasum; do
+for command_name in task az corepack curl docker dotnet node shasum; do
   command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
 done
-docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
-az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
-az account set --subscription "$SUBSCRIPTION"
 
-EXPECTED_TENANT_ID="${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}"
-ACTUAL_TENANT_ID="$(az account show --query tenantId -o tsv)"
-[[ "$ACTUAL_TENANT_ID" == "$EXPECTED_TENANT_ID" ]] || die \
-  "subscription is in tenant $ACTUAL_TENANT_ID, expected personal tenant $EXPECTED_TENANT_ID"
+export RESOURCE_GROUP SUBSCRIPTION NAME_PREFIX IMAGE_NAME
+export INFRA_DEPLOYMENT_NAME CONFIG_DEPLOYMENT_NAME RELEASE_SKIP_TESTS
 
-az deployment group show \
-  --name "$INFRA_DEPLOYMENT_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --output none 2>/dev/null || die \
-  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' was not found; run scripts/buildout first"
-
-read_output() {
-  az deployment group show \
-    --name "$INFRA_DEPLOYMENT_NAME" \
-    --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.$1.value" -o tsv
+# Concurrent releases share dist, .NET outputs, and the local image tag.
+RELEASE_LOCK_DIR="$REPO_ROOT/.task/release.lock"
+mkdir -p "${RELEASE_LOCK_DIR:h}"
+mkdir "$RELEASE_LOCK_DIR" 2>/dev/null || die \
+  "another release or release check is already running; wait for it to finish (lock: $RELEASE_LOCK_DIR)"
+RELEASE_STATE_DIR=""
+cleanup() {
+  if [[ -n "$RELEASE_STATE_DIR" ]]; then
+    rm -rf -- "$RELEASE_STATE_DIR"
+  fi
+  rm -rf -- "$RELEASE_LOCK_DIR"
 }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+print -r -- "$$" > "$RELEASE_LOCK_DIR/pid"
 
-APPLICATION_INSIGHTS_NAME="$(read_output applicationInsightsName)"
-[[ -n "$APPLICATION_INSIGHTS_NAME" ]] || die \
-  "infrastructure deployment '$INFRA_DEPLOYMENT_NAME' predates Application Insights; run scripts/buildout with the same resource group and name prefix, then retry scripts/release"
-az resource show \
-  --resource-group "$RESOURCE_GROUP" \
-  --resource-type Microsoft.Insights/components \
-  --name "$APPLICATION_INSIGHTS_NAME" \
-  --output none || die \
-  "cannot access Application Insights '$APPLICATION_INSIGHTS_NAME'; if missing, run scripts/buildout with the same resource group and name prefix, then retry scripts/release"
+RELEASE_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tripplanner-release.XXXXXX")"
+export RELEASE_STATE_DIR
 
-log "Validating Bicep"
-az bicep build --file infra/release.bicep --stdout >/dev/null
-az bicep build-params --file infra/release.bicepparam --stdout >/dev/null
-
-ACR_NAME="$(read_output acrName)"
-ACR_LOGIN_SERVER="$(read_output acrLoginServer)"
-WEB_APP_NAME="$(read_output webAppName)"
-WEB_APP_URL="$(read_output webAppUrl)"
-KEY_VAULT_NAME="$(read_output keyVaultName)"
-IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
-
-required_auth_secrets=(google-client-id google-client-secret microsoft-client-id microsoft-client-secret)
-vault_secret_names=("${(@f)$(az keyvault secret list \
-  --vault-name "$KEY_VAULT_NAME" \
-  --query '[].name' \
-  --output tsv)}") || die \
-  "could not list secrets in Key Vault '$KEY_VAULT_NAME'; verify your RBAC access"
-(( ${vault_secret_names[(Ie)ignav-api-key]} )) || die "Key Vault is missing ignav-api-key; run scripts/secrets --set-ignav"
-(( ${vault_secret_names[(Ie)mcp-signing-certificate]} )) || die "Key Vault is missing mcp-signing-certificate; run scripts/secrets init-mcp"
-available_auth_secrets=0
-for secret_name in "${required_auth_secrets[@]}"; do
-  if (( ${vault_secret_names[(Ie)$secret_name]} )); then
-    available_auth_secrets=$((available_auth_secrets + 1))
-  fi
-done
-
-if (( available_auth_secrets == ${#required_auth_secrets} )); then
-  GOOGLE_CLIENT_ID="$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name google-client-id --query value -o tsv)"
-  MICROSOFT_CLIENT_ID="$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name microsoft-client-id --query value -o tsv)"
-  auth_parameters=(
-    googleClientId="$GOOGLE_CLIENT_ID"
-    microsoftClientId="$MICROSOFT_CLIENT_ID"
-    mcpRedirectUri="${MCP_REDIRECT_URI:-https://chatgpt.com/connector_platform_oauth_redirect}"
-  )
-else
-  die "Key Vault has $available_auth_secrets of ${#required_auth_secrets} authentication credentials; run scripts/secrets set-auth"
-fi
-
-if [[ "$SKIP_TESTS" == false ]]; then
-  log "Checking C# formatting"
-  dotnet tool restore
-  dotnet csharpier check .
-
-  log "Running API tests"
-  dotnet test GustavoTripPlanner.sln -c Release
-
-  log "Installing and validating web dependencies"
-  run_pnpm install --frozen-lockfile
-  run_pnpm run lint
-  run_pnpm test
-fi
-
-log "Building web application for $WEB_APP_URL"
-run_pnpm install --frozen-lockfile
-run_pnpm run build
-expected_index_hash="$(shasum -a 256 src/TripPlanner.Web/dist/index.html)"
-expected_index_hash="${expected_index_hash%% *}"
-
-log "Building API container $IMAGE_REF"
-az acr login --name "$ACR_NAME" --output none
-if [[ -n "${NUGET_SOURCE:-}" ]]; then
-  docker build \
-    --platform linux/amd64 \
-    --build-arg "NUGET_SOURCE=$NUGET_SOURCE" \
-    -f src/TripPlanner.Api/Dockerfile \
-    -t "$IMAGE_REF" \
-    .
-else
-  docker build \
-    --platform linux/amd64 \
-    -f src/TripPlanner.Api/Dockerfile \
-    -t "$IMAGE_REF" \
-    .
-fi
-docker push "$IMAGE_REF"
-
-log "Applying release configuration"
-az deployment group create \
-  --name "$CONFIG_DEPLOYMENT_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --template-file infra/release.bicep \
-  --parameters infra/release.bicepparam \
-    namePrefix="$NAME_PREFIX" imageName="$IMAGE_NAME" imageTag="$IMAGE_TAG" \
-    "${auth_parameters[@]}" \
-  --output none
-az webapp restart --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" --output none
-
-HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-20}"
-HEALTH_INTERVAL="${HEALTH_INTERVAL:-15}"
-log "Waiting for API health and the published web build at $WEB_APP_URL"
-api_ready=false
-for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
-  if curl -fsS --max-time 20 "${WEB_APP_URL}/health" >/dev/null 2>&1; then
-    if served_index_hash="$(curl -fsS --max-time 20 \
-      -H 'Cache-Control: no-cache' \
-      "${WEB_APP_URL}/?release=${expected_index_hash}" | shasum -a 256)" \
-      && [[ "${served_index_hash%% *}" == "$expected_index_hash" ]]; then
-      api_ready=true
-      break
-    fi
-  fi
-  printf '  attempt %s/%s; retrying in %ss\n' "$attempt" "$HEALTH_ATTEMPTS" "$HEALTH_INTERVAL"
-  sleep "$HEALTH_INTERVAL"
-done
-[[ "$api_ready" == true ]] || die \
-  "API health or published web build did not become ready; run: az webapp log tail -g $RESOURCE_GROUP -n $WEB_APP_NAME"
-
-curl -fsS --max-time 20 "$WEB_APP_URL" >/dev/null || die "web application did not respond at $WEB_APP_URL"
-curl -fsS --max-time 20 "${WEB_APP_URL}/.well-known/oauth-protected-resource/mcp" >/dev/null \
-  || die "MCP resource metadata is unavailable"
-curl -fsS --max-time 20 "${WEB_APP_URL}/.well-known/openid-configuration" >/dev/null \
-  || die "OAuth discovery is unavailable"
-# Stateless MCP handles JSON-RPC POSTs, not browser GETs. Probe the actual
-# transport so a website fallback cannot be mistaken for an authentication leak.
-mcp_status="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  "${WEB_APP_URL}/mcp")" || die "MCP authentication probe could not reach ${WEB_APP_URL}/mcp"
-[[ "$mcp_status" == 401 ]] || die "MCP must reject unauthenticated requests (received $mcp_status)"
-printf '\nRelease complete.\n'
-printf '  API image:  %s\n' "$IMAGE_REF"
-printf '  Application: %s\n' "$WEB_APP_URL"
-printf '  MCP server:  %s/mcp (OAuth client ID: chatgpt; no client secret)\n' "$WEB_APP_URL"
+# Task cancels remaining preparation work when a prerequisite fails.
+# The per-invocation directory is removed after all stages have stopped.
+task --taskfile "$REPO_ROOT/Taskfile.yml" \
+  --concurrency "${RELEASE_CONCURRENCY:-4}" "$RELEASE_TARGET"

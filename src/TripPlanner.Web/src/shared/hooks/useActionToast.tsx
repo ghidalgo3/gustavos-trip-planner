@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import {
   Button,
   Portal,
@@ -20,6 +20,8 @@ export function useActionToast() {
   });
   const toasterId = useId("action-feedback");
   const { dispatchToast, dismissAllToasts } = useToastController(toasterId);
+  const toastHost = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
   const notify = useCallback(
     (message: string, intent: "success" | "error" | "info" = "success") => {
       dismissAllToasts();
@@ -38,7 +40,21 @@ export function useActionToast() {
             {message}
           </ToastTitle>
         </Toast>,
-        { intent, timeout: intent === "error" ? -1 : 6000 },
+        {
+          intent,
+          timeout: intent === "error" ? -1 : 6000,
+          onStatusChange: (_, { status }) => {
+            const host = toastHost.current;
+            if (
+              status === "dismissed" &&
+              host?.contains(host.ownerDocument.activeElement) &&
+              previousFocus.current?.isConnected
+            ) {
+              // Return ownership to the dialog before the focused toast is removed.
+              previousFocus.current.focus();
+            }
+          },
+        },
       );
     },
     [dispatchToast, dismissAllToasts],
@@ -49,7 +65,18 @@ export function useActionToast() {
     dispatchToast,
     toaster: (
       <Portal mountNode={{ className: "action-toast-portal" }}>
-        <div {...modalAttributes}>
+        <div
+          {...modalAttributes}
+          ref={toastHost}
+          onFocusCapture={(event) => {
+            if (
+              event.relatedTarget instanceof HTMLElement &&
+              !event.currentTarget.contains(event.relatedTarget)
+            ) {
+              previousFocus.current = event.relatedTarget;
+            }
+          }}
+        >
           <Toaster
             inline
             toasterId={toasterId}
