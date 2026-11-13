@@ -633,6 +633,7 @@ test("shows activity counts by free-form state instead of a plan button for a po
         properties: {
           name: "Activity",
           description: "",
+          notes: "",
           duration: null,
           cost: null,
           placeName: null,

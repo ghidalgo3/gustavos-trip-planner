@@ -1095,6 +1095,7 @@ main {
 .activity-editor,
 .activity-composer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
   padding: 1rem;
   border: 1px solid var(--colorNeutralStroke2);
@@ -1104,8 +1105,23 @@ main {
 .activity-editor label,
 .activity-composer label {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 0.35rem;
   font-weight: 600;
+}
+.activity-editor > *,
+.activity-composer > * {
+  min-width: 0;
+}
+.activity-text-field textarea {
+  min-width: 0;
+  max-height: none;
+  overflow-y: hidden;
+}
+.activity-card-notes p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .activity-editor-grid {
   display: grid;
@@ -1131,6 +1147,8 @@ main {
   font-size: 0.75rem;
 }
 .activity-editor select {
+  min-width: 0;
+  width: 100%;
   min-height: 2.25rem;
   border: 1px solid var(--colorNeutralStroke1);
   border-radius: var(--borderRadiusMedium);
@@ -1181,7 +1199,7 @@ main {
     height: clamp(300px, 50svh, 520px);
   }
   .activity-editor-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .activity-actions > button {
     min-height: 44px;
@@ -1628,6 +1646,9 @@ main {
 }
 .activity-drawer .fui-TabList {
   flex-wrap: wrap;
+}
+.activity-drawer .fui-SearchBox {
+  max-width: none;
 }
 .visually-hidden {
   position: absolute;
@@ -2198,6 +2219,7 @@ main:has(.trip-workspace-activities) > .topbar {
   border: 1px solid var(--colorNeutralStroke2);
   border-radius: 10px;
   background: var(--colorNeutralBackground1);
+  cursor: pointer;
 }
 .activity-list-item:has(.activity-list-select[aria-pressed="true"]) {
   border-color: var(--colorBrandStroke1);

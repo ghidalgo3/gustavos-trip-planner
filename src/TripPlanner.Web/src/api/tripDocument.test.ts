@@ -20,6 +20,16 @@ test.each(
   expect(actual).toBeDefined();
   if (actual.etag) expect(actual.etag).toEqual(expected.etag);
   expect(actual.status).toEqual(expected.status);
+  const expectedData = structuredClone(expected.data);
+  if (path.includes("/activities")) {
+    const data = expectedData as {
+      type?: string;
+      properties?: Record<string, unknown>;
+      features?: { properties: Record<string, unknown> }[];
+    };
+    if (data.type === "Feature" && data.properties) data.properties.notes = "";
+    for (const feature of data.features ?? []) feature.properties.notes = "";
+  }
   expect(actual.data).toEqual(
     path === `/trips/${after.id}`
       ? {
@@ -27,7 +37,7 @@ test.each(
           startDate: "2026-12-25",
           endDate: "2027-01-07",
         }
-      : expected.data,
+      : expectedData,
   );
 });
 
@@ -402,21 +412,48 @@ test("calendar items retain hotel stays and unscheduled activity details", () =>
   ).toBe(true);
 });
 
-test.each(["missing", "empty", "unknown", "duplicate", "tickets", "address"])(
-  "invalid activity metadata %s is rejected",
-  (change) => {
-    const value = structuredClone(after);
-    const activity = value.itinerary.items.find(
-      (item: Record<string, unknown>) => item.kind === "activity",
-    );
-    if (change === "missing") delete activity.kinds;
-    if (change === "empty") activity.kinds = [];
-    if (change === "unknown") activity.kinds = ["Other"];
-    if (change === "duplicate") activity.kinds = ["Art", "Art"];
-    if (change === "tickets") activity.ticketRequirement = "Maybe";
-    if (change === "address") activity.address = 123;
-    expect(() => validateTripDocument(value, value.id)).toThrow(
-      "Invalid activity details",
-    );
-  },
-);
+test.each([
+  "missing",
+  "empty",
+  "unknown",
+  "duplicate",
+  "tickets",
+  "address",
+  "notes-type",
+  "notes-length",
+  "notes-null",
+])("invalid activity metadata %s is rejected", (change) => {
+  const value = structuredClone(after);
+  const activity = value.itinerary.items.find(
+    (item: Record<string, unknown>) => item.kind === "activity",
+  );
+  if (change === "missing") delete activity.kinds;
+  if (change === "empty") activity.kinds = [];
+  if (change === "unknown") activity.kinds = ["Other"];
+  if (change === "duplicate") activity.kinds = ["Art", "Art"];
+  if (change === "tickets") activity.ticketRequirement = "Maybe";
+  if (change === "address") activity.address = 123;
+  if (change === "notes-type") activity.notes = 123;
+  if (change === "notes-length") activity.notes = "n".repeat(10001);
+  if (change === "notes-null") activity.notes = null;
+  expect(() => validateTripDocument(value, value.id)).toThrow(
+    "Invalid activity details",
+  );
+});
+
+test("activity notes remain separate from descriptions in document views", () => {
+  const value = structuredClone(after);
+  const item = value.itinerary.items.find(
+    (item: Record<string, unknown>) => item.kind === "activity",
+  );
+  item.description = "Paintings and sculpture";
+  item.notes = "Book morning entry.\nMeet at the entrance.";
+  const view = hydrateTripDocument(validateTripDocument(value, value.id));
+  const feature =
+    view.resources[
+      `/trips/${value.id}/destinations/${item.destinationId}/activities/${item.id}`
+    ].data;
+  expect(feature).toMatchObject({
+    properties: { description: item.description, notes: item.notes },
+  });
+});

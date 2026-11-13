@@ -475,7 +475,13 @@
             },
             "description": {
               "type": "string",
-              "maxLength": 10000
+              "maxLength": 10000,
+              "description": "What the activity itself is and what to do there."
+            },
+            "notes": {
+              "type": "string",
+              "maxLength": 10000,
+              "description": "Planner-written scheduling details, reminders, and other related information; does not enforce scheduling rules."
             },
             "cost": {
               "anyOf": [

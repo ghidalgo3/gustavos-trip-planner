@@ -402,6 +402,8 @@ public static class ActivityEndpoints
             || p.Name.Length > 200
             || p.Description is null
             || p.Description.Length > 10000
+            || p.Notes is null
+            || p.Notes.Length > 10000
             || !Enum.IsDefined(p.State)
             || !new DurationRangeAttribute(1, 10080).IsValid(p.Duration)
         )
@@ -409,7 +411,7 @@ public static class ActivityEndpoints
             return Results.BadRequest(
                 new
                 {
-                    title = "Check the activity name, description, and duration. State must be Proposed, Planned, or Rejected.",
+                    title = "Check the activity name, description, notes, and duration. State must be Proposed, Planned, or Rejected.",
                 }
             );
         }

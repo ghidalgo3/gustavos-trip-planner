@@ -124,6 +124,10 @@ public sealed record ActivityProperties(
     [property: StringLength(200)] string? PlaceName = null
 )
 {
+    [Required(AllowEmptyStrings = true), StringLength(10000)]
+    [Description(McpInstructions.Fields.ActivityNotes)]
+    public string Notes { get; init; } = "";
+
     [StringLength(2000)]
     [Description(McpInstructions.Fields.ActivityAddress)]
     public string? Address { get; init; }

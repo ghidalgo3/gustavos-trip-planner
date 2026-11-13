@@ -27,7 +27,6 @@ import {
   Tab,
   TabList,
   Text,
-  Textarea,
   Title2,
   useId,
 } from "@fluentui/react-components";
@@ -57,6 +56,7 @@ import { durationMinutes } from "../../shared/time/durations";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { destinationDates } from "../trips/tripDates";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
+import ActivityTextField from "./ActivityTextField";
 import ActivityDurationSlider from "./ActivityDurationSlider";
 import ActivityLinksEditor from "./ActivityLinksEditor";
 import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
@@ -102,6 +102,7 @@ const emptyActivity = (): ActivityInput => ({
     name: "",
     duration: null,
     description: "",
+    notes: "",
     cost: null,
     state: "Proposed",
     kinds: [],
@@ -663,6 +664,12 @@ export default function ActivityPlanning({
     setShowMapCard(true);
   }
 
+  function openIdea(item: Activity) {
+    if (busy) return;
+    if (canEdit) void openEdit(item);
+    else selectActivity(item.id);
+  }
+
   function renderActivityMenu(item: Activity) {
     return canEdit ? (
       <Menu
@@ -749,6 +756,12 @@ export default function ActivityPlanning({
           <p className="activity-card-description">
             {item.properties.description}
           </p>
+        )}
+        {item.properties.notes && (
+          <div className="activity-card-notes">
+            <strong>Notes</strong>
+            <p>{item.properties.notes}</p>
+          </div>
         )}
         <dl className="activity-card-facts">
           <div>
@@ -1170,15 +1183,16 @@ export default function ActivityPlanning({
                     <option value="NotRequired">Not required</option>
                   </Select>
                 </label>
-                <label>
-                  Description
-                  <Textarea
-                    value={editor.value.properties.description}
-                    onChange={(_, data) =>
-                      updateEditor({ description: data.value })
-                    }
-                  />
-                </label>
+                <ActivityTextField
+                  label="Description"
+                  value={editor.value.properties.description}
+                  onChange={(description) => updateEditor({ description })}
+                />
+                <ActivityTextField
+                  label="Notes"
+                  value={editor.value.properties.notes}
+                  onChange={(notes) => updateEditor({ notes })}
+                />
 
                 <ActivityDetailsEvidence properties={editor.value.properties} />
                 <div className="activity-editor-grid">
@@ -1517,14 +1531,26 @@ export default function ActivityPlanning({
                         hidden={!expanded}
                       >
                         {items.map(({ item, index }) => (
-                          <li key={item.id} className="activity-list-item">
+                          <li
+                            key={item.id}
+                            className="activity-list-item"
+                            onClick={(event) => {
+                              if (
+                                event.target instanceof Element &&
+                                event.target.closest("a, button")
+                              )
+                                return;
+                              openIdea(item);
+                            }}
+                          >
                             <div className="activity-list-heading">
                               <button
                                 type="button"
                                 className="activity-list-select"
                                 aria-label={item.properties.name}
                                 aria-pressed={selectedId === item.id}
-                                onClick={() => selectActivity(item.id)}
+                                disabled={busy}
+                                onClick={() => openIdea(item)}
                               >
                                 <span
                                   className="activity-number"

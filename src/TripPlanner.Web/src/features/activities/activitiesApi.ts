@@ -70,6 +70,7 @@ export type ActivityProperties = {
   name: string;
   duration: string | null;
   description: string;
+  notes: string;
   cost: ActivityCost | null;
   state: string;
   placeName: string | null;

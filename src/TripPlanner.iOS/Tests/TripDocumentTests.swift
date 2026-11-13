@@ -50,12 +50,14 @@ struct TripDocumentActivityTests {
             "id": .string(UUID().uuidString), "name": .string("Museum"),
             "destinationId": .string("paris-fr"), "kinds": .array([.string("Art"), .string("Culture")]),
             "address": .string("1 museum street"), "ticketRequirement": .string("Unknown"),
-            "description": .string("Paintings"), "links": .array([])
+            "description": .string("Paintings"), "notes": .string("Book morning entry.\nMeet at the entrance."), "links": .array([])
         ])
         let activity = try TripDocumentActivity(value)
         #expect(activity.kinds == [.Art, .Culture])
         #expect(activity.address == "1 museum street")
         #expect(activity.ticketRequirement == .Unknown)
+        #expect(activity.description == "Paintings")
+        #expect(activity.notes == "Book morning entry.\nMeet at the entrance.")
     }
 
     @Test(arguments: [[], ["Other"], ["Art", "Art"]])

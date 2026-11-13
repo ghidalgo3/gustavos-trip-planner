@@ -170,7 +170,9 @@ export function validateTripDocument(
           text(item.ticketRequirement),
         ) ||
         (item.address != null &&
-          (typeof item.address !== "string" || item.address.length > 2000)))
+          (typeof item.address !== "string" || item.address.length > 2000)) ||
+        (item.notes !== undefined &&
+          (typeof item.notes !== "string" || item.notes.length > 10000)))
     )
       throw new Error("Invalid activity details.");
     if (ids.has(text(item.id)))
@@ -439,6 +441,7 @@ export function hydrateTripDocument(document: TripDocument): TripView {
             "estimatedDuration",
           ]),
           duration: a.estimatedDuration,
+          notes: text(a.notes),
         },
       }));
       add(path + "/activities", {

@@ -177,6 +177,7 @@ struct TripDocumentActivity: Equatable {
     let address: String?
     let ticketRequirement: TicketRequirement
     let description: String
+    let notes: String
     let links: JSONValue
 
     init(_ value: JSONValue) throws {
@@ -198,6 +199,7 @@ struct TripDocumentActivity: Equatable {
         address = value["address"].stringValue
         ticketRequirement = ticket
         description = value["description"].stringValue ?? ""
+        notes = value["notes"].stringValue ?? ""
         links = value["links"]
     }
 }

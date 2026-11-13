@@ -245,7 +245,7 @@ public static class McpInstructions
         public const string CreateActivity = """
             Create an undated activity idea with its complete GeoJSON Feature: what to do, one or more kinds from get_planning_context, place, duration and supported details.
             Always include a researched physical address in properties.address, even when geometry remains unresolved, plus website/source links and ticketRequirement.
-            Follow the geographic workflow in get_planning_context: try geocode_address, independently research coordinates on null, failed or incorrect results, and save a reliably supported Point in request.geometry with provenance and precision classification in description and links.
+            Follow the geographic workflow in get_planning_context: try geocode_address, independently research coordinates on null, failed or incorrect results, and save a reliably supported Point in request.geometry with provenance and precision classification in notes and links.
             Explicitly label approximate points; leave geometry null for nonphysical or unresolved destinations.
             Read back with get_activity to verify address and geometry.
             Keep itinerary dates, start times and day numbers out of its name and description.
@@ -260,11 +260,11 @@ public static class McpInstructions
             Replace the complete activity idea Feature.
             Keep its definition independent of itinerary dates, start times and day numbers; change scheduling through get_activity_plan and replace_activity_plan, not through the activity name or description.
             Planned state alone does not schedule it.
-            Preserve unrelated fields including kinds, address, ticketRequirement and links.
+            Preserve unrelated fields including description, notes, kinds, address, ticketRequirement and links.
             Location resolution must preserve Proposed, Planned or Rejected state, selection and scheduling.
             Follow the geographic workflow in get_planning_context, including independent coordinate research after geocoding failure.
             Always persist a researched address in properties.address even if geometry remains unresolved; retain a previously verified, more precise address.
-            Save coordinate provenance and precision classification in description and links, then read back with get_activity to verify address and geometry.
+            Save coordinate provenance and precision classification in notes and links, then read back with get_activity to verify address and geometry.
             Supply ETag from get_activity and contextVersion from list_destinations.
             A 412 or 409 means read again before retrying.
             """;
@@ -482,8 +482,15 @@ public static class McpInstructions
             """;
 
         public const string ActivityDescription = """
-            Describe what to do.
-            Requested itinerary dates and times belong in the activity plan.
+            Describe the activity itself and what to do there.
+            Planner-written scheduling details, reminders, and other related information belong in notes.
+            Actual itinerary dates and times belong in the activity plan.
+            """;
+
+        public const string ActivityNotes = """
+            Planner-written scheduling details, reminders, and other activity-related information.
+            Describe the activity itself in description. Notes do not assign dates or enforce scheduling rules;
+            use the activity plan for the actual schedule.
             """;
 
         public const string ActivityState =

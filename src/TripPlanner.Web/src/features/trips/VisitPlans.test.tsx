@@ -80,6 +80,7 @@ const activities = ["museum", "walk", "other"].map((id) => ({
     ticketRequirement: "Unknown" as const,
     state: "Planned",
     description: "",
+    notes: "",
     duration: null,
     cost: null,
     placeName: null,

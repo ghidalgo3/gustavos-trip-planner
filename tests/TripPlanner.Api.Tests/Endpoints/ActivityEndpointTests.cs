@@ -14,6 +14,122 @@ namespace TripPlanner.Api.Tests.Endpoints;
 public class ActivityEndpointTests
 {
     [TestMethod]
+    [DataRow(0, true)]
+    [DataRow(60, true)]
+    [DataRow(10000, true)]
+    [DataRow(10001, false)]
+    [DataRow(-1, false)]
+    public async Task ActivityNotes_AreValidatedPersistedAndClearedIndependently(
+        int length,
+        bool valid
+    )
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, owner, _) = await CreateTrip(client, factory);
+        await AddDestinations(client, trip, false);
+        var destination = (
+            await factory.Database.GetDestinationPlaceAsync(owner, trip.Id, "paris-fr")
+        )!;
+        string url = $"/trips/{trip.Id}/destinations/paris-fr/activities";
+        var notes =
+            length < 0 ? null!
+            : length == 0 ? ""
+            : new string('n', length - 1) + "\n";
+        var input = new ActivityInput(
+            "Feature",
+            null,
+            null,
+            new(
+                "Museum",
+                null,
+                "Paintings and sculpture",
+                null,
+                ActivityState.Proposed,
+                [ActivityKind.Culture]
+            )
+            {
+                Notes = notes,
+            }
+        );
+        using var create = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(input),
+        };
+        create.Headers.Add("Destination-Context", destination.ContextVersion);
+        using var response = await client.SendAsync(create);
+        Assert.AreEqual(
+            valid ? HttpStatusCode.Created : HttpStatusCode.BadRequest,
+            response.StatusCode
+        );
+        if (!valid)
+        {
+            Assert.IsEmpty(await factory.Database.GetActivitiesAsync(owner, trip.Id, "paris-fr"));
+            return;
+        }
+        var created = (
+            await response.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>()
+        )!;
+        Assert.AreEqual(notes, created.Properties.Notes);
+        Assert.AreEqual(
+            notes,
+            (
+                await factory.Database.GetActivityAsync(
+                    owner,
+                    trip.Id,
+                    "paris-fr",
+                    Guid.Parse(created.Id)
+                )
+            )!
+                .Properties
+                .Notes
+        );
+        string resource = $"{url}/{created.Id}";
+        foreach (
+            string nextNotes in new[] { notes, "Book morning entry.\nMeet at the entrance.", "" }
+        )
+        {
+            using var fetched = await client.GetAsync(resource);
+            using var replace = new HttpRequestMessage(HttpMethod.Put, resource)
+            {
+                Content = JsonContent.Create(
+                    input with
+                    {
+                        Id = created.Id,
+                        Properties = input.Properties with { Notes = nextNotes },
+                    }
+                ),
+            };
+            replace.Headers.Add("Destination-Context", destination.ContextVersion);
+            replace.Headers.TryAddWithoutValidation("If-Match", fetched.Headers.ETag!.Tag);
+            using var replaced = await client.SendAsync(replace);
+            Assert.AreEqual(HttpStatusCode.OK, replaced.StatusCode);
+            var saved = (
+                await client.GetFromJsonAsync<GeoJsonFeature<ActivityProperties>>(resource)
+            )!;
+            Assert.AreEqual(nextNotes, saved.Properties.Notes);
+            Assert.AreEqual(input.Properties.Description, saved.Properties.Description);
+            var stored = (
+                await factory.Database.GetActivityAsync(
+                    owner,
+                    trip.Id,
+                    "paris-fr",
+                    Guid.Parse(created.Id)
+                )
+            )!;
+            Assert.AreEqual(nextNotes, stored.Properties.Notes);
+            var document = (
+                await client.GetFromJsonAsync<TripDocument>($"/trips/{trip.Id}/document")
+            )!;
+            var item = document.Itinerary["items"]!
+                .AsArray()
+                .Single(item => item!["id"]!.GetValue<string>() == created.Id)!;
+            Assert.AreEqual(nextNotes, item["notes"]!.GetValue<string>());
+            Assert.AreEqual(input.Properties.Description, item["description"]!.GetValue<string>());
+        }
+    }
+
+    [TestMethod]
     [DataRow("empty", "Unknown", false)]
     [DataRow("invalid", "Unknown", false)]
     [DataRow("duplicate", "Unknown", false)]

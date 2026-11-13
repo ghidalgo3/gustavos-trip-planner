@@ -79,6 +79,16 @@ public sealed class ActivityPlanningMcpTests
                 properties.GetProperty("state").GetProperty("description").GetString()!,
                 "does not assign a day or time"
             );
+            StringAssert.Contains(
+                properties.GetProperty("description").GetProperty("description").GetString()!,
+                "activity itself"
+            );
+            var notes = properties.GetProperty("notes");
+            Assert.AreEqual(10000, notes.GetProperty("maxLength").GetInt32());
+            StringAssert.Contains(
+                notes.GetProperty("description").GetString()!,
+                "scheduling details"
+            );
         }
 
         var planTool = tools["replace_activity_plan"];

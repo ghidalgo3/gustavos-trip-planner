@@ -207,6 +207,7 @@ const activity: Activity = {
   properties: {
     name: "Louvre",
     description: "See the paintings",
+    notes: "Book morning entry.",
     duration: "PT120M",
     cost: null,
     kinds: ["Culture" as const],
@@ -511,6 +512,46 @@ test("the place SearchBox searches on Enter without submitting the editor or sta
   ).toBeEnabled();
 });
 
+test.each([
+  ["name", true],
+  ["card", true],
+  ["details", true],
+  ["name", false],
+  ["card", false],
+  ["details", false],
+])(
+  "clicking an idea's %s opens its edit drawer directly, located=%s",
+  async (target, located) => {
+    const idea = { ...activity, geometry: located ? activity.geometry : null };
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [idea],
+    });
+    vi.mocked(getActivity).mockResolvedValue({ activity: idea, etag: '"v1"' });
+    show();
+    const name = await screen.findByRole("button", { name: "Louvre" });
+    const card = name.closest(".activity-list-item")! as HTMLElement;
+    click(
+      target === "name"
+        ? name
+        : target === "card"
+          ? card
+          : within(card).getByText("Culture"),
+    );
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
+    expect(getActivity).toHaveBeenCalledExactlyOnceWith(
+      "trip",
+      "paris-fr",
+      "museum",
+    );
+    expect(
+      screen.queryByRole("region", { name: "Selected activity details" }),
+    ).not.toBeInTheDocument();
+    expect(saveActivity).not.toHaveBeenCalled();
+  },
+);
+
 test("editing uses a drawer and preserves changes after a failed save for retry", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
@@ -520,18 +561,19 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   vi.mocked(saveActivity).mockRejectedValueOnce(new Error("Please retry."));
   show();
   click(await screen.findByRole("button", { name: "Louvre" }));
-  const edit = await screen.findByRole("button", {
-    name: "Edit activity: Louvre",
-  });
-  act(() => edit.focus());
-  click(edit);
   const drawer = await screen.findByRole("dialog");
   expect(drawer.closest(".activity-map-panel")).toBeNull();
   expect(drawer).not.toHaveAttribute("aria-modal", "true");
   expect(document.querySelector(".fui-DialogSurface__backdrop")).toBeNull();
   expect(within(drawer).getByLabelText("Name")).toHaveValue("Louvre");
+  expect(within(drawer).getByLabelText("Notes")).toHaveValue(
+    "Book morning entry.",
+  );
   change(within(drawer).getByLabelText("Description"), {
-    target: { value: "Visit in the morning" },
+    target: { value: "Paintings and sculpture" },
+  });
+  change(within(drawer).getByLabelText("Notes"), {
+    target: { value: "Visit in the morning\nMeet at the entrance." },
   });
   click(within(drawer).getByRole("button", { name: "Add link" }));
   change(within(drawer).getByLabelText("Link URL 1"), {
@@ -563,7 +605,10 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
       .closest(".activity-drawer-body"),
   ).toBeNull();
   expect(within(drawer).getByLabelText("Description")).toHaveValue(
-    "Visit in the morning",
+    "Paintings and sculpture",
+  );
+  expect(within(drawer).getByLabelText("Notes")).toHaveValue(
+    "Visit in the morning\nMeet at the entrance.",
   );
   click(within(drawer).getByRole("button", { name: "Save activity" }));
   await waitFor(() =>
@@ -575,7 +620,8 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
     expect.objectContaining({
       id: "museum",
       properties: expect.objectContaining({
-        description: "Visit in the morning",
+        description: "Paintings and sculpture",
+        notes: "Visit in the morning\nMeet at the entrance.",
         kinds: ["Culture" as const],
         address: null,
         ticketRequirement: "Unknown" as const,
@@ -587,11 +633,41 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   );
 });
 
+test.each(["", "Visit after lunch.\nBring the booking confirmation."])(
+  "saving notes %j preserves the activity description",
+  async (notes) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"v1"' });
+    show();
+    click(await screen.findByRole("button", { name: "Louvre" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    change(within(drawer).getByLabelText("Notes"), {
+      target: { value: notes },
+    });
+    expect(saveActivity).not.toHaveBeenCalled();
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    expect(vi.mocked(saveActivity).mock.calls[0][2].properties).toEqual({
+      ...activity.properties,
+      notes,
+    });
+  },
+);
+
 test("canceling the activity drawer discards its draft", async () => {
   show();
   const drawer = await add();
   change(within(drawer).getByLabelText("Name"), {
     target: { value: "Unsaved" },
+  });
+  change(within(drawer).getByLabelText("Description"), {
+    target: { value: "Unsaved description" },
+  });
+  change(within(drawer).getByLabelText("Notes"), {
+    target: { value: "Unsaved notes" },
   });
   click(within(drawer).getByRole("button", { name: "Cancel" }));
   await waitFor(() =>
@@ -599,6 +675,8 @@ test("canceling the activity drawer discards its draft", async () => {
   );
   const reopened = await add();
   expect(within(reopened).getByLabelText("Name")).toHaveValue("");
+  expect(within(reopened).getByLabelText("Description")).toHaveValue("");
+  expect(within(reopened).getByLabelText("Notes")).toHaveValue("");
   expect(saveActivity).not.toHaveBeenCalled();
 });
 
@@ -636,7 +714,7 @@ test("activity links appear in the cards and can be removed in the edit drawer",
   });
   vi.mocked(getActivity).mockResolvedValue({ activity: linked, etag: '"v1"' });
   show();
-  click(await screen.findByRole("button", { name: "Louvre" }));
+  click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
   expect(await screen.findByRole("link", { name: "Tickets" })).toHaveAttribute(
     "href",
     "https://museum.example/tickets",
@@ -692,7 +770,7 @@ test.each([false, true])(
         name: "Set location for Unlocated",
       }) !== null,
     ).toBe(!readOnly);
-    click(await within(list).findByRole("button", { name: "Louvre" }));
+    click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
     const link = await screen.findByRole("link", {
       name: "Direction to Louvre",
     });
@@ -712,15 +790,19 @@ test.each([false, true])(
     expect(
       within(list).getByRole("button", { name: "Louvre" }),
     ).toHaveAttribute("aria-pressed", "true");
-    click(within(list).getByRole("button", { name: "Unlocated" }));
-    const details = screen.getByRole("region", {
-      name: "Selected activity details",
-    });
-    expect(within(details).getByLabelText("Activity 2")).toHaveTextContent("2");
-    expect(within(details).getByText("Needs location")).toBeVisible();
-    expect(
-      screen.queryByRole("link", { name: "Direction to Unlocated" }),
-    ).not.toBeInTheDocument();
+    if (readOnly) {
+      click(within(list).getByRole("button", { name: "Unlocated" }));
+      const details = screen.getByRole("region", {
+        name: "Selected activity details",
+      });
+      expect(within(details).getByLabelText("Activity 2")).toHaveTextContent(
+        "2",
+      );
+      expect(within(details).getByText("Needs location")).toBeVisible();
+      expect(
+        screen.queryByRole("link", { name: "Direction to Unlocated" }),
+      ).not.toBeInTheDocument();
+    }
   },
 );
 
@@ -920,7 +1002,7 @@ test("the map can collapse for list browsing and reopen when selecting an activi
     type: "FeatureCollection",
     features: [activity],
   });
-  show();
+  show(true);
   const toggle = await screen.findByRole("button", { name: "Hide map" });
   const map = screen.getByLabelText("Map");
   expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -943,7 +1025,7 @@ test("the map can collapse for list browsing and reopen when selecting an activi
     "true",
   );
   expect(
-    await screen.findByRole("button", { name: "Edit activity: Louvre" }),
+    await screen.findByRole("region", { name: "Selected activity details" }),
   ).toBeInTheDocument();
 });
 
@@ -974,7 +1056,7 @@ test.each([
     show();
     const list = await screen.findByRole("list", { name: "Paris activities" });
     if (view === "map")
-      click(await within(list).findByRole("button", { name: "Louvre" }));
+      click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
     const container =
       view === "map"
         ? await screen.findByRole("region", {
@@ -986,6 +1068,9 @@ test.each([
         name: `State for Louvre: ${state}`,
       }),
     );
+    expect(
+      screen.queryByRole("dialog", { name: "Edit activity" }),
+    ).not.toBeInTheDocument();
     expect(await screen.findAllByRole("menuitemradio")).toHaveLength(3);
     expect(
       screen.queryByRole("menuitemradio", { name: "Legacy custom state" }),
@@ -1034,7 +1119,7 @@ test.each(["ideas", "map", "fullscreen"])(
       );
       click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
     } else if (view === "map") {
-      click(await screen.findByRole("button", { name: "Louvre" }));
+      click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
     }
     const container =
       view === "ideas"
@@ -1221,7 +1306,6 @@ test.each([null, "PT45M", "PT13H"])(
     });
     show();
     click(await screen.findByRole("button", { name: "Louvre" }));
-    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
     expect(
       within(drawer).getByText(
@@ -1260,7 +1344,6 @@ test.each([3, null])(
     });
     show();
     click(await screen.findByRole("button", { name: "Louvre" }));
-    click(await screen.findByRole("button", { name: "Edit activity: Louvre" }));
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
     expect(
       within(drawer).queryByRole("button", {
@@ -1414,7 +1497,7 @@ test("activity details require a kind and save multiple kinds, address and ticke
   });
 });
 
-test("offline activity details show kinds, address and tickets", async () => {
+test("offline activity details show description, notes, kinds, address and tickets", async () => {
   const enriched = {
     ...activity,
     properties: {
@@ -1437,6 +1520,9 @@ test("offline activity details show kinds, address and tickets", async () => {
   expect(within(details).getByText("Culture")).toBeVisible();
   expect(within(details).getByText("1 museum street")).toBeVisible();
   expect(within(details).getByText("Tickets: Required")).toBeVisible();
+  expect(within(details).getByText("See the paintings")).toBeVisible();
+  expect(within(details).getByText("Notes")).toBeVisible();
+  expect(within(details).getByText("Book morning entry.")).toBeVisible();
   expect(
     screen.queryByRole("button", { name: "Edit activity: Louvre" }),
   ).not.toBeInTheDocument();

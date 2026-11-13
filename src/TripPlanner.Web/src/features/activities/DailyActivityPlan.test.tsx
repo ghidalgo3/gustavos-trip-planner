@@ -98,6 +98,7 @@ const activities = [first, second].map((id, i) => ({
     name: i === 0 ? "Museum" : "Garden",
     duration: "PT60M",
     description: "",
+    notes: "",
     cost: null,
     kinds: ["Culture" as const],
     address: null,
