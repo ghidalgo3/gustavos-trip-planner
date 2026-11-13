@@ -41,10 +41,19 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 - The production API image uses the stable `tripplanner-api:release` tag. `buildout` maintains the scheduled ACR task that purges superseded untagged manifests.
 - Never commit any secrets; manage them with `scripts/secrets` in the provisioned Azure Key Vault.
 - Preserve unrelated working-tree changes and update `README.md` when workflows or architecture change.
+- Update `CHANGELOG.md` for large changes, new features, and bug fixes. Add concise entries under `Unreleased`, describing user-visible or significant development-workflow effects; omit routine formatting and test-only changes. Move entries into a dated release section when a release is made.
 - Prefer to write "functional" code, minimizing side effects and I/O until they are necessary, this is easier to test. 
 - I/O dependencies (like databases and API calls) should be behind interfaces so we can mock them during unit tests.
 - All C# REST APIs must declare property validation attributes to consume in MCP tool definitions and OpenAPI document generation.
 - Backward compatibility is not required when refactoring. REST routes, request/response contracts, trip document formats, local caches, PostgreSQL schemas, and fully-qualified type names may change. Update the server, web, iOS, and relevant MCP tools together. Prefer removing obsolete code instead of retaining legacy routes, decoders, adapters, or migrations solely for compatibility.
+
+## Release and changelog instructions
+
+- Before running `scripts/release`, ensure all intended changes, including new files and changelog entries, are committed. Do not automatically discard or commit unrelated work to satisfy the clean-checkout requirement.
+- Fetch shared Git tags before releasing when using a shared remote. Successful releases create a local annotated tag named `YYYY.MM.DD.N`, using the date in `America/New_York` and the highest existing sequence for that date plus one (starting at 1). The script does not push commits or tags.
+- After a successful release, use the exact tag printed by the script. Move the entries under `## Unreleased` in `CHANGELOG.md` into a new `## YYYY.MM.DD.N` section immediately below it, retaining their Added/Changed/Fixed/Removed groups and leaving an empty `## Unreleased` at the top. Preserve all older releases and the initial baseline. If Unreleased is empty, do not invent entries.
+- Commit this changelog rollover separately after the release. The tag identifies the deployed source commit; never move or amend it to include the later changelog commit. Only push the tag when publishing to the remote is authorized.
+- Failed releases and `--check` runs do not create release tags; leave Unreleased entries in place. If deployment verification succeeds but tagging fails, report that state and resolve it before treating the release as recorded.
 
 ## UI Conventions
 
@@ -72,6 +81,7 @@ These do not apply to iOS.
 
 - Tests should verify the code satisfy a requirement, not simply branch coverage.
 - Where possible, write parametrized tests instead of more test functions.
+- Do not add mocked unit tests for release or deployment orchestration. Validate these stateful, I/O-heavy workflows through actual execution and verification of the deployed application. Syntax and static checks are useful supporting checks, but do not establish that a release works.
 
 ## Database practices
 

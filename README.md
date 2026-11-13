@@ -2,6 +2,11 @@
 
 Starter architecture for a React single-page application and a C# API deployed to Azure.
 
+See [CHANGELOG.md](CHANGELOG.md) for significant changes, new features, and bug
+fixes. Add new entries under **Unreleased** as part of the change; dated release
+sections record released changes. The initial baseline summarizes existing
+functionality rather than claiming a historical release date.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -89,6 +94,28 @@ corepack pnpm run test:offline
 The test serves production assets and deterministic local API fixtures; it does not
 contact a real account or database.
 
+
+**Travel connections** on a trip's **Overview** records journeys you want to plan
+explicitly, such as a train between city visits or a taxi from a visit's hotel to
+an activity. Expand the section, choose **Edit travel**, then **Add journey**.
+Give it a name, choose **From** and **To**, and optionally select transport,
+enter a **Travel allowance (minutes)**, and set a departure date and time.
+Endpoints come from home, airports already in the trip document, destination
+visits, and activities. **Decide later** leaves transport undecided. **Save
+travel** saves the whole draft; **Cancel** discards it. Downloaded connections
+remain readable offline.
+
+A departure uses the origin's time zone, shown in the editor. A date alone stays
+an unscheduled task in the trip document. A date, time, and time zone that resolve
+to a valid, unambiguous instant produce an event with the same ID; a duration is optional, and your
+travel allowance supplies it when entered. For example, a Tokyo-to-Kyoto train
+leaving at 09:00 with a 150-minute allowance records a planned 09:00–11:30
+journey. Linking visits or activities does not automatically derive its departure
+time from their schedules. Choosing a transport mode does not search timetables,
+calculate a fresh route, book tickets, or reschedule activities. Flight search
+and the activity planner's calculated local transfers remain separate features.
+The API also supports multi-segment journeys and service references; the current
+web editor does not expose controls for those fields.
 
 `GET/PUT /trips/{tripId}/travel` reads/replaces general travel connections, using
 its own `If-Match` validator. Connections can link activities, visits, or shared
@@ -1064,6 +1091,24 @@ Deploy application code and runtime configuration separately:
 
 `release` runs API and web tests, builds the production client, packages it into the API container, pushes `tripplanner-api:release`, applies `infra/release.bicep` with `infra/release.bicepparam`, restarts the application, and verifies both `/health` and the web root. It also checks OAuth discovery and requires an unauthenticated JSON-RPC POST to `/mcp` to return `401`. The stateless MCP transport supports POST only: other methods return `405` with `Allow: POST`, unknown MCP paths return `404`, and the namespace never serves the website fallback (including when MCP is disabled). Reusing the stable tag leaves the previous manifest untagged; the purge task installed by `buildout` removes it on its next run.
 
+Commit all changes before releasing, including staged, unstaged, and untracked
+files; ignored build outputs are allowed. The script checks the checkout before
+running prerequisites and again before publishing, and verifies that HEAD still
+matches the starting commit. After deployment verification it checks once more
+and creates an annotated Git tag on that commit, named `YYYY.MM.DD.N` (for example,
+`2026.11.13.1`). The date uses `America/New_York`; N starts at 1 each day and is
+one greater than the highest existing local release tag for that date. Fetch
+shared tags before releasing from another checkout. Tags are created locally;
+the script does not push Git commits or tags. Failed pipelines do not create a
+release tag. If tagging itself fails after verification, the deployment has
+already completed; resolve the tagging failure before recording the release.
+
+After success, move the **Unreleased** changelog entries into a section named
+with the exact tag printed by the script, retain an empty **Unreleased** section
+above it, and commit that documentation update separately. The tag remains on
+the deployed source commit. See [AGENTS.md](AGENTS.md#release-and-changelog-instructions)
+for agent release instructions.
+
 `scripts/release` runs the dependency graph in `Taskfile.yml`, with zsh stages in `scripts/release-tasks`. Azure preflight checks, Bicep validation, C# formatting checks, and frontend dependency installation can overlap. Frontend lint, tests, and the production build share one frozen pnpm install and then run independently. The API test suite and Docker image build wait for the frontend tests to finish, so native solver threads and container compilation do not compete with timed UI interactions. The Docker image also waits for the frontend build because it packages `dist` into `wwwroot`. Publishing the stable image tag waits for every required check and the image build to succeed; deployment, restart, and readiness verification follow in order. A failed prerequisite cancels the remaining preparation work immediately. Infrastructure outputs are fetched once per release.
 
 The release defaults to four concurrent Task commands. Reduce CPU and memory pressure with `RELEASE_CONCURRENCY=2 ./scripts/release` (or use `1` for sequential execution). `--skip-tests` skips C# formatting checks, API tests, and frontend lint/tests while retaining preflight checks, builds, and deployed-app verification. Each invocation uses a temporary context directory that is removed on success or failure; deployment steps always run and are not cached.
@@ -1079,7 +1124,9 @@ task release -- --resource-group rg-tripplanner-dev
 
 Use `./scripts/release --check` (or `task release:check`) to run the same Azure
 preflight checks, validations, and builds through the local Docker image without
-publishing the registry tag, deploying, or restarting the application.
+publishing the registry tag, deploying, restarting the application, or creating a
+Git release tag. It requires the same clean checkout; changelog entries remain
+under **Unreleased**.
 
 Authentication credentials live only in the provisioned Key Vault. A release requires all four Google and Microsoft credentials plus the Ignav API key and rejects an incomplete set. Run the scripts with `--help` for their options.
 

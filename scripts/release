@@ -18,12 +18,15 @@ Usage: scripts/release [options]
 
 Build, configure, deploy, and verify the application.
 Run scripts/buildout before the first release and after infrastructure changes.
+All changes must be committed, including untracked files.
+Successful deployments create a local annotated YYYY.MM.DD.N tag (New York date,
+daily sequence starting at 1). Fetch shared tags before releasing; tags are not pushed.
 
 Options:
   -g, --resource-group NAME   Resource group (default: rg-tripplanner-dev)
   -s, --subscription ID|NAME  Azure subscription
   -p, --name-prefix PREFIX    Resource name prefix (default: tripplanner)
-      --check                 Run checks and builds without publishing or deploying
+      --check                 Run checks/builds without publishing, deploying, or tagging
       --skip-tests            Skip formatting, API tests, and web lint/tests
   -h, --help                  Show this help
 
@@ -56,6 +59,12 @@ done
 REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
 
+command -v git >/dev/null 2>&1 || die "git is required; run scripts/setup"
+source "$REPO_ROOT/scripts/release-tasks/git.zsh"
+require_release_checkout
+RELEASE_COMMIT="$(git rev-parse --verify HEAD)"
+export RELEASE_COMMIT
+
 for command_name in task az corepack curl docker dotnet node shasum; do
   command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
 done
@@ -80,6 +89,13 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 print -r -- "$$" > "$RELEASE_LOCK_DIR/pid"
 
+if [[ "$RELEASE_TARGET" == release:pipeline ]]; then
+  # Validate the tag identity before publishing anything.
+  git var GIT_COMMITTER_IDENT >/dev/null
+  RELEASE_VERSION="$(next_release_version "$(TZ=America/New_York date +%Y.%m.%d)")"
+  log "Releasing $RELEASE_VERSION from $RELEASE_COMMIT"
+fi
+
 RELEASE_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tripplanner-release.XXXXXX")"
 export RELEASE_STATE_DIR
 
@@ -87,3 +103,11 @@ export RELEASE_STATE_DIR
 # The per-invocation directory is removed after all stages have stopped.
 task --taskfile "$REPO_ROOT/Taskfile.yml" \
   --concurrency "${RELEASE_CONCURRENCY:-4}" "$RELEASE_TARGET"
+
+require_release_checkout "$RELEASE_COMMIT"
+if [[ "$RELEASE_TARGET" == release:pipeline ]]; then
+  git tag -a "$RELEASE_VERSION" "$RELEASE_COMMIT" -m "Release $RELEASE_VERSION" \
+    || die "deployment verified, but creating tag $RELEASE_VERSION failed; resolve the Git error before recording the release"
+  log "Created release tag $RELEASE_VERSION"
+  print -r -- "Move CHANGELOG.md Unreleased entries to ## $RELEASE_VERSION, keep an empty ## Unreleased, and commit the changelog update separately."
+fi
