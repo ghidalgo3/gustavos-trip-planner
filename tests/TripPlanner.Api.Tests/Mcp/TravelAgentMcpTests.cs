@@ -239,7 +239,39 @@ public sealed class TravelAgentMcpTests
             data.GetProperty("activityKinds").EnumerateArray().Select(v => v.GetString()).ToArray()
         );
         Assert.IsFalse(string.IsNullOrWhiteSpace(data.GetProperty("guidanceVersion").GetString()));
-        StringAssert.Contains(data.GetProperty("guidance").GetString()!, "coherent theme");
+        var guidance = data.GetProperty("guidance").GetString()!;
+        StringAssert.Contains(guidance, "coherent theme");
+        foreach (
+            var requirement in new[]
+            {
+                "meaningful physical destination",
+                "representative point",
+                "Nonphysical online, digital or administrative activities may have null geometry",
+                "correct establishment, branch and city",
+                "MUST persist it in properties.address regardless of geocoding success",
+                "Never replace a more precise verified address",
+                "Null results, provider failures and incorrect matches require independent coordinate research",
+                "Government records are desirable when relevant but are not required",
+                "Compare independent sources",
+                "Verified entrance",
+                "Verified venue",
+                "Representative area",
+                "Approximate",
+                "Unresolved",
+                "[longitude, latitude]",
+                "properties.links",
+                "resolution method, precision classification, verification status and remaining uncertainty",
+                "Preserve every unrelated field, including Proposed, Planned or Rejected state, selection and scheduling",
+                "current Feature and ETag",
+                "current destination contextVersion",
+                "verify that both properties.address and geometry persisted correctly",
+                "coordinate resolution remains incomplete",
+                "Do not repeatedly submit identical unsuccessful requests",
+            }
+        )
+        {
+            StringAssert.Contains(guidance, requirement);
+        }
         var denied = await McpEndpointTests.Result(
             await McpEndpointTests.Rpc(
                 agent,

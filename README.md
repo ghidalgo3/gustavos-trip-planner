@@ -1209,8 +1209,28 @@ After researching a venue's street address, agents can call the read-only
 destination's country and coordinates to guide the lookup. A single precise
 match returns a GeoJSON Point in `data.geometry` and a `data.formattedAddress`
 to check against the source. Agents can pass that Point as `request.geometry`
-to `create_activity` and keep the researched address and source link on the
-activity. The tool returns null fields when it cannot identify a precise match.
+to `create_activity` or `update_activity`. The tool returns null fields when it
+cannot identify a precise match; this is a provider limitation, not evidence that
+the venue cannot be located. Null, failed or incorrect results require best-effort
+independent coordinate research using official venue information, geographic
+databases (including OpenStreetMap and Wikidata), government records or reputable
+mapping services. Government records are useful but are not required.
+
+The versioned planning guidance describes the full location workflow. Physical
+venues need a meaningful point; areas use a representative entrance or landmark,
+and nonphysical activities may have null geometry. Agents always save a researched
+address in `properties.address`, even when coordinates remain unresolved, preserving
+a more complete verified address over an abbreviated geocoder result. Coordinate
+provenance uses the existing `properties.links` for source URLs and
+`properties.description` for resolution method, precision classification
+(Verified entrance, Verified venue, Representative area, Approximate, Unresolved),
+verification status and uncertainty. Approximate points are labeled for preliminary
+planning; unresolved locations retain null geometry and a reason. Agents preserve
+existing fields, state and scheduling, use the current activity ETag and destination
+contextVersion, and read back with `get_activity` to verify both address and GeoJSON
+Point coordinates in `[longitude, latitude]` order. Address resolution and coordinate
+resolution are separate outcomes; exhausted research is reported without repeatedly
+submitting identical unsuccessful geocoding requests.
 
 `plan_destination(tripId, destinationCity)` is also available through MCP `prompts/list`
 and `prompts/get` for clients that support user-selected prompt templates. The first
@@ -1219,11 +1239,13 @@ use does not depend on selecting that prompt. Refresh the MCP connection after r
 to discover the new tool, prompt and activity schemas.
 
 All MCP-facing instructions and prompt text live in
-`src/TripPlanner.Api/Instructions/McpInstructions.cs`: initialization instructions,
-versioned planning guidance and preference precedence, the destination prompt,
-tool and parameter descriptions, shared field/schema descriptions, and MCP recovery
-messages. Tool handlers, prompt registration and shared validation metadata reference
-this catalog instead of owning prose. Keep protocol names, validation constraints,
+`src/TripPlanner.Api/Instructions/McpInstructions.cs`, with one sentence per source
+line. Multiline raw string literals keep longer instructions readable in C#.
+The catalog includes initialization instructions, versioned planning guidance and
+preference precedence, the destination prompt, tool and parameter descriptions,
+shared field/schema descriptions, and MCP recovery messages. Tool handlers, prompt
+registration and shared validation metadata reference these strings through standard
+`DescriptionAttribute` metadata instead of owning prose. Keep protocol names, validation constraints,
 authorization and handler logic at their existing call sites. Bump
 `McpInstructions.Planning.Version` when changing agent behavior. Rebuild/release the
 API and refresh the client's MCP connection to pick up revised instructions.

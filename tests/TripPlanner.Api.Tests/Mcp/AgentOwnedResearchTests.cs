@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
@@ -68,17 +69,58 @@ public sealed class AgentOwnedResearchTests
         var annotations = geocode.GetProperty("annotations");
         Assert.IsTrue(annotations.GetProperty("readOnlyHint").GetBoolean());
         Assert.IsTrue(annotations.GetProperty("openWorldHint").GetBoolean());
+        var description = geocode.GetProperty("description").GetString()!;
+        foreach (
+            var requirement in new[]
+            {
+                "MUST save any researched address in properties.address regardless of geocoding success",
+                "null, fails or is incorrect",
+                "MUST attempt independent coordinate research",
+                "Government records are desirable when relevant but are not required",
+                "[longitude, latitude]",
+                "Read back with get_activity",
+            }
+        )
+        {
+            StringAssert.Contains(description, requirement);
+        }
+        foreach (var name in new[] { "create_activity", "update_activity" })
+        {
+            var tool = tools
+                .GetProperty("tools")
+                .EnumerateArray()
+                .Single(t => t.GetProperty("name").GetString() == name);
+            StringAssert.Contains(
+                tool.GetProperty("description").GetString()!,
+                "properties.address"
+            );
+            var addressDescription = tool.GetProperty("inputSchema")
+                .GetProperty("properties")
+                .GetProperty("request")
+                .GetProperty("properties")
+                .GetProperty("properties")
+                .GetProperty("properties")
+                .GetProperty("address")
+                .GetProperty("description")
+                .GetString()!;
+            StringAssert.Contains(
+                addressDescription,
+                "even if geocoding fails or geometry is null"
+            );
+        }
     }
 
     [TestMethod]
-    [DataRow("precise", true)]
-    [DataRow("missing", false)]
-    [DataRow("medium", false)]
-    [DataRow("ambiguous", false)]
-    [DataRow("multiple", false)]
+    [DataRow("precise", true, false)]
+    [DataRow("missing", false, false)]
+    [DataRow("missing", false, true)]
+    [DataRow("medium", false, false)]
+    [DataRow("ambiguous", false, false)]
+    [DataRow("multiple", false, false)]
     public async Task AgentCanGeocodeAndSaveItsResearchedActivityInJapan(
         string outcome,
-        bool hasPoint
+        bool hasPoint,
+        bool independentPoint
     )
     {
         const string address = "2-24-12 Shibuya, Shibuya-ku, Tokyo 150-0002, Japan";
@@ -97,8 +139,13 @@ public sealed class AgentOwnedResearchTests
         var geocode = await Geocode(session.Agent, session.TripId, place.CityId, address);
         Assert.IsFalse(geocode.GetProperty("isError").GetBoolean(), geocode.ToString());
         var data = geocode.GetProperty("structuredContent").GetProperty("data");
-        var geometry = data.GetProperty("geometry");
-        Assert.AreEqual(hasPoint, geometry.ValueKind == JsonValueKind.Object);
+        var providerGeometry = data.GetProperty("geometry");
+        var geometry = independentPoint
+            ? JsonSerializer.SerializeToElement(
+                new { type = "Point", coordinates = new[] { 139.7021, 35.6581 } }
+            )
+            : providerGeometry;
+        Assert.AreEqual(hasPoint, providerGeometry.ValueKind == JsonValueKind.Object);
         Assert.AreEqual(
             hasPoint ? address : null,
             data.GetProperty("formattedAddress").GetString()
@@ -170,7 +217,248 @@ public sealed class AgentOwnedResearchTests
         var saved = activities.Single(a => a.Properties.Name == "Agent-researched vegan lunch");
         Assert.AreEqual("https://venue.example/menu", saved.Properties.Links.Single().Url);
         Assert.AreEqual(address, saved.Properties.Address);
-        Assert.AreEqual(hasPoint ? Geocoder.Point.Position : null, saved.Geometry?.Position);
+        Assert.AreEqual(
+            independentPoint ? GeographyPoint.Create(35.6581, 139.7021)
+                : hasPoint ? Geocoder.Point.Position
+                : null,
+            saved.Geometry?.Position
+        );
+        var readBack = await Call(
+            session.Agent,
+            "get_activity",
+            new
+            {
+                tripId = session.TripId,
+                destinationId = place.CityId,
+                activityId = saved.Id,
+            }
+        );
+        Assert.AreEqual(
+            address,
+            readBack
+                .GetProperty("data")
+                .GetProperty("properties")
+                .GetProperty("address")
+                .GetString()
+        );
+        Assert.IsTrue(
+            JsonElement.DeepEquals(geometry, readBack.GetProperty("data").GetProperty("geometry"))
+        );
+    }
+
+    [TestMethod]
+    [DataRow(ActivityState.Proposed, "missing", true)]
+    [DataRow(ActivityState.Planned, "missing", true)]
+    [DataRow(ActivityState.Rejected, "missing", true)]
+    [DataRow(ActivityState.Proposed, "failure", false)]
+    [DataRow(ActivityState.Planned, "failure", false)]
+    [DataRow(ActivityState.Rejected, "failure", false)]
+    public async Task LocationUpdatePersistsIndependentResearchWithoutChangingStateOrPlan(
+        ActivityState state,
+        string outcome,
+        bool resolved
+    )
+    {
+        var maps = new Geocoder(outcome);
+        await using var factory = new TestApplicationFactory
+        {
+            McpEnabled = true,
+            MapsClient = maps,
+        };
+        using var browser = McpEndpointTests.CreateClient(factory);
+        var user = await McpEndpointTests.SeedAndSetCookie(factory, browser);
+        var (trip, _, place, activity) = await ActivityPlanningFixture.SeedDatabase(
+            factory.Database,
+            user
+        );
+        place = (await factory.Database.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
+        var properties = activity.Properties with
+        {
+            State = state,
+            Description = "Keep the existing visit notes.",
+            Cost = new(12, "EUR", "perPerson"),
+            TicketRequirement = "Required",
+            Links = [new("https://venue.example/tickets", "Tickets")],
+        };
+        Assert.IsNotNull(
+            await factory.Database.SaveActivityAsync(
+                user.Id,
+                activity with
+                {
+                    Geometry = null,
+                    Properties = properties,
+                },
+                place.ContextVersion,
+                activity.UpdatedAt
+            )
+        );
+        var token = await McpEndpointTests.Tokens(browser, "tripplanner.read tripplanner.write");
+        using var agent = McpEndpointTests.CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            token.GetProperty("access_token").GetString()
+        );
+        var activityArgs = new
+        {
+            tripId = trip.Id,
+            destinationId = place.CityId,
+            activityId = activity.Id,
+        };
+        var planArgs = new { tripId = trip.Id, destinationCity = place.CityId };
+        var planBefore = await Call(agent, "get_activity_plan", planArgs);
+        if (state == ActivityState.Planned)
+        {
+            var plan = JsonNode.Parse(
+                planBefore.GetProperty("data").GetProperty("plan").GetRawText()
+            )!;
+            var stay = (
+                await factory.Database.GetDestinationVisitsAsync(user.Id, trip.Id)
+            ).Single();
+            plan["days"] = JsonSerializer.SerializeToNode(
+                new[]
+                {
+                    new
+                    {
+                        stayId = stay.StayId,
+                        date = ActivityPlanningFixture.Date,
+                        activityIds = new[] { activity.Id },
+                        name = "Museum day",
+                    },
+                }
+            );
+            plan["rules"] = JsonSerializer.SerializeToNode(
+                new[]
+                {
+                    new
+                    {
+                        activityId = activity.Id,
+                        fixedDate = ActivityPlanningFixture.Date,
+                        fixedStart = "10:00:00",
+                    },
+                }
+            );
+            await Call(
+                agent,
+                "replace_activity_plan",
+                new
+                {
+                    tripId = trip.Id,
+                    destinationCity = place.CityId,
+                    etag = planBefore.GetProperty("etag").GetString(),
+                    request = new
+                    {
+                        plan,
+                        contextVersion = planBefore
+                            .GetProperty("data")
+                            .GetProperty("contextVersion")
+                            .GetString(),
+                    },
+                }
+            );
+            planBefore = await Call(agent, "get_activity_plan", planArgs);
+        }
+
+        const string address = "12 Example Street, Building A, Paris 75001, France";
+        var geocode = await Geocode(agent, trip.Id, place.CityId, address);
+        if (outcome == "failure")
+        {
+            Assert.AreEqual(
+                502,
+                geocode.GetProperty("structuredContent").GetProperty("status").GetInt32()
+            );
+        }
+        else
+        {
+            Assert.AreEqual(
+                JsonValueKind.Null,
+                geocode
+                    .GetProperty("structuredContent")
+                    .GetProperty("data")
+                    .GetProperty("geometry")
+                    .ValueKind
+            );
+        }
+        var before = await Call(agent, "get_activity", activityArgs);
+        var destinations = await Call(agent, "list_destinations", new { tripId = trip.Id });
+        var destination = destinations
+            .GetProperty("data")
+            .GetProperty("features")
+            .EnumerateArray()
+            .Single(f => f.GetProperty("id").GetString() == place.CityId);
+        var request = JsonNode.Parse(before.GetProperty("data").GetRawText())!;
+        var provenance = resolved
+            ? "Verified venue; independently published coordinates from the venue map; no remaining uncertainty."
+            : "Unresolved; reasonable research exhausted with conflicting coordinates; coordinate resolution remains incomplete.";
+        request["geometry"] = resolved
+            ? JsonSerializer.SerializeToNode(
+                new { type = "Point", coordinates = new[] { 2.3364, 48.8606 } }
+            )
+            : null;
+        request["properties"]!["address"] = address;
+        request["properties"]!["description"] = properties.Description + " " + provenance;
+        request["properties"]!["links"]!
+            .AsArray()
+            .Add(
+                JsonSerializer.SerializeToNode(
+                    new
+                    {
+                        url = "https://venue.example/map",
+                        label = "Official address and venue map",
+                    }
+                )
+            );
+        await Call(
+            agent,
+            "update_activity",
+            new
+            {
+                tripId = trip.Id,
+                destinationId = place.CityId,
+                activityId = activity.Id,
+                etag = before.GetProperty("etag").GetString(),
+                contextVersion = destination
+                    .GetProperty("properties")
+                    .GetProperty("contextVersion")
+                    .GetString(),
+                request,
+            }
+        );
+        var after = await Call(agent, "get_activity", activityArgs);
+        Assert.IsTrue(
+            JsonElement.DeepEquals(
+                JsonSerializer.SerializeToElement(request),
+                after.GetProperty("data")
+            ),
+            after.ToString()
+        );
+        Assert.AreEqual(
+            address,
+            after.GetProperty("data").GetProperty("properties").GetProperty("address").GetString()
+        );
+        Assert.AreEqual(
+            state.ToString(),
+            after.GetProperty("data").GetProperty("properties").GetProperty("state").GetString()
+        );
+        var planAfter = await Call(agent, "get_activity_plan", planArgs);
+        Assert.IsTrue(
+            JsonElement.DeepEquals(
+                planBefore.GetProperty("data").GetProperty("plan"),
+                planAfter.GetProperty("data").GetProperty("plan")
+            )
+        );
+        Assert.AreEqual(1, maps.Calls);
+    }
+
+    private static async Task<JsonElement> Call(HttpClient agent, string name, object arguments)
+    {
+        var result = await McpEndpointTests.Result(
+            await McpEndpointTests.Rpc(agent, "tools/call", new { name, arguments })
+        );
+        Assert.IsFalse(
+            result.TryGetProperty("isError", out var error) && error.GetBoolean(),
+            result.ToString()
+        );
+        return result.GetProperty("structuredContent");
     }
 
     [TestMethod]

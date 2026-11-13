@@ -89,9 +89,7 @@ public sealed record ActivityPlanDay(
 )
 {
     [StringLength(200)]
-    [Description(
-        "Optional name for this destination's local day. A label, not a scheduling constraint."
-    )]
+    [Description(McpInstructions.Fields.PlanDayName)]
     public string? Name { get; init; }
 
     public DailyPlanningSettings? Settings { get; init; }
