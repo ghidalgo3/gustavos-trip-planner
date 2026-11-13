@@ -413,6 +413,17 @@ and [later milestones](docs/later_milestones.md) for the deferred trip revision 
 
 `GET /trips/{tripId}/destinations` returns an `application/geo+json` FeatureCollection, empty for a new trip. `POST` to the same route accepts a destination GeoJSON Feature with required Point coordinates from the selected autocomplete result and properties `name`, `countryCode`, optional object `constraints`, and optional `arrivalDate` and `departureDate`. The country code remains API metadata rather than a form field. `PUT /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` replaces its optional dates; `DELETE` removes the visit. `?includeInactive=true` includes cached past cities. `GET /trips/{tripId}/destinations/{destinationCity}` returns a city Feature. Under that city, `GET` and `POST /activities` list and create complete activity Features, and `GET`, `PUT`, and `DELETE /activities/{activityId}` read, replace, and remove one. Activity writes require the city's `contextVersion` in `Destination-Context`; replacements and deletes also require the current activity ETag in `If-Match`.
 
+Activity-planning routes and MCP tools accept a destination ID (for example
+`tokyo-jp`, preferred) or its exact saved name (`Tokyo`, case-insensitively) in
+`destinationCity`. Reads, replacements, preferences, assessments and proposals
+resolve to the same ID; ambiguous names require the ID. A destination with no
+saved plan returns HTTP 200 with an initial plan, version 0, ETag `"0"`, and a
+planning context version. Initialize it by replacing that complete plan using
+those validators; no separate initialization call is needed. A missing destination
+returns `destination_not_found` (404), an ambiguous name returns
+`destination_ambiguous` (409), and an existing destination whose planning context
+cannot be loaded returns `planning_lookup_failed` (503).
+
 Each destination's activity-plan day has an optional `name` of up to 200 characters,
 such as **EPCOT Visit**. Names appear with the date in agenda headings, day choices,
 settings, and proposal previews. Expand a day to edit its name; existing days save

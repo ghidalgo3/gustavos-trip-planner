@@ -16,6 +16,7 @@ public static class McpInstructions
         Read a resource before replacing it.
         Destination timezones are derived automatically from city coordinates; use the returned city timezone for planning and do not ask the user to supply one.
         Use returned IDs and concurrency versions; never invent IDs.
+        For activity planning, destinationCity accepts the destination ID from list_destinations (preferred) or its exact saved name, case-insensitively.
         Changes appear in the user's Activity Log.
         Separate activity ideas (what to do) from the activity plan (when to do it).
         First use create_activity to create an undated idea with its name, place, duration and other details, or reuse an existing idea instead of duplicating it.
@@ -47,7 +48,7 @@ public static class McpInstructions
 
     public static class Planning
     {
-        public const string Version = "2026-11-12.1";
+        public const string Version = "2026-11-12.2";
 
         public const string Instructions = $"""
             Before recommending activities or planning days, call get_planning_context for the trip.
@@ -304,6 +305,8 @@ public static class McpInstructions
 
         public const string GetActivityPlan = """
             Read the destination's shared schedule, selection, restrictions, assessment, shared context, ETag and input-context version.
+            destinationCity accepts the destination ID from list_destinations (preferred) or its exact name, case-insensitively. Ambiguous names require the ID.
+            A destination without a saved plan returns an initial plan with version 0, ETag and contextVersion; save it with replace_activity_plan.
             Read after creating activity ideas and before placing their IDs on dates/times with replace_activity_plan.
             context.visits supplies destination visit IDs for days[].stayId; these are not accommodation IDs.
             Planned activities may be selected but unscheduled.
@@ -319,6 +322,7 @@ public static class McpInstructions
 
         public const string ReplaceActivityPlan = """
             Save the complete shared plan when the user requests day names or scheduling, or chooses to apply a plan.
+            destinationCity accepts the destination ID from list_destinations (preferred) or its exact name, case-insensitively. Use the same destination as get_activity_plan.
             Use days[].name for optional day labels and preserve them when rescheduling.
             Changing only names preserves saved calendar timing and its staleness.
             Create missing activity ideas first with create_activity, or reuse existing ideas; schedule their returned IDs here, never by adding dates/times to activity names or descriptions.
@@ -427,6 +431,9 @@ public static class McpInstructions
 
     public static class Fields
     {
+        public const string PlanningDestination =
+            "Destination ID from list_destinations (preferred), or the exact saved destination name, case-insensitively. Use an ID for ambiguous names.";
+
         public const string TravelPlaceId = """
             Shared home or airport Place @id.
             Use ActivityId for a venue or VisitId for a destination/accommodation so deletion and location changes remain consistent.

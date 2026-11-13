@@ -121,6 +121,13 @@ public static class ActivityPlanEndpoints
         plans.MapPut("/proposals/{id:guid}/review", ReplaceReview);
     }
 
+    internal static IResult LookupFailed() =>
+        Results.Problem(
+            statusCode: 503,
+            title: "The destination exists, but its planning context could not be loaded. Retry the request.",
+            extensions: new Dictionary<string, object?> { ["code"] = "planning_lookup_failed" }
+        );
+
     internal static IResult Stale() =>
         Results.Conflict(
             new
@@ -149,7 +156,7 @@ public static class ActivityPlanEndpoints
         }
     }
 
-    private static async Task<(User? User, IResult? Error)> PreferenceAccess(
+    private static async Task<(User? User, string? CityId, IResult? Error)> PreferenceAccess(
         ActivityPreferenceScope scope,
         Guid? tripId,
         string? city,
@@ -169,6 +176,7 @@ public static class ActivityPlanEndpoints
         {
             return (
                 null,
+                null,
                 Results.BadRequest(
                     new
                     {
@@ -180,7 +188,12 @@ public static class ActivityPlanEndpoints
 
         if (scope == ActivityPreferenceScope.Profile)
         {
-            return await EndpointAuthorization.AuthorizeCurrentUserAsync(c, db, current.Profile!);
+            var (profileUser, profileError) = await EndpointAuthorization.AuthorizeCurrentUserAsync(
+                c,
+                db,
+                current.Profile!
+            );
+            return (profileUser, null, profileError);
         }
 
         var (_, user, error) = await PlanningEndpointHelpers.AuthorizeAsync(
@@ -192,15 +205,22 @@ public static class ActivityPlanEndpoints
         );
         if (error is not null)
         {
-            return (user, error);
+            return (user, null, error);
         }
 
-        return
-            scope == ActivityPreferenceScope.Destination
-            && await db.GetDestinationPlaceAsync(user!.Id, tripId.Value, city!, c.RequestAborted)
-                is null
-            ? (user, Results.NotFound())
-            : (user, null);
+        if (scope == ActivityPreferenceScope.Destination)
+        {
+            var (cityId, destinationError) =
+                await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                    user!.Id,
+                    tripId.Value,
+                    city!,
+                    db,
+                    c.RequestAborted
+                );
+            return (user, cityId, destinationError);
+        }
+        return (user, null, null);
     }
 
     internal static async Task<IResult> GetPreferences(
@@ -212,7 +232,7 @@ public static class ActivityPlanEndpoints
         ICurrentUser currentUser
     )
     {
-        var (user, error) = await PreferenceAccess(
+        var (user, cityId, error) = await PreferenceAccess(
             scope,
             tripId,
             destinationCity,
@@ -229,7 +249,7 @@ public static class ActivityPlanEndpoints
         var saved = await database.GetActivityPreferencesAsync(
             tripId ?? user!.Id,
             scope.ToString().ToLowerInvariant(),
-            destinationCity ?? "",
+            cityId ?? "",
             context.RequestAborted
         );
         Headers(context, saved.Version);
@@ -246,7 +266,7 @@ public static class ActivityPlanEndpoints
         ICurrentUser currentUser
     )
     {
-        var (user, error) = await PreferenceAccess(
+        var (user, cityId, error) = await PreferenceAccess(
             scope,
             tripId,
             destinationCity,
@@ -279,7 +299,7 @@ public static class ActivityPlanEndpoints
         var before = await database.GetActivityPreferencesAsync(
             tripId ?? user!.Id,
             name,
-            destinationCity ?? "",
+            cityId ?? "",
             context.RequestAborted
         );
         if (!Matches(context, before.Version))
@@ -291,7 +311,7 @@ public static class ActivityPlanEndpoints
             user!.Id,
             tripId,
             name,
-            destinationCity ?? "",
+            cityId ?? "",
             new(request.Instructions, request.Defaults),
             before.Version,
             context.RequestAborted
@@ -326,6 +346,20 @@ public static class ActivityPlanEndpoints
             return error;
         }
 
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                database,
+                context.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        destinationCity = cityId!;
+
         var planningContext = await service.ReadAsync(
             user!.Id,
             tripId,
@@ -334,7 +368,7 @@ public static class ActivityPlanEndpoints
         );
         if (planningContext is null)
         {
-            return Results.NotFound();
+            return LookupFailed();
         }
 
         var response = service.Response(planningContext);
@@ -364,6 +398,20 @@ public static class ActivityPlanEndpoints
         {
             return error;
         }
+
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                database,
+                context.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        destinationCity = cityId!;
         var planningContext = await service.ReadAsync(
             user!.Id,
             tripId,
@@ -372,7 +420,7 @@ public static class ActivityPlanEndpoints
         );
         if (planningContext is null)
         {
-            return Results.NotFound();
+            return LookupFailed();
         }
         var version = ActivityPlanningService.ContextVersion(planningContext);
         if (request.ContextVersion != version)
@@ -412,6 +460,20 @@ public static class ActivityPlanEndpoints
             return error;
         }
 
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                database,
+                context.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        destinationCity = cityId!;
+
         var planningContext = await service.ReadAsync(
             user!.Id,
             tripId,
@@ -420,7 +482,7 @@ public static class ActivityPlanEndpoints
         );
         if (planningContext is null)
         {
-            return Results.NotFound();
+            return LookupFailed();
         }
 
         long version = planningContext.SavedPlan?.Version ?? 0;
@@ -538,7 +600,7 @@ public static class ActivityPlanEndpoints
         );
         if (updated is null)
         {
-            return Results.NotFound();
+            return LookupFailed();
         }
 
         Headers(
@@ -633,6 +695,20 @@ public static class ActivityPlanEndpoints
             return error;
         }
 
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                city,
+                db,
+                c.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        city = cityId!;
+
         if (id == Guid.Empty)
         {
             return Results.BadRequest(new { title = "A nonempty request ID is required." });
@@ -670,7 +746,7 @@ public static class ActivityPlanEndpoints
         var planningContext = await service.ReadAsync(user.Id, tripId, city, c.RequestAborted);
         if (planningContext is null)
         {
-            return Results.NotFound();
+            return LookupFailed();
         }
 
         if (contextVersion != ActivityPlanningService.ContextVersion(planningContext))
@@ -751,6 +827,20 @@ public static class ActivityPlanEndpoints
             return error;
         }
 
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                database,
+                context.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        destinationCity = cityId!;
+
         var job = await database.GetActivityPlanningJobAsync(
             user!.Id,
             tripId,
@@ -803,6 +893,20 @@ public static class ActivityPlanEndpoints
         {
             return error;
         }
+
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                database,
+                context.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        destinationCity = cityId!;
 
         var job = await database.GetActivityPlanningJobAsync(
             user!.Id,

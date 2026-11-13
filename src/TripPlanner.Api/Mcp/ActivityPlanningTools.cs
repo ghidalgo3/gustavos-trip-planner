@@ -38,7 +38,8 @@ public sealed class ActivityPlanningTools(
     public Task<CallToolResult> GetPreferences(
         ActivityPreferenceScope scope,
         Guid? tripId = null,
-        string? destinationCity = null
+        [StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string? destinationCity = null
     ) =>
         adapter.ExecuteAsync(
             false,
@@ -67,7 +68,8 @@ public sealed class ActivityPlanningTools(
         ActivityPreferencesRequest request,
         string etag,
         Guid? tripId = null,
-        string? destinationCity = null
+        [StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string? destinationCity = null
     ) =>
         adapter.ExecuteAsync(
             true,
@@ -92,7 +94,11 @@ public sealed class ActivityPlanningTools(
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
     [Description(McpInstructions.Tools.GetActivityPlan)]
-    public Task<CallToolResult> GetPlan(Guid tripId, string destinationCity) =>
+    public Task<CallToolResult> GetPlan(
+        Guid tripId,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity
+    ) =>
         adapter.ExecuteAsync(
             false,
             c =>
@@ -111,7 +117,8 @@ public sealed class ActivityPlanningTools(
     [Description(McpInstructions.Tools.PreviewActivityPlan)]
     public Task<CallToolResult> PreviewPlan(
         Guid tripId,
-        string destinationCity,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
         PreviewActivityPlanRequest request
     ) =>
         adapter.ExecuteAsync(
@@ -140,7 +147,8 @@ public sealed class ActivityPlanningTools(
     [Description(McpInstructions.Tools.ReplaceActivityPlan)]
     public Task<CallToolResult> ReplacePlan(
         Guid tripId,
-        string destinationCity,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
         ReplaceActivityPlanRequest request,
         string etag
     ) =>
@@ -172,7 +180,8 @@ public sealed class ActivityPlanningTools(
     [Description(McpInstructions.Tools.CreateActivityPlanAssessment)]
     public Task<CallToolResult> CreateAssessment(
         Guid tripId,
-        string destinationCity,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
         CreateActivityAssessmentRequest request
     ) =>
         adapter.ExecuteAsync(
@@ -200,7 +209,8 @@ public sealed class ActivityPlanningTools(
     [Description(McpInstructions.Tools.GetActivityPlanAssessment)]
     public Task<CallToolResult> GetAssessment(
         Guid tripId,
-        string destinationCity,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
         Guid assessmentId
     ) =>
         adapter.ExecuteAsync(
@@ -228,7 +238,8 @@ public sealed class ActivityPlanningTools(
     [Description(McpInstructions.Tools.CreateActivityPlanProposal)]
     public Task<CallToolResult> CreateProposal(
         Guid tripId,
-        string destinationCity,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
         CreateActivityProposalRequest request
     ) =>
         adapter.ExecuteAsync(
@@ -254,7 +265,12 @@ public sealed class ActivityPlanningTools(
     )]
     [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
     [Description(McpInstructions.Tools.GetActivityPlanProposal)]
-    public Task<CallToolResult> GetProposal(Guid tripId, string destinationCity, Guid proposalId) =>
+    public Task<CallToolResult> GetProposal(
+        Guid tripId,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
+        Guid proposalId
+    ) =>
         adapter.ExecuteAsync(
             false,
             c =>
@@ -280,7 +296,8 @@ public sealed class ActivityPlanningTools(
     [Description(McpInstructions.Tools.ReplaceActivityPlanProposalReview)]
     public Task<CallToolResult> ReplaceReview(
         Guid tripId,
-        string destinationCity,
+        [Required, StringLength(200), Description(McpInstructions.Fields.PlanningDestination)]
+            string destinationCity,
         Guid proposalId,
         ReplaceActivityProposalReviewRequest request,
         string etag,

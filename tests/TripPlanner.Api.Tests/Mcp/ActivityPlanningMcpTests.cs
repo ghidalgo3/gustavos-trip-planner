@@ -25,6 +25,182 @@ public sealed class ActivityPlanningMcpTests
     }
 
     [TestMethod]
+    public async Task Mcp_SchedulesExistingProposedActivityByCityName_AndPreservesOtherEntries()
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = McpEndpointTests.CreateClient(factory);
+        var user = await McpEndpointTests.SeedAndSetCookie(factory, browser);
+        var (trip, _, otherPlace, otherActivity) = await ActivityPlanningFixture.SeedDatabase(
+            factory.Database,
+            user
+        );
+        var date = new DateOnly(2026, 12, 28);
+        var place = await factory.Database.SaveDestinationPlaceAsync(
+            user.Id,
+            new(trip.Id, "tokyo-jp", "Tokyo", "JP", "Asia/Tokyo", 139.69, 35.69, "context")
+        );
+        var visit = new DestinationVisit(trip.Id, place.CityId, Guid.NewGuid(), 1, date, date);
+        await factory.Database.AddDestinationVisitAsync(user.Id, visit);
+        place = (await factory.Database.GetDestinationPlaceAsync(user.Id, trip.Id, place.CityId))!;
+        var activity = otherActivity with
+        {
+            Id = Guid.Parse("2fd3a579-0fb1-4610-9b35-fbb32a0e6e3d"),
+            CityId = place.CityId,
+            Geometry = null,
+            Properties = otherActivity.Properties with
+            {
+                Name = "Submit South Korea e-Arrival Card",
+                Duration = TimeSpan.FromMinutes(15),
+                State = ActivityState.Proposed,
+            },
+        };
+        var existing = activity with
+        {
+            Id = Guid.NewGuid(),
+            Properties = activity.Properties with
+            {
+                Name = "Existing itinerary entry",
+                State = ActivityState.Planned,
+            },
+        };
+        await factory.Database.SaveActivityAsync(user.Id, existing, place.ContextVersion, null);
+        await factory.Database.SaveActivityAsync(user.Id, activity, place.ContextVersion, null);
+        var token = await McpEndpointTests.Tokens(browser, "tripplanner.read tripplanner.write");
+        using var agent = McpEndpointTests.CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            token.GetProperty("access_token").GetString()
+        );
+        var read = await Call(
+            agent,
+            "get_activity_plan",
+            new { tripId = trip.Id, destinationCity = "Tokyo" }
+        );
+        var data = read.GetProperty("data")
+            .Deserialize<ActivityPlanResponse>(JsonSerializerOptions.Web)!;
+        Assert.AreEqual(0L, data.Version);
+        Assert.AreEqual("\"0\"", read.GetProperty("etag").GetString());
+        var existingPlan = data.Plan with
+        {
+            Days = [data.Plan.Days[0] with { Name = "Tokyo day", ActivityIds = [existing.Id] }],
+            Rules =
+            [
+                new(existing.Id)
+                {
+                    FixedDate = date,
+                    FixedStart = new(11, 0),
+                    AlwaysAvailable = true,
+                },
+            ],
+        };
+        await Call(
+            agent,
+            "replace_activity_plan",
+            new
+            {
+                tripId = trip.Id,
+                destinationCity = "Tokyo",
+                etag = read.GetProperty("etag").GetString(),
+                request = new ReplaceActivityPlanRequest(existingPlan, data.ContextVersion),
+            }
+        );
+        read = await Call(
+            agent,
+            "get_activity_plan",
+            new { tripId = trip.Id, destinationCity = "tokyo" }
+        );
+        data = read.GetProperty("data")
+            .Deserialize<ActivityPlanResponse>(JsonSerializerOptions.Web)!;
+        var plan = data.Plan with
+        {
+            SelectedActivityIds = [.. data.Plan.SelectedActivityIds, activity.Id],
+            Days =
+            [
+                data.Plan.Days[0] with
+                {
+                    ActivityIds = [activity.Id, .. data.Plan.Days[0].ActivityIds],
+                },
+            ],
+            Rules =
+            [
+                .. data.Plan.Rules,
+                new(activity.Id)
+                {
+                    FixedDate = date,
+                    FixedStart = new(9, 0),
+                    Duration = TimeSpan.FromMinutes(15),
+                    AlwaysAvailable = true,
+                },
+            ],
+        };
+        var saved = await Call(
+            agent,
+            "replace_activity_plan",
+            new
+            {
+                tripId = trip.Id,
+                destinationCity = "Tokyo",
+                etag = read.GetProperty("etag").GetString(),
+                request = new ReplaceActivityPlanRequest(plan, data.ContextVersion),
+            }
+        );
+        Assert.AreEqual(200, saved.GetProperty("status").GetInt32());
+        var reread = await Call(
+            agent,
+            "get_activity_plan",
+            new { tripId = trip.Id, destinationCity = place.CityId }
+        );
+        var current = reread
+            .GetProperty("data")
+            .Deserialize<ActivityPlanResponse>(JsonSerializerOptions.Web)!;
+        Assert.AreEqual(
+            saved.GetProperty("etag").GetString(),
+            reread.GetProperty("etag").GetString()
+        );
+        Assert.IsFalse(string.IsNullOrEmpty(reread.GetProperty("contextVersion").GetString()));
+        var entries = current.SavedAssessment!.Days.Single().Entries;
+        Assert.HasCount(2, entries);
+        var entry = entries.Single(e => e.ActivityId == activity.Id);
+        Assert.AreEqual(DateTimeOffset.Parse("2026-12-28T09:00:00+09:00"), entry.Start);
+        Assert.AreEqual(DateTimeOffset.Parse("2026-12-28T09:15:00+09:00"), entry.End);
+        Assert.AreEqual(
+            DateTimeOffset.Parse("2026-12-28T11:00:00+09:00"),
+            entries.Single(e => e.ActivityId == existing.Id).Start
+        );
+        Assert.AreEqual("Tokyo day", current.Plan.Days[0].Name);
+        Assert.AreEqual(
+            JsonSerializer.Serialize(existingPlan.Rules[0]),
+            JsonSerializer.Serialize(current.Plan.Rules.Single(r => r.ActivityId == existing.Id))
+        );
+        Assert.IsNull(
+            await factory.Database.GetActivityPlanAsync(user.Id, trip.Id, otherPlace.CityId)
+        );
+        Assert.AreEqual(
+            otherActivity,
+            await factory.Database.GetActivityAsync(
+                user.Id,
+                trip.Id,
+                otherPlace.CityId,
+                otherActivity.Id
+            )
+        );
+        var document = await Call(agent, "get_trip_document", new { tripId = trip.Id });
+        var calendar = document
+            .GetProperty("data")
+            .GetProperty("itinerary")
+            .GetProperty("items")
+            .EnumerateArray()
+            .Single(i => i.GetProperty("id").GetString() == activity.Id.ToString());
+        Assert.AreEqual("event", calendar.GetProperty("type").GetString());
+        Assert.AreEqual(
+            DateTimeOffset.Parse("2026-12-28T09:00:00+09:00"),
+            calendar.GetProperty("start").GetDateTimeOffset()
+        );
+        Assert.AreEqual("Asia/Tokyo", calendar.GetProperty("timeZone").GetString());
+        Assert.AreEqual("PT15M", calendar.GetProperty("duration").GetString());
+    }
+
+    [TestMethod]
     public async Task Mcp_DiscoveryExplainsUndatedIdeasAndSeparateScheduling()
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
@@ -91,6 +267,18 @@ public sealed class ActivityPlanningMcpTests
             );
         }
 
+        foreach (string name in new[] { "get_activity_plan", "replace_activity_plan" })
+        {
+            StringAssert.Contains(
+                tools[name]
+                    .GetProperty("inputSchema")
+                    .GetProperty("properties")
+                    .GetProperty("destinationCity")
+                    .GetProperty("description")
+                    .GetString()!,
+                "Destination ID from list_destinations"
+            );
+        }
         var planTool = tools["replace_activity_plan"];
         StringAssert.Contains(planTool.GetProperty("description").GetString()!, "create_activity");
         var plan = planTool

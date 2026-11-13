@@ -44,6 +44,19 @@ public static class ActivityRouteEndpoints
         {
             return error;
         }
+        var (cityId, destinationError) =
+            await PlanningEndpointHelpers.ResolvePlanningDestinationAsync(
+                user!.Id,
+                tripId,
+                destinationCity,
+                database,
+                context.RequestAborted
+            );
+        if (destinationError is not null)
+        {
+            return destinationError;
+        }
+        destinationCity = cityId!;
         var inputs = await planning.ReadAsync(
             user!.Id,
             tripId,
@@ -52,7 +65,7 @@ public static class ActivityRouteEndpoints
         );
         if (inputs is null)
         {
-            return Results.NotFound();
+            return ActivityPlanEndpoints.LookupFailed();
         }
         context.Response.Headers.CacheControl = "no-store";
         if (request.ContextVersion != ActivityPlanningService.ContextVersion(inputs))
