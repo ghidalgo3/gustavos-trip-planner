@@ -6,7 +6,7 @@ namespace TripPlanner.Api.Models;
 [JsonConverter(typeof(StringEnumConverter<ActivityState>))]
 public enum ActivityState
 {
-    Proposed,
-    Planned,
-    Rejected,
+    Maybe,
+    Yes,
+    No,
 }

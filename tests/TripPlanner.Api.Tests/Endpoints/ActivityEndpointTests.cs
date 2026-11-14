@@ -45,7 +45,7 @@ public class ActivityEndpointTests
                 null,
                 "Paintings and sculpture",
                 null,
-                ActivityState.Proposed,
+                ActivityState.Maybe,
                 ["Architecture & design", "夜景"]
             )
             {
@@ -175,7 +175,7 @@ public class ActivityEndpointTests
             "Feature",
             null,
             null,
-            new("Museum", null, "Paintings", null, ActivityState.Proposed, kinds)
+            new("Museum", null, "Paintings", null, ActivityState.Maybe, kinds)
             {
                 Address = "1 museum street",
                 TicketRequirement = tickets,
@@ -625,7 +625,7 @@ public class ActivityEndpointTests
             trip.Id,
             original.Id,
             new("Point", GeographyPoint.Create(latitude: 48.85, longitude: 2.35)),
-            new("Museum", TimeSpan.FromHours(1), "Art", null, ActivityState.Planned, ["Culture"]),
+            new("Museum", TimeSpan.FromHours(1), "Art", null, ActivityState.Yes, ["Culture"]),
             now,
             now
         );
@@ -857,7 +857,7 @@ public class ActivityEndpointTests
                 TimeSpan.FromHours(2),
                 "Sculpture galleries",
                 new(0, "EUR", "perPerson"),
-                ActivityState.Proposed,
+                ActivityState.Maybe,
                 ["Culture"],
                 "Museum"
             )
@@ -880,7 +880,7 @@ public class ActivityEndpointTests
         var created = (
             await createdResponse.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>()
         )!;
-        Assert.AreEqual(ActivityState.Proposed, created.Properties.State);
+        Assert.AreEqual(ActivityState.Maybe, created.Properties.State);
         Assert.AreEqual(0m, created.Properties.Cost!.Amount);
         string resource = $"{url}/{created.Id}";
         var detail = await client.GetAsync(resource);
@@ -891,7 +891,7 @@ public class ActivityEndpointTests
             Properties = input.Properties with
             {
                 Description = "Updated",
-                State = ActivityState.Planned,
+                State = ActivityState.Yes,
             },
         };
         using var replace = new HttpRequestMessage(HttpMethod.Put, resource)
@@ -903,7 +903,7 @@ public class ActivityEndpointTests
         var replaced = await client.SendAsync(replace);
         Assert.AreEqual(HttpStatusCode.OK, replaced.StatusCode);
         Assert.AreEqual(
-            ActivityState.Planned,
+            ActivityState.Yes,
             (await replaced.Content.ReadFromJsonAsync<GeoJsonFeature<ActivityProperties>>())!
                 .Properties
                 .State
@@ -1079,7 +1079,7 @@ public class ActivityEndpointTests
             "Feature",
             null,
             null,
-            new("Museum", null, "", null, ActivityState.Proposed, ["Culture"])
+            new("Museum", null, "", null, ActivityState.Maybe, ["Culture"])
             {
                 Links =
                 [
@@ -1153,7 +1153,7 @@ public class ActivityEndpointTests
                     "Feature",
                     null,
                     null,
-                    new("Museum", null, "", null, ActivityState.Proposed, ["Culture"])
+                    new("Museum", null, "", null, ActivityState.Maybe, ["Culture"])
                     {
                         Links = [new(url)],
                     }

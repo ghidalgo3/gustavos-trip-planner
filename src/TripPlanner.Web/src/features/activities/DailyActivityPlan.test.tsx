@@ -103,7 +103,7 @@ const activities = [first, second].map((id, i) => ({
     kinds: ["Culture" as const],
     address: null,
     ticketRequirement: "Unknown" as const,
-    state: "Planned",
+    state: "Yes",
     placeName: null,
   },
 }));
@@ -1048,7 +1048,7 @@ describe("daily planning", () => {
     },
   );
 
-  it("starts with an empty agenda and directs users to mark Ideas as Planned", async () => {
+  it("starts with an empty agenda and directs users to mark Ideas as Yes", async () => {
     vi.mocked(planningRequest).mockResolvedValueOnce({
       data: {
         ...response,
@@ -1066,7 +1066,7 @@ describe("daily planning", () => {
         {...props}
         activities={activities.map((activity) => ({
           ...activity,
-          properties: { ...activity.properties, state: "Proposed" },
+          properties: { ...activity.properties, state: "Maybe" },
         }))}
         onChooseActivities={choose}
       />,
@@ -1086,7 +1086,7 @@ describe("daily planning", () => {
     expect(planningRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("puts Planned activities in To schedule until the user chooses a day", async () => {
+  it("puts Yes activities in To schedule until the user chooses a day", async () => {
     vi.mocked(planningRequest).mockResolvedValueOnce({
       data: {
         ...response,

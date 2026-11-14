@@ -62,7 +62,7 @@ internal static class ActivityPlanningFixture
                             duration,
                             "",
                             null,
-                            ActivityState.Proposed,
+                            ActivityState.Maybe,
                             ["Culture"]
                         ),
                         Now,
@@ -226,7 +226,7 @@ internal static class ActivityPlanningFixture
             trip.Id,
             place.CityId,
             new("Point", GeographyPoint.Create(latitude: 48.86, longitude: 2.35)),
-            new("Museum", TimeSpan.FromMinutes(90), "", null, ActivityState.Planned, ["Culture"]),
+            new("Museum", TimeSpan.FromMinutes(90), "", null, ActivityState.Yes, ["Culture"]),
             Now,
             Now
         );

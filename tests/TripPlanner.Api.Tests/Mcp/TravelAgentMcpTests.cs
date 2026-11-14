@@ -274,7 +274,7 @@ public sealed class TravelAgentMcpTests
                 "[longitude, latitude]",
                 "Save coordinate source URLs in properties.links",
                 "resolution method, precision classification, verification status and remaining uncertainty",
-                "Preserve every unrelated field, including Proposed, Planned or Rejected state, selection and scheduling",
+                "Preserve every unrelated field, including Maybe, Yes or No state, selection and scheduling",
                 "current Feature and ETag",
                 "current destination contextVersion",
                 "verify that both properties.address and geometry.coordinates persisted correctly",

@@ -13,6 +13,9 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Changed
 
+- Activity planning decisions now use Yes, No, and Maybe. New activities start at
+  Maybe; existing selections and schedules are preserved when stored states are
+  renamed.
 - Trip overview destination cards highlight on hover and open that destination's
   activities when clicked, tapped, or activated with the keyboard.
 

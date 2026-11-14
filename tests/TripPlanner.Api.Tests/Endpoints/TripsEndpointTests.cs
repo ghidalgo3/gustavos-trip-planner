@@ -585,14 +585,7 @@ public class TripsEndpointTests
                     "Feature",
                     null,
                     null,
-                    new(
-                        "Museum",
-                        TimeSpan.FromHours(1),
-                        "",
-                        null,
-                        ActivityState.Proposed,
-                        ["Culture"]
-                    )
+                    new("Museum", TimeSpan.FromHours(1), "", null, ActivityState.Maybe, ["Culture"])
                 )
             ),
         };

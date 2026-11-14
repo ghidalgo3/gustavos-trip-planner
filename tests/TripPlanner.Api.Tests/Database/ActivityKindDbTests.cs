@@ -166,7 +166,7 @@ public sealed class ActivityKindDbTests
             trip.Id,
             place.CityId,
             null,
-            new("Visit", null, "", null, ActivityState.Proposed, kinds),
+            new("Visit", null, "", null, ActivityState.Maybe, kinds),
             now,
             now
         );

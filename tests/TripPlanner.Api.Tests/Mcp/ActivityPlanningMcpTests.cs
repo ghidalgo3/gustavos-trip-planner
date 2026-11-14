@@ -25,7 +25,7 @@ public sealed class ActivityPlanningMcpTests
     }
 
     [TestMethod]
-    public async Task Mcp_SchedulesExistingProposedActivityByCityName_AndPreservesOtherEntries()
+    public async Task Mcp_SchedulesExistingMaybeActivityByCityName_AndPreservesOtherEntries()
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
         using var browser = McpEndpointTests.CreateClient(factory);
@@ -51,7 +51,7 @@ public sealed class ActivityPlanningMcpTests
             {
                 Name = "Submit South Korea e-Arrival Card",
                 Duration = TimeSpan.FromMinutes(15),
-                State = ActivityState.Proposed,
+                State = ActivityState.Maybe,
             },
         };
         var existing = activity with
@@ -60,7 +60,7 @@ public sealed class ActivityPlanningMcpTests
             Properties = activity.Properties with
             {
                 Name = "Existing itinerary entry",
-                State = ActivityState.Planned,
+                State = ActivityState.Yes,
             },
         };
         await factory.Database.SaveActivityAsync(user.Id, existing, place.ContextVersion, null);

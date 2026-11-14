@@ -187,9 +187,9 @@ ordinary activity and accommodation resource updates.
 Manual plans and optimizer proposals use the same method to obtain an assessment.
 
 `PartyRole` and `ActivityState` are C# enums in `Models`. JSON still uses the exact
-names `Traveller` / `Planner` and `Proposed` / `Planned` / `Rejected`, including
+names `Traveller` / `Planner` and `Maybe` / `Yes` / `No`, including
 stored PostgreSQL JSON and MCP tool inputs. Numeric values and unknown names are
-rejected. Existing supported values require no database migration.
+rejected. Migration `0022` renames stored activity states without changing selection or scheduling.
 
 Activity planning uses `TimeOnly` for local clock times, `TimeSpan` for durations,
 and `Microsoft.Spatial.GeographyPoint` for positions. C# uses named `Latitude` and
@@ -458,7 +458,7 @@ and [later milestones](docs/later_milestones.md) for the deferred trip revision 
 
 ## Activity planning
 
-**Overview** is the default trip page at `/trips/{tripId}`. New trips start with an empty itinerary and an **Add destination** button. It opens a modal drawer from the right on laptops and fills the width on phones. Search for a city, select an autocomplete result, and optionally enter visit dates; the drawer does not ask for a country code. Saving closes the drawer and adds a visit to the overview, with a link to its activities. Canceling discards the draft. Overview lists visits chronologically, with undated visits last in itinerary order. Owners can delete a destination from its card after confirming that all visits and activities for that city will be removed. Breadcrumbs link back through Trips, the trip, and the current section; activity planning also shows the selected city. Activity planning opens with destination tabs showing every visit’s dates and an Azure map centered on the selected city. The map fills the content width on phones and laptops. Activity cards below the map provide **Add activity** and card-level **Edit** actions. Both open a drawer; new activities use manual entry and Azure Maps place lookup. Destination tabs share a scroll position. Each activity in the Ideas list has a dropdown showing its current state, with Proposed, Planned, Rejected, and Delete activity options; the same menu is available in map details. Deletion requires confirmation. Read-only members see the state without editing controls. Activities have separate Description and Notes fields: Description explains the activity itself; Notes holds planner-written scheduling details, reminders, and other related information. Both support up to 10,000 characters, grow with their text in the drawer, and are saved with the complete activity. Notes remain visible in read-only details and travel with the exported trip document; they do not enforce scheduling rules. Activities support user-managed URL/label links for details, bookings, or tickets, editable in the activity drawer. Overview cards show activity counts by state, or **Plan Activities** when empty. Narrow flight cards connect the profile’s home city to the first destination, each chronological visit to the next, and the final destination back home. They show matching selected flight numbers (including connections) or **Plan Flights**, linking to the existing flight planner at `/trips/{tripId}/flights`. Located activity cards offer **Open in Maps**, using Apple Maps links on Apple devices and Google Maps links elsewhere, with browser fallback. Destination creation and visit-date editing are on Overview. A single inline calendar selects arrival and departure as a range and highlights other cities’ stays, including repeat visits, with a color legend below the month. Visits can share an arrival/departure day (for example, June 10–15 followed by June 15–20), but cannot overlap inside another visit. The calendar blocks conflicting selections, including ranges spanning another visit; REST and MCP reject conflicting date writes with `409 destination_dates_overlap`. Editing excludes only the current visit, not every visit to its city. PostgreSQL serializes date checks and writes per trip to prevent simultaneous edits from creating overlaps. Map loading and failures are visible, with a retry that fetches a fresh SAS token. **Activities** remains available at `/trips/{tripId}/activities`; flights, stays, and plans are no longer navigation tabs in this first design pass. Trip-wide dates and flexibility controls will follow. The **Choose stay** drawer searches Maps by hotel name or address. Users select a pin to save the accommodation for that visit.
+**Overview** is the default trip page at `/trips/{tripId}`. New trips start with an empty itinerary and an **Add destination** button. It opens a modal drawer from the right on laptops and fills the width on phones. Search for a city, select an autocomplete result, and optionally enter visit dates; the drawer does not ask for a country code. Saving closes the drawer and adds a visit to the overview, with a link to its activities. Canceling discards the draft. Overview lists visits chronologically, with undated visits last in itinerary order. Owners can delete a destination from its card after confirming that all visits and activities for that city will be removed. Breadcrumbs link back through Trips, the trip, and the current section; activity planning also shows the selected city. Activity planning opens with destination tabs showing every visit’s dates and an Azure map centered on the selected city. The map fills the content width on phones and laptops. Activity cards below the map provide **Add activity** and card-level **Edit** actions. Both open a drawer; new activities use manual entry and Azure Maps place lookup. Destination tabs share a scroll position. Each activity in the Ideas list has a dropdown showing its current state, with Yes, No, Maybe, and Delete activity options; the same menu is available in map details. Deletion requires confirmation. Read-only members see the state without editing controls. Activities have separate Description and Notes fields: Description explains the activity itself; Notes holds planner-written scheduling details, reminders, and other related information. Both support up to 10,000 characters, grow with their text in the drawer, and are saved with the complete activity. Notes remain visible in read-only details and travel with the exported trip document; they do not enforce scheduling rules. Activities support user-managed URL/label links for details, bookings, or tickets, editable in the activity drawer. Overview cards show activity counts by state, or **Plan Activities** when empty. Narrow flight cards connect the profile’s home city to the first destination, each chronological visit to the next, and the final destination back home. They show matching selected flight numbers (including connections) or **Plan Flights**, linking to the existing flight planner at `/trips/{tripId}/flights`. Located activity cards offer **Open in Maps**, using Apple Maps links on Apple devices and Google Maps links elsewhere, with browser fallback. Destination creation and visit-date editing are on Overview. A single inline calendar selects arrival and departure as a range and highlights other cities’ stays, including repeat visits, with a color legend below the month. Visits can share an arrival/departure day (for example, June 10–15 followed by June 15–20), but cannot overlap inside another visit. The calendar blocks conflicting selections, including ranges spanning another visit; REST and MCP reject conflicting date writes with `409 destination_dates_overlap`. Editing excludes only the current visit, not every visit to its city. PostgreSQL serializes date checks and writes per trip to prevent simultaneous edits from creating overlaps. Map loading and failures are visible, with a retry that fetches a fresh SAS token. **Activities** remains available at `/trips/{tripId}/activities`; flights, stays, and plans are no longer navigation tabs in this first design pass. Trip-wide dates and flexibility controls will follow. The **Choose stay** drawer searches Maps by hotel name or address. Users select a pin to save the accommodation for that visit.
 
 `GET /trips/{tripId}/destinations` returns an `application/geo+json` FeatureCollection, empty for a new trip. `POST` to the same route accepts a destination GeoJSON Feature with required Point coordinates from the selected autocomplete result and properties `name`, `countryCode`, optional object `constraints`, and optional `arrivalDate` and `departureDate`. The country code remains API metadata rather than a form field. `PUT /trips/{tripId}/destinations/{destinationCity}/stays/{stayId}` replaces its optional dates; `DELETE` removes the visit. `?includeInactive=true` includes cached past cities. `GET /trips/{tripId}/destinations/{destinationCity}` returns a city Feature. Under that city, `GET` and `POST /activities` list and create complete activity Features, and `GET`, `PUT`, and `DELETE /activities/{activityId}` read, replace, and remove one. Activity writes require the city's `contextVersion` in `Destination-Context`; replacements and deletes also require the current activity ETag in `If-Match`.
 
@@ -650,7 +650,7 @@ ideas from scheduling. Agents should first create or reuse an undated idea such 
 **Insadong crafts, tea, and Jogyesa**, then read `get_activity_plan` and use
 `replace_activity_plan` to select and place its ID on the requested visit/date.
 Requested times and dates belong in plan `rules` (`fixedDate`/`fixedStart`), with
-ordered activity IDs in `days`; `Planned` alone means selected, not scheduled.
+ordered activity IDs in `days`; `Yes` alone means selected, not scheduled.
 `days[].stayId` is the destination visit ID from `context.visits`, not the hotel ID.
 Names and descriptions should not carry itinerary dates or day numbers. These are
 agent instructions; existing activity names are preserved, and genuine dated event
@@ -774,13 +774,13 @@ SQL migrator; no schemas need to be dropped.
 ## Activity selection and daily planning (milestone 3)
 
 Activities now has **Ideas** and **Plan** views. Ideas are grouped by state
-(Proposed, Planned, Rejected, and any custom states), with counts and independently
+(Maybe, Yes, No), with counts and independently
 collapsible group headers. Map marker numbers stay consistent across groups.
 A plan selects activities,
 assigns each activity at most once across repeat visits, and orders each day.
-Plan opens as an agenda. Its map shows only Planned activities (along with the stay).
+Plan opens as an agenda. Its map shows only activities marked Yes (along with the stay).
 It starts empty until activities are marked
-**Planned** in Ideas. Every dated visit day appears, including days with no activities.
+**Yes** in Ideas. Every dated visit day appears, including days with no activities.
 Tap a day header to collapse or expand its activities and daily routines.
 Selected flights, including individually saved legs of an incomplete itinerary,
 appear in the agenda with departure and arrival airports, dates,
@@ -900,8 +900,8 @@ Unknown durations, travel and hours stay provisional with explicit assumptions.
 Durable proposal jobs use OR-Tools CP-SAT, publish partial results, and return
 reviewable alternatives and incremental changes. Neither research nor optimization
 changes the saved plan. Plan replacements require both `If-Match` and the returned
-input `contextVersion`; stale proposals must be regenerated. Existing Planned
-activities start selected and unscheduled. All new shared mutations use the Activity
+input `contextVersion`; stale proposals must be regenerated. Existing activities marked Yes
+start selected and unscheduled. All new shared mutations use the Activity
 Log. Migration `0011_ActivityPlanning.sql` adds the documents, jobs, evidence,
 concurrency counters, reference maintenance, and hashed calendar tokens.
 
@@ -1173,7 +1173,7 @@ cross-field/domain checks still run in the existing handlers.
 
 | Input | Contract |
 | --- | --- |
-| Activity state | Exactly `Proposed`, `Planned`, or `Rejected` (case-sensitive) |
+| Activity state | Exactly `Yes`, `No`, or `Maybe` (case-sensitive) |
 | Activity duration / cost | Duration is null or 1–10080 minutes; cost is nonnegative, with a three-letter currency and `perPerson` or `total` basis |
 | Activity text / links | Name 1–200, description 0–10000, place name up to 200 characters; up to 20 absolute HTTP(S) links, URL up to 2048 and label up to 200 characters; URL credentials are forbidden |
 | GeoJSON | `Feature` and `Point` literals; exactly `[longitude, latitude]`, finite and within ±180/±90 |

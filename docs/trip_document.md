@@ -34,7 +34,7 @@ Each calendar item has `id`, `name`, `kind`, `type`, and `busy`:
 
 An item with a known start is an `event`; an unscheduled item is a `task`.
 Scheduling an activity keeps its ID and details and changes its type to `event`.
-An activity retains its Proposed/Planned/Rejected `state` and separate
+An activity retains its Maybe/Yes/No `state` and separate
 Selected/Excluded/Unassigned `selection`. Unselected ideas remain available as
 tasks rather than disappearing from the file.
 

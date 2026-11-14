@@ -74,14 +74,7 @@ public sealed class TripDocumentResourceTests
             trip.Id,
             place.CityId,
             null,
-            new(
-                "Museum",
-                TimeSpan.FromHours(2),
-                "An idea",
-                null,
-                ActivityState.Proposed,
-                ["Culture"]
-            ),
+            new("Museum", TimeSpan.FromHours(2), "An idea", null, ActivityState.Maybe, ["Culture"]),
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow
         );
@@ -155,7 +148,7 @@ public sealed class TripDocumentResourceTests
         using var transportation = await client.GetAsync($"/trips/{trip.Id}/transportation");
         Assert.AreEqual(HttpStatusCode.OK, transportation.StatusCode);
         var idea = items.Single(item => item["id"]!.GetValue<string>() == activity.Id.ToString());
-        Assert.AreEqual("Proposed", idea["state"]!.GetValue<string>());
+        Assert.AreEqual("Maybe", idea["state"]!.GetValue<string>());
         Assert.AreEqual("task", idea["type"]!.GetValue<string>());
         Assert.IsFalse(idea.ContainsKey("start"));
         using var individual = await client.GetAsync(

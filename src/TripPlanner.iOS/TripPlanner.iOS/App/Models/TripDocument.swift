@@ -188,12 +188,14 @@ private extension JSONValue {
 /// Activity facts remain independent of their itinerary dates and times.
 struct TripDocumentActivity: Equatable {
     enum TicketRequirement: String { case Unknown, Required, NotRequired }
+    enum PlanningState: String { case Yes, No, Maybe }
     let id: String
     let name: String
     let destinationID: String
     let kinds: [String]
     let address: String?
     let ticketRequirement: TicketRequirement
+    let state: PlanningState
     let description: String
     let notes: String
     let links: JSONValue
@@ -207,7 +209,8 @@ struct TripDocumentActivity: Equatable {
               !kinds.isEmpty, kinds.count == rawValues.count,
               Set(kinds).count == kinds.count,
               kinds.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= 200 }),
-              let ticket = value["ticketRequirement"].stringValue.flatMap(TicketRequirement.init(rawValue:)) else {
+              let ticket = value["ticketRequirement"].stringValue.flatMap(TicketRequirement.init(rawValue:)),
+              let state = value["state"].stringValue.flatMap(PlanningState.init(rawValue:)) else {
             throw APIError.invalidResponse
         }
         self.id = id
@@ -216,6 +219,7 @@ struct TripDocumentActivity: Equatable {
         self.kinds = kinds
         address = value["address"].stringValue
         ticketRequirement = ticket
+        self.state = state
         description = value["description"].stringValue ?? ""
         notes = value["notes"].stringValue ?? ""
         links = value["links"]

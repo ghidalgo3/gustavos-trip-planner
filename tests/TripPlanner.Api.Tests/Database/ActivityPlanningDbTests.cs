@@ -11,6 +11,131 @@ namespace TripPlanner.Api.Tests.Database;
 [TestClass]
 public sealed class ActivityPlanningDbTests
 {
+    [TestMethod]
+    public async Task DecisionStateMigrationPreservesSelectionsSchedulesAndRules()
+    {
+        await TripReadPostgresTests.WithDatabase(
+            async (source, db) =>
+            {
+                var user = await db.GetOrCreateUserAsync(
+                    new("google", "decisions@example.com", "Planner")
+                );
+                user = await db.SetUserProfileAsync(user.Id, new(new("Boston", -71, 42), []));
+                var (trip, _, place, activity) = await ActivityPlanningFixture.SeedDatabase(
+                    db,
+                    user
+                );
+                foreach (var state in new[] { ActivityState.Maybe, ActivityState.No })
+                {
+                    await db.SaveActivityAsync(
+                        user.Id,
+                        activity with
+                        {
+                            Id = Guid.NewGuid(),
+                            Properties = activity.Properties with
+                            {
+                                Name = state.ToString(),
+                                State = state,
+                            },
+                        },
+                        place.ContextVersion,
+                        null
+                    );
+                }
+                var service = new ActivityPlanningService(
+                    db,
+                    new(new AirportCatalog()),
+                    TimeProvider.System,
+                    new UnusedMaps()
+                );
+                var context = (
+                    await service.ReadAsync(user.Id, trip.Id, place.CityId, CancellationToken.None)
+                )!;
+                var plan = ActivityPlanningFixture.Plan(context with { Activities = [activity] });
+                plan = plan with
+                {
+                    ExcludedActivityIds =
+                    [
+                        context.Activities.Single(a => a.Properties.State == ActivityState.No).Id,
+                    ],
+                };
+                var saved = await db.SaveActivityPlanAsync(
+                    user.Id,
+                    trip.Id,
+                    place.CityId,
+                    new(
+                        plan,
+                        context.Evaluate(plan, ActivityPlanningFixture.Now),
+                        0,
+                        context.InputRevision,
+                        ActivityPlanningFixture.Now
+                    ),
+                    0,
+                    context.InputRevision
+                );
+                Assert.IsNotNull(saved);
+                var before = System.Text.Json.JsonSerializer.Serialize(saved.Plan);
+
+                // Restore the previous release's states and trigger before applying the upgrade.
+                await using (
+                    var definition = source.CreateCommand(
+                        "SELECT pg_get_functiondef('reconcile_activity_plan_references()'::regprocedure)"
+                    )
+                )
+                {
+                    var oldFunction = ((string)(await definition.ExecuteScalarAsync())!)
+                        .Replace("'Yes'", "'Planned'")
+                        .Replace("'No'", "'Rejected'");
+                    await using var restore = source.CreateCommand(oldFunction);
+                    await restore.ExecuteNonQueryAsync();
+                }
+                await using (
+                    var seed = source.CreateCommand(
+                        """
+                        ALTER TABLE activities DISABLE TRIGGER reconcile_planning_activities;
+                        UPDATE activities SET properties=jsonb_set(properties,'{state}',to_jsonb(
+                            CASE properties->>'state' WHEN 'Yes' THEN 'Planned' WHEN 'No' THEN 'Rejected' ELSE 'Proposed' END));
+                        ALTER TABLE activities ENABLE TRIGGER reconcile_planning_activities;
+                        DELETE FROM schema_migrations WHERE version=22;
+                        """
+                    )
+                )
+                {
+                    await seed.ExecuteNonQueryAsync();
+                }
+                await new DatabaseMigrator(
+                    source,
+                    NullLogger<DatabaseMigrator>.Instance
+                ).MigrateAsync();
+
+                var activities = await db.GetActivitiesAsync(user.Id, trip.Id, place.CityId);
+                CollectionAssert.AreEquivalent(
+                    new[] { ActivityState.Yes, ActivityState.No, ActivityState.Maybe },
+                    activities.Select(a => a.Properties.State).ToArray()
+                );
+                var after = (await db.GetActivityPlanAsync(user.Id, trip.Id, place.CityId))!;
+                Assert.AreEqual(before, System.Text.Json.JsonSerializer.Serialize(after.Plan));
+
+                var maybe = activities.Single(a => a.Properties.State == ActivityState.Maybe);
+                await db.SaveActivityAsync(
+                    user.Id,
+                    maybe with
+                    {
+                        Properties = maybe.Properties with { State = ActivityState.Yes },
+                    },
+                    place.ContextVersion,
+                    maybe.UpdatedAt
+                );
+                after = (await db.GetActivityPlanAsync(user.Id, trip.Id, place.CityId))!;
+                Assert.Contains(maybe.Id, after.Plan.SelectedActivityIds);
+                Assert.Contains(
+                    activity.Id,
+                    after.Plan.Days.SelectMany(d => d.ActivityIds).ToArray()
+                );
+            }
+        );
+    }
+
     private sealed class UnusedMaps : AzureMapsStub
     {
         public override Task<string?> ResolveTimeZoneAsync(
@@ -91,7 +216,7 @@ public sealed class ActivityPlanningDbTests
             );
             var rejected = activity with
             {
-                Properties = activity.Properties with { State = ActivityState.Rejected },
+                Properties = activity.Properties with { State = ActivityState.No },
                 UpdatedAt = ActivityPlanningFixture.Now.AddMinutes(1),
             };
             Assert.IsNotNull(

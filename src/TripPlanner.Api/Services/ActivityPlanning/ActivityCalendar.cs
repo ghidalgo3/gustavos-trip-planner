@@ -37,7 +37,7 @@ public static class ActivityCalendar
                         && d.ActivityIds.Contains(entry.ActivityId)
                     )
                     || !activities.Any(a =>
-                        a.Id == entry.ActivityId && a.Properties.State == ActivityState.Planned
+                        a.Id == entry.ActivityId && a.Properties.State == ActivityState.Yes
                     )
                     || !visits.Any(v => v.StayId == entry.StayId)
                 )

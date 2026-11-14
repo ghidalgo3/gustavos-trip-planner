@@ -197,7 +197,7 @@ public sealed class AgentOwnedResearchTests
                                 description = "Research supplied by the caller's agent.",
                                 duration = "PT1H",
                                 cost = (object?)null,
-                                state = "Proposed",
+                                state = "Maybe",
                                 kinds = new[] { "Food", "Vegan dining", "郷土料理" },
                                 address,
                                 ticketRequirement = "Unknown",
@@ -261,19 +261,19 @@ public sealed class AgentOwnedResearchTests
     }
 
     [TestMethod]
-    [DataRow(ActivityState.Proposed, "missing", true)]
-    [DataRow(ActivityState.Planned, "missing", true)]
-    [DataRow(ActivityState.Rejected, "missing", true)]
-    [DataRow(ActivityState.Proposed, "failure", true)]
-    [DataRow(ActivityState.Planned, "failure", true)]
-    [DataRow(ActivityState.Rejected, "failure", true)]
-    [DataRow(ActivityState.Planned, "ambiguous", true)]
-    [DataRow(ActivityState.Planned, "multiple", true)]
-    [DataRow(ActivityState.Planned, "medium", true)]
-    [DataRow(ActivityState.Planned, "incorrect", true)]
-    [DataRow(ActivityState.Proposed, "failure", false)]
-    [DataRow(ActivityState.Planned, "failure", false)]
-    [DataRow(ActivityState.Rejected, "failure", false)]
+    [DataRow(ActivityState.Maybe, "missing", true)]
+    [DataRow(ActivityState.Yes, "missing", true)]
+    [DataRow(ActivityState.No, "missing", true)]
+    [DataRow(ActivityState.Maybe, "failure", true)]
+    [DataRow(ActivityState.Yes, "failure", true)]
+    [DataRow(ActivityState.No, "failure", true)]
+    [DataRow(ActivityState.Yes, "ambiguous", true)]
+    [DataRow(ActivityState.Yes, "multiple", true)]
+    [DataRow(ActivityState.Yes, "medium", true)]
+    [DataRow(ActivityState.Yes, "incorrect", true)]
+    [DataRow(ActivityState.Maybe, "failure", false)]
+    [DataRow(ActivityState.Yes, "failure", false)]
+    [DataRow(ActivityState.No, "failure", false)]
     public async Task LocationUpdatePersistsIndependentResearchWithoutChangingStateOrPlan(
         ActivityState state,
         string outcome,
@@ -328,7 +328,7 @@ public sealed class AgentOwnedResearchTests
         };
         var planArgs = new { tripId = trip.Id, destinationCity = place.CityId };
         var planBefore = await Call(agent, "get_activity_plan", planArgs);
-        if (state == ActivityState.Planned)
+        if (state == ActivityState.Yes)
         {
             var plan = JsonNode.Parse(
                 planBefore.GetProperty("data").GetProperty("plan").GetRawText()

@@ -174,7 +174,7 @@ public sealed class TripReadPostgresTests
                 await using (
                     var seed = source.CreateCommand(
                         """
-                        WITH pending AS (DELETE FROM schema_migrations WHERE version = 20)
+                        WITH pending AS (DELETE FROM schema_migrations WHERE version IN (20, 22))
                         INSERT INTO activities(id, trip_id, city_id, properties)
                         VALUES (gen_random_uuid(), $1, $2, '{"name":"Museum","description":"","state":"idea"}');
                         """
@@ -199,7 +199,7 @@ public sealed class TripReadPostgresTests
                 Assert.IsNotNull(readView);
                 var activity = readView.Activities.Single();
                 Assert.AreEqual("Museum", activity.Properties.Name);
-                Assert.AreEqual(ActivityState.Proposed, activity.Properties.State);
+                Assert.AreEqual(ActivityState.Maybe, activity.Properties.State);
             }
         );
     }

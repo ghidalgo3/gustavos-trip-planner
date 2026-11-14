@@ -165,10 +165,10 @@ public sealed partial class PostgresPlannerDb
                 var states = new NpgsqlCommand(
                     """
                     UPDATE activities SET properties=properties || jsonb_build_object('state',
-                        CASE WHEN id=ANY($3) THEN 'Planned' WHEN id=ANY($4) THEN 'Rejected' ELSE 'Proposed' END),updated_at=clock_timestamp()
+                        CASE WHEN id=ANY($3) THEN 'Yes' WHEN id=ANY($4) THEN 'No' ELSE 'Maybe' END),updated_at=clock_timestamp()
                     WHERE trip_id=$1 AND city_id=$2 AND properties->>'state' IS DISTINCT FROM
-                        CASE WHEN id=ANY($3) THEN 'Planned' WHEN id=ANY($4) THEN 'Rejected'
-                            WHEN properties->>'state' IN ('Planned','Rejected') THEN 'Proposed' ELSE properties->>'state' END;
+                        CASE WHEN id=ANY($3) THEN 'Yes' WHEN id=ANY($4) THEN 'No'
+                            WHEN properties->>'state' IN ('Yes','No') THEN 'Maybe' ELSE properties->>'state' END;
                     """,
                     connection,
                     transaction

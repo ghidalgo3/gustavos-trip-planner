@@ -146,7 +146,7 @@ public class InputValidationTests
             "string"
         );
         CollectionAssert.AreEquivalent(
-            new[] { "Proposed", "Planned", "Rejected" },
+            new[] { "Maybe", "Yes", "No" },
             Resolve(activity.GetProperty("state"))
                 .GetProperty("enum")
                 .EnumerateArray()
@@ -441,7 +441,7 @@ public class InputValidationTests
                 TimeSpan.FromHours(1),
                 "Art",
                 new(10, "EUR", "perPerson"),
-                ActivityState.Proposed,
+                ActivityState.Maybe,
                 ["Culture"]
             )
         );
@@ -525,7 +525,7 @@ public class InputValidationTests
         }
         var saved = await factory.Database.GetActivitiesAsync(user.Id, trip.Id, destination.Id);
         Assert.HasCount(1, saved);
-        Assert.AreEqual(ActivityState.Proposed, saved[0].Properties.State);
+        Assert.AreEqual(ActivityState.Maybe, saved[0].Properties.State);
         Assert.HasCount(
             logCount,
             (await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log"))!.Entries
@@ -533,9 +533,9 @@ public class InputValidationTests
     }
 
     [TestMethod]
-    [DataRow("Proposed")]
-    [DataRow("Planned")]
-    [DataRow("Rejected")]
+    [DataRow("Maybe")]
+    [DataRow("Yes")]
+    [DataRow("No")]
     public async Task ActivityStates_AcceptAllSupportedValues(string state)
     {
         await using var factory = new TestApplicationFactory();
@@ -626,7 +626,7 @@ public class InputValidationTests
         var activity = schema.GetProperty("request").GetProperty("properties");
         var props = activity.GetProperty("properties").GetProperty("properties");
         CollectionAssert.AreEquivalent(
-            new[] { "Proposed", "Planned", "Rejected" },
+            new[] { "Maybe", "Yes", "No" },
             props
                 .GetProperty("state")
                 .GetProperty("enum")

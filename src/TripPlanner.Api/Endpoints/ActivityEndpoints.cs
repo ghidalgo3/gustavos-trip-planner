@@ -411,7 +411,7 @@ public static class ActivityEndpoints
             return Results.BadRequest(
                 new
                 {
-                    title = "Check the activity name, description, notes, and duration. State must be Proposed, Planned, or Rejected.",
+                    title = "Check the activity name, description, notes, and duration. State must be Maybe, Yes, or No.",
                 }
             );
         }

@@ -618,7 +618,7 @@ public sealed class PlannerDbTests
             trip.Id,
             place.CityId,
             null,
-            new("Museum", TimeSpan.FromHours(1), "", null, ActivityState.Proposed, ["Culture"]),
+            new("Museum", TimeSpan.FromHours(1), "", null, ActivityState.Maybe, ["Culture"]),
             now,
             now
         );
@@ -742,7 +742,7 @@ public sealed class PlannerDbTests
             trip.Id,
             "paris-fr",
             null,
-            new("Museum", null, "", null, ActivityState.Planned, ["Culture"])
+            new("Museum", null, "", null, ActivityState.Yes, ["Culture"])
             {
                 Links = [new("https://museum.example/tickets", "Tickets")],
             },

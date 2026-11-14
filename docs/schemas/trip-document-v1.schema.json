@@ -548,9 +548,9 @@
             },
             "state": {
               "enum": [
-                "Proposed",
-                "Planned",
-                "Rejected"
+                "Maybe",
+                "Yes",
+                "No"
               ]
             },
             "placeName": {

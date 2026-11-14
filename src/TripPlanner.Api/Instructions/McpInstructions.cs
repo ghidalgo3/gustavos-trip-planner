@@ -28,7 +28,7 @@ public static class McpInstructions
         Each visit has its own accommodation at properties.stays[].stayLocation in list_destinations.
         Use replace_visit_stay_location or delete_visit_stay_location for the specific stayId; never assume repeat visits use the same hotel.
         Add rules with activityId and fixedDate/fixedStart for requested scheduling anchors.
-        Planned state alone selects an activity; it does not schedule it.
+        Yes state alone selects an activity; it does not schedule it.
         Preserve unrelated plan fields and restrictions.
         Use your own model and browsing tools for research; TripPlanner does not execute or pay for language-model calls.
         Duration and cost research are previews: show sources, estimates and pricing conditions before applying accepted values and their evidence with update_activity.
@@ -123,7 +123,7 @@ public static class McpInstructions
             If browsing is unavailable, disclose the limitation rather than claiming research or verification.
             6. Persist the complete Feature using create_activity or update_activity.
             For an existing activity, first call get_activity for its current Feature and ETag and list_destinations for the current destination contextVersion.
-            Preserve every unrelated field, including Proposed, Planned or Rejected state, selection and scheduling; location resolution must not change these.
+            Preserve every unrelated field, including Maybe, Yes or No state, selection and scheduling; location resolution must not change these.
             Save the researched address in properties.address even when coordinates remain unresolved.
             Put reliably supported coordinates in geometry as a GeoJSON Point in [longitude, latitude] order.
             Save coordinate source URLs in properties.links and record resolution method, precision classification, verification status and remaining uncertainty in properties.description, preserving existing description content.
@@ -274,7 +274,7 @@ public static class McpInstructions
             Read back with get_activity to verify address and geometry.
             Keep itinerary dates, start times and day numbers out of its name and description.
             To fulfill a requested date/time, create the idea first, then read get_activity_plan and use replace_activity_plan to place its returned ID and set fixedDate/fixedStart restrictions.
-            Planned state alone does not schedule it.
+            Yes state alone does not schedule it.
             Supply contextVersion from list_destinations.
             Returns ETag.
             Requires planning permission.
@@ -283,9 +283,9 @@ public static class McpInstructions
         public const string UpdateActivity = """
             Replace the complete activity idea Feature.
             Keep its definition independent of itinerary dates, start times and day numbers; change scheduling through get_activity_plan and replace_activity_plan, not through the activity name or description.
-            Planned state alone does not schedule it.
+            Yes state alone does not schedule it.
             Preserve unrelated fields including description, notes, kinds, address, ticketRequirement and links.
-            Location resolution must preserve Proposed, Planned or Rejected state, selection and scheduling.
+            Location resolution must preserve Maybe, Yes or No state, selection and scheduling.
             Follow the mandatory geographic workflow in get_planning_context: independently search the web after null, failed, ambiguous or geographically inconsistent geocoding results before declaring Unresolved.
             Save independently verified coordinates directly without requiring geocode_address validation.
             Always persist a researched address in properties.address even if geometry remains unresolved; retain a previously verified, more precise address.
@@ -320,7 +320,7 @@ public static class McpInstructions
             A destination without a saved plan returns an initial plan with version 0, ETag and contextVersion; save it with replace_activity_plan.
             Read after creating activity ideas and before placing their IDs on dates/times with replace_activity_plan.
             context.visits supplies destination visit IDs for days[].stayId; these are not accommodation IDs.
-            Planned activities may be selected but unscheduled.
+            Activities marked Yes may be selected but unscheduled.
             Stale saved calendar timing remains fixed until an updated plan is accepted.
             """;
 
@@ -507,7 +507,7 @@ public static class McpInstructions
             """;
 
         public const string ActivityState =
-            "Proposed is an idea; Planned selects it for the plan but does not assign a day or time; Rejected excludes it.";
+            "Maybe is an idea; Yes selects it for the plan but does not assign a day or time; No excludes it.";
 
         public const string ActivityKinds = """
             One or more unique, nonblank, free-form kind labels (up to 200 characters each).

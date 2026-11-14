@@ -37,7 +37,7 @@ public sealed class ActivityPlanRulesTests
             [
                 s.Activities[0] with
                 {
-                    Properties = s.Activities[0].Properties with { State = ActivityState.Planned },
+                    Properties = s.Activities[0].Properties with { State = ActivityState.Yes },
                 },
             ],
         };

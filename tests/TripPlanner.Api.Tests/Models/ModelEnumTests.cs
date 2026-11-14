@@ -7,9 +7,9 @@ namespace TripPlanner.Api.Tests.Models;
 public sealed class ModelEnumTests
 {
     [TestMethod]
-    [DataRow(ActivityState.Proposed, "Proposed")]
-    [DataRow(ActivityState.Planned, "Planned")]
-    [DataRow(ActivityState.Rejected, "Rejected")]
+    [DataRow(ActivityState.Maybe, "Maybe")]
+    [DataRow(ActivityState.Yes, "Yes")]
+    [DataRow(ActivityState.No, "No")]
     public void ActivityStates_RoundTripExistingStoredJson(ActivityState state, string name)
     {
         string json =
@@ -44,6 +44,10 @@ public sealed class ModelEnumTests
     [DataRow(typeof(ActivityState), "99")]
     [DataRow(typeof(ActivityState), "\"0\"")]
     [DataRow(typeof(ActivityState), "\"planned\"")]
+    [DataRow(typeof(ActivityState), "\"yes\"")]
+    [DataRow(typeof(ActivityState), "\"Proposed\"")]
+    [DataRow(typeof(ActivityState), "\"Planned\"")]
+    [DataRow(typeof(ActivityState), "\"Rejected\"")]
     [DataRow(typeof(ActivityState), "\"Booked\"")]
     [DataRow(typeof(PartyRole), "0")]
     [DataRow(typeof(PartyRole), "99")]

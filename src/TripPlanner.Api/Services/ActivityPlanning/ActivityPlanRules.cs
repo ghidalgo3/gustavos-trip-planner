@@ -92,10 +92,9 @@ public static class ActivityPlanRules
     }
 
     public static ActivityState SelectionState(Activity activity, ActivityPlan plan) =>
-        plan.SelectedActivityIds.Contains(activity.Id) ? ActivityState.Planned
-        : plan.ExcludedActivityIds.Contains(activity.Id) ? ActivityState.Rejected
-        : activity.Properties.State is ActivityState.Planned or ActivityState.Rejected
-            ? ActivityState.Proposed
+        plan.SelectedActivityIds.Contains(activity.Id) ? ActivityState.Yes
+        : plan.ExcludedActivityIds.Contains(activity.Id) ? ActivityState.No
+        : activity.Properties.State is ActivityState.Yes or ActivityState.No ? ActivityState.Maybe
         : activity.Properties.State;
 
     public static ActivityPlan Reconcile(
@@ -106,12 +105,12 @@ public static class ActivityPlanRules
     {
         var available = activities.Select(a => a.Id).ToHashSet();
         var selected = activities
-            .Where(a => a.Properties.State == ActivityState.Planned)
+            .Where(a => a.Properties.State == ActivityState.Yes)
             .Select(a => a.Id)
             .Order()
             .ToArray();
         var excluded = activities
-            .Where(a => a.Properties.State == ActivityState.Rejected)
+            .Where(a => a.Properties.State == ActivityState.No)
             .Select(a => a.Id)
             .Order()
             .ToArray();

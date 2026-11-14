@@ -437,7 +437,7 @@ export default function ActivityAgenda({
           <p>
             {readOnly
               ? "No activities have been planned yet."
-              : "Start in Ideas. Mark an activity Planned to add it here, then choose a day when you’re ready."}
+              : "Start in Ideas. Choose Yes for an activity to add it here, then choose a day when you’re ready."}
           </p>
         </section>
       )}

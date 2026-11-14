@@ -106,7 +106,7 @@ const emptyActivity = (): ActivityInput => ({
     description: "",
     notes: "",
     cost: null,
-    state: "Proposed",
+    state: "Maybe",
     kinds: [],
     address: null,
     ticketRequirement: "Unknown",
@@ -226,7 +226,7 @@ export default function ActivityPlanning({
     group.push({ item, index });
     groups.set(item.properties.state, group);
   });
-  const stateOrder = ["Proposed", "Planned", "Rejected"];
+  const stateOrder = ["Maybe", "Yes", "No"];
   const groupedActivities = [...groups].sort(([a], [b]) => {
     const rank = (state: string) =>
       stateOrder.includes(state)
@@ -300,7 +300,7 @@ export default function ActivityPlanning({
   const savedActivitiesForMap =
     activityView === "daily"
       ? activities.features.filter(
-          (activity) => activity.properties.state === "Planned",
+          (activity) => activity.properties.state === "Yes",
         )
       : activities.features;
   const draftOnMap =
@@ -693,13 +693,11 @@ export default function ActivityPlanning({
         </MenuTrigger>
         <MenuPopover onClick={(event) => event.stopPropagation()}>
           <MenuList>
-            {Array.from(new Set(["Proposed", "Planned", "Rejected"])).map(
-              (state) => (
-                <MenuItemRadio key={state} name="state" value={state}>
-                  {state}
-                </MenuItemRadio>
-              ),
-            )}
+            {Array.from(new Set(["Maybe", "Yes", "No"])).map((state) => (
+              <MenuItemRadio key={state} name="state" value={state}>
+                {state}
+              </MenuItemRadio>
+            ))}
             <MenuDivider />
             <MenuItem
               className="activity-delete-menu-item"
@@ -1289,17 +1287,17 @@ export default function ActivityPlanning({
                       </MenuTrigger>
                       <MenuPopover>
                         <MenuList>
-                          {Array.from(
-                            new Set(["Proposed", "Planned", "Rejected"]),
-                          ).map((state) => (
-                            <MenuItemRadio
-                              key={state}
-                              name="state"
-                              value={state}
-                            >
-                              {state}
-                            </MenuItemRadio>
-                          ))}
+                          {Array.from(new Set(["Maybe", "Yes", "No"])).map(
+                            (state) => (
+                              <MenuItemRadio
+                                key={state}
+                                name="state"
+                                value={state}
+                              >
+                                {state}
+                              </MenuItemRadio>
+                            ),
+                          )}
                         </MenuList>
                       </MenuPopover>
                     </Menu>

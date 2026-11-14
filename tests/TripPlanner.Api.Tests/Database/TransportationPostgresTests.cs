@@ -66,7 +66,7 @@ public sealed class TransportationPostgresTests
                             TimeSpan.FromHours(1),
                             "",
                             null,
-                            ActivityState.Proposed,
+                            ActivityState.Maybe,
                             ["museum"]
                         ),
                         DateTimeOffset.UtcNow,
@@ -229,7 +229,7 @@ public sealed class TransportationPostgresTests
                                 null,
                                 "",
                                 null,
-                                ActivityState.Proposed,
+                                ActivityState.Maybe,
                                 ["museum"]
                             ),
                             DateTimeOffset.UtcNow,

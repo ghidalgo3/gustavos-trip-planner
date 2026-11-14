@@ -20,7 +20,7 @@ public sealed class ActivityCalendarTests
                 {
                     Properties = planningContext.Activities[0].Properties with
                     {
-                        State = ActivityState.Planned,
+                        State = ActivityState.Yes,
                         Name = new string('é', 80) + ", museum; visit\nTomorrow",
                     },
                 },

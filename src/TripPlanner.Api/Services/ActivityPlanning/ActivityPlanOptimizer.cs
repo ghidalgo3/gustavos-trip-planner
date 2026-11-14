@@ -74,7 +74,7 @@ public sealed class ActivityPlanOptimizer(
         }
         if (scheduleSelected && job.Plan.SelectedActivityIds.Length == 0)
         {
-            warnings.Add("Mark activities Planned before asking to schedule them.");
+            warnings.Add("Choose Yes for activities before asking to schedule them.");
             return Result("insufficient_evidence");
         }
         var zone = ActivityPlanRules.Zone(

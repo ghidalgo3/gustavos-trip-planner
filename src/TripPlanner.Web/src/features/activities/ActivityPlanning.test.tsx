@@ -215,7 +215,7 @@ const activity: Activity = {
     kinds: ["Culture" as const],
     address: null,
     ticketRequirement: "Unknown" as const,
-    state: "Proposed",
+    state: "Maybe",
     placeName: "Louvre, Paris",
   },
 };
@@ -339,7 +339,7 @@ test("selecting a Plan travel step opens the map and forwards its route; closing
   ).not.toBeInTheDocument();
 });
 
-test("Plan shows only Planned activity bubbles, and Ideas restores the others", async () => {
+test("Plan shows only activity bubbles marked Yes, and Ideas restores the others", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
     features: [
@@ -353,7 +353,7 @@ test("Plan shows only Planned activity bubbles, and Ideas restores the others", 
           kinds: ["Culture" as const],
           address: null,
           ticketRequirement: "Unknown" as const,
-          state: "Planned",
+          state: "Yes",
         },
       },
       {
@@ -361,11 +361,11 @@ test("Plan shows only Planned activity bubbles, and Ideas restores the others", 
         id: "rejected",
         properties: {
           ...activity.properties,
-          name: "Rejected place",
+          name: "Excluded place",
           kinds: ["Culture" as const],
           address: null,
           ticketRequirement: "Unknown" as const,
-          state: "Rejected",
+          state: "No",
         },
       },
     ],
@@ -385,14 +385,14 @@ test("Plan shows only Planned activity bubbles, and Ideas restores the others", 
     screen.queryByRole("button", { name: "Map marker: Louvre" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: "Map marker: Rejected place" }),
+    screen.queryByRole("button", { name: "Map marker: Excluded place" }),
   ).not.toBeInTheDocument();
   click(screen.getByRole("tab", { name: "Ideas" }));
   expect(
     screen.getByRole("button", { name: "Map marker: Louvre" }),
   ).toBeInTheDocument();
   expect(
-    screen.getByRole("button", { name: "Map marker: Rejected place" }),
+    screen.getByRole("button", { name: "Map marker: Excluded place" }),
   ).toBeInTheDocument();
 });
 
@@ -593,11 +593,11 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
     target: { value: "Tickets" },
   });
   const stateTrigger = within(drawer).getByRole("button", {
-    name: "State Proposed",
+    name: "State Maybe",
   });
   act(() => stateTrigger.focus());
   click(stateTrigger);
-  click(await screen.findByRole("menuitemradio", { name: "Planned" }));
+  click(await screen.findByRole("menuitemradio", { name: "Yes" }));
   const saveButton = within(drawer).getByRole("button", {
     name: "Save activity",
     hidden: true,
@@ -635,7 +635,7 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
         kinds: ["Culture" as const],
         address: null,
         ticketRequirement: "Unknown" as const,
-        state: "Planned",
+        state: "Yes",
         links: [{ url: "https://museum.example/tickets", label: "Tickets" }],
       }),
     }),
@@ -768,8 +768,8 @@ test.each([false, true])(
     expect(within(list).queryByText("2h")).not.toBeInTheDocument();
     expect(
       await within(
-        await within(list).findByRole("list", { name: "Proposed activities" }),
-      ).findAllByText("Proposed"),
+        await within(list).findByRole("list", { name: "Maybe activities" }),
+      ).findAllByText("Maybe"),
     ).toHaveLength(2);
     expect(
       within(list).queryAllByRole("button", { name: /^State for/ }),
@@ -795,7 +795,7 @@ test.each([false, true])(
     expect(within(card).getByText("See the paintings")).toBeVisible();
     expect(within(card).getByLabelText("Activity 1")).toHaveTextContent("1");
     expect(within(card).getByText("2h")).toBeVisible();
-    expect(within(card).getByText("Proposed")).toBeVisible();
+    expect(within(card).getByText("Maybe")).toBeVisible();
     click(within(card).getByText("See the paintings"));
     expect(
       within(list).getByRole("button", { name: "Louvre" }),
@@ -1040,10 +1040,10 @@ test("the map can collapse for list browsing and reopen when selecting an activi
 });
 
 test.each([
-  ["ideas", "Proposed", "Planned"],
-  ["ideas", "Planned", "Rejected"],
-  ["ideas", "Legacy custom state", "Proposed"],
-  ["map", "Proposed", "Planned"],
+  ["ideas", "Maybe", "Yes"],
+  ["ideas", "Yes", "No"],
+  ["ideas", "No", "Maybe"],
+  ["map", "Maybe", "Yes"],
 ])(
   "%s card menu changes %s to %s with the current ETag and preserves other fields",
   async (view, state, nextState) => {
@@ -1081,10 +1081,11 @@ test.each([
     expect(
       screen.queryByRole("dialog", { name: "Edit activity" }),
     ).not.toBeInTheDocument();
-    expect(await screen.findAllByRole("menuitemradio")).toHaveLength(3);
     expect(
-      screen.queryByRole("menuitemradio", { name: "Legacy custom state" }),
-    ).not.toBeInTheDocument();
+      (await screen.findAllByRole("menuitemradio")).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Maybe", "Yes", "No"]);
     click(await screen.findByRole("menuitemradio", { name: nextState }));
     await within(container).findByRole("button", {
       name: `State for Louvre: ${nextState}`,
@@ -1142,7 +1143,7 @@ test.each(["ideas", "map", "fullscreen"])(
             name: "Selected activity details",
           });
     const stateButton = await within(container).findByRole("button", {
-      name: "State for Louvre: Proposed",
+      name: "State for Louvre: Maybe",
     });
     const openDelete = async () => {
       act(() => stateButton.focus());
@@ -1416,7 +1417,7 @@ test("read-only members can see accepted research sources and conditions", async
 test.each([false, true])(
   "groups Ideas by state and collapses groups independently, read-only=%s",
   async (readOnly) => {
-    const states = ["Planned", "Proposed", "Rejected", "Maybe", "Proposed"];
+    const states = ["Yes", "Maybe", "No", "Maybe", "Maybe"];
     vi.mocked(getActivities).mockResolvedValue({
       type: "FeatureCollection",
       features: states.map((state, index) => ({
@@ -1436,12 +1437,12 @@ test.each([false, true])(
       within(list)
         .getAllByRole("heading")
         .map((heading) => heading.textContent),
-    ).toEqual(["Proposed2", "Planned1", "Rejected1", "Maybe1"]);
+    ).toEqual(["Maybe3", "Yes1", "No1"]);
     const proposed = within(list).getByRole("button", {
-      name: "Proposed activities",
+      name: "Maybe activities",
     });
     const planned = within(list).getByRole("button", {
-      name: "Planned activities",
+      name: "Yes activities",
     });
     const contents = document.getElementById(
       proposed.getAttribute("aria-controls")!,

@@ -701,7 +701,7 @@ public sealed class ActivityPlanEndpointTests
         );
         Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
         Assert.AreEqual(
-            ActivityState.Rejected,
+            ActivityState.No,
             (await factory.Database.GetActivityAsync(user.Id, trip.Id, place.CityId, activity.Id))!
                 .Properties
                 .State
@@ -750,7 +750,7 @@ public sealed class ActivityPlanEndpointTests
         );
         Assert.IsNull(await factory.Database.GetActivityPlanAsync(user.Id, trip.Id, place.CityId));
         Assert.AreEqual(
-            ActivityState.Planned,
+            ActivityState.Yes,
             (await factory.Database.GetActivityAsync(user.Id, trip.Id, place.CityId, activity.Id))!
                 .Properties
                 .State

@@ -510,9 +510,9 @@ export default function TripOverview({
                               <Badge
                                 appearance="tint"
                                 color={
-                                  state === "Planned"
+                                  state === "Yes"
                                     ? "success"
-                                    : state === "Rejected"
+                                    : state === "No"
                                       ? "danger"
                                       : "informative"
                                 }

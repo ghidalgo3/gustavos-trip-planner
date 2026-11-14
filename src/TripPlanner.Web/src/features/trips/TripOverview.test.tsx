@@ -666,7 +666,7 @@ test("orders dated visits chronologically, then keeps undated visits in itinerar
   ).toEqual(["Early", "Late", "Paris"]);
 });
 
-test("shows activity counts by free-form state instead of a plan button for a populated city", async () => {
+test("shows activity counts by decision state instead of a plan button for a populated city", async () => {
   vi.mocked(getDestinations).mockResolvedValue({
     type: "FeatureCollection",
     features: [paris],
@@ -674,29 +674,27 @@ test("shows activity counts by free-form state instead of a plan button for a po
   });
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
-    features: ["Planned", "Planned", "Proposed", "Maybe"].map(
-      (state, index) => ({
-        type: "Feature",
-        id: String(index),
-        geometry: null,
-        properties: {
-          name: "Activity",
-          description: "",
-          notes: "",
-          duration: null,
-          cost: null,
-          placeName: null,
-          kinds: ["Culture" as const],
-          address: null,
-          ticketRequirement: "Unknown" as const,
-          state,
-        },
-      }),
-    ),
+    features: ["Yes", "Yes", "No", "Maybe"].map((state, index) => ({
+      type: "Feature",
+      id: String(index),
+      geometry: null,
+      properties: {
+        name: "Activity",
+        description: "",
+        notes: "",
+        duration: null,
+        cost: null,
+        placeName: null,
+        kinds: ["Culture" as const],
+        address: null,
+        ticketRequirement: "Unknown" as const,
+        state,
+      },
+    })),
   });
   show();
   expect(
-    await screen.findByRole("link", { name: "2 Planned activities in Paris" }),
+    await screen.findByRole("link", { name: "2 Yes activities in Paris" }),
   ).toHaveAttribute("href", "/trips/trip/activities?destination=paris-fr");
   expect(
     screen.getByRole("link", { name: "1 Maybe activities in Paris" }),
