@@ -234,6 +234,7 @@ export async function saveConstraints(
 }
 
 export type AirportSuggestion = {
+  id: string;
   cityLocation?: SearchLocation | null;
   code: string;
   name: string;

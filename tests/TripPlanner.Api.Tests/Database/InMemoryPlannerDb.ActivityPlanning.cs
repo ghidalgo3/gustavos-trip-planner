@@ -28,7 +28,10 @@ public sealed partial class InMemoryPlannerDb
             new
             {
                 Trip = _trips[tripId],
-                Travel = travelPlans.GetValueOrDefault(tripId),
+                Transportation = _transportation
+                    .Values.Where(t => t.TripId == tripId)
+                    .OrderBy(t => t.Value.Id),
+                Hotels = _hotels.Values.Where(h => h.TripId == tripId).OrderBy(h => h.Id),
                 Parties = members,
                 Activities = _activities.Values.Where(a => a.TripId == tripId).OrderBy(a => a.Id),
                 Visits = _destinationVisits

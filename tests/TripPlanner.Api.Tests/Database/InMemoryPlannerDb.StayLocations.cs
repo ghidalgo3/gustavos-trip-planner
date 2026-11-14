@@ -26,7 +26,7 @@ public sealed partial class InMemoryPlannerDb
                             item.Key.TripId == tripId
                             && _destinationVisits.ContainsKey(item.Key.StayId)
                         )
-                        .ToDictionary(item => item.Key.StayId, item => item.Value)
+                        .ToDictionary(item => item.Key.StayId, item => ResolveStayHotel(item.Value))
                     : new Dictionary<Guid, GeoJsonFeature<StayLocationProperties>>()
             );
         }
@@ -61,7 +61,26 @@ public sealed partial class InMemoryPlannerDb
             }
             else
             {
-                _stayLocations[(tripId, cityId, stayId)] = feature;
+                var hotel = feature.Properties.HotelId is { } hotelId
+                    ? _hotels.GetValueOrDefault(hotelId)
+                    : new Hotel(
+                        Guid.NewGuid(),
+                        tripId,
+                        feature.Properties.Name,
+                        feature.Properties.Address,
+                        feature.Geometry!,
+                        null,
+                        1
+                    );
+                if (hotel is null || hotel.TripId != tripId)
+                {
+                    return Task.FromResult(false);
+                }
+                _hotels[hotel.Id] = hotel;
+                _stayLocations[(tripId, cityId, stayId)] = feature with
+                {
+                    Properties = new(hotel.Name, hotel.Address, hotel.Id),
+                };
             }
 
             return Task.FromResult(true);

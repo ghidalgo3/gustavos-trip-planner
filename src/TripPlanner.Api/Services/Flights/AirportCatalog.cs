@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.Documents;
 
 namespace TripPlanner.Api.Services.Flights;
 
@@ -17,6 +18,8 @@ public sealed record Airport(
     string Keywords
 )
 {
+    public Guid Id { get; init; } = TripResourceProjection.StableGuid($"airport:{Code}");
+    public bool Active { get; init; } = true;
     public SearchLocation? CityLocation { get; init; }
     public SearchLocation Location => new(Code, TimeZone, $"{City} · {Name} ({Code})");
 }
@@ -40,16 +43,26 @@ public sealed class AirportCatalog
         ["YTO"] = ("Toronto", ["YYZ", "YTZ"]),
         ["YMQ"] = ("Montreal", ["YUL", "YHU"]),
     };
-    private readonly Airport[] _airports;
-    private readonly IReadOnlyDictionary<string, Airport> _byCode;
-    private readonly (Airport Airport, string Text, string City)[] _search;
+    private Airport[] _airports = [];
+    private IReadOnlyDictionary<string, Airport> _byCode = new Dictionary<string, Airport>();
+    private (Airport Airport, string Text, string City)[] _search = [];
+
+    public Airport[] All => _airports;
+
+    public Airport? FindById(Guid id) => _airports.FirstOrDefault(a => a.Id == id);
 
     public AirportCatalog()
     {
         using var stream = typeof(AirportCatalog).Assembly.GetManifestResourceStream(
             "TripPlanner.Api.Data.airports.json"
         )!;
-        _airports = JsonSerializer.Deserialize<Airport[]>(stream, JsonSerializerOptions.Web)!;
+        Replace(JsonSerializer.Deserialize<Airport[]>(stream, JsonSerializerOptions.Web)!);
+    }
+
+    // Replaced once during startup after the release catalog is synchronized with PostgreSQL.
+    public void Replace(Airport[] airports)
+    {
+        _airports = airports;
         _byCode = _airports
             .GroupBy(a => a.Code, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
@@ -78,7 +91,7 @@ public sealed class AirportCatalog
 
         var words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return _search
-            .Where(a => words.All(a.Text.Contains))
+            .Where(a => a.Airport.Active && words.All(a.Text.Contains))
             .OrderBy(a =>
                 a.Airport.Code.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0
                 : a.City == query ? 1
@@ -178,6 +191,7 @@ public sealed class AirportCatalog
 
         var point = members.OrderBy(m => m.Id).First().HomeCityLocation!;
         var nearby = _airports
+            .Where(a => a.Active)
             .Select(a => (Airport: a, Km: Distance(point, a)))
             .Where(a => a.Km <= 250)
             .ToArray();
@@ -199,19 +213,19 @@ public sealed class AirportCatalog
         var metro = Metros.FirstOrDefault(m =>
             Normalize(m.Value.City) == name
             && m.Value.Codes.Any(code =>
-                _byCode.TryGetValue(code, out var a) && Distance(point, a) <= 250
+                _byCode.TryGetValue(code, out var a) && a.Active && Distance(point, a) <= 250
             )
         );
         if (metro.Key is not null)
         {
             return metro
-                .Value.Codes.Where(_byCode.ContainsKey)
+                .Value.Codes.Where(code => _byCode.TryGetValue(code, out var a) && a.Active)
                 .Select(code => _byCode[code])
                 .ToArray();
         }
 
         var matching = _airports
-            .Where(a => MatchesCity(a.City, name) && Distance(point, a) <= 250)
+            .Where(a => a.Active && MatchesCity(a.City, name) && Distance(point, a) <= 250)
             .ToArray();
         if (matching.Length > 0)
         {
@@ -219,7 +233,7 @@ public sealed class AirportCatalog
         }
 
         var nearest = _airports
-            .Where(a => a.Major)
+            .Where(a => a.Active && a.Major)
             .OrderBy(a => Distance(point, a))
             .FirstOrDefault();
         return nearest is null || Distance(point, nearest) > 250
@@ -236,7 +250,7 @@ public sealed class AirportCatalog
         // Use a metro query only when its full catalog group was selected.
         return Metros
                 .FirstOrDefault(g =>
-                    g.Value.Codes.Where(_byCode.ContainsKey)
+                    g.Value.Codes.Where(code => _byCode.TryGetValue(code, out var a) && a.Active)
                         .Order()
                         .SequenceEqual(location.AirportCodes.Order())
                 )
@@ -254,7 +268,9 @@ public sealed class AirportCatalog
         var metro = Metros.FirstOrDefault(g => g.Value.Codes.Contains(airport.Code));
         if (metro.Key is not null)
         {
-            var group = metro.Value.Codes.Where(_byCode.ContainsKey).ToArray();
+            var group = metro
+                .Value.Codes.Where(code => _byCode.TryGetValue(code, out var a) && a.Active)
+                .ToArray();
             return new(
                 group[0],
                 airport.TimeZone,

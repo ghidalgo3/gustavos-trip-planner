@@ -3145,7 +3145,8 @@ main:has(.trip-workspace-activities) > .topbar {
   gap: 6px;
 }
 .travel-editor-fields input,
-.travel-editor-fields select {
+.travel-editor-fields select,
+.travel-editor-fields textarea {
   width: 100%;
   min-height: 40px;
   padding: 6px;
@@ -3154,6 +3155,16 @@ main:has(.trip-workspace-activities) > .topbar {
   border: 1px solid var(--colorNeutralStroke1);
   border-radius: 4px;
   box-sizing: border-box;
+}
+.travel-editor-fields textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.travel-editor-fields fieldset {
+  min-width: 0;
+}
+.trip-travel [role="status"] {
+  color: var(--colorPaletteMarigoldForeground1);
 }
 .travel-editor-actions {
   display: flex;

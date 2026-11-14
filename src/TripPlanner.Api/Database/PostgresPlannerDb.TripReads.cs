@@ -70,7 +70,7 @@ public sealed partial class PostgresPlannerDb
                         'departureDate', v.departure_date) ORDER BY v.visit_order, v.stay_id)
                     FROM destination_stays v WHERE v.trip_id = t.id), '[]'),
                 'stays', COALESCE((
-                    SELECT jsonb_object_agg(s.stay_id, s.feature)
+                    SELECT jsonb_object_agg(s.stay_id, hotel_stay_feature(s.stay_id,s.hotel_id))
                     FROM destination_stay_locations s WHERE s.trip_id = t.id), '{}'),
                 'activities', COALESCE((
                     SELECT jsonb_agg(jsonb_build_object(
@@ -109,14 +109,13 @@ public sealed partial class PostgresPlannerDb
                 'choices', COALESCE((SELECT jsonb_agg(value ORDER BY key)
                     FROM jsonb_each(t.flight_choices)), '[]'),
                 'contextRevision', COALESCE(v.revision, -1),
-                'travel', jsonb_build_object(
-                    'connections', COALESCE(travel.document, '[]'), 'version', COALESCE(travel.version, 0)),
+                'transportation', COALESCE((SELECT jsonb_agg(transportation_document(x.id) ORDER BY x.id) FROM transportation x WHERE x.trip_id=t.id),'[]'),
+                'hotels', COALESCE((SELECT jsonb_agg(hotel_document(h.id) ORDER BY h.id) FROM hotels h WHERE h.trip_id=t.id),'[]'),
                 'modifiedAt', COALESCE(v.modified_at, 'epoch'::timestamptz)
             )::text, t.flight_constraints::text
             FROM visible_trip t
             LEFT JOIN activity_preferences tp ON tp.subject_id = t.id AND tp.scope = 'trip' AND tp.city_id = ''
-            LEFT JOIN activity_planning_versions v ON v.trip_id = t.id
-            LEFT JOIN trip_travel_plans travel ON travel.trip_id = t.id;
+            LEFT JOIN activity_planning_versions v ON v.trip_id = t.id;
             """
         );
         command.Parameters.AddWithValue(userId);

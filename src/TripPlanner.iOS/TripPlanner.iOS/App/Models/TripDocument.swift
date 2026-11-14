@@ -42,6 +42,7 @@ struct TripDocumentDestinations: Decodable {
     }
     let destinations: [DestinationVisit]
     let activities: [TripDocumentActivity]
+    let transportation: [TransportationResource]
     let selectedFlights: [SavedTripFlight]
     let home: Destination?
     let resources: [String: ResourceVersion]?
@@ -60,6 +61,9 @@ struct TripDocumentDestinations: Decodable {
         }
         let places = document["places"].arrayValue
         let items = document["itinerary"]["items"].arrayValue
+        transportation = try items.filter { $0["kind"] == .string("transportation") }.map {
+            try JSONDecoder().decode(TransportationResource.self, from: JSONEncoder().encode($0["transportation"]))
+        }
         activities = try items.filter { $0["kind"] == .string("activity") }.map { item in
             try TripDocumentActivity(item)
         }
@@ -113,6 +117,21 @@ struct TripDocumentDestinations: Decodable {
             }
         let hasEditingMetadata = document["etag"].stringValue != nil
         var result: [String: ResourceVersion] = [:]
+        if hasEditingMetadata {
+            for item in items where item["kind"] == .string("transportation") {
+                if let id = item["id"].stringValue, let etag = item["transportation"]["etag"].stringValue {
+                    result["/trips/\(tripID)/transportation/\(id)"] = ResourceVersion(etag: "\"\(etag)\"", data: item["transportation"])
+                }
+            }
+            for hotel in places where hotel["hotelId"].stringValue != nil {
+                if let id = hotel["hotelId"].stringValue, let etag = hotel["etag"].stringValue {
+                    result["/trips/\(tripID)/hotels/\(id)"] = ResourceVersion(etag: "\"\(etag)\"", data: .object([
+                        "id": hotel["hotelId"], "tripId": .string(tripID), "name": hotel["name"], "address": hotel["address"],
+                        "geometry": hotel["location"], "timeZone": hotel["timeZone"], "version": hotel["version"], "etag": hotel["etag"]
+                    ]))
+                }
+            }
+        }
         for preference in preferences {
             guard let city = preference["destinationId"].stringValue, let p = cityPlace(preference["destinationId"]) else { continue }
             let encoded = city.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#"))) ?? city
@@ -127,7 +146,7 @@ struct TripDocumentDestinations: Decodable {
                         "arrivalAt": visit["start"].stringValue.map(JSONValue.string) ?? .string(""),
                         "departureAt": visit["end"].stringValue.map(JSONValue.string) ?? .string(""),
                         "stayLocation": hotel.map { p in
-                            .object(["type": .string("Feature"), "id": visit["id"], "geometry": p["location"], "properties": .object(["name": p["name"]])])
+                            .object(["type": .string("Feature"), "id": visit["id"], "geometry": p["location"], "properties": .object(["name": p["name"], "address": p["address"], "hotelId": p["hotelId"]])])
                         } ?? .null
                     ]
                     return .object(value)

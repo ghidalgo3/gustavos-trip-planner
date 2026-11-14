@@ -54,7 +54,8 @@ public sealed partial class InMemoryPlannerDb
                 token
             );
         }
-        return new(
+        var transportation = (await GetTransportationAsync(userId, tripId, token)).ToArray();
+        return new TripReadData(
             trip,
             await GetTripAsync(userId, tripId, token) is not null,
             parties,
@@ -76,8 +77,11 @@ public sealed partial class InMemoryPlannerDb
                 .ToArray(),
             (await GetFlightChoicesAsync(userId, tripId, token)).OrderBy(c => c.PartyId).ToArray(),
             await GetActivityPlanningRevisionAsync(userId, tripId, token),
-            await GetTripTravelAsync(userId, tripId, token),
+            transportation,
             await GetTripModifiedAtAsync(userId, tripId, token)
-        );
+        )
+        {
+            Hotels = (await GetHotelsAsync(userId, tripId, token)).ToArray(),
+        };
     }
 }

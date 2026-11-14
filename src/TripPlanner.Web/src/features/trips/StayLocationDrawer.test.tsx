@@ -119,7 +119,7 @@ test("searches Maps only after Search and saves a selected accommodation", async
       "visit",
       expect.objectContaining({
         geometry: matches[0].geometry,
-        properties: { name: "Hotel Mets Shibuya" },
+        properties: { name: "Hotel Mets Shibuya", address: "Shibuya, Tokyo" },
       }),
     ),
   );

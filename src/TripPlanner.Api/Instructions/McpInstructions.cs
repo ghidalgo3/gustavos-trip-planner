@@ -283,19 +283,6 @@ public static class McpInstructions
             Requires planning permission.
             """;
 
-        public const string GetTripTravel = """
-            Read planned journeys between activities, visits and home, and their resource ETag.
-            Unknown routing durations remain unknown.
-            """;
-
-        public const string ReplaceTripTravel = """
-            Replace the complete travel connection collection after user approval.
-            Preserve unrelated connections and stable IDs.
-            Read current travel first and supply its ETag; reread on conflict.
-            Supports walking, bicycle, car, taxi, bus, train, transit and flight, including unscheduled tasks and manual elapsed allowances.
-            Does not book travel or call a routing provider.
-            """;
-
         public const string GetActivityPreferences = """
             Read preferences and their ETag.
             Profile refers only to the connected user and takes no IDs.
@@ -440,11 +427,6 @@ public static class McpInstructions
     {
         public const string PlanningDestination =
             "Destination ID from list_destinations (preferred), or the exact saved destination name, case-insensitively. Use an ID for ambiguous names.";
-
-        public const string TravelPlaceId = """
-            Shared home or airport Place @id.
-            Use ActivityId for a venue or VisitId for a destination/accommodation so deletion and location changes remain consistent.
-            """;
 
         public const string DailyTransportMode = """
             fastest compares walking and driving per leg.

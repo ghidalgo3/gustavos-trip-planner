@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using TripPlanner.Api.DTO;
 
 namespace TripPlanner.Api.Services.Documents;
@@ -16,6 +15,5 @@ public sealed record TripResource(
 
 public sealed record TripResourceView(
     TripDocument Document,
-    IReadOnlyDictionary<string, TripResource> Resources,
-    IReadOnlyDictionary<string, JsonObject> Services
+    IReadOnlyDictionary<string, TripResource> Resources
 );

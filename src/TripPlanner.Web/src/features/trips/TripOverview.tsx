@@ -1,6 +1,5 @@
-import TripTravelEditor, { type TravelPlan } from "./TripTravelEditor";
+import TransportationEditor from "./TransportationEditor";
 import {
-  cachedTripResource,
   useExplicitResourceRefresh,
   useTripResourceVersion,
 } from "../../api/tripDocumentStore";
@@ -373,22 +372,9 @@ export default function TripOverview({
         </div>
       )}
       {toaster}
-      {destinations &&
-        cachedTripResource<TravelPlan>(`/trips/${trip.id}/travel`) && (
-          <TripTravelEditor
-            tripId={trip.id}
-            destinations={destinations}
-            readOnly={readOnly}
-            activities={Object.entries(activitySummaries).flatMap(
-              ([destinationId, summary]) =>
-                (summary.activities ?? []).map((a) => ({
-                  ...a,
-                  destinationId,
-                })),
-            )}
-            value={cachedTripResource<TravelPlan>(`/trips/${trip.id}/travel`)!}
-          />
-        )}
+      {destinations && (
+        <TransportationEditor tripId={trip.id} readOnly={readOnly} />
+      )}
       {error ? (
         <div className="overview-load-error">
           <Text role="alert">{error}</Text>

@@ -128,7 +128,7 @@ public static class TripDocumentProjection
                     : TripResourceProjection.LocalId(
                         Guid.Parse(tripId),
                         "place",
-                        "stay:" + Text(stay["id"])
+                        "hotel:" + Text(stay["stayLocation"]?["properties"]?["hotelId"])
                     );
                 var path =
                     $"/destinations/{Uri.EscapeDataString(Text(feature["id"]))}/stays/{Text(stay["id"])}";
@@ -199,12 +199,18 @@ public static class TripDocumentProjection
             );
         }
         var legs = transportation.Select(Copy).ToList();
-        var connections = Resource("/travel")!["connections"]!.AsArray();
-        foreach (var connection in connections)
+        foreach (var journey in data.Transportation)
         {
-            var leg = Copy(connection!);
-            leg["kind"] = "connection";
-            legs.Add(leg);
+            legs.Add(
+                new JsonObject
+                {
+                    ["id"] = journey.Id.ToString("D"),
+                    ["name"] = journey.Name,
+                    ["kind"] = "transportation",
+                    ["etag"] = journey.Etag,
+                    ["transportation"] = TripResourceProjection.Node(journey),
+                }
+            );
         }
         var choices = Resource("/flights/choices")!.AsArray();
         var flightChoices = new List<JsonObject>();
@@ -266,7 +272,6 @@ public static class TripDocumentProjection
             legs,
             schedule
         );
-        AddValidator(calendar, "/travel", "connections");
         return new TripDocument(
             Guid.Parse(tripId),
             data.Trip.Name,

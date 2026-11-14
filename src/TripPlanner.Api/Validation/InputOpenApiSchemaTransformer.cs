@@ -39,6 +39,40 @@ public sealed class InputOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                     Description = McpInstructions.Schema.ClockTime,
                 };
             }
+            if (declared.OfType<TransportationCoordinatesAttribute>().Any())
+            {
+                var point = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array,
+                    MinItems = 2,
+                    MaxItems = 2,
+                    Items = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Number,
+                        Minimum = "-180",
+                        Maximum = "180",
+                    },
+                };
+                var line = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array,
+                    MinItems = 2,
+                    MaxItems = 10000,
+                    Items = point,
+                };
+                var multi = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array,
+                    MinItems = 1,
+                    MaxItems = 100,
+                    Items = line,
+                };
+                schema.Properties[property.Name] = new OpenApiSchema
+                {
+                    OneOf = [point, line, multi],
+                    Description = TransportationCoordinatesAttribute.SchemaDescription,
+                };
+            }
             if (
                 declared
                     .OfType<System.Text.Json.Serialization.JsonConverterAttribute>()

@@ -3211,9 +3211,7 @@
         "type": "task",
         "busy": false
       }
-    ],
-    "connectionsEtag": "travel-0",
-    "connectionsVersion": 0
+    ]
   },
   "preferences": {
     "constraints": {},

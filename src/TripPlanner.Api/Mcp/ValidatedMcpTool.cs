@@ -39,6 +39,7 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
     private static readonly MethodInfo[] ToolMethods = new[]
     {
         typeof(TripPlannerTools),
+        typeof(TransportationTools),
         typeof(ActivityPlanningTools),
         typeof(PlanningContextTools),
     }
@@ -356,6 +357,28 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
         if (context.GetCustomAttribute<JsonObjectValueAttribute>() is { } objectRule)
         {
             ApplyObjectRules(node, context.TypeInfo.Type, objectRule);
+        }
+
+        if (context.GetCustomAttribute<TransportationCoordinatesAttribute>() is not null)
+        {
+            return TransportationCoordinatesAttribute.CreateSchema();
+        }
+        if (node["properties"] is JsonObject fields)
+        {
+            foreach (var property in context.TypeInfo.Properties)
+            {
+                if (
+                    property
+                        .AttributeProvider?.GetCustomAttributes(
+                            typeof(TransportationCoordinatesAttribute),
+                            true
+                        )
+                        .Length > 0
+                )
+                {
+                    fields[property.Name] = TransportationCoordinatesAttribute.CreateSchema();
+                }
+            }
         }
 
         if (context.GetCustomAttribute<CoordinatesAttribute>() is not null)

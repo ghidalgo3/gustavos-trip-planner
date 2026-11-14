@@ -233,8 +233,6 @@ public static class TripDocumentEndpoints
                                 or "canPlan"
                                 or "activitiesEtag"
                                 or "accommodationEtag"
-                                or "connectionsEtag"
-                                or "connectionsVersion"
                                 or "flightPlanningEtag"
                                 or "flightChoicesEtag"
                                 or "bookingEtag"

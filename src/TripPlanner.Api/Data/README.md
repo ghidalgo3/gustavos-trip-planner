@@ -9,8 +9,16 @@ Sources:
 - https://davidmegginson.github.io/ourairports-data/airports.csv
 - https://raw.githubusercontent.com/mborsetti/airportsdata/main/airportsdata/airports.csv
 
-airports.json is bundled into the API. No runtime network request or API key is needed.
-Refresh this readView periodically; airport metadata is not a guarantee of current routes.
+Local builds bundle `airports.json`. Every release downloads fresh source CSVs via
+`scripts/release-tasks/refresh-airports.zsh`, joins IATA codes with time zones, and
+embeds the validated result in the image using a compressed BuildKit secret mount,
+decompressed and checksum-verified before compilation. The files
+remain in the invocation's temporary directory; the release checkout stays clean.
+The refreshed set includes non-closed IATA airports with scheduled service, known coordinates, and
+time zones. A result below 1,000 entries aborts the refresh. Startup synchronizes
+this snapshot into PostgreSQL, preserving IDs and marking missing airports
+inactive rather than deleting them. No runtime provider request or API key is
+needed. Airport metadata is not a guarantee of current routes.
 Home-airport suggestions prefer a large airport within 75 km; otherwise they use the
 nearest scheduled passenger airport within 250 km. Users can change this suggestion.
 

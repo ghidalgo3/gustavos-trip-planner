@@ -92,7 +92,7 @@ public sealed class TripDocumentEndpointTests
         {
             Assert.IsFalse(json.ContainsKey(removed));
         }
-        Assert.HasCount(3, document.Itinerary);
+        Assert.HasCount(1, document.Itinerary);
     }
 
     [TestMethod]
@@ -220,8 +220,6 @@ public sealed class TripDocumentEndpointTests
         var document = LocalDocument(Guid.NewGuid());
         document.People[0]["etag"] = "person-1";
         document.Preferences["activities"]!["etag"] = "preferences-1";
-        document.Itinerary["connectionsEtag"] = "connections-1";
-        document.Itinerary["connectionsVersion"] = 1;
         Assert.IsNull(TripDocumentEndpoints.ValidateImport(document.Id, document));
         Assert.IsNotNull(
             document.Preferences["activities"]!["etag"],

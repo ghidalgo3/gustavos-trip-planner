@@ -14,7 +14,13 @@ RUN dotnet restore src/TripPlanner.Api/TripPlanner.Api.csproj --source "$NUGET_S
 
 COPY src/ src/
 COPY docs/schemas/ docs/schemas/
-RUN dotnet publish src/TripPlanner.Api/TripPlanner.Api.csproj -c Release -o /app/publish --no-restore
+ARG AIRPORT_CATALOG_SHA256=bundled
+RUN --mount=type=secret,id=airport_catalog \
+    if [ "$AIRPORT_CATALOG_SHA256" != bundled ]; then \
+      gzip -dc /run/secrets/airport_catalog > src/TripPlanner.Api/Data/airports.json && \
+      echo "$AIRPORT_CATALOG_SHA256  src/TripPlanner.Api/Data/airports.json" | sha256sum -c -; \
+    fi && \
+    dotnet publish src/TripPlanner.Api/TripPlanner.Api.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

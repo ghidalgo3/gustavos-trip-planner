@@ -103,6 +103,13 @@ public sealed class McpExecutionAdapter(
         {
             result = ActivityPlanEndpoints.Stale();
         }
+        catch (Npgsql.PostgresException e) when (e.SqlState == "23514")
+        {
+            result = Results.Problem(
+                statusCode: 409,
+                title: "A transportation endpoint references this location. Give it coordinates or replace the reference before deleting."
+            );
+        }
         catch (Npgsql.PostgresException e) when (e.SqlState is "40001" or "40P01")
         {
             result = ActivityPlanEndpoints.Stale();

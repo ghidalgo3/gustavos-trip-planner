@@ -95,37 +95,59 @@ The test serves production assets and deterministic local API fixtures; it does 
 contact a real account or database.
 
 
-**Travel connections** on a trip's **Overview** records journeys you want to plan
-explicitly, such as a train between city visits or a taxi from a visit's hotel to
-an activity. Expand the section, choose **Edit travel**, then **Add journey**.
-Give it a name, choose **From** and **To**, and optionally select transport,
-enter a **Travel allowance (minutes)**, and set a departure date and time.
-Endpoints come from home, airports already in the trip document, destination
-visits, and activities. **Decide later** leaves transport undecided. **Save
-travel** saves the whole draft; **Cancel** discards it. Downloaded connections
-remain readable offline.
+**Transportation** records journeys as GeoJSON FeatureCollections. Each journey has
+its own ID, ETag, notes, optional requested transport mode, local departure date,
+clock time, time zone, and elapsed duration. Its features contain exactly one
+`from` and one `to`, plus optional ordered route steps. An endpoint either
+references an activity, airport, hotel, or user's home city by typed UUID, or owns
+an inline Point with a name and nullable address. References resolve their current
+location on reads; clients do not need to create a place first. Route steps have
+unique sequence numbers, modes, optional line names, directions, instructions,
+durations, and optional LineString/MultiLineString geometry. Notes and instructions
+support journeys researched without precise route geometry. No new routing or
+booking provider calls are made by these APIs.
 
-A departure uses the origin's time zone, shown in the editor. A date alone stays
-an unscheduled task in the trip document. A date, time, and time zone that resolve
-to a valid, unambiguous instant produce an event with the same ID; a duration is optional, and your
-travel allowance supplies it when entered. For example, a Tokyo-to-Kyoto train
-leaving at 09:00 with a 150-minute allowance records a planned 09:00–11:30
-journey. Linking visits or activities does not automatically derive its departure
-time from their schedules. Choosing a transport mode does not search timetables,
-calculate a fresh route, book tickets, or reschedule activities. Flight search
-and the activity planner's calculated local transfers remain separate features.
-The API also supports multi-segment journeys and service references; the current
-web editor does not expose controls for those fields.
+`GET/POST /trips/{tripId}/transportation` lists or creates journeys;
+`GET/PUT/DELETE /trips/{tripId}/transportation/{transportationId}` reads, replaces,
+or removes one complete journey. Replacements/deletions require its current
+`If-Match` (`428` when missing, `412` when stale). Creation returns `201`, Location,
+and ETag. Linked location changes advance the journey's version; coordinate
+changes mark existing routes stale. Submitting changed route steps or explicitly
+setting `routeReviewed: true` acknowledges review. A resolved local departure
+produces a calendar event; incomplete or ambiguous timing remains a task. The
+trip document stores each FeatureCollection under its calendar item's
+`transportation` property, preserving GeoJSON's `type` separately from event/task
+semantics. Web and iOS adapters reconstruct individual resources and validators
+for offline reads and later editing.
 
-`GET/PUT /trips/{tripId}/travel` reads/replaces general travel connections, using
-its own `If-Match` validator. Connections can link activities, visits, or shared
-places and support walk, bike, car, taxi, bus, train, transit and flight. An
-unscheduled or unresolved journey is a Task; a resolved journey becomes an Event
-with the same UID. Local departure intentions retain their IANA zone; durations
-are elapsed ISO 8601 values. Existing routing evidence is included; this milestone
-does not add new rail, cycling, or transit routing/booking providers. Migrations
-`0016`–`0018` add the travel document, reference cleanup and stable modification
-timestamps. No database reset is required.
+PostgreSQL stores one row per journey in `transportation`, with route steps and
+metadata as JSONB. `transportation_endpoints` holds typed foreign keys and inline
+features, with constraints enforcing one source per endpoint and exactly two
+endpoints per journey. Activity and hotel references are constrained to the same
+trip. Before deleting a referenced source, database triggers preserve its current
+name/address/Point as an inline snapshot. Deletion is blocked if a referenced
+source has no usable coordinates; replacing/removing that reference permits it.
+Deleting an entire trip still cascades its owned resources.
+
+Hotels have stable trip-scoped IDs in `hotels`, independent of visits/stays.
+`GET/POST /trips/{tripId}/hotels` and `GET/PUT/DELETE .../hotels/{hotelId}` manage
+complete hotel resources. Stay selection still uses the visit's `/location`
+resource: supply `properties.hotelId` to select an existing hotel, or omit it to
+create a hotel and select it atomically from the supplied name/address/Point.
+Returned stay features contain `properties.hotelId`. Changing or removing a stay
+selection does not delete the hotel or redirect transportation. Deleting a hotel
+clears its stay selections and snapshots transportation references.
+
+Airports are persisted in `airports`. Release preparation downloads the public
+OurAirports and airportsdata catalogs, joins IATA codes to time zones, validates
+the result, and embeds it in the image without modifying the checkout. Startup
+upserts that catalog, preserving database IDs and retaining absent airports as
+inactive. Retired airports remain readable for saved journeys. Local builds use
+the checked-in catalog. The airport search API includes the stable `id` used by
+transportation references. Migration `0021` separates hotels from stay selections
+and converts existing travel connections to the new resources; obsolete visit
+endpoints become hotel references or inline destination points. Existing durations
+and segment modes/durations are preserved; old service snapshots are retired.
 
 Frontend code under `src/TripPlanner.Web/src` is grouped by responsibility:
 
@@ -1109,7 +1131,7 @@ above it, and commit that documentation update separately. The tag remains on
 the deployed source commit. See [AGENTS.md](AGENTS.md#release-and-changelog-instructions)
 for agent release instructions.
 
-`scripts/release` runs the dependency graph in `Taskfile.yml`, with zsh stages in `scripts/release-tasks`. Azure preflight checks, Bicep validation, C# formatting checks, and frontend dependency installation can overlap. Frontend lint, tests, and the production build share one frozen pnpm install and then run independently. The API test suite and Docker image build wait for the frontend tests to finish, so native solver threads and container compilation do not compete with timed UI interactions. The Docker image also waits for the frontend build because it packages `dist` into `wwwroot`. Publishing the stable image tag waits for every required check and the image build to succeed; deployment, restart, and readiness verification follow in order. A failed prerequisite cancels the remaining preparation work immediately. Infrastructure outputs are fetched once per release.
+`scripts/release` runs the dependency graph in `Taskfile.yml`, with zsh stages in `scripts/release-tasks`. Azure preflight checks, Bicep validation, C# formatting checks, and frontend dependency installation can overlap. Frontend lint, tests, and the production build share one frozen pnpm install and then run independently. The API test suite and Docker image build wait for the frontend tests to finish, so native solver threads and container compilation do not compete with timed UI interactions. The Docker image also waits for the frontend build because it packages `dist` into `wwwroot`, and for the release airport-catalog refresh. A failed catalog download or incomplete result stops release preparation. Publishing the stable image tag waits for every required check and the image build to succeed; deployment, restart, and readiness verification follow in order. A failed prerequisite cancels the remaining preparation work immediately. Infrastructure outputs are fetched once per release.
 
 The release defaults to four concurrent Task commands. Reduce CPU and memory pressure with `RELEASE_CONCURRENCY=2 ./scripts/release` (or use `1` for sequential execution). `--skip-tests` skips C# formatting checks, API tests, and frontend lint/tests while retaining preflight checks, builds, and deployed-app verification. Each invocation uses a temporary context directory that is removed on success or failure; deployment steps always run and are not cached.
 Only one release or release check can run in a checkout at a time, since they
@@ -1180,7 +1202,10 @@ plugin's tool definitions so it receives the updated schemas.
 | GET, PUT, DELETE | `/trips/{tripId}` | Read, replace, or delete a trip |
 | GET, PUT | `/trips/{tripId}/document` | Portable trip document and metadata-only import; optional validator metadata, gzip, conditional reads; MCP: `get_trip_document` |
 | GET | `/schemas/trip-document-v1.json` | Published JSON Schema for the trip document |
-| GET, PUT | `/trips/{tripId}/travel` | Read or conditionally replace all travel connections; MCP: `get_trip_travel`, `replace_trip_travel` |
+| GET, POST | `/trips/{tripId}/transportation` | List or create individual transportation FeatureCollections; MCP: `list_transportation`, `create_transportation` |
+| GET, PUT, DELETE | `/trips/{tripId}/transportation/{transportationId}` | Read, conditionally replace, or delete a journey; MCP: `get_transportation`, `replace_transportation`, `delete_transportation` |
+| GET, POST | `/trips/{tripId}/hotels` | List or create trip-scoped hotels; MCP: `list_hotels`, `create_hotel` |
+| GET, PUT, DELETE | `/trips/{tripId}/hotels/{hotelId}` | Read, conditionally replace, or delete a hotel; MCP: `get_hotel`, `replace_hotel`, `delete_hotel` |
 | GET | `/trips/{tripId}/travellers` | Read travellers and roles for the single-party trip |
 | GET, PUT, DELETE | `/trips/{tripId}/travellers/{memberId}` | Read membership or conditionally replace/remove it as the owner; actor inferred from authentication |
 | GET, POST | `/trips/{tripId}/destinations` | Read destination FeatureCollection or add a destination Feature and initial stay |

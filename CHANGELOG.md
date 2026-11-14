@@ -13,11 +13,21 @@ source commit. Failed releases and `--check` runs leave entries unreleased.
 
 ### Added
 
+- Transportation FeatureCollections with notes, referenced or inline endpoints,
+  and ordered train/metro directions with optional route geometry.
+- Independent trip-scoped hotels, persisted airports refreshed at release time,
+  and individual REST/MCP resources with concurrency checks.
+- Database-enforced endpoint references, snapshot-on-delete behavior, and stale
+  route tracking when linked locations move.
+
 - Activity-kind autocomplete reuses labels from your own trips, with searchable
   REST and MCP lists of existing labels.
 - Started this changelog and documented how to use Travel connections.
 
 ### Changed
+
+- Replaced the trip-wide travel collection with individual transportation
+  resources; updated web/iOS document adapters and hotel selection contracts.
 
 - Activity editing uses a mobile-friendly kind TagPicker and clearer activity-name
   and place-search labels.

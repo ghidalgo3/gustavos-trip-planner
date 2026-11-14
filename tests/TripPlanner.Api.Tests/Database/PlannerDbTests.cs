@@ -70,7 +70,13 @@ public sealed class PlannerDbTests
             await using (var reader = await schema.ExecuteReaderAsync())
             {
                 await reader.ReadAsync();
-                Assert.AreEqual(18L, reader.GetInt64(0));
+                Assert.AreEqual(
+                    (long)
+                        Directory
+                            .GetFiles(Path.Combine(AppContext.BaseDirectory, "migrations"), "*.sql")
+                            .Length,
+                    reader.GetInt64(0)
+                );
                 Assert.IsFalse(reader.IsDBNull(1));
                 Assert.IsFalse(reader.IsDBNull(2));
                 Assert.IsTrue(reader.IsDBNull(3));
@@ -188,6 +194,36 @@ public sealed class PlannerDbTests
 
     private static async Task MigrationPreservesVisitStayLocations(NpgsqlDataSource source)
     {
+        // Recreate the pre-transportation schema in this test's disposable database.
+        await using (var connection = await source.OpenConnectionAsync())
+        await using (var transaction = await connection.BeginTransactionAsync())
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "DROP SCHEMA gustavo_planner CASCADE; CREATE SCHEMA gustavo_planner; SET LOCAL search_path TO gustavo_planner,public; CREATE TABLE schema_migrations(version bigint PRIMARY KEY,name text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now());";
+            await command.ExecuteNonQueryAsync();
+            foreach (
+                var file in Directory
+                    .GetFiles(Path.Combine(AppContext.BaseDirectory, "migrations"), "*.sql")
+                    .Order()
+            )
+            {
+                var name = Path.GetFileName(file);
+                var version = long.Parse(name[..4]);
+                if (version >= 21)
+                {
+                    break;
+                }
+                command.CommandText = await File.ReadAllTextAsync(file);
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = "INSERT INTO schema_migrations(version,name) VALUES($1,$2)";
+                command.Parameters.AddWithValue(version);
+                command.Parameters.AddWithValue(name);
+                await command.ExecuteNonQueryAsync();
+                command.Parameters.Clear();
+            }
+            await transaction.CommitAsync();
+        }
         var db = new PostgresPlannerDb(source);
         var (user, trip, _) = await Seed(db);
         var place = await db.SaveDestinationPlaceAsync(
@@ -206,34 +242,51 @@ public sealed class PlannerDbTests
                 new(trip.Id, place.CityId, Guid.NewGuid(), 1, null, null)
             )
         )!;
-        // Reconstruct the old city-wide table, retaining its revision trigger, then run the upgrade.
-        await using (
-            var legacy = source.CreateCommand(
-                """
-                DELETE FROM destination_stay_locations;
-                ALTER TABLE destination_stay_locations DROP CONSTRAINT destination_stay_locations_pkey;
-                ALTER TABLE destination_stay_locations DROP COLUMN stay_id CASCADE;
-                ALTER TABLE destination_stay_locations ADD PRIMARY KEY(trip_id,city_id);
-                ALTER TABLE destination_stays DROP CONSTRAINT destination_stays_trip_city_visit_key;
-                """
-            )
-        )
+        foreach (var visit in new[] { first, second })
         {
+            await using var legacy = source.CreateCommand(
+                "INSERT INTO destination_stay_locations(trip_id,city_id,stay_id,feature) VALUES($1,$2,$3,$4::jsonb)"
+            );
+            legacy.Parameters.AddWithValue(trip.Id);
+            legacy.Parameters.AddWithValue(place.CityId);
+            legacy.Parameters.AddWithValue(visit.StayId);
+            legacy.Parameters.AddWithValue(
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        type = "Feature",
+                        id = visit.StayId,
+                        geometry = new { type = "Point", coordinates = new[] { 139.7, 35.7 } },
+                        properties = new { name = "Existing hotel" },
+                    }
+                )
+            );
             await legacy.ExecuteNonQueryAsync();
         }
+        var journeyId = Guid.NewGuid();
         await using (
             var legacy = source.CreateCommand(
-                """
-                WITH previous AS (
-                    INSERT INTO destination_stay_locations(trip_id,city_id,feature)
-                    VALUES($1,'tokyo-jp','{"type":"Feature","id":"stay","geometry":{"type":"Point","coordinates":[139.7,35.7]},"properties":{"name":"Existing hotel"}}')
-                )
-                DELETE FROM schema_migrations WHERE version=15;
-                """
+                "INSERT INTO trip_travel_plans(trip_id,version,document) VALUES($1,1,$2::jsonb)"
             )
         )
         {
             legacy.Parameters.AddWithValue(trip.Id);
+            legacy.Parameters.AddWithValue(
+                JsonSerializer.Serialize(
+                    new[]
+                    {
+                        new
+                        {
+                            id = journeyId,
+                            name = "Train",
+                            mode = "train",
+                            from = new { visitId = first.StayId },
+                            to = new { visitId = second.StayId },
+                            durationOverride = "PT1H",
+                        },
+                    }
+                )
+            );
             await legacy.ExecuteNonQueryAsync();
         }
         await new DatabaseMigrator(source, NullLogger<DatabaseMigrator>.Instance).MigrateAsync();
@@ -243,13 +296,22 @@ public sealed class PlannerDbTests
         {
             Assert.AreEqual("Existing hotel", locations[id].Properties.Name);
             Assert.AreEqual(id.ToString("D"), locations[id].Id);
+            Assert.IsNotNull(locations[id].Properties.HotelId);
         }
+        var journey = (await db.GetTransportationAsync(user.Id, trip.Id)).Single();
+        Assert.AreEqual(journeyId, journey.Id);
+        Assert.AreEqual(TimeSpan.FromHours(1), journey.Duration);
+        Assert.AreEqual(
+            locations[first.StayId].Properties.HotelId,
+            journey.Features.Single(f => f.Id == "from").Properties.Reference!.Id
+        );
         Assert.IsTrue(
             await db.SaveStayLocationAsync(user.Id, trip.Id, place.CityId, first.StayId, null)
         );
         Assert.IsTrue(
             (await db.GetStayLocationsAsync(user.Id, trip.Id)).ContainsKey(second.StayId)
         );
+        Assert.HasCount(2, await db.GetHotelsAsync(user.Id, trip.Id));
     }
 
     private static async Task MigrationRetiresTransit(NpgsqlDataSource source)

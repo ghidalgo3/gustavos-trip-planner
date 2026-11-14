@@ -591,50 +591,6 @@ public sealed class TripPlannerTools(
             etag
         );
 
-    [McpServerTool(
-        Name = "get_trip_travel",
-        ReadOnly = true,
-        Destructive = false,
-        Idempotent = true,
-        OpenWorld = false
-    )]
-    [McpMeta("securitySchemes", JsonValue = ReadSecurity)]
-    [Description(McpInstructions.Tools.GetTripTravel)]
-    public Task<CallToolResult> GetTripTravel(Guid tripId) =>
-        Execute(
-            false,
-            context => TripTravelEndpoints.GetTravel(tripId, context, database, currentUser)
-        );
-
-    [McpServerTool(
-        Name = "replace_trip_travel",
-        ReadOnly = false,
-        Destructive = true,
-        Idempotent = true,
-        OpenWorld = false
-    )]
-    [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
-    [Description(McpInstructions.Tools.ReplaceTripTravel)]
-    public Task<CallToolResult> ReplaceTripTravel(
-        Guid tripId,
-        TripTravelRequest request,
-        [Required, StringLength(40), RegularExpression("""^"travel-[0-9]{1,19}"$""")] string etag
-    ) =>
-        Execute(
-            true,
-            context =>
-                TripTravelEndpoints.ReplaceTravel(
-                    tripId,
-                    request,
-                    context,
-                    database,
-                    currentUser,
-                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Documents.TripReader>(),
-                    context.RequestServices.GetRequiredService<TripPlanner.Api.Services.Documents.TripResourceProjection>()
-                ),
-            etag: etag
-        );
-
     private Task<CallToolResult> Execute(
         bool write,
         Func<HttpContext, Task<IResult>> action,

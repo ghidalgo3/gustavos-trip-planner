@@ -16,8 +16,6 @@ const metadataFields = new Set([
   "canPlan",
   "activitiesEtag",
   "accommodationEtag",
-  "connectionsEtag",
-  "connectionsVersion",
   "flightPlanningEtag",
   "flightChoicesEtag",
   "bookingEtag",
@@ -64,7 +62,12 @@ export function tripDocumentValidators(
   for (const p of d.people) add(`/travellers/${p.id}`, p);
   add("/activity-preferences", d.preferences.activities);
   add("/flights/constraints", d.preferences, "flightPlanning");
-  add("/travel", d.itinerary, "connections");
+  for (const item of d.itinerary.items.filter(
+    (item) => item.kind === "transportation",
+  ))
+    add(`/transportation/${item.id}`, item.transportation);
+  for (const place of d.places.filter((p) => p.hotelId))
+    add(`/hotels/${place.hotelId}`, place);
   for (const g of list(d.preferences.groups)) {
     add(`/flights/choices/${g.id}`, g, "flightChoices");
     add(`/flights/${g.id}`, g, "booking");
@@ -114,8 +117,6 @@ export type TripDocument = {
   places: ObjectValue[];
   itinerary: {
     items: ObjectValue[];
-    connectionsEtag?: string;
-    connectionsVersion?: number;
   };
   preferences: ObjectValue;
   etag?: string;
@@ -146,7 +147,7 @@ export function validateTripDocument(
         "lodging",
         "activity",
         "flight",
-        "connection",
+        "transportation",
         "transfer",
       ].includes(text(item.kind)) ||
       typeof item.id !== "string" ||
@@ -168,6 +169,21 @@ export function validateTripDocument(
           (typeof item.notes !== "string" || item.notes.length > 10000)))
     )
       throw new Error("Invalid activity details.");
+    if (item.kind === "transportation") {
+      const journey = object(item.transportation);
+      const features = list(journey.features);
+      if (
+        journey.type !== "FeatureCollection" ||
+        journey.id !== item.id ||
+        typeof journey.name !== "string" ||
+        typeof journey.notes !== "string" ||
+        journey.notes.length > 10000 ||
+        !Array.isArray(journey.features) ||
+        features.filter((f) => f.id === "from").length !== 1 ||
+        features.filter((f) => f.id === "to").length !== 1
+      )
+        throw new Error("Invalid transportation details.");
+    }
     if (ids.has(text(item.id)))
       throw new Error("Duplicate trip calendar item.");
     ids.add(text(item.id));
@@ -216,6 +232,9 @@ export function validateTripDocument(
     ...list(d.people),
     ...list(d.places),
     ...list(object(d.itinerary).items),
+    ...list(object(d.itinerary).items)
+      .filter((i) => i.kind === "transportation")
+      .map((i) => i.transportation),
     object(d.itinerary),
     object(d.preferences),
     object(d.preferences).activities,
@@ -340,14 +359,26 @@ export function hydrateTripDocument(document: TripDocument): TripView {
         bookings: [],
       },
     );
-  add("/travel", {
-    connections: d.itinerary.items
-      .filter((l) => l.kind === "connection")
-      .map((l) =>
-        without(l, ["kind", "type", "busy", "start", "end", "duration"]),
-      ),
-    version: metadata[prefix + "/travel"]?.version ?? 0,
-  });
+  const transportation = d.itinerary.items
+    .filter((item) => item.kind === "transportation")
+    .map((item) => item.transportation);
+  add("/transportation", transportation);
+  for (const journey of transportation.map(object))
+    add(`/transportation/${journey.id}`, journey);
+  const hotels = d.places
+    .filter((p) => p.hotelId)
+    .map((p) => ({
+      id: p.hotelId,
+      tripId: d.id,
+      name: p.name,
+      address: p.address,
+      geometry: p.location,
+      timeZone: p.timeZone ?? null,
+      version: p.version,
+      etag: p.etag,
+    }));
+  add("/hotels", hotels);
+  for (const hotel of hotels) add(`/hotels/${hotel.id}`, hotel);
   const destinationPreferences = list(d.preferences.destinations);
   const features = destinationPreferences
     .map((pref) =>
@@ -377,7 +408,11 @@ export function hydrateTripDocument(document: TripDocument): TripView {
                   type: "Feature",
                   id: v.id,
                   geometry: stay.location,
-                  properties: { name: stay.name },
+                  properties: {
+                    name: stay.name,
+                    address: stay.address ?? null,
+                    hotelId: stay.hotelId ?? null,
+                  },
                 }
               : null,
           };
@@ -474,7 +509,8 @@ export function hydrateTripDocument(document: TripDocument): TripView {
       name: text(p.name),
       timeZone: typeof p.timeZone === "string" ? p.timeZone : undefined,
       iataCode: typeof p.iataCode === "string" ? p.iataCode : undefined,
-      address: p.address as { addressLocality?: string } | undefined,
+      address: p.address as
+        string | { addressLocality?: string } | null | undefined,
     })),
   };
 }

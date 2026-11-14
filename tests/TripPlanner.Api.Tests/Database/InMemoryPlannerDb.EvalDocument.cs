@@ -129,11 +129,21 @@ public sealed partial class InMemoryPlannerDb
                 var stayId = Guid.Parse(lodging["visitId"]!.GetValue<string>());
                 var city = _destinationVisits[stayId].CityId;
                 var place = places[lodging["placeId"]!.GetValue<string>()];
+                var hotelId = Guid.NewGuid();
+                _hotels[hotelId] = new(
+                    hotelId,
+                    tripId,
+                    lodging["name"]!.GetValue<string>(),
+                    null,
+                    Point(place)!,
+                    null,
+                    1
+                );
                 _stayLocations[(tripId, city, stayId)] = new(
                     "Feature",
                     stayId.ToString(),
                     Point(place),
-                    new(lodging["name"]!.GetValue<string>())
+                    new(lodging["name"]!.GetValue<string>(), HotelId: hotelId)
                 );
             }
             foreach (var item in items.Where(i => i["kind"]!.GetValue<string>() == "activity"))

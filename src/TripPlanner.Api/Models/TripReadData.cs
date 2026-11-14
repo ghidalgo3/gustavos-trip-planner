@@ -18,6 +18,9 @@ public sealed record TripReadData(
     SelectedFlight[] Flights,
     FlightChoiceProgress[] Choices,
     long ContextRevision,
-    TripTravelPlan Travel,
+    Transportation[] Transportation,
     DateTimeOffset ModifiedAt
-);
+)
+{
+    public Hotel[] Hotels { get; init; } = [];
+}

@@ -108,7 +108,7 @@ public static class DestinationsEndpoints
             "Feature",
             stayId.ToString("D"),
             point,
-            new(name)
+            new(name, request.Properties.Address, request.Properties.HotelId)
         );
         return await database.SaveStayLocationAsync(
             user!.Id,
@@ -118,7 +118,11 @@ public static class DestinationsEndpoints
             feature,
             context.RequestAborted
         )
-            ? GeoJson(feature)
+            ? GeoJson(
+                (await database.GetStayLocationsAsync(user.Id, tripId, context.RequestAborted))[
+                    stayId
+                ]
+            )
             : Results.NotFound();
     }
 

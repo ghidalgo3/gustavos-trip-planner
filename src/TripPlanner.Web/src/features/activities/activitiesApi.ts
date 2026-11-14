@@ -18,7 +18,11 @@ export type StayLocation = {
   type: "Feature";
   id: string;
   geometry: Point;
-  properties: { name: string };
+  properties: {
+    name: string;
+    address?: string | null;
+    hotelId?: string | null;
+  };
 };
 export type Destination = {
   type: "Feature";

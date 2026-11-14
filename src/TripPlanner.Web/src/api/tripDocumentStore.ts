@@ -31,7 +31,7 @@ export type TripView = {
     name: string;
     timeZone?: string;
     iataCode?: string;
-    address?: { addressLocality?: string };
+    address?: string | { addressLocality?: string } | null;
   }[];
   resources: Record<string, ClientResource>;
 };

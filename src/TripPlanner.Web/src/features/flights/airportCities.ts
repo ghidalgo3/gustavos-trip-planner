@@ -20,9 +20,15 @@ export function flightAirportCodes(legs: FareLeg[]): string[] {
 export function useAirportCities(codes: string[]): AirportCities {
   const document = useTripDocumentState();
   const saved: AirportCities = Object.fromEntries(
-    (document.document?.places ?? [])
-      .filter((place) => place.iataCode && place.address?.addressLocality)
-      .map((place) => [place.iataCode!, place.address!.addressLocality!]),
+    (document.document?.places ?? []).flatMap((place) => {
+      const address = place.address;
+      return place.iataCode &&
+        address &&
+        typeof address === "object" &&
+        address.addressLocality
+        ? [[place.iataCode, address.addressLocality]]
+        : [];
+    }),
   );
   const key = [...new Set(codes)]
     .filter((code) => !saved[code])

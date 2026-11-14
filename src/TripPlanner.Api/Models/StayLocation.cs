@@ -3,5 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace TripPlanner.Api.Models;
 
 public sealed record StayLocationProperties(
-    [property: Required, StringLength(200, MinimumLength = 1)] string Name
+    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property: StringLength(2000)] string? Address = null,
+    Guid? HotelId = null
 );

@@ -211,7 +211,7 @@ public sealed class TripReadPostgresTests
             async (source, db) =>
             {
                 var user = await db.GetOrCreateUserAsync(
-                    new("google", "readView@example.com", "ReadView")
+                    new("google", "readview@example.com", "ReadView")
                 );
                 var trip = await db.CreateTripAsync(user.Id, "Before", "");
                 var place = await db.SaveDestinationPlaceAsync(
@@ -334,73 +334,6 @@ public sealed class TripReadPostgresTests
                 {
                     response.Dispose();
                 }
-            }
-        );
-    }
-
-    [TestMethod]
-    public async Task TravelVersionsAndVisitDeletionCleanupAreEnforcedByPostgres()
-    {
-        await WithDatabase(
-            async (_, db) =>
-            {
-                var user = await db.GetOrCreateUserAsync(
-                    new("google", "travel-db@example.com", "Travel")
-                );
-                var trip = await db.CreateTripAsync(user.Id, "Travel", "");
-                var place = await db.SaveDestinationPlaceAsync(
-                    user.Id,
-                    new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.35, 48.86)
-                );
-                var visit = (
-                    await db.AddDestinationVisitAsync(
-                        user.Id,
-                        new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
-                    )
-                )!;
-                var connection = new TripTravelConnection(
-                    Guid.NewGuid(),
-                    "Train",
-                    new(TripResourceProjection.LocalId(trip.Id, "place", "home"), null, null),
-                    new(null, null, visit.StayId),
-                    "train",
-                    "user",
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    []
-                );
-                var context = await db.GetActivityPlanningRevisionAsync(user.Id, trip.Id);
-                var saved = await db.SaveTripTravelAsync(
-                    user.Id,
-                    trip.Id,
-                    [connection],
-                    0,
-                    context
-                );
-                Assert.IsNotNull(saved);
-                Assert.IsNull(await db.SaveTripTravelAsync(user.Id, trip.Id, [], 0, context));
-                Assert.AreEqual(
-                    "train",
-                    (await db.GetTripTravelAsync(user.Id, trip.Id)).Connections.Single().Mode
-                );
-                var readView = await db.ReadTripDataAsync(user.Id, trip.Id, CancellationToken.None);
-                Assert.IsNotNull(readView);
-                var capturedConnection = readView.Travel.Connections.Single();
-                Assert.AreEqual(connection.Id, capturedConnection.Id);
-                Assert.AreEqual(connection.Mode, capturedConnection.Mode);
-                Assert.AreEqual(connection.To, capturedConnection.To);
-                Assert.AreEqual(visit.StayId, readView.Visits.Single().StayId);
-                Assert.AreEqual(saved.Version, readView.Travel.Version);
-                Assert.IsNull(
-                    await db.ReadTripDataAsync(Guid.NewGuid(), trip.Id, CancellationToken.None)
-                );
-                await db.DeleteDestinationVisitAsync(user.Id, trip.Id, place.CityId, visit.StayId);
-                var after = await db.GetTripTravelAsync(user.Id, trip.Id);
-                Assert.IsEmpty(after.Connections);
-                Assert.AreEqual(saved.Version + 1, after.Version);
             }
         );
     }

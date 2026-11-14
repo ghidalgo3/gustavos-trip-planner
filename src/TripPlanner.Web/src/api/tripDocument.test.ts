@@ -12,15 +12,133 @@ const before = JSON.parse(readFileSync("../../docs/before.json", "utf8")) as {
 };
 const after = JSON.parse(readFileSync("../../docs/after.json", "utf8"));
 
+test.each(["task", "event"])(
+  "transportation %s retains GeoJSON and individual offline edit validators",
+  (type) => {
+    const value = structuredClone(after);
+    const lodging = value.itinerary.items.find(
+      (i: Record<string, unknown>) => i.kind === "lodging",
+    );
+    const place = value.places.find(
+      (p: Record<string, unknown>) => p.id === lodging.placeId,
+    );
+    const hotelId = "11111111-1111-4111-8111-111111111111";
+    Object.assign(place, {
+      hotelId,
+      address: "Hotel address",
+      version: 2,
+      etag: `hotel-${hotelId}-2`,
+    });
+    const journey = {
+      type: "FeatureCollection",
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "Airport to hotel",
+      notes: "Take the express, then Metro A.",
+      mode: "transit",
+      departureDate: null,
+      departureTime: null,
+      timeZone: null,
+      duration: "PT1H",
+      features: [
+        {
+          type: "Feature",
+          id: "from",
+          geometry: { type: "Point", coordinates: [139, 35] },
+          properties: { name: "Station", address: "Station address" },
+        },
+        {
+          type: "Feature",
+          id: "to",
+          geometry: place.location,
+          properties: {
+            name: place.name,
+            address: place.address,
+            reference: { kind: "hotel", id: hotelId },
+          },
+        },
+        {
+          type: "Feature",
+          id: "step",
+          geometry: null,
+          properties: {
+            sequence: 0,
+            mode: "train",
+            line: "Express",
+            instructions: "Platform 2",
+          },
+        },
+      ],
+      etag: "transportation-example-4",
+      version: 4,
+      routeStale: false,
+    };
+    value.itinerary.items.push({
+      id: journey.id,
+      name: journey.name,
+      kind: "transportation",
+      type,
+      busy: type === "event",
+      ...(type === "event" ? { start: "2030-04-01T09:00:00Z" } : {}),
+      transportation: journey,
+    });
+    const hydrated = hydrateTripDocument(validateTripDocument(value, value.id));
+    const path = `/trips/${value.id}/transportation/${journey.id}`;
+    expect(hydrated.resources[path].data).toEqual(journey);
+    expect(hydrated.resources[path].etag).toBe('"transportation-example-4"');
+    expect(
+      hydrated.resources[`/trips/${value.id}/transportation`].data,
+    ).toEqual([journey]);
+    expect(
+      hydrated.resources[`/trips/${value.id}/hotels/${hotelId}`].etag,
+    ).toBe(`"hotel-${hotelId}-2"`);
+    const visit = value.itinerary.items.find(
+      (i: Record<string, unknown>) => i.id === lodging.visitId,
+    );
+    expect(
+      hydrated.resources[
+        `/trips/${value.id}/destinations/${visit.destinationId}/stays/${visit.id}/location`
+      ].data,
+    ).toMatchObject({ properties: { hotelId, address: "Hotel address" } });
+  },
+);
+
+// The captured pre-refactor views omit the new hotel-selection fields.
+function withHotelSelectionFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withHotelSelectionFields);
+  if (!value || typeof value !== "object") return value;
+  const object = value as Record<string, unknown>;
+  const result = Object.fromEntries(
+    Object.entries(object).map(([key, value]) => [
+      key,
+      withHotelSelectionFields(value),
+    ]),
+  );
+  if (
+    object.type === "Feature" &&
+    after.itinerary.items.some(
+      (item: Record<string, unknown>) =>
+        item.kind === "visit" && item.id === object.id,
+    )
+  )
+    result.properties = {
+      ...(result.properties as object),
+      address: null,
+      hotelId: null,
+    };
+  return result;
+}
+
 test.each(
-  Object.entries(before.resources).filter(([path]) => !isTripApiResult(path)),
+  Object.entries(before.resources).filter(
+    ([path]) => !isTripApiResult(path) && !path.endsWith("/travel"),
+  ),
 )("document adapter preserves REST view %s", (path, expected) => {
   const actual = hydrateTripDocument(validateTripDocument(after, after.id))
     .resources[path];
   expect(actual).toBeDefined();
   if (actual.etag) expect(actual.etag).toEqual(expected.etag);
   expect(actual.status).toEqual(expected.status);
-  const expectedData = structuredClone(expected.data);
+  const expectedData = withHotelSelectionFields(structuredClone(expected.data));
   if (path.includes("/activities")) {
     const data = expectedData as {
       type?: string;
@@ -56,14 +174,9 @@ test.each(Object.keys(before.resources).filter(isTripApiResult))(
 test("a portable document supplies read-only views without synchronization metadata", () => {
   const portable = JSON.parse(
     JSON.stringify(after, (key, value) =>
-      [
-        "etag",
-        "contextVersion",
-        "version",
-        "canPlan",
-        "connectionsVersion",
-        "memberEtags",
-      ].includes(key) || key.endsWith("Etag")
+      ["etag", "contextVersion", "version", "canPlan", "memberEtags"].includes(
+        key,
+      ) || key.endsWith("Etag")
         ? undefined
         : value,
     ),
@@ -144,7 +257,7 @@ test("one document hydrates offline screens and stores only domain data and vali
     await refreshTripDocument();
     const path = `/trips/${after.id}/destinations`;
     expect(await (await tripFetch(path)).json()).toEqual(
-      before.resources[path].data,
+      withHotelSelectionFields(before.resources[path].data),
     );
     expect(network).toHaveBeenCalledTimes(2);
     await expect(
@@ -298,7 +411,7 @@ test("a cached trip can fetch uncached API results while its connection is being
   try {
     const opening = openTripDocument("owner", after.id, "");
     expect(await (await tripFetch(path)).json()).toEqual(
-      before.resources[path].data,
+      withHotelSelectionFields(before.resources[path].data),
     );
     complete(new Response(null, { status: 304 }));
     await opening;
@@ -353,10 +466,6 @@ test("entity validators supply edit headers without storing API addresses", () =
   expect(validators[`${prefix}/destinations/${visit.destinationId}`]).toEqual({
     etag: `"${city.etag}"`,
   });
-  expect(validators[`${prefix}/travel`]).toEqual({
-    etag: `"${after.itinerary.connectionsEtag}"`,
-    version: after.itinerary.connectionsVersion,
-  });
   expect(JSON.stringify(after)).not.toContain("/trips/");
   expect(after.sync).toBeUndefined();
 });
@@ -386,11 +495,7 @@ test("calendar items retain hotel stays and unscheduled activity details", () =>
   const value = validateTripDocument(after, after.id);
   expect(value).not.toHaveProperty("activities");
   expect(value).not.toHaveProperty("transportation");
-  expect(Object.keys(value.itinerary).sort()).toEqual([
-    "connectionsEtag",
-    "connectionsVersion",
-    "items",
-  ]);
+  expect(Object.keys(value.itinerary).sort()).toEqual(["items"]);
   const lodging = value.itinerary.items.filter(
     (item) => item.kind === "lodging",
   );

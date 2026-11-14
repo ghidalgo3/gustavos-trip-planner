@@ -73,13 +73,6 @@
           "items": {
             "$ref": "#/$defs/calendarItem"
           }
-        },
-        "connectionsEtag": {
-          "type": "string",
-          "pattern": "^[!#-~\\u0080-\\u00ff]+$"
-        },
-        "connectionsVersion": {
-          "type": "integer"
         }
       },
       "additionalProperties": false
@@ -163,7 +156,10 @@
                       "type": "object",
                       "properties": {
                         "name": {
-                          "type": ["string", "null"],
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "maxLength": 200,
                           "description": "Optional name for this destination's local day; does not constrain scheduling."
                         }
@@ -357,7 +353,17 @@
           "type": "string"
         },
         "address": {
-          "type": "object"
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "destinationId": {
           "type": "string"
@@ -378,6 +384,31 @@
         },
         "contextVersion": {
           "type": "string"
+        },
+        "hotelId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "airportId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "userId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": false
@@ -1231,8 +1262,7 @@
             "kind",
             "type",
             "busy",
-            "from",
-            "to"
+            "transportation"
           ],
           "properties": {
             "id": {
@@ -1297,63 +1327,11 @@
               "type": "string",
               "pattern": "^[!#-~\\u0080-\\u00ff]+$"
             },
-            "visitId": {
-              "type": "string",
-              "format": "uuid"
-            },
             "kind": {
-              "const": "connection"
+              "const": "transportation"
             },
-            "from": {
-              "type": "object"
-            },
-            "to": {
-              "type": "object"
-            },
-            "mode": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "departureDate": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "departureTime": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "durationOverride": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "serviceId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "serviceDefinition": {
-              "type": [
-                "object",
-                "null"
-              ]
-            },
-            "segments": {
-              "type": "array"
-            },
-            "estimate": {
-              "type": [
-                "object",
-                "null"
-              ]
+            "transportation": {
+              "$ref": "#/$defs/transportation"
             }
           },
           "allOf": [
@@ -1506,6 +1484,433 @@
           "additionalProperties": true
         }
       ]
+    },
+    "transportationFeature": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "geometry",
+        "properties"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "type": {
+          "const": "Feature"
+        },
+        "geometry": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "coordinates"
+              ],
+              "properties": {
+                "type": {
+                  "const": "Point"
+                },
+                "coordinates": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "number",
+                      "minimum": -180,
+                      "maximum": 180
+                    },
+                    {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    }
+                  ],
+                  "items": false
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "coordinates"
+              ],
+              "properties": {
+                "type": {
+                  "const": "LineString"
+                },
+                "coordinates": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 10000,
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      },
+                      {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      }
+                    ],
+                    "items": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "coordinates"
+              ],
+              "properties": {
+                "type": {
+                  "const": "MultiLineString"
+                },
+                "coordinates": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 100,
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "prefixItems": [
+                        {
+                          "type": "number",
+                          "minimum": -180,
+                          "maximum": 180
+                        },
+                        {
+                          "type": "number",
+                          "minimum": -90,
+                          "maximum": 90
+                        }
+                      ],
+                      "items": false
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "address": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 2000
+            },
+            "reference": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "activity",
+                    "airport",
+                    "hotel",
+                    "home"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "sequence": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 999
+            },
+            "mode": {
+              "enum": [
+                null,
+                "walk",
+                "bike",
+                "car",
+                "taxi",
+                "bus",
+                "train",
+                "transit",
+                "flight"
+              ]
+            },
+            "line": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "direction": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "instructions": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 10000
+            },
+            "duration": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "from",
+                  "to"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "geometry": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "properties": {
+                      "type": {
+                        "const": "Point"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "geometry": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "LineString",
+                          "MultiLineString"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "properties": {
+                "required": [
+                  "sequence",
+                  "mode"
+                ],
+                "properties": {
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 999
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "walk",
+                      "bike",
+                      "car",
+                      "taxi",
+                      "bus",
+                      "train",
+                      "transit",
+                      "flight"
+                    ]
+                  },
+                  "reference": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "transportation": {
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "name",
+        "notes",
+        "features",
+        "version",
+        "etag",
+        "routeStale"
+      ],
+      "properties": {
+        "type": {
+          "const": "FeatureCollection"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "features": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 102,
+          "items": {
+            "$ref": "#/$defs/transportationFeature"
+          },
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "from"
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "to"
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
+        },
+        "mode": {
+          "enum": [
+            null,
+            "walk",
+            "bike",
+            "car",
+            "taxi",
+            "bus",
+            "train",
+            "transit",
+            "flight"
+          ]
+        },
+        "departureDate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "departureTime": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeZone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "etag": {
+          "type": "string"
+        },
+        "routeStale": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "dependentRequired": {

@@ -102,7 +102,7 @@ export default function StayLocationDrawer({
         type: "Feature",
         id: "stay",
         geometry: match.geometry,
-        properties: { name: match.name.slice(0, 200) },
+        properties: { name: match.name.slice(0, 200), address: match.address },
       },
       index,
     );

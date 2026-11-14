@@ -15,7 +15,7 @@ protocol TransferFlightServing {
 }
 
 @MainActor
-protocol TripPlannerServing: DestinationServing, TransferFlightServing {
+protocol TripPlannerServing: DestinationServing, TransferFlightServing, TransportationServing {
     func restoreSession() throws -> Bool
     func makeAuthorizationAttempt(provider: IdentityProvider) throws -> AuthorizationAttempt
     func finishAuthorization(callbackURL: URL, attempt: AuthorizationAttempt) async throws
@@ -298,6 +298,42 @@ final class TripPlannerAPI: TripPlannerServing {
         try tokenStore.save(result)
         tokens = result
         return result
+    }
+
+    func transportation(tripID: UUID) async throws -> [TransportationResource] {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation")
+    }
+    func airports(query: String) async throws -> [AirportResource] {
+        var components = URLComponents()
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        return try await send(path: "/airports?\(components.percentEncodedQuery ?? "")")
+    }
+    func transportation(tripID: UUID, id: UUID) async throws -> TransportationResource {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation/\(id.uuidString.lowercased())")
+    }
+    func createTransportation(tripID: UUID, request: TransportationWrite) async throws -> TransportationResource {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation", method: "POST", body: request)
+    }
+    func replaceTransportation(tripID: UUID, value: TransportationResource, request: TransportationWrite) async throws -> TransportationResource {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation/\(value.id.uuidString.lowercased())", method: "PUT", body: request, etag: "\"\(value.etag)\"")
+    }
+    func deleteTransportation(tripID: UUID, value: TransportationResource) async throws {
+        let _: EmptyResponse = try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation/\(value.id.uuidString.lowercased())", method: "DELETE", etag: "\"\(value.etag)\"")
+    }
+    func hotels(tripID: UUID) async throws -> [HotelResource] {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/hotels")
+    }
+    func hotel(tripID: UUID, id: UUID) async throws -> HotelResource {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/hotels/\(id.uuidString.lowercased())")
+    }
+    func createHotel(tripID: UUID, request: HotelWrite) async throws -> HotelResource {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/hotels", method: "POST", body: request)
+    }
+    func replaceHotel(tripID: UUID, value: HotelResource, request: HotelWrite) async throws -> HotelResource {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/hotels/\(value.id.uuidString.lowercased())", method: "PUT", body: request, etag: "\"\(value.etag)\"")
+    }
+    func deleteHotel(tripID: UUID, value: HotelResource) async throws {
+        let _: EmptyResponse = try await send(path: "/trips/\(tripID.uuidString.lowercased())/hotels/\(value.id.uuidString.lowercased())", method: "DELETE", etag: "\"\(value.etag)\"")
     }
 
     private func requiredETag(_ trip: Trip) throws -> String {

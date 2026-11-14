@@ -12,7 +12,7 @@ public sealed partial class PostgresPlannerDb
     {
         await using var command = dataSource.CreateCommand(
             """
-            SELECT s.stay_id, s.feature::text FROM destination_stay_locations s JOIN trips t ON t.id=s.trip_id
+            SELECT s.stay_id, hotel_stay_feature(s.stay_id,s.hotel_id)::text FROM destination_stay_locations s JOIN trips t ON t.id=s.trip_id
             WHERE t.id=$1 AND (t.owner_user_id=$2 OR EXISTS (SELECT 1 FROM parties p WHERE p.trip_id=t.id AND $2=ANY(p.user_ids)));
             """
         );
@@ -51,9 +51,19 @@ public sealed partial class PostgresPlannerDb
                 SELECT EXISTS(SELECT 1 FROM eligible);
                 """
                 : """
-                INSERT INTO destination_stay_locations (trip_id,city_id,stay_id,feature)
-                SELECT trip_id, city_id, stay_id, $5 FROM destination_stays WHERE trip_id=$1 AND city_id=$2 AND stay_id=$4 AND can_plan_trip(trip_id,$3)
-                ON CONFLICT(trip_id,city_id,stay_id) DO UPDATE SET feature=EXCLUDED.feature
+                WITH eligible AS (SELECT * FROM destination_stays WHERE trip_id=$1 AND city_id=$2 AND stay_id=$4 AND can_plan_trip(trip_id,$3)),
+                created AS (
+                    INSERT INTO hotels(id,trip_id,name,address,location,time_zone)
+                    SELECT $6,$1,$5->'properties'->>'name',$5->'properties'->>'address',
+                        ST_SetSRID(ST_GeomFromGeoJSON(($5->'geometry')::text),4326)::geography,
+                        (SELECT time_zone FROM destination_places WHERE trip_id=$1 AND city_id=$2)
+                    FROM eligible WHERE $7=false RETURNING id
+                ), chosen AS (
+                    SELECT id FROM created UNION ALL SELECT id FROM hotels WHERE id=$6 AND trip_id=$1 AND $7=true
+                )
+                INSERT INTO destination_stay_locations (trip_id,city_id,stay_id,hotel_id)
+                SELECT e.trip_id,e.city_id,e.stay_id,c.id FROM eligible e CROSS JOIN chosen c
+                ON CONFLICT(trip_id,city_id,stay_id) DO UPDATE SET hotel_id=EXCLUDED.hotel_id
                 RETURNING true;
                 """
         );
@@ -67,6 +77,8 @@ public sealed partial class PostgresPlannerDb
                 NpgsqlDbType.Jsonb,
                 JsonSerializer.Serialize(feature, JsonSerializerOptions.Web)
             );
+            command.Parameters.AddWithValue(feature.Properties.HotelId ?? Guid.NewGuid());
+            command.Parameters.AddWithValue(feature.Properties.HotelId is not null);
         }
 
         return await command.ExecuteScalarAsync(cancellationToken) is true;

@@ -152,11 +152,21 @@ public sealed class TripResourceProjection(
             EndDate = lastVisit?.DepartureDate ?? lastVisit?.ArrivalDate,
         };
         Add(prefix, tripResponse, tripResponse.Etag);
-        Add(
-            $"{prefix}/travel",
-            data.Travel,
-            TripPlanner.Api.Endpoints.TripTravelEndpoints.ETag(data.Travel.Version)
-        );
+        Add($"{prefix}/transportation", data.Transportation);
+        foreach (var journey in data.Transportation)
+        {
+            Add(
+                $"{prefix}/transportation/{journey.Id:D}",
+                journey,
+                $"\"{journey.Etag}\"",
+                contentType: "application/geo+json"
+            );
+        }
+        Add($"{prefix}/hotels", data.Hotels);
+        foreach (var hotel in data.Hotels)
+        {
+            Add($"{prefix}/hotels/{hotel.Id:D}", hotel, $"\"{hotel.Etag}\"");
+        }
         Add($"{prefix}/parties", parties);
         Add(
             $"{prefix}/travellers",
@@ -265,14 +275,37 @@ public sealed class TripResourceProjection(
         {
             AddPlace(PlaceId(p.CityId), p.Name, p.Longitude, p.Latitude, p.TimeZone);
         }
-        foreach (var (visitId, stay) in data.Stays.OrderBy(p => p.Key))
+        foreach (var hotel in data.Hotels)
         {
+            var id = PlaceId($"hotel:{hotel.Id:D}");
             AddPlace(
-                PlaceId($"stay:{visitId:D}"),
-                stay.Properties.Name,
-                stay.Geometry?.Position.Longitude,
-                stay.Geometry?.Position.Latitude
+                id,
+                hotel.Name,
+                hotel.Geometry.Position.Longitude,
+                hotel.Geometry.Position.Latitude,
+                hotel.TimeZone
             );
+            places[id]["hotelId"] = hotel.Id.ToString("D");
+            places[id]["address"] = hotel.Address;
+            places[id]["etag"] = hotel.Etag;
+            places[id]["version"] = hotel.Version;
+        }
+        foreach (var person in data.People)
+        {
+            var personPlaceId =
+                person.Id == data.Trip.OwnerUserId ? homeId : PlaceId($"home:{person.Id:D}");
+            AddPlace(
+                personPlaceId,
+                person.HomeCityName ?? "Home",
+                person.HomeCityLocation?.Longitude,
+                person.HomeCityLocation?.Latitude,
+                person.HomeCityLocation is { } location
+                    ? GeoTimeZone
+                        .TimeZoneLookup.GetTimeZone(location.Latitude, location.Longitude)
+                        .Result
+                    : null
+            );
+            places[personPlaceId]["userId"] = person.Id.ToString("D");
         }
         foreach (var a in data.Activities)
         {
@@ -437,62 +470,33 @@ public sealed class TripResourceProjection(
                 }
             }
         }
-        var services = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
-        // A manually referenced service remains part of the trip even after its
-        // flight selection is removed. Retain only its canonical public definition.
-        foreach (var connection in data.Travel.Connections)
+        foreach (
+            var reference in data
+                .Transportation.SelectMany(t => t.Features)
+                .Select(f => f.Properties.Reference)
+                .OfType<TransportationReference>()
+                .Where(r => r.Kind == "airport")
+                .Distinct()
+        )
         {
-            if (
-                connection.ServiceId is { } serviceId
-                && connection.ServiceDefinition is { } definition
-            )
+            var airport = airports.FindById(reference.Id);
+            if (airport is null)
             {
-                services[serviceId] = JsonNode.Parse(definition.GetRawText())!.AsObject();
+                continue;
             }
-        }
-        var referencedPlaces = data
-            .Travel.Connections.SelectMany(c =>
-                new[] { c.From.PlaceId, c.To.PlaceId }.Concat(
-                    c.Segments.SelectMany(segment =>
-                        new[] { segment.From.PlaceId, segment.To.PlaceId }
-                    )
-                )
-            )
-            .Concat(
-                services.Values.SelectMany(service =>
-                    new[]
-                    {
-                        service["departureAirport"]?["@id"]?.GetValue<string>(),
-                        service["arrivalAirport"]?["@id"]?.GetValue<string>(),
-                    }
-                )
+            var airportId = PlaceId("airport:" + airport.Code);
+            AddPlace(
+                airportId,
+                airport.Name,
+                airport.Longitude,
+                airport.Latitude,
+                airport.TimeZone,
+                "Airport"
             );
-        foreach (var placeId in referencedPlaces.OfType<string>().Distinct().ToArray())
-        {
-            var airportPrefix = PlaceId("airport:");
-            if (
-                !places.ContainsKey(placeId)
-                && placeId.StartsWith(airportPrefix, StringComparison.Ordinal)
-            )
-            {
-                var code = Uri.UnescapeDataString(placeId[airportPrefix.Length..]);
-                var airport = airports.FindByCode(code);
-                AddPlace(
-                    placeId,
-                    airport?.Name ?? code,
-                    airport?.Longitude,
-                    airport?.Latitude,
-                    airport?.TimeZone,
-                    "Airport"
-                );
-                places[placeId]["iataCode"] = code;
-                places[placeId]["address"] = new JsonObject
-                {
-                    ["addressLocality"] = airports.CityName(code),
-                };
-            }
+            places[airportId]["iataCode"] = airport.Code;
+            places[airportId]["airportId"] = airport.Id.ToString("D");
+            places[airportId]["address"] = new JsonObject { ["addressLocality"] = airport.City };
         }
-
         foreach (var choice in choices)
         {
             var selected = SavedFlightChoices
@@ -583,6 +587,7 @@ public sealed class TripResourceProjection(
                             "Airport"
                         );
                         places[airportId]["iataCode"] = code;
+                        places[airportId]["airportId"] = airport?.Id.ToString("D");
                         places[airportId]["address"] = new JsonObject
                         {
                             ["addressLocality"] = airports.CityName(code),
@@ -628,7 +633,6 @@ public sealed class TripResourceProjection(
                         }
                         service["tp:" + direction + "LocalTime"] = time;
                     }
-                    services[serviceId] = service;
                     var selectionId = StableGuid($"{tripId}:selection:{choice.PartyId}:{serviceId}")
                         .ToString("D");
                     var flight = new JsonObject
@@ -683,9 +687,9 @@ public sealed class TripResourceProjection(
                 }
             }
         }
-        foreach (var connection in data.Travel.Connections.OrderBy(c => c.Id))
+        foreach (var connection in data.Transportation.OrderBy(c => c.Id))
         {
-            var duration = connection.DurationOverride ?? connection.Estimate?.Duration;
+            var duration = connection.Duration;
             if (
                 connection.DepartureDate is { } date
                 && connection.DepartureTime is { } time
@@ -721,7 +725,7 @@ public sealed class TripResourceProjection(
                     .ToArray()
             )
         );
-        return new(file, resources, services);
+        return new(file, resources);
     }
 
     private static string ElapsedDuration(TimeSpan duration)

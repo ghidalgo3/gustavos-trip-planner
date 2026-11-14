@@ -103,9 +103,15 @@ tasks:
   release:image:
     internal: true
     run: once
-    deps: [release:web-build, release:web-test]
+    deps: [release:web-build, release:web-test, release:airport-catalog]
     cmds:
       - zsh scripts/release-tasks/build-image.zsh
+
+  release:airport-catalog:
+    internal: true
+    run: once
+    cmds:
+      - zsh scripts/release-tasks/refresh-airports.zsh
 
   release:prepare:
     internal: true

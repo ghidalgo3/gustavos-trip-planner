@@ -27,7 +27,7 @@ Each calendar item has `id`, `name`, `kind`, `type`, and `busy`:
 | --- | --- |
 | `activity` | Complete idea, required nonempty `kinds` array of unique, nonblank free-form strings (up to 200 characters each), nullable `address`, explicit `ticketRequirement` (`Unknown`, `Required`, `NotRequired`), estimated duration, cost, research, links, selection state, and scheduling rule. An assigned visit is referenced by `visitId`. |
 | `flight` | A selected flight segment, its airports, flight number, purchase state, and visit associations. |
-| `connection` | An explicit journey between trip locations, with editable modes and segments. |
+| `transportation` | An explicit journey whose `transportation` property is a complete GeoJSON FeatureCollection: referenced/inline endpoints, notes, and optional ordered route steps. |
 | `transfer` | A calculated local journey between activities. |
 | `visit` | A city visit, including its route `order` and date range. Repeat visits have distinct IDs. |
 | `lodging` | A hotel stay referencing its `placeId` and `visitId`. The hotel location is reusable; each stay is a separate calendar item. |
@@ -39,7 +39,7 @@ Selected/Excluded/Unassigned `selection`. Unselected ideas remain available as
 tasks rather than disappearing from the file.
 
 Events use `start` with either an exclusive `end` or an elapsed `duration`.
-City visits and lodging use date ranges. Timed activities and connections use
+City visits and lodging use date ranges. Timed activities and transportation use
 offset timestamps with `timeZone` for local display; selected flights also
 retain airport-local times for display. Dates, times, timestamps, and elapsed
 durations use ISO 8601. An activity's `estimatedDuration` remains its research
@@ -49,7 +49,7 @@ Tasks have `busy: false`. City visits and lodging events also have `busy: false`
 so they provide context without blocking daytime activities. Timed activities and
 transportation have `busy: true`.
 
-Current lodging storage records a chosen hotel against a visit. Its calendar
+Hotels have independent, trip-scoped identities. A visit selects a hotel, and transportation references that hotel rather than following the visit’s selection. Current lodging storage records that selection against a visit. Its calendar
 range therefore comes from that visit and is marked `timingSource: "visit"`.
 These are visit dates, not independently confirmed hotel check-in/out times.
 
@@ -88,7 +88,8 @@ The whole downloaded file has a separate HTTP ETag.
 | Destination scheduling preferences `etag`, `version`, and `contextVersion` | Saved activity plan version and planning context |
 | Group `memberEtags[personId]` | That person's membership in the group |
 | Group `flightChoicesEtag` and `bookingEtag` | Selected journeys and saved provider booking for the group |
-| Itinerary `connectionsEtag` and `connectionsVersion` | The collection of explicit connections |
+| Transportation item `transportation.etag` and `transportation.version` | The individual transportation resource |
+| Hotel place `etag` and `version` | The independent hotel resource |
 | Preferences `flightPlanningEtag` | Flight-planning inputs and their computed view |
 
 For example, a hotel stay is a calendar event:
@@ -110,8 +111,9 @@ For example, a hotel stay is a calendar event:
 }
 ```
 
-Collection validators belong to the collection's owning section. A connection
-has no individual ETag because the REST API replaces the connection collection.
+Transportation journeys have individual ETags on their nested FeatureCollections.
+Hotel places carry the independent hotel's ETag and version; lodging items carry
+the validator for that visit's hotel selection.
 Read-only collection views reconstructed by clients do not require edit ETags.
 Removing the root `etag` makes clients treat the file as read-only even if some
 entity metadata remains. Root `canPlan` is a direct, optional permission hint,

@@ -87,6 +87,12 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 await app.Services.GetRequiredService<IDatabaseMigrator>().MigrateAsync();
+var airportCatalog = app.Services.GetRequiredService<AirportCatalog>();
+airportCatalog.Replace(
+    (
+        await app.Services.GetRequiredService<IPlannerDb>().RefreshAirportsAsync(airportCatalog.All)
+    ).ToArray()
+);
 if (mcpEnabled)
 {
     await app.InitializeMcpAsync();
@@ -183,7 +189,8 @@ api.MapActivityLogEndpoints();
 api.MapMcpAccessEndpoints();
 api.MapTripsEndpoints();
 api.MapTripDocumentEndpoints();
-api.MapTripTravelEndpoints();
+api.MapTransportationEndpoints();
+api.MapHotelsEndpoints();
 api.MapFlightPlanningEndpoints();
 api.MapSelectedFlightsEndpoints();
 api.MapDestinationsEndpoints();

@@ -90,7 +90,17 @@ public sealed class TripResourceFilter(
         var writePath = WriteResourcePath(context, tripId);
         if (writePath is null)
         {
-            return await next(invocation);
+            try
+            {
+                return await next(invocation);
+            }
+            catch (Npgsql.PostgresException exception) when (exception.SqlState == "23514")
+            {
+                return Results.Problem(
+                    statusCode: 409,
+                    title: "A transportation endpoint references this location. Give it coordinates or replace the reference before deleting."
+                );
+            }
         }
 
         try
@@ -191,6 +201,13 @@ public sealed class TripResourceFilter(
                 context.RequestAborted
             );
         }
+        catch (Npgsql.PostgresException exception) when (exception.SqlState == "23514")
+        {
+            return Results.Problem(
+                statusCode: 409,
+                title: "A transportation endpoint references this location. Give it coordinates or replace the reference before deleting."
+            );
+        }
         catch (Npgsql.PostgresException exception) when (exception.SqlState is "40001" or "40P01")
         {
             return Results.Problem(
@@ -235,7 +252,6 @@ public sealed class TripResourceFilter(
                 $"{prefix}/flights/{GuidValue("partyId")}",
             "AddPartyMember" or "RemovePartyMember" =>
                 $"{prefix}/parties/{GuidValue("partyId")}/members/{GuidValue("memberId")}",
-            "ReplaceTripTravel" => $"{prefix}/travel",
             "ReplaceTripTraveller" or "DeleteTripTraveller" =>
                 $"{prefix}/travellers/{GuidValue("memberId")}",
             _ => null,

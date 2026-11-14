@@ -19,17 +19,46 @@ public interface IPlannerDb : IActivityPlanningDb
         CancellationToken cancellationToken = default
     );
 
-    Task<TripTravelPlan> GetTripTravelAsync(
+    Task<IReadOnlyList<Transportation>> GetTransportationAsync(
         Guid userId,
         Guid tripId,
         CancellationToken cancellationToken = default
     );
-    Task<TripTravelPlan?> SaveTripTravelAsync(
+    Task<Transportation?> SaveTransportationAsync(
         Guid userId,
         Guid tripId,
-        TripTravelConnection[] connections,
+        Transportation transportation,
+        long? expectedVersion,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> DeleteTransportationAsync(
+        Guid userId,
+        Guid tripId,
+        Guid transportationId,
         long expectedVersion,
-        long expectedContextRevision,
+        CancellationToken cancellationToken = default
+    );
+    Task<IReadOnlyList<Hotel>> GetHotelsAsync(
+        Guid userId,
+        Guid tripId,
+        CancellationToken cancellationToken = default
+    );
+    Task<Hotel?> SaveHotelAsync(
+        Guid userId,
+        Guid tripId,
+        Hotel hotel,
+        long? expectedVersion,
+        CancellationToken cancellationToken = default
+    );
+    Task<bool> DeleteHotelAsync(
+        Guid userId,
+        Guid tripId,
+        Guid hotelId,
+        long expectedVersion,
+        CancellationToken cancellationToken = default
+    );
+    Task<IReadOnlyList<Services.Flights.Airport>> RefreshAirportsAsync(
+        Services.Flights.Airport[] airports,
         CancellationToken cancellationToken = default
     );
 
