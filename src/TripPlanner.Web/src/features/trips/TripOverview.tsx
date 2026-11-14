@@ -421,9 +421,16 @@ export default function TripOverview({
                   : visitStop(visits[index - 1]),
                 visitStop({ destination, stay }),
               )}
-              <li className="overview-destination">
+              <li className="overview-destination overview-destination-navigable">
                 <div className="overview-destination-details">
-                  <Title3 as="h3">{destination.properties.name}</Title3>
+                  <Title3 as="h3">
+                    <Link
+                      className="overview-destination-link"
+                      to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
+                    >
+                      {destination.properties.name}
+                    </Link>
+                  </Title3>
                   {!readOnly && (
                     <Button
                       appearance="subtle"

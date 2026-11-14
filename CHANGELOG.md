@@ -11,6 +11,11 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Changed
+
+- Trip overview destination cards highlight on hover and open that destination's
+  activities when clicked, tapped, or activated with the keyboard.
+
 ## 2026.11.13.3
 
 ### Changed

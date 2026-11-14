@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import ColorSchemeProvider from "../../app/ColorSchemeProvider";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   clearTripDocumentCache,
@@ -138,6 +138,55 @@ afterEach(() => {
   clearTripDocumentCache();
   vi.unstubAllGlobals();
 });
+
+test.each([false, true])(
+  "destination cards link to their activities, including in read-only mode (%s)",
+  async (readOnly) => {
+    const destination = { ...paris, id: "paris/fr & city" };
+    vi.mocked(getDestinations).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [destination],
+      route: [],
+    });
+    function ActivitiesLocation() {
+      const location = useLocation();
+      return (
+        <p>
+          Destination: {new URLSearchParams(location.search).get("destination")}
+        </p>
+      );
+    }
+    render(
+      <ColorSchemeProvider>
+        <MemoryRouter>
+          <Routes>
+            <Route
+              path="/"
+              element={<TripOverview trip={trip} readOnly={readOnly} />}
+            />
+            <Route
+              path="/trips/trip/activities"
+              element={<ActivitiesLocation />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </ColorSchemeProvider>,
+    );
+    const link = await screen.findByRole("link", {
+      name: "Paris",
+    });
+    expect(link).toHaveAttribute(
+      "href",
+      "/trips/trip/activities?destination=paris%2Ffr%20%26%20city",
+    );
+    act(() => link.focus());
+    expect(link).toHaveFocus();
+    fireEvent.click(link);
+    expect(
+      await screen.findByText("Destination: paris/fr & city"),
+    ).toBeVisible();
+  },
+);
 
 test.each([false, true])(
   "overview includes collapsible visit plans (read only: %s)",
