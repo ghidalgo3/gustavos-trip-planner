@@ -41,6 +41,17 @@ public sealed record TripResponse(
     public DateOnly? StartDate { get; init; }
     public DateOnly? EndDate { get; init; }
 
+    [Required]
+    public IReadOnlyList<string> CountryCodes { get; init; } = [];
+
+    public static string[] DistinctCountries(IEnumerable<string> codes) =>
+        codes
+            .Select(code => code.Trim().ToUpperInvariant())
+            .Where(code => code.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
     public string Etag =>
         TripPlanner.Api.Services.Documents.TripResourceProjection.ETag(
             new

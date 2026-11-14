@@ -268,6 +268,40 @@ function renderDashboard(offline = false) {
   );
 }
 
+test.each([false, true])(
+  "trip cards show unique borderless country flags, offline=%s",
+  async (offline) => {
+    const item = {
+      ...trip("Europe", ""),
+      startDate: "2030-07-10",
+      endDate: "2030-07-12",
+      countryCodes: ["NL", "GB", "NL"],
+    };
+    rememberTripCatalog(user.id, [item]);
+    const network = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ trips: [item], hasMore: false }),
+      });
+    vi.stubGlobal("fetch", network);
+    renderDashboard(offline);
+    await screen.findByRole("heading", { name: "Europe" });
+    const flags = screen.getByLabelText("Trip countries");
+    expect(within(flags).getAllByRole("img")).toHaveLength(2);
+    expect(
+      within(flags).getByRole("img", { name: "Netherlands" }),
+    ).toBeVisible();
+    expect(
+      within(flags)
+        .getByRole("img", { name: "United Kingdom" })
+        .querySelector("use"),
+    ).toHaveAttribute("href", "/artwork/flags.svg#gb-ukm");
+    expect(screen.getByText(/Jul 10, 2030.*Jul 12, 2030/)).toBeVisible();
+    expect(network).toHaveBeenCalledTimes(offline ? 0 : 1);
+  },
+);
+
 function mockPagedTrips() {
   const all = Array.from({ length: 25 }, (_, index) => ({
     ...trip(`Trip ${String(index).padStart(2, "0")}`, ""),

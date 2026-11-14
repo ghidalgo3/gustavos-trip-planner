@@ -1,6 +1,8 @@
 import { hasOfflineTrip } from "../../api/offlineCache";
 import { TripsSkeleton } from "./TripSkeletons";
 import TripMetadataEditor from "./TripMetadataEditor";
+import TripDateSummary from "./TripDateSummary";
+import OfflineNotice from "../../shared/components/OfflineNotice";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -237,11 +239,10 @@ export default function TripsDashboard({
                   </details>
                 )}
               </div>
-              {formatTripDates(trip) && (
-                <Text className="trip-card-dates" size={300}>
-                  {formatTripDates(trip)}
-                </Text>
-              )}
+              <TripDateSummary
+                trip={trip}
+                dateText={formatTripDates(trip) ?? ""}
+              />
             </>
           )}
         </Card>
@@ -274,19 +275,13 @@ export default function TripsDashboard({
         />
       </div>
 
-      {readOnly && (
-        <div className="document-status" role="status">
-          <Text>Showing your saved trips.</Text>
-          <Button
-            onClick={() => {
-              current.refresh();
-              past.refresh();
-            }}
-          >
-            Refresh trips
-          </Button>
-        </div>
-      )}
+      <OfflineNotice
+        offline={!offline && current.readOnly}
+        onRetry={() => {
+          current.refresh();
+          past.refresh();
+        }}
+      />
       {(error || current.error) && !tripToDelete && (
         <Text role="alert">{error ?? current.error}</Text>
       )}

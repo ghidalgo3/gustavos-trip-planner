@@ -6,6 +6,11 @@ const publicFiles = [
   "/icons/trip-planner-icon.png",
   "/auth/sign-in-with-google.svg",
   "/auth/sign-in-with-microsoft.svg",
+  "/artwork/cities.svg",
+  "/artwork/flags.svg",
+  "/artwork/city-icons-LICENSE.txt",
+  "/artwork/flagpack-LICENSE.txt",
+  "/notices/software-licenses.txt",
 ];
 let shellUpdate;
 async function storeShell(response) {
@@ -56,10 +61,11 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
-  if (request.mode === "navigate") {
+  if (request.mode === "navigate" && !publicFiles.includes(url.pathname)) {
     const appPage =
       url.pathname === "/" ||
       url.pathname === "/profile" ||
+      url.pathname === "/notices" ||
       /^\/trips\/[0-9a-f-]{36}(?:\/(?:activities|flights|party)(?:\/.*)?)?\/?$/i.test(
         url.pathname,
       );

@@ -140,7 +140,14 @@ const server = createServer(async (request, response) => {
     }
     if (url.pathname === `/user/${user.id}/trips`) {
       json(
-        authenticated ? { trips: [trip], hasMore: false } : {},
+        authenticated
+          ? {
+              trips: [
+                { ...trip, countryCodes: [destination.properties.countryCode] },
+              ],
+              hasMore: false,
+            }
+          : {},
         authenticated ? 200 : 401,
       );
       return;
@@ -163,6 +170,7 @@ const server = createServer(async (request, response) => {
     const spa =
       url.pathname === "/" ||
       url.pathname === "/profile" ||
+      url.pathname === "/notices" ||
       url.pathname === prefix ||
       (url.pathname.startsWith(prefix + "/") &&
         request.headers.accept?.includes("text/html"));
@@ -178,6 +186,7 @@ const server = createServer(async (request, response) => {
     const mime =
       {
         ".html": "text/html",
+        ".txt": "text/plain",
         ".js": "text/javascript",
         ".css": "text/css",
         ".svg": "image/svg+xml",

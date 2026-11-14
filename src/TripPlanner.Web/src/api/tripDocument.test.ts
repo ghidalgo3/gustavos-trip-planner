@@ -12,6 +12,28 @@ const before = JSON.parse(readFileSync("../../docs/before.json", "utf8")) as {
 };
 const after = JSON.parse(readFileSync("../../docs/after.json", "utf8"));
 
+test("downloaded trips retain unique active destination countries for the offline catalog", () => {
+  const document = structuredClone(after);
+  const destinations = document.places.filter(
+    (place: Record<string, unknown>) => place.destinationId,
+  );
+  destinations.forEach((place: Record<string, unknown>, index: number) => {
+    place.countryCode = index === 0 ? "NL" : "GB";
+    place.active = true;
+  });
+  document.places.push({
+    ...destinations[0],
+    id: "inactive-place",
+    destinationId: "inactive",
+    countryCode: "US",
+    active: false,
+  });
+  const view = hydrateTripDocument(validateTripDocument(document, document.id));
+  expect(view.resources[`/trips/${document.id}`].data).toMatchObject({
+    countryCodes: ["GB", "NL"],
+  });
+});
+
 test.each(["task", "event"])(
   "transportation %s retains GeoJSON and individual offline edit validators",
   (type) => {
@@ -154,6 +176,7 @@ test.each(
           ...(expected.data as object),
           startDate: "2026-12-25",
           endDate: "2027-01-07",
+          countryCodes: ["JP", "KR"],
         }
       : expectedData,
   );

@@ -20,6 +20,9 @@ import TripPlanning from "../flights/TripPlanning";
 import PartySkeleton from "../party/PartySkeleton";
 import TripParties from "../party/TripParties";
 import TripOverview from "./TripOverview";
+import TripDateSummary from "./TripDateSummary";
+import OfflineNotice from "../../shared/components/OfflineNotice";
+import type { DestinationCollection } from "../activities/activitiesApi";
 import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
 
 export default function TripPlanningPage({
@@ -83,6 +86,9 @@ export default function TripPlanningPage({
       </TripPageSkeleton>
     );
   const trip = current.trip;
+  const destinations = documentState.document?.resources[
+    `/trips/${trip.id}/destinations`
+  ]?.data as DestinationCollection | undefined;
   const readOnly =
     offline ||
     documentState.offline ||
@@ -92,7 +98,8 @@ export default function TripPlanningPage({
     <div
       className={`trip-workspace trip-workspace-overview${activeTab === "activities" ? " trip-workspace-activities" : ""}`}
     >
-      {(documentState.message || documentState.conflict) && (
+      {(documentState.conflict ||
+        (documentState.message && !documentState.offline)) && (
         <div
           className="document-status"
           role={documentState.conflict ? "alert" : "status"}
@@ -109,15 +116,24 @@ export default function TripPlanningPage({
           </Button>
         </div>
       )}
+      <OfflineNotice
+        offline={
+          !offline &&
+          documentState.offline &&
+          !documentState.loading &&
+          !documentState.conflict
+        }
+        onRetry={() => void refreshConflictedResource().catch(() => undefined)}
+      />
       <header className="trip-page-header">
         <div className="trip-page-title">
           <Title1 as="h1">{trip.name}</Title1>
-          {readOnly && (
-            <Text size={200}>
-              {offline || documentState.offline
-                ? "Offline · View only"
-                : "Shared with you · View only"}
-            </Text>
+          <TripDateSummary
+            trip={trip}
+            destinations={destinations?.features ?? []}
+          />
+          {readOnly && !offline && !documentState.offline && (
+            <Text size={200}>Shared with you · View only</Text>
           )}
         </div>
         <nav className="trip-navigation" aria-label="Trip sections">

@@ -403,6 +403,10 @@ test("destination tabs show every visit's dates and switch the selected city wit
   const onDestinationChange = vi.fn();
   show(false, onDestinationChange);
   const paris = await screen.findByRole("tab", { name: /Paris/ });
+  expect(paris.querySelector(".city-icon use")).toHaveAttribute(
+    "href",
+    "/artwork/cities.svg#fr-paris",
+  );
   expect(paris).toHaveTextContent("Jun 10, 2027 – Jun 14, 2027");
   expect(paris).toHaveTextContent("Jun 18, 2027 – Jun 20, 2027");
   expect(screen.queryByText("Destination details")).not.toBeInTheDocument();

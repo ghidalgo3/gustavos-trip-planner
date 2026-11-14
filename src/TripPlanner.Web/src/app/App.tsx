@@ -38,7 +38,9 @@ import HomeCityPicker from "../features/profile/HomeCityPicker";
 import ProfilePage from "../features/profile/ProfilePage";
 import TripPlanningPage from "../features/trips/TripPlanningPage";
 import TripsDashboard from "../features/trips/TripsDashboard";
+import NoticesPage from "../features/notices/NoticesPage";
 import ContentSkeleton from "../shared/components/ContentSkeleton";
+import OfflineNotice from "../shared/components/OfflineNotice";
 import BehaviorTracking from "../telemetry/BehaviorTracking";
 import { trackBehavior } from "../telemetry/telemetry";
 import ScrollPositionRestoration from "./ScrollPositionRestoration";
@@ -126,6 +128,15 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!offline) return;
+    // A failed request can recover without the browser emitting an online event.
+    const timer = window.setInterval(() => {
+      if (navigator.onLine !== false) setRefresh((value) => value + 1);
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [offline]);
+
   return (
     <main>
       <BehaviorTracking user={user} />
@@ -164,20 +175,15 @@ export default function App() {
         )}
       </header>
 
-      {offline && user?.isAuthenticated && (
-        <div className="document-status" role="status">
-          <Text>
-            Offline · Viewing saved trips. Connect to refresh; editing is
-            disabled.
-          </Text>
-          <Button onClick={() => setRefresh((value) => value + 1)}>
-            Refresh connection
-          </Button>
-        </div>
-      )}
-      {user?.isAuthenticated &&
-      user.id &&
-      (user.completedOnboarding || location.pathname === "/profile") ? (
+      <OfflineNotice
+        offline={offline && !!user?.isAuthenticated}
+        onRetry={() => setRefresh((value) => value + 1)}
+      />
+      {location.pathname === "/notices" ? (
+        <NoticesPage />
+      ) : user?.isAuthenticated &&
+        user.id &&
+        (user.completedOnboarding || location.pathname === "/profile") ? (
         <Routes>
           <Route
             path="/"
@@ -306,6 +312,11 @@ export default function App() {
           </Card>
         </section>
       )}
+      <footer className="app-footer">
+        <Link to="/notices" onClick={() => window.scrollTo(0, 0)}>
+          Notices
+        </Link>
+      </footer>
     </main>
   );
 }

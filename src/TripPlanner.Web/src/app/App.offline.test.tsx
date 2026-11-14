@@ -1,6 +1,12 @@
 import { tripDocumentFixture } from "../test/tripDocumentFixture";
 import { memoryStorage } from "../test/memoryStorage";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, test, expect, vi } from "vitest";
@@ -67,6 +73,10 @@ test("a fresh offline launch restores identity and downloaded trip links in read
     await screen.findByRole("link", { name: "Open trip: Cached trip" }),
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "New trip" })).toBeDisabled();
+  expect(screen.queryByText("Offline · View only")).not.toBeInTheDocument();
+  expect(
+    screen.queryByText("Showing your saved trips."),
+  ).not.toBeInTheDocument();
   fireEvent.click(screen.getByLabelText("User profile"));
   expect(screen.getByRole("button", { name: "Your profile" })).toBeDisabled();
   expect(
@@ -116,10 +126,85 @@ test("reconnection validates the session before enabling editing", async () => {
         ),
       ),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Refresh connection" }));
+  fireEvent(window, new Event("online"));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "New trip" })).toBeEnabled(),
   );
+});
+
+test("one compact notice appears after 30 offline seconds while editing is disabled immediately", async () => {
+  seed();
+  const network = vi.fn().mockRejectedValue(new TypeError("offline"));
+  vi.stubGlobal("fetch", network);
+  vi.useFakeTimers();
+  try {
+    show();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("button", { name: "New trip" })).toBeDisabled();
+    expect(screen.queryByText("Offline · View only")).not.toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(screen.queryByText("Offline · View only")).not.toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Offline · View only");
+    expect(
+      screen.queryByText("Showing your saved trips."),
+    ).not.toBeInTheDocument();
+    network.mockImplementation(async (input) =>
+      Response.json(
+        String(input).endsWith("/user")
+          ? user
+          : { trips: [trip], hasMore: false },
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByText("Offline · View only")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New trip" })).toBeEnabled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a brief request failure recovers before the offline notice appears", async () => {
+  seed();
+  const network = vi
+    .fn()
+    .mockRejectedValue(new TypeError("temporarily unavailable"));
+  vi.stubGlobal("fetch", network);
+  vi.useFakeTimers();
+  try {
+    show();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("button", { name: "New trip" })).toBeDisabled();
+    network.mockImplementation(async (input) =>
+      Response.json(
+        String(input).endsWith("/user")
+          ? user
+          : { trips: [trip], hasMore: false },
+      ),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(screen.getByRole("button", { name: "New trip" })).toBeEnabled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(screen.queryByText("Offline · View only")).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 afterEach(() => vi.unstubAllGlobals());

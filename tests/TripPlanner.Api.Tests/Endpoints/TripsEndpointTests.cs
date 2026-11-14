@@ -108,6 +108,14 @@ public class TripsEndpointTests
                 userId,
                 new(trip.Id, "rome-it", "Rome", "IT", "Europe/Rome", 12.49, 41.9)
             );
+            await factory.Database.SaveDestinationPlaceAsync(
+                userId,
+                new(trip.Id, "lyon-fr", "Lyon", "FR", "Europe/Paris", 4.83, 45.76)
+            );
+            await factory.Database.SaveDestinationPlaceAsync(
+                userId,
+                new(trip.Id, "inactive-us", "New York", "US", "America/New_York", -74, 40.7)
+            );
             Assert.IsNotNull(
                 await factory.Database.AddDestinationVisitAsync(
                     userId,
@@ -117,7 +125,13 @@ public class TripsEndpointTests
             Assert.IsNotNull(
                 await factory.Database.AddDestinationVisitAsync(
                     userId,
-                    new(trip.Id, "rome-it", Guid.NewGuid(), 1, end.AddDays(-3), end)
+                    new(trip.Id, "lyon-fr", Guid.NewGuid(), 1, start.AddDays(2), end.AddDays(-3))
+                )
+            );
+            Assert.IsNotNull(
+                await factory.Database.AddDestinationVisitAsync(
+                    userId,
+                    new(trip.Id, "rome-it", Guid.NewGuid(), 2, end.AddDays(-3), end)
                 )
             );
         }
@@ -125,6 +139,10 @@ public class TripsEndpointTests
         var listed = (await client.GetFromJsonAsync<TripListPage>("/trips"))!.Trips.Single();
         Assert.AreEqual(hasDestinations ? start : (DateOnly?)null, listed.StartDate);
         Assert.AreEqual(hasDestinations ? end : (DateOnly?)null, listed.EndDate);
+        var expectedCountries = hasDestinations ? new[] { "FR", "IT" } : [];
+        CollectionAssert.AreEqual(expectedCountries, listed.CountryCodes.ToArray());
+        var described = (await client.GetFromJsonAsync<TripResponse>($"/trips/{trip.Id}"))!;
+        CollectionAssert.AreEqual(expectedCountries, described.CountryCodes.ToArray());
     }
 
     [TestMethod]

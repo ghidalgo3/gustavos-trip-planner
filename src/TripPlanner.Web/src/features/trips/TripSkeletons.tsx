@@ -65,6 +65,7 @@ export function TripPageSkeleton({ children }: { children: ReactNode }) {
       <ContentSkeleton label="Loading trip">
         <div className="trip-page-header skeleton-stack">
           <SkeletonItem size={32} style={{ width: "min(75%, 360px)" }} />
+          <SkeletonItem size={20} style={{ width: "min(85%, 300px)" }} />
           <div className="skeleton-row skeleton-trip-navigation">
             {[0, 1, 2, 3].map((index) => (
               <SkeletonItem key={index} size={32} />

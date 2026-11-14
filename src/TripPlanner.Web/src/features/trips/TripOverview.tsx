@@ -3,6 +3,7 @@ import {
   useTripResourceVersion,
 } from "../../api/tripDocumentStore";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
+import CityIcon from "../../shared/components/CityIcon";
 import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { Fragment, useEffect, useState } from "react";
@@ -424,6 +425,10 @@ export default function TripOverview({
                       className="overview-destination-link"
                       to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
                     >
+                      <CityIcon
+                        name={destination.properties.name}
+                        countryCode={destination.properties.countryCode}
+                      />
                       {destination.properties.name}
                     </Link>
                   </Title3>

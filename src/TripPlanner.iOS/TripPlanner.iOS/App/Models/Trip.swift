@@ -12,6 +12,7 @@ struct Trip: Codable, Equatable, Identifiable, Sendable {
     var etag: String? = nil
     var startDate: String? = nil
     var endDate: String? = nil
+    var countryCodes: [String]? = nil
 
     var isLocal: Bool { ownerUserId == nil }
 

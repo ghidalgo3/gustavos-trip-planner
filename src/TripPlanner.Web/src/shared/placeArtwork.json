@@ -1,0 +1,2127 @@
+{
+  "cities": [
+    {
+      "city": "Cairo",
+      "countryCode": "EG",
+      "symbol": "eg-cairo",
+      "name": "Cairo Pyramids"
+    },
+    {
+      "city": "Antananarivo",
+      "countryCode": "MG",
+      "symbol": "mg-antananarivo",
+      "name": "Antananarivo Palace"
+    },
+    {
+      "city": "Casablanca",
+      "countryCode": "MA",
+      "symbol": "ma-casablanca",
+      "name": "Casablanca Hassan II Minaret"
+    },
+    {
+      "city": "Lagos",
+      "countryCode": "NG",
+      "symbol": "ng-lagos",
+      "name": "Lagos Bridge"
+    },
+    {
+      "city": "Marrakesh",
+      "countryCode": "MA",
+      "symbol": "ma-marrakesh",
+      "name": "Marrakesh Koutoubia Mosque"
+    },
+    {
+      "city": "Cape Town",
+      "countryCode": "ZA",
+      "symbol": "za-cape-town",
+      "name": "Cape Town Table Mountain"
+    },
+    {
+      "city": "Benghazi",
+      "countryCode": "LY",
+      "symbol": "ly-benghazi",
+      "name": "Benghazi Lighthouse"
+    },
+    {
+      "city": "Fez",
+      "countryCode": "MA",
+      "symbol": "ma-fez",
+      "name": "Fez Moroccan Hat"
+    },
+    {
+      "city": "Lalibela",
+      "countryCode": "ET",
+      "symbol": "et-lalibela",
+      "name": "Lalibela Cross Church"
+    },
+    {
+      "city": "Dakar",
+      "countryCode": "SN",
+      "symbol": "sn-dakar",
+      "name": "African Renaissance Monument"
+    },
+    {
+      "city": "Nairobi",
+      "countryCode": "KE",
+      "symbol": "ke-nairobi",
+      "name": "KICC Tower"
+    },
+    {
+      "city": "Maseru",
+      "countryCode": "LS",
+      "symbol": "ls-maseru",
+      "name": "Maseru Basotho Hat Monument"
+    },
+    {
+      "city": "Accra",
+      "countryCode": "GH",
+      "symbol": "gh-accra",
+      "name": "Accra Independence Arch"
+    },
+    {
+      "city": "Zanzibar",
+      "countryCode": "TZ",
+      "symbol": "tz-zanzibar",
+      "name": "Zanzibar Cloves"
+    },
+    {
+      "city": "Kigali",
+      "countryCode": "RW",
+      "symbol": "rw-kigali",
+      "name": "Kigali Convention Centre"
+    },
+    {
+      "city": "Port Louis",
+      "countryCode": "MU",
+      "symbol": "mu-port-louis",
+      "name": "Port Louis Dodo"
+    },
+    {
+      "city": "Tunis",
+      "countryCode": "TN",
+      "symbol": "tn-tunis",
+      "name": "Bab el Bhar"
+    },
+    {
+      "city": "Windhoek",
+      "countryCode": "NA",
+      "symbol": "na-windhoek",
+      "name": "Independence Memorial Museum"
+    },
+    {
+      "city": "Maputo",
+      "countryCode": "MZ",
+      "symbol": "mz-maputo",
+      "name": "Maputo Piri-Piri Prawns"
+    },
+    {
+      "city": "Ouagadougou",
+      "countryCode": "BF",
+      "symbol": "bf-ouagadougou",
+      "name": "Ouagadougou SIAO Mask"
+    },
+    {
+      "city": "Asmara",
+      "countryCode": "ER",
+      "symbol": "er-asmara",
+      "name": "Asmara Fiat Tagliero Building"
+    },
+    {
+      "city": "Timbuktu",
+      "countryCode": "ML",
+      "symbol": "ml-timbuktu",
+      "name": "Timbuktu Camel Caravan"
+    },
+    {
+      "city": "Meroë",
+      "countryCode": "SD",
+      "symbol": "sd-meroe",
+      "name": "Meroë Nubian Pyramids"
+    },
+    {
+      "city": "Yamoussoukro",
+      "countryCode": "CI",
+      "symbol": "ci-yamoussoukro",
+      "name": "Yamoussoukro Presidential Crocodiles"
+    },
+    {
+      "city": "São Tomé",
+      "countryCode": "ST",
+      "symbol": "st-sao-tome",
+      "name": "São Tomé Pico Cão Grande"
+    },
+    {
+      "city": "Almaty",
+      "countryCode": "KZ",
+      "symbol": "kz-alma-aty",
+      "name": "Almaty Mountains"
+    },
+    {
+      "city": "Denpasar",
+      "countryCode": "ID",
+      "symbol": "id-denpasar",
+      "name": "Denpasar Temple"
+    },
+    {
+      "city": "Dhaka",
+      "countryCode": "BD",
+      "symbol": "bd-dhaka",
+      "name": "Dhaka Modern City"
+    },
+    {
+      "city": "Kathmandu",
+      "countryCode": "NP",
+      "symbol": "np-kathmandu",
+      "name": "Kathmandu Stupa"
+    },
+    {
+      "city": "Seoul",
+      "countryCode": "KR",
+      "symbol": "kr-seoul",
+      "name": "Seoul Modern City"
+    },
+    {
+      "city": "Uralsk",
+      "countryCode": "KZ",
+      "symbol": "kz-uralsk",
+      "name": "Uralsk Historic Center"
+    },
+    {
+      "city": "Hanoi",
+      "countryCode": "VN",
+      "symbol": "vn-hanoi",
+      "name": "Hanoi Turtle Tower"
+    },
+    {
+      "city": "Tashkent",
+      "countryCode": "UZ",
+      "symbol": "uz-tashkent",
+      "name": "Tashkent Mosque"
+    },
+    {
+      "city": "Shanghai",
+      "countryCode": "CN",
+      "symbol": "cn-shanghai",
+      "name": "Shanghai Oriental Pearl Tower"
+    },
+    {
+      "city": "Agra",
+      "countryCode": "IN",
+      "symbol": "in-agra",
+      "name": "Agra Taj Mahal"
+    },
+    {
+      "city": "Delhi",
+      "countryCode": "IN",
+      "symbol": "in-delhi",
+      "name": "Delhi Lotus Temple"
+    },
+    {
+      "city": "Kyoto",
+      "countryCode": "JP",
+      "symbol": "jp-kyoto",
+      "name": "Kyoto Temple"
+    },
+    {
+      "city": "Manila",
+      "countryCode": "PH",
+      "symbol": "ph-manila",
+      "name": "Manila Intramuros"
+    },
+    {
+      "city": "Karachi",
+      "countryCode": "PK",
+      "symbol": "pk-karachi",
+      "name": "Karachi Port"
+    },
+    {
+      "city": "Cebu",
+      "countryCode": "PH",
+      "symbol": "ph-cebu",
+      "name": "Cebu Lapu-Lapu Monument"
+    },
+    {
+      "city": "Islamabad",
+      "countryCode": "PK",
+      "symbol": "pk-islamabad",
+      "name": "Islamabad Faisal Mosque"
+    },
+    {
+      "city": "Yakutsk",
+      "countryCode": "RU",
+      "symbol": "ru-yakutsk",
+      "name": "Yakutsk Ostrog"
+    },
+    {
+      "city": "Luang Prabang",
+      "countryCode": "LA",
+      "symbol": "la-luang-prabang",
+      "name": "Luang Prabang Lotus"
+    },
+    {
+      "city": "Bishkek",
+      "countryCode": "KG",
+      "symbol": "kg-bishkek",
+      "name": "Bishkek Manas Statue"
+    },
+    {
+      "city": "Tokyo",
+      "countryCode": "JP",
+      "symbol": "jp-tokyo",
+      "name": "Mount Fuji and Rising Sun"
+    },
+    {
+      "city": "Kostanay",
+      "countryCode": "KZ",
+      "symbol": "kz-kostanay",
+      "name": "Kostanay"
+    },
+    {
+      "city": "Astana",
+      "countryCode": "KZ",
+      "symbol": "kz-astana",
+      "name": "Bayterek Tower"
+    },
+    {
+      "city": "Jingzhou",
+      "countryCode": "CN",
+      "symbol": "cn-jingzhou",
+      "name": "Statue of Guan Yu"
+    },
+    {
+      "city": "Leshan",
+      "countryCode": "CN",
+      "symbol": "cn-leshan",
+      "name": "Giant Buddha"
+    },
+    {
+      "city": "Sentosa",
+      "countryCode": "SG",
+      "symbol": "sg-sentosa",
+      "name": "Merlion"
+    },
+    {
+      "city": "Shirakawa-go",
+      "countryCode": "JP",
+      "symbol": "jp-shirakawa-go",
+      "name": "Shirakawa-go Gassho-zukuri"
+    },
+    {
+      "city": "Schuchinsk",
+      "countryCode": "KZ",
+      "symbol": "kz-schuchinsk",
+      "name": "Schuchinsk Pike Fish"
+    },
+    {
+      "city": "Pattaya",
+      "countryCode": "TH",
+      "symbol": "th-pattaya",
+      "name": "Pattaya Sanctuary"
+    },
+    {
+      "city": "Beijing",
+      "countryCode": "CN",
+      "symbol": "cn-beijing",
+      "name": "Beijing Forbidden City"
+    },
+    {
+      "city": "Bagan",
+      "countryCode": "MM",
+      "symbol": "mm-bagan",
+      "name": "Bagan Ancient Temple"
+    },
+    {
+      "city": "Ulaanbaatar",
+      "countryCode": "MN",
+      "symbol": "mn-ulaanbaatar",
+      "name": "Ulaanbaatar Ger Yurt"
+    },
+    {
+      "city": "Chengdu",
+      "countryCode": "CN",
+      "symbol": "cn-chengdu",
+      "name": "Chengdu Giant Panda"
+    },
+    {
+      "city": "Ashgabat",
+      "countryCode": "TM",
+      "symbol": "tm-ashgabat",
+      "name": "Ashgabat Neutrality Monument"
+    },
+    {
+      "city": "Pyongyang",
+      "countryCode": "KP",
+      "symbol": "kp-pyongyang",
+      "name": "Pyongyang Juche Tower"
+    },
+    {
+      "city": "Nukus",
+      "countryCode": "UZ",
+      "symbol": "uz-nukus",
+      "name": "Nukus Karakalpak Hat"
+    },
+    {
+      "city": "Dushanbe",
+      "countryCode": "TJ",
+      "symbol": "tj-dushanbe",
+      "name": "Dushanbe Ismoil Somoni Monument"
+    },
+    {
+      "city": "Kuala Lumpur",
+      "countryCode": "MY",
+      "symbol": "my-kuala-lumpur",
+      "name": "Kuala Lumpur Petronas Towers"
+    },
+    {
+      "city": "Dili",
+      "countryCode": "TL",
+      "symbol": "tl-dili",
+      "name": "Dili Cristo Rei"
+    },
+    {
+      "city": "Kuching",
+      "countryCode": "MY",
+      "symbol": "my-kuching",
+      "name": "Kuching Cat Statue"
+    },
+    {
+      "city": "Seria",
+      "countryCode": "BN",
+      "symbol": "bn-seria",
+      "name": "Seria Billionth Barrel Monument"
+    },
+    {
+      "city": "Sihanoukville",
+      "countryCode": "KH",
+      "symbol": "kh-sihanoukville",
+      "name": "Sihanoukville Golden Lions"
+    },
+    {
+      "city": "Taipei",
+      "countryCode": "TW",
+      "symbol": "tw-taipei",
+      "name": "Taipei 101"
+    },
+    {
+      "city": "Nara",
+      "countryCode": "JP",
+      "symbol": "jp-nara",
+      "name": "Nara Shika Deer"
+    },
+    {
+      "city": "Thimphu",
+      "countryCode": "BT",
+      "symbol": "bt-thimphu",
+      "name": "Thimphu Prayer Wheels"
+    },
+    {
+      "city": "Vung Tau",
+      "countryCode": "VN",
+      "symbol": "vn-vung-tau",
+      "name": "Vung Tau Christ Statue"
+    },
+    {
+      "city": "Ho Chi Minh City",
+      "countryCode": "VN",
+      "symbol": "vn-ho-chi-minh",
+      "name": "Ho Chi Minh Bến Thành Market"
+    },
+    {
+      "city": "Da Nang",
+      "countryCode": "VN",
+      "symbol": "vn-da-nang",
+      "name": "Da Nang Lady Buddha"
+    },
+    {
+      "city": "Karaganda",
+      "countryCode": "KZ",
+      "symbol": "kz-karaganda",
+      "name": "Karaganda Miners' Tools"
+    },
+    {
+      "city": "Hanoi",
+      "countryCode": "VN",
+      "symbol": "vn-hanoi-temple-of-literature",
+      "name": "Hanoi Khuê Văn Các Pavilion"
+    },
+    {
+      "city": "Atyrau",
+      "countryCode": "KZ",
+      "symbol": "kz-atyrau",
+      "name": "Atyrau Sturgeon"
+    },
+    {
+      "city": "Havana",
+      "countryCode": "CU",
+      "symbol": "cu-havana",
+      "name": "Havana Capitol"
+    },
+    {
+      "city": "Tegucigalpa",
+      "countryCode": "HN",
+      "symbol": "hn-tegucigalpa",
+      "name": "Tegucigalpa Cathedral Basilica"
+    },
+    {
+      "city": "San Salvador",
+      "countryCode": "SV",
+      "symbol": "sv-san-salvador",
+      "name": "Divino Salvador del Mundo"
+    },
+    {
+      "city": "San Ignacio",
+      "countryCode": "BZ",
+      "symbol": "bz-san-ignacio",
+      "name": "Cahal Pech Maya Ruins"
+    },
+    {
+      "city": "Antigua",
+      "countryCode": "GT",
+      "symbol": "gt-antigua",
+      "name": "Santa Catalina Arch"
+    },
+    {
+      "city": "Alajuela",
+      "countryCode": "CR",
+      "symbol": "cr-alajuela",
+      "name": "Juan Santamaría Statue"
+    },
+    {
+      "city": "Nassau",
+      "countryCode": "BS",
+      "symbol": "bs-nassau",
+      "name": "Nassau Queen's Staircase"
+    },
+    {
+      "city": "Port-au-Prince",
+      "countryCode": "HT",
+      "symbol": "ht-port-au-prince",
+      "name": "Port-au-Prince Iron Market"
+    },
+    {
+      "city": "Saint John's",
+      "countryCode": "AG",
+      "symbol": "ag-saint-john",
+      "name": "Saint John's Cathedral"
+    },
+    {
+      "city": "San Juan",
+      "countryCode": "PR",
+      "symbol": "pr-san-juan",
+      "name": "San Juan Garita"
+    },
+    {
+      "city": "Willemstad",
+      "countryCode": "CW",
+      "symbol": "cw-willemstadt",
+      "name": "Blue Curaçao Liqueur"
+    },
+    {
+      "city": "Soufrière",
+      "countryCode": "LC",
+      "symbol": "lc-soufriere",
+      "name": "Soufrière Cocoa Pod"
+    },
+    {
+      "city": "St. George's",
+      "countryCode": "GD",
+      "symbol": "gd-st-george",
+      "name": "Fort George"
+    },
+    {
+      "city": "Granada",
+      "countryCode": "NI",
+      "symbol": "ni-granada",
+      "name": "Granada Cathedral"
+    },
+    {
+      "city": "Barcelona",
+      "countryCode": "ES",
+      "symbol": "es-barcelona",
+      "name": "Barcelona Sagrada Familia"
+    },
+    {
+      "city": "Berlin",
+      "countryCode": "DE",
+      "symbol": "de-berlin",
+      "name": "Berlin Brandenburg Gate"
+    },
+    {
+      "city": "Belgrade",
+      "countryCode": "RS",
+      "symbol": "rs-belgrade",
+      "name": "Belgrade Fortress"
+    },
+    {
+      "city": "Bremen",
+      "countryCode": "DE",
+      "symbol": "de-bremen",
+      "name": "Bremen Historic Center"
+    },
+    {
+      "city": "Brussels",
+      "countryCode": "BE",
+      "symbol": "be-brussels",
+      "name": "Brussels Atomium"
+    },
+    {
+      "city": "Chisinau",
+      "countryCode": "MD",
+      "symbol": "md-chisinau",
+      "name": "Chisinau Government"
+    },
+    {
+      "city": "Copenhagen",
+      "countryCode": "DK",
+      "symbol": "dk-copenhagen",
+      "name": "Copenhagen Harbor"
+    },
+    {
+      "city": "Frankfurt",
+      "countryCode": "DE",
+      "symbol": "de-frankfurt",
+      "name": "Frankfurt Main Tower"
+    },
+    {
+      "city": "Graz",
+      "countryCode": "AT",
+      "symbol": "at-graz",
+      "name": "Graz Kunstmuseum"
+    },
+    {
+      "city": "Ljubljana",
+      "countryCode": "SI",
+      "symbol": "si-ljubljana",
+      "name": "Ljubljana Dragon"
+    },
+    {
+      "city": "Kuopio",
+      "countryCode": "FI",
+      "symbol": "fi-kuopio",
+      "name": "Kuopio Tower"
+    },
+    {
+      "city": "Lisbon",
+      "countryCode": "PT",
+      "symbol": "pt-lisbon",
+      "name": "Lisbon Belem Tower"
+    },
+    {
+      "city": "Leipzig",
+      "countryCode": "DE",
+      "symbol": "de-leipzig",
+      "name": "Leipzig Modern City"
+    },
+    {
+      "city": "Limassol",
+      "countryCode": "CY",
+      "symbol": "cy-limassol",
+      "name": "Limassol Castle"
+    },
+    {
+      "city": "London",
+      "countryCode": "GB",
+      "symbol": "gb-london",
+      "name": "London Big Ben"
+    },
+    {
+      "city": "Madrid",
+      "countryCode": "ES",
+      "symbol": "es-madrid",
+      "name": "Madrid Bear and Tree"
+    },
+    {
+      "city": "Matosinhos",
+      "countryCode": "PT",
+      "symbol": "pt-matosinhos",
+      "name": "Matosinhos Anemone"
+    },
+    {
+      "city": "Manchester",
+      "countryCode": "GB",
+      "symbol": "gb-manchester",
+      "name": "Manchester Bee"
+    },
+    {
+      "city": "Nuremberg",
+      "countryCode": "DE",
+      "symbol": "de-nuremberg",
+      "name": "Nuremberg Castle"
+    },
+    {
+      "city": "Paris",
+      "countryCode": "FR",
+      "symbol": "fr-paris",
+      "name": "Paris Eiffel Tower"
+    },
+    {
+      "city": "Porto",
+      "countryCode": "PT",
+      "symbol": "pt-porto",
+      "name": "Porto Historic Center"
+    },
+    {
+      "city": "Prague",
+      "countryCode": "CZ",
+      "symbol": "cz-prague",
+      "name": "Prague Castle"
+    },
+    {
+      "city": "Riga",
+      "countryCode": "LV",
+      "symbol": "lv-riga",
+      "name": "Riga Historic Center"
+    },
+    {
+      "city": "Sorrento",
+      "countryCode": "IT",
+      "symbol": "it-sorrento",
+      "name": "Sorrento Lemon"
+    },
+    {
+      "city": "Stockholm",
+      "countryCode": "SE",
+      "symbol": "se-stockholm",
+      "name": "Stockholm Royal Palace"
+    },
+    {
+      "city": "Valencia",
+      "countryCode": "ES",
+      "symbol": "es-valencia",
+      "name": "Valencia Oceanografico"
+    },
+    {
+      "city": "Venice",
+      "countryCode": "IT",
+      "symbol": "it-venice",
+      "name": "Venice Lion with Book"
+    },
+    {
+      "city": "Vienna",
+      "countryCode": "AT",
+      "symbol": "at-vienna",
+      "name": "Vienna St. Stephen's Cathedral"
+    },
+    {
+      "city": "Warsaw",
+      "countryCode": "PL",
+      "symbol": "pl-warsaw",
+      "name": "Warsaw Mermaid"
+    },
+    {
+      "city": "Trieste",
+      "countryCode": "IT",
+      "symbol": "it-trieste",
+      "name": "Trieste Harbor"
+    },
+    {
+      "city": "Oslo",
+      "countryCode": "NO",
+      "symbol": "no-oslo",
+      "name": "Oslo Opera House"
+    },
+    {
+      "city": "Ferrara",
+      "countryCode": "IT",
+      "symbol": "it-ferrara",
+      "name": "Ferrara Cathedral"
+    },
+    {
+      "city": "Minsk",
+      "countryCode": "BY",
+      "symbol": "by-minsk",
+      "name": "Minsk Cathedral"
+    },
+    {
+      "city": "Kyiv",
+      "countryCode": "UA",
+      "symbol": "ua-kyiv",
+      "name": "Kyiv Independence Monument"
+    },
+    {
+      "city": "Gijón",
+      "countryCode": "ES",
+      "symbol": "es-gijon",
+      "name": "Gijón Elogio del Horizonte"
+    },
+    {
+      "city": "Lyon",
+      "countryCode": "FR",
+      "symbol": "fr-lyon",
+      "name": "Lyon Lion"
+    },
+    {
+      "city": "Edinburgh",
+      "countryCode": "GB",
+      "symbol": "gb-edinburgh",
+      "name": "Edinburgh Castle"
+    },
+    {
+      "city": "Athens",
+      "countryCode": "GR",
+      "symbol": "gr-athens",
+      "name": "Athens Acropolis"
+    },
+    {
+      "city": "Reykjavik",
+      "countryCode": "IS",
+      "symbol": "is-reykjavik",
+      "name": "Reykjavik Hallgrímskirkja"
+    },
+    {
+      "city": "Milan",
+      "countryCode": "IT",
+      "symbol": "it-milan",
+      "name": "Milan Cathedral"
+    },
+    {
+      "city": "Rome",
+      "countryCode": "IT",
+      "symbol": "it-rome",
+      "name": "Rome Colosseum"
+    },
+    {
+      "city": "Amsterdam",
+      "countryCode": "NL",
+      "symbol": "nl-amsterdam",
+      "name": "Amsterdam Canal Houses"
+    },
+    {
+      "city": "Skopje",
+      "countryCode": "MK",
+      "symbol": "mk-skopje",
+      "name": "Skopje Alexander the Great Statue"
+    },
+    {
+      "city": "Mostar",
+      "countryCode": "BA",
+      "symbol": "ba-mostar",
+      "name": "Mostar Old Bridge"
+    },
+    {
+      "city": "Murmansk",
+      "countryCode": "RU",
+      "symbol": "ru-murmansk",
+      "name": "Murmansk Northern Lights"
+    },
+    {
+      "city": "Akureyri",
+      "countryCode": "IS",
+      "symbol": "is-akureyri",
+      "name": "Akureyri Red Heart Traffic Lights"
+    },
+    {
+      "city": "Forte dei Marmi",
+      "countryCode": "IT",
+      "symbol": "it-forte-dei-marmi",
+      "name": "Forte dei Marmi Mountains and Cycling"
+    },
+    {
+      "city": "Munich",
+      "countryCode": "DE",
+      "symbol": "de-munich",
+      "name": "Munich Monk with Book"
+    },
+    {
+      "city": "Leeds",
+      "countryCode": "GB",
+      "symbol": "gb-leeds",
+      "name": "Leeds Owl"
+    },
+    {
+      "city": "Bruges",
+      "countryCode": "BE",
+      "symbol": "be-bruges",
+      "name": "Bruges Swan"
+    },
+    {
+      "city": "Santiago de Compostela",
+      "countryCode": "ES",
+      "symbol": "es-santiago-de-compostela",
+      "name": "Santiago de Compostela Seashell"
+    },
+    {
+      "city": "Palermo",
+      "countryCode": "IT",
+      "symbol": "it-palermo",
+      "name": "Palermo Trinacria"
+    },
+    {
+      "city": "Bern",
+      "countryCode": "CH",
+      "symbol": "ch-bern",
+      "name": "Bern Clock Tower"
+    },
+    {
+      "city": "Dublin",
+      "countryCode": "IE",
+      "symbol": "ie-dublin",
+      "name": "Dublin Harp"
+    },
+    {
+      "city": "Sarajevo",
+      "countryCode": "BA",
+      "symbol": "ba-sarajevo",
+      "name": "Sarajevo Sebilj Fountain"
+    },
+    {
+      "city": "Helsinki",
+      "countryCode": "FI",
+      "symbol": "fi-helsinki",
+      "name": "Helsinki Cathedral"
+    },
+    {
+      "city": "Bratislava",
+      "countryCode": "SK",
+      "symbol": "sk-bratislava",
+      "name": "Bratislava UFO Bridge"
+    },
+    {
+      "city": "Monaco",
+      "countryCode": "MC",
+      "symbol": "mc-monaco",
+      "name": "Monaco Princess Grace"
+    },
+    {
+      "city": "San Marino",
+      "countryCode": "SM",
+      "symbol": "sm-san-marino",
+      "name": "San Marino Three Towers"
+    },
+    {
+      "city": "Nicosia",
+      "countryCode": "CY",
+      "symbol": "cy-nicosia",
+      "name": "Nicosia Dove with Olive Branch"
+    },
+    {
+      "city": "Zagreb",
+      "countryCode": "HR",
+      "symbol": "hr-zagreb",
+      "name": "Zagreb St. Mark's Church"
+    },
+    {
+      "city": "Vatican City",
+      "countryCode": "VA",
+      "symbol": "va-vatican",
+      "name": "Vatican Crossed Keys"
+    },
+    {
+      "city": "Andorra la Vella",
+      "countryCode": "AD",
+      "symbol": "ad-andorra",
+      "name": "Andorra Casa de la Vall"
+    },
+    {
+      "city": "Vaduz",
+      "countryCode": "LI",
+      "symbol": "li-vaduz",
+      "name": "Vaduz Parliament Building"
+    },
+    {
+      "city": "Pristina",
+      "countryCode": "XK",
+      "symbol": "xk-pristina",
+      "name": "Pristina Library Dome"
+    },
+    {
+      "city": "Sofia",
+      "countryCode": "BG",
+      "symbol": "bg-sofia",
+      "name": "Sofia Alexander Nevsky Cathedral"
+    },
+    {
+      "city": "Tirana",
+      "countryCode": "AL",
+      "symbol": "al-tirana",
+      "name": "Tirana Skanderbeg Statue"
+    },
+    {
+      "city": "Valletta",
+      "countryCode": "MT",
+      "symbol": "mt-valletta",
+      "name": "Valletta Eye"
+    },
+    {
+      "city": "Luxembourg",
+      "countryCode": "LU",
+      "symbol": "lu-luxembourg",
+      "name": "Luxembourg Lion"
+    },
+    {
+      "city": "Bucharest",
+      "countryCode": "RO",
+      "symbol": "ro-bucharest",
+      "name": "Bucharest Arch"
+    },
+    {
+      "city": "Tallinn",
+      "countryCode": "EE",
+      "symbol": "ee-tallinn",
+      "name": "Tallinn Fat Tower"
+    },
+    {
+      "city": "Podgorica",
+      "countryCode": "ME",
+      "symbol": "me-podgorica",
+      "name": "Podgorica Clock Tower"
+    },
+    {
+      "city": "Vilnius",
+      "countryCode": "LT",
+      "symbol": "lt-vilnius",
+      "name": "Vilnius Tower"
+    },
+    {
+      "city": "Viana do Castelo",
+      "countryCode": "PT",
+      "symbol": "pt-viana-do-castelo",
+      "name": "Viana do Castelo Statue"
+    },
+    {
+      "city": "Vigo",
+      "countryCode": "ES",
+      "symbol": "es-vigo",
+      "name": "Vigo Galician Octopus"
+    },
+    {
+      "city": "Chaves",
+      "countryCode": "PT",
+      "symbol": "pt-chaves",
+      "name": "Chaves Tower"
+    },
+    {
+      "city": "Coruña",
+      "countryCode": "ES",
+      "symbol": "es-coruna",
+      "name": "Coruña Roman Lighthouse"
+    },
+    {
+      "city": "Vila Real",
+      "countryCode": "PT",
+      "symbol": "pt-vila-real",
+      "name": "Vila Real Carvalho Araújo Statue"
+    },
+    {
+      "city": "Guimarães",
+      "countryCode": "PT",
+      "symbol": "pt-guimaraes",
+      "name": "Guimarães Afonso Henriques Statue"
+    },
+    {
+      "city": "Leiria",
+      "countryCode": "PT",
+      "symbol": "pt-leiria",
+      "name": "Leiria Castle"
+    },
+    {
+      "city": "Braga",
+      "countryCode": "PT",
+      "symbol": "pt-braga",
+      "name": "Braga Cathedral and Stairs"
+    },
+    {
+      "city": "Amadora",
+      "countryCode": "PT",
+      "symbol": "pt-amadora",
+      "name": "Amadora Igreja Matriz"
+    },
+    {
+      "city": "Moscow",
+      "countryCode": "RU",
+      "symbol": "ru-moscow",
+      "name": "Moscow Spasskaya Tower"
+    },
+    {
+      "city": "Tula",
+      "countryCode": "RU",
+      "symbol": "ru-tula",
+      "name": "Tula Samovar"
+    },
+    {
+      "city": "Siegen",
+      "countryCode": "DE",
+      "symbol": "de-siegen",
+      "name": "Siegen Mining Hammers"
+    },
+    {
+      "city": "Málaga",
+      "countryCode": "ES",
+      "symbol": "es-malaga",
+      "name": "Málaga Wine Barrel"
+    },
+    {
+      "city": "Erfurt",
+      "countryCode": "DE",
+      "symbol": "de-erfurt",
+      "name": "Erfurt Krämerbrücke"
+    },
+    {
+      "city": "Montpellier",
+      "countryCode": "FR",
+      "symbol": "fr-montpellier",
+      "name": "Montpellier Aqueduct"
+    },
+    {
+      "city": "Bielefeld",
+      "countryCode": "DE",
+      "symbol": "de-bielefeld",
+      "name": "Bielefeld Castle"
+    },
+    {
+      "city": "Wrocław",
+      "countryCode": "PL",
+      "symbol": "pl-wroclaw",
+      "name": "Wrocław Dwarf"
+    },
+    {
+      "city": "Poznań",
+      "countryCode": "PL",
+      "symbol": "pl-poznan",
+      "name": "Poznań Goats"
+    },
+    {
+      "city": "Budva",
+      "countryCode": "ME",
+      "symbol": "me-budva",
+      "name": "St John Church"
+    },
+    {
+      "city": "Świebodzin",
+      "countryCode": "PL",
+      "symbol": "pl-swiebodzin",
+      "name": "Christ the King Monument"
+    },
+    {
+      "city": "Hallstatt",
+      "countryCode": "AT",
+      "symbol": "at-hallstatt",
+      "name": "Hallstatt Church Spire"
+    },
+    {
+      "city": "Paphos",
+      "countryCode": "CY",
+      "symbol": "cy-paphos",
+      "name": "Paphos Aphrodite"
+    },
+    {
+      "city": "Freiburg",
+      "countryCode": "DE",
+      "symbol": "de-freiburg",
+      "name": "Freiburg Münster"
+    },
+    {
+      "city": "Giessen",
+      "countryCode": "DE",
+      "symbol": "de-giessen",
+      "name": "Giessen Liebig Flask"
+    },
+    {
+      "city": "Herceg Novi",
+      "countryCode": "ME",
+      "symbol": "me-herceg-novi",
+      "name": "Herceg Novi Orange Blossom"
+    },
+    {
+      "city": "Hamburg",
+      "countryCode": "DE",
+      "symbol": "de-hamburg",
+      "name": "Hamburg Coat of Arms"
+    },
+    {
+      "city": "Budapest",
+      "countryCode": "HU",
+      "symbol": "hu-budapest",
+      "name": "Budapest Liberty Statue"
+    },
+    {
+      "city": "Szeged",
+      "countryCode": "HU",
+      "symbol": "hu-szeged",
+      "name": "Szeged Votive Church"
+    },
+    {
+      "city": "Debrecen",
+      "countryCode": "HU",
+      "symbol": "hu-debrecen",
+      "name": "Debrecen Hajdúság Horse"
+    },
+    {
+      "city": "Córdoba",
+      "countryCode": "ES",
+      "symbol": "es-cordoba",
+      "name": "Córdoba Horseshoe Arch"
+    },
+    {
+      "city": "Granada",
+      "countryCode": "ES",
+      "symbol": "es-granada",
+      "name": "Granada Alhambra"
+    },
+    {
+      "city": "Woerden",
+      "countryCode": "NL",
+      "symbol": "nl-woerden",
+      "name": "Woerden Windmill"
+    },
+    {
+      "city": "Maastricht",
+      "countryCode": "NL",
+      "symbol": "nl-maastricht",
+      "name": "Maastricht Coat of Arms"
+    },
+    {
+      "city": "Rotterdam",
+      "countryCode": "NL",
+      "symbol": "nl-rotterdam",
+      "name": "Rotterdam Markthal"
+    },
+    {
+      "city": "De Meije",
+      "countryCode": "NL",
+      "symbol": "nl-de-meije",
+      "name": "Pietje Potlood Water Tower"
+    },
+    {
+      "city": "Odessa",
+      "countryCode": "UA",
+      "symbol": "ua-odessa",
+      "name": "Monument to Duc de Richelieu"
+    },
+    {
+      "city": "Nazaré",
+      "countryCode": "PT",
+      "symbol": "pt-nazare",
+      "name": "Nazaré Big Wave Surfer"
+    },
+    {
+      "city": "Taranto",
+      "countryCode": "IT",
+      "symbol": "it-taranto",
+      "name": "Taranto Dolphin"
+    },
+    {
+      "city": "Barcelos",
+      "countryCode": "PT",
+      "symbol": "pt-barcelos",
+      "name": "Barcelos Rooster"
+    },
+    {
+      "city": "Gdańsk",
+      "countryCode": "PL",
+      "symbol": "pl-gdansk",
+      "name": "Gdańsk Neptune Fountain"
+    },
+    {
+      "city": "Bologna",
+      "countryCode": "IT",
+      "symbol": "it-bologna",
+      "name": "Bologna Two Towers"
+    },
+    {
+      "city": "Cologne",
+      "countryCode": "DE",
+      "symbol": "de-cologne",
+      "name": "Cologne Cathedral"
+    },
+    {
+      "city": "Liverpool",
+      "countryCode": "GB",
+      "symbol": "gb-liverpool",
+      "name": "Liverpool Liver Bird"
+    },
+    {
+      "city": "Rennes",
+      "countryCode": "FR",
+      "symbol": "fr-rennes",
+      "name": "Rennes Portes Mordelaises"
+    },
+    {
+      "city": "Aachen",
+      "countryCode": "DE",
+      "symbol": "de-aachen",
+      "name": "Aachen Cathedral"
+    },
+    {
+      "city": "Subotica",
+      "countryCode": "RS",
+      "symbol": "rs-subotica",
+      "name": "Subotica Synagogue"
+    },
+    {
+      "city": "Karlsruhe",
+      "countryCode": "DE",
+      "symbol": "de-karlsruhe",
+      "name": "Karlsruhe Pyramid"
+    },
+    {
+      "city": "Stuttgart",
+      "countryCode": "DE",
+      "symbol": "de-stuttgart",
+      "name": "Stuttgart Mercedes-Benz Museum"
+    },
+    {
+      "city": "Burgas",
+      "countryCode": "BG",
+      "symbol": "bg-burgas",
+      "name": "Burgas Sea Garden Pier"
+    },
+    {
+      "city": "Bordeaux",
+      "countryCode": "FR",
+      "symbol": "fr-bordeaux",
+      "name": "Bordeaux Cité du Vin"
+    },
+    {
+      "city": "Toulouse",
+      "countryCode": "FR",
+      "symbol": "fr-toulouse",
+      "name": "Toulouse Violet"
+    },
+    {
+      "city": "Kraków",
+      "countryCode": "PL",
+      "symbol": "pl-krakow",
+      "name": "Kraków Obwarzanek"
+    },
+    {
+      "city": "Leverkusen",
+      "countryCode": "DE",
+      "symbol": "de-leverkusen",
+      "name": "Leverkusen Bayer Cross"
+    },
+    {
+      "city": "Glasgow",
+      "countryCode": "GB",
+      "symbol": "gb-glasgow",
+      "name": "Glasgow Duke of Wellington with Cone"
+    },
+    {
+      "city": "Gibraltar",
+      "countryCode": "GI",
+      "symbol": "gi-gibraltar",
+      "name": "Gibraltar Barbary Macaque"
+    },
+    {
+      "city": "Sibiu",
+      "countryCode": "RO",
+      "symbol": "ro-sibiu",
+      "name": "Sibiu Eyes"
+    },
+    {
+      "city": "Longyearbyen",
+      "countryCode": "SJ",
+      "symbol": "sj-longyearbyen",
+      "name": "Longyearbyen Polar Bear Warning Sign"
+    },
+    {
+      "city": "Antwerp",
+      "countryCode": "BE",
+      "symbol": "be-antwerp",
+      "name": "Antwerp MAS Museum"
+    },
+    {
+      "city": "Leipzig",
+      "countryCode": "DE",
+      "symbol": "de-leipzig-city-hochhaus",
+      "name": "Leipzig City-Hochhaus"
+    },
+    {
+      "city": "Leipzig",
+      "countryCode": "DE",
+      "symbol": "de-leipzig-battle-of-the-nations",
+      "name": "Leipzig Monument to the Battle of the Nations"
+    },
+    {
+      "city": "Samarra",
+      "countryCode": "IQ",
+      "symbol": "iq-samarra",
+      "name": "Samarra Spiral Minaret"
+    },
+    {
+      "city": "Baku",
+      "countryCode": "AZ",
+      "symbol": "az-baku",
+      "name": "Baku Flame Towers"
+    },
+    {
+      "city": "Batumi",
+      "countryCode": "GE",
+      "symbol": "ge-batumi",
+      "name": "Batumi Seaside"
+    },
+    {
+      "city": "Yerevan",
+      "countryCode": "AM",
+      "symbol": "am-yerevan",
+      "name": "Yerevan Republic Square"
+    },
+    {
+      "city": "Jerusalem",
+      "countryCode": "IL",
+      "symbol": "il-jerusalem",
+      "name": "Jerusalem Dome"
+    },
+    {
+      "city": "Tel Aviv",
+      "countryCode": "IL",
+      "symbol": "il-tel-aviv",
+      "name": "Tel Aviv Modern City"
+    },
+    {
+      "city": "Tbilisi",
+      "countryCode": "GE",
+      "symbol": "ge-tbilisi",
+      "name": "Tbilisi Old Town"
+    },
+    {
+      "city": "Istanbul",
+      "countryCode": "TR",
+      "symbol": "tr-istanbul",
+      "name": "Istanbul Bosphorus Bridge"
+    },
+    {
+      "city": "Tehran",
+      "countryCode": "IR",
+      "symbol": "ir-tehran",
+      "name": "Tehran Azadi Tower"
+    },
+    {
+      "city": "Amman",
+      "countryCode": "JO",
+      "symbol": "jo-amman",
+      "name": "Amman Roman Columns"
+    },
+    {
+      "city": "Beirut",
+      "countryCode": "LB",
+      "symbol": "lb-beirut",
+      "name": "Beirut Mosque"
+    },
+    {
+      "city": "Doha",
+      "countryCode": "QA",
+      "symbol": "qa-doha",
+      "name": "Doha Dhow Boat"
+    },
+    {
+      "city": "Mashhad",
+      "countryCode": "IR",
+      "symbol": "ir-mashhad",
+      "name": "Mashhad Saffron Flower"
+    },
+    {
+      "city": "Muscat",
+      "countryCode": "OM",
+      "symbol": "om-muscat",
+      "name": "Muscat Khanjar Dagger"
+    },
+    {
+      "city": "Ankara",
+      "countryCode": "TR",
+      "symbol": "tr-ankara",
+      "name": "Ankara Anıtkabir Mausoleum"
+    },
+    {
+      "city": "Riyadh",
+      "countryCode": "SA",
+      "symbol": "sa-riyadh",
+      "name": "Riyadh Kingdom Tower"
+    },
+    {
+      "city": "Abu Dhabi",
+      "countryCode": "AE",
+      "symbol": "ae-abu-dhabi",
+      "name": "Abu Dhabi Falcon"
+    },
+    {
+      "city": "Manama",
+      "countryCode": "BH",
+      "symbol": "bh-manama",
+      "name": "Manama Bahrain Trading Center"
+    },
+    {
+      "city": "Kuwait City",
+      "countryCode": "KW",
+      "symbol": "kw-kuwait",
+      "name": "Kuwait Towers"
+    },
+    {
+      "city": "Isfahan",
+      "countryCode": "IR",
+      "symbol": "ir-isfahan",
+      "name": "Jameh Mosque"
+    },
+    {
+      "city": "Izmir",
+      "countryCode": "TR",
+      "symbol": "tr-izmir",
+      "name": "Izmir Clock Tower"
+    },
+    {
+      "city": "Dubai",
+      "countryCode": "AE",
+      "symbol": "ae-dubai",
+      "name": "Dubai Burj Khalifa"
+    },
+    {
+      "city": "Haifa",
+      "countryCode": "IL",
+      "symbol": "il-haifa",
+      "name": "Haifa Baha'i Gardens Terrace"
+    },
+    {
+      "city": "Jerusalem",
+      "countryCode": "PS",
+      "symbol": "ps-jerusalem",
+      "name": "Jerusalem Dome of the Rock"
+    },
+    {
+      "city": "Antalya",
+      "countryCode": "TR",
+      "symbol": "tr-antalya",
+      "name": "Antalya Turkish Tea Glass"
+    },
+    {
+      "city": "Kutaisi",
+      "countryCode": "GE",
+      "symbol": "ge-kutaisi",
+      "name": "Kutaisi Colchis Fountain"
+    },
+    {
+      "city": "Chicago",
+      "countryCode": "US",
+      "symbol": "us-chicago",
+      "name": "Chicago Skyline"
+    },
+    {
+      "city": "Tijuana",
+      "countryCode": "MX",
+      "symbol": "mx-tijuana",
+      "name": "Tijuana Arch"
+    },
+    {
+      "city": "Miami",
+      "countryCode": "US",
+      "symbol": "us-miami",
+      "name": "Miami Beach"
+    },
+    {
+      "city": "New York",
+      "countryCode": "US",
+      "symbol": "us-new-york",
+      "name": "New York Statue of Liberty"
+    },
+    {
+      "city": "Ottawa",
+      "countryCode": "CA",
+      "symbol": "ca-ottawa",
+      "name": "Ottawa Parliament Hill"
+    },
+    {
+      "city": "Vancouver",
+      "countryCode": "CA",
+      "symbol": "ca-vancouver",
+      "name": "Vancouver Mountains"
+    },
+    {
+      "city": "Pittsburgh",
+      "countryCode": "US",
+      "symbol": "us-pittsburgh",
+      "name": "Pittsburgh Steel City"
+    },
+    {
+      "city": "Toronto",
+      "countryCode": "CA",
+      "symbol": "ca-toronto",
+      "name": "Toronto CN Tower"
+    },
+    {
+      "city": "Columbus",
+      "countryCode": "US",
+      "symbol": "us-columbus",
+      "name": "Columbus Discovery"
+    },
+    {
+      "city": "Phoenix",
+      "countryCode": "US",
+      "symbol": "us-phoenix",
+      "name": "Phoenix Rising"
+    },
+    {
+      "city": "Austin",
+      "countryCode": "US",
+      "symbol": "us-austin",
+      "name": "Austin Bat"
+    },
+    {
+      "city": "Washington",
+      "countryCode": "US",
+      "symbol": "us-washington",
+      "name": "Washington White House"
+    },
+    {
+      "city": "Guadalajara",
+      "countryCode": "MX",
+      "symbol": "mx-guadalajara",
+      "name": "Guadalajara Mariachi"
+    },
+    {
+      "city": "Panama City",
+      "countryCode": "PA",
+      "symbol": "pa-panama",
+      "name": "Panama City Canal Locks"
+    },
+    {
+      "city": "Irvine",
+      "countryCode": "US",
+      "symbol": "us-irvine",
+      "name": "Irvine Hot Air Balloon"
+    },
+    {
+      "city": "Cincinnati",
+      "countryCode": "US",
+      "symbol": "us-cincinnati",
+      "name": "Cincinnati Union Terminal"
+    },
+    {
+      "city": "Peoria",
+      "countryCode": "US",
+      "symbol": "us-peoria",
+      "name": "Peoria Steamboat"
+    },
+    {
+      "city": "Sacramento",
+      "countryCode": "US",
+      "symbol": "us-sacramento",
+      "name": "Sacramento Trees"
+    },
+    {
+      "city": "Philadelphia",
+      "countryCode": "US",
+      "symbol": "us-philadelphia",
+      "name": "Philadelphia LOVE Sign"
+    },
+    {
+      "city": "Seattle",
+      "countryCode": "US",
+      "symbol": "us-seattle",
+      "name": "Seattle Tower"
+    },
+    {
+      "city": "Hartford",
+      "countryCode": "US",
+      "symbol": "us-hartford",
+      "name": "Hartford Oak Tree"
+    },
+    {
+      "city": "Denver",
+      "countryCode": "US",
+      "symbol": "us-denver",
+      "name": "Denver Bear"
+    },
+    {
+      "city": "San Diego",
+      "countryCode": "US",
+      "symbol": "us-san-diego",
+      "name": "San Diego Mission Bell"
+    },
+    {
+      "city": "St. Louis",
+      "countryCode": "US",
+      "symbol": "us-st-louis",
+      "name": "St. Louis Gateway Arch"
+    },
+    {
+      "city": "New Orleans",
+      "countryCode": "US",
+      "symbol": "us-new-orleans",
+      "name": "New Orleans Fleur de Lis"
+    },
+    {
+      "city": "Albuquerque",
+      "countryCode": "US",
+      "symbol": "us-albuquerque",
+      "name": "Albuquerque Hot Air Balloon"
+    },
+    {
+      "city": "Boston",
+      "countryCode": "US",
+      "symbol": "us-boston",
+      "name": "Boston Citgo Sign"
+    },
+    {
+      "city": "Atlanta",
+      "countryCode": "US",
+      "symbol": "us-atlanta",
+      "name": "Atlanta Peach"
+    },
+    {
+      "city": "San Francisco",
+      "countryCode": "US",
+      "symbol": "us-san-francisco",
+      "name": "Golden Gate Bridge"
+    },
+    {
+      "city": "Los Angeles",
+      "countryCode": "US",
+      "symbol": "us-los-angeles",
+      "name": "LA Dodgers Letters"
+    },
+    {
+      "city": "Sydney",
+      "countryCode": "AU",
+      "symbol": "au-sydney",
+      "name": "Sydney Opera House"
+    },
+    {
+      "city": "Wellington",
+      "countryCode": "NZ",
+      "symbol": "nz-wellington",
+      "name": "Wellington Beehive Parliament"
+    },
+    {
+      "city": "Noumea",
+      "countryCode": "NC",
+      "symbol": "nc-noumea",
+      "name": "Noumea Nautilus Shell"
+    },
+    {
+      "city": "Perth",
+      "countryCode": "AU",
+      "symbol": "au-perth",
+      "name": "Perth Quokka"
+    },
+    {
+      "city": "Melbourne",
+      "countryCode": "AU",
+      "symbol": "au-melbourne",
+      "name": "Flinders Street Station"
+    },
+    {
+      "city": "Port Vila",
+      "countryCode": "VU",
+      "symbol": "vu-port-vila",
+      "name": "Port Vila Traditional Mask"
+    },
+    {
+      "city": "Tarawa",
+      "countryCode": "KI",
+      "symbol": "ki-tarawa",
+      "name": "Tarawa Frigatebird"
+    },
+    {
+      "city": "Apia",
+      "countryCode": "WS",
+      "symbol": "ws-apia",
+      "name": "Apia Fale"
+    },
+    {
+      "city": "Suva",
+      "countryCode": "FJ",
+      "symbol": "fj-suva",
+      "name": "Suva Bure"
+    },
+    {
+      "city": "Canberra",
+      "countryCode": "AU",
+      "symbol": "au-canberra",
+      "name": "Parliament House"
+    },
+    {
+      "city": "Hobart",
+      "countryCode": "AU",
+      "symbol": "au-hobart",
+      "name": "Cascade Brewery"
+    },
+    {
+      "city": "Honiara",
+      "countryCode": "SB",
+      "symbol": "sb-honiara",
+      "name": "Honiara Parliament House"
+    },
+    {
+      "city": "Nukuʻalofa",
+      "countryCode": "TO",
+      "symbol": "to-nukualofa",
+      "name": "Nukuʻalofa Haʻamonga ʻa Maui"
+    },
+    {
+      "city": "Funafuti",
+      "countryCode": "TV",
+      "symbol": "tv-funafuti",
+      "name": "Funafuti Lagoon"
+    },
+    {
+      "city": "Brasilia",
+      "countryCode": "BR",
+      "symbol": "br-brasilia",
+      "name": "Brasilia Cathedral"
+    },
+    {
+      "city": "Buenos Aires",
+      "countryCode": "AR",
+      "symbol": "ar-buenos-aires",
+      "name": "Buenos Aires Tango"
+    },
+    {
+      "city": "Cusco",
+      "countryCode": "PE",
+      "symbol": "pe-cusco",
+      "name": "Cusco Inca Wall"
+    },
+    {
+      "city": "Rio de Janeiro",
+      "countryCode": "BR",
+      "symbol": "br-rio-de-janeiro",
+      "name": "Rio de Janeiro Christ the Redeemer"
+    },
+    {
+      "city": "Santiago",
+      "countryCode": "CL",
+      "symbol": "cl-santiago",
+      "name": "Santiago Metropolitan Cathedral"
+    },
+    {
+      "city": "São Paulo",
+      "countryCode": "BR",
+      "symbol": "br-sao-paulo",
+      "name": "São Paulo Sé Metropolitan Cathedral"
+    },
+    {
+      "city": "Montevideo",
+      "countryCode": "UY",
+      "symbol": "uy-montevideo",
+      "name": "Montevideo Sun of May"
+    },
+    {
+      "city": "Lima",
+      "countryCode": "PE",
+      "symbol": "pe-lima",
+      "name": "Lima Francisco Pizarro Statue"
+    },
+    {
+      "city": "Córdoba",
+      "countryCode": "AR",
+      "symbol": "ar-cordoba",
+      "name": "Córdoba City Arch"
+    },
+    {
+      "city": "Bogotá",
+      "countryCode": "CO",
+      "symbol": "co-bogota",
+      "name": "Bogotá Cathedral"
+    },
+    {
+      "city": "Medellín",
+      "countryCode": "CO",
+      "symbol": "co-medellin",
+      "name": "Medellín Cable Car"
+    },
+    {
+      "city": "Cartagena",
+      "countryCode": "CO",
+      "symbol": "co-cartagena",
+      "name": "Cartagena Pedro de Heredia Statue"
+    },
+    {
+      "city": "Ushuaia",
+      "countryCode": "AR",
+      "symbol": "ar-ushuaia",
+      "name": "Ushuaia Penguin"
+    },
+    {
+      "city": "Georgetown",
+      "countryCode": "GY",
+      "symbol": "gy-georgetown",
+      "name": "Georgetown St. George's Cathedral"
+    },
+    {
+      "city": "La Paz",
+      "countryCode": "BO",
+      "symbol": "bo-la-paz",
+      "name": "La Paz Witches' Market"
+    },
+    {
+      "city": "Caracas",
+      "countryCode": "VE",
+      "symbol": "ve-caracas",
+      "name": "Caracas Teresa Carreño Cultural Complex"
+    },
+    {
+      "city": "Valparaíso",
+      "countryCode": "CL",
+      "symbol": "cl-valparaiso",
+      "name": "Valparaíso Completo"
+    },
+    {
+      "city": "Quito",
+      "countryCode": "EC",
+      "symbol": "ec-quito",
+      "name": "Monumento a la Mitad del Mundo"
+    },
+    {
+      "city": "São Paulo",
+      "countryCode": "BR",
+      "symbol": "br-sao-paulo-masp",
+      "name": "São Paulo MASP"
+    }
+  ],
+  "flags": [
+    "AD",
+    "AE",
+    "AF",
+    "AG",
+    "AI",
+    "AL",
+    "AM",
+    "AO",
+    "AQ",
+    "AR",
+    "AS",
+    "AT",
+    "AU",
+    "AW",
+    "AX",
+    "AZ",
+    "BA",
+    "BB",
+    "BD",
+    "BE",
+    "BF",
+    "BG",
+    "BH",
+    "BI",
+    "BJ",
+    "BL",
+    "BM",
+    "BN",
+    "BO",
+    "BQ-BO",
+    "BQ-SA",
+    "BQ-SE",
+    "BR",
+    "BS",
+    "BT",
+    "BV",
+    "BW",
+    "BY",
+    "BZ",
+    "CA",
+    "CC",
+    "CD",
+    "CF",
+    "CG",
+    "CH",
+    "CI",
+    "CK",
+    "CL",
+    "CM",
+    "CN",
+    "CO",
+    "CR",
+    "CU",
+    "CV",
+    "CW",
+    "CX",
+    "CY",
+    "CZ",
+    "DE",
+    "DJ",
+    "DK",
+    "DM",
+    "DO",
+    "DZ",
+    "EC",
+    "EE",
+    "EG",
+    "EH",
+    "ER",
+    "ES",
+    "ET",
+    "FI",
+    "FJ",
+    "FK",
+    "FM",
+    "FO",
+    "FR",
+    "GA",
+    "GB-ENG",
+    "GB-NIR",
+    "GB-SCT",
+    "GB-UKM",
+    "GB-WLS",
+    "GD",
+    "GE",
+    "GF",
+    "GG",
+    "GH",
+    "GI",
+    "GL",
+    "GM",
+    "GN",
+    "GP",
+    "GQ",
+    "GR",
+    "GS",
+    "GT",
+    "GU",
+    "GW",
+    "GY",
+    "HK",
+    "HM",
+    "HN",
+    "HR",
+    "HT",
+    "HU",
+    "ID",
+    "IE",
+    "IL",
+    "IM",
+    "IN",
+    "IO",
+    "IQ",
+    "IR",
+    "IS",
+    "IT",
+    "JE",
+    "JM",
+    "JO",
+    "JP",
+    "KE",
+    "KG",
+    "KH",
+    "KI",
+    "KM",
+    "KN",
+    "KP",
+    "KR",
+    "KW",
+    "KY",
+    "KZ",
+    "LA",
+    "LB",
+    "LC",
+    "LI",
+    "LK",
+    "LR",
+    "LS",
+    "LT",
+    "LU",
+    "LV",
+    "LY",
+    "MA",
+    "MC",
+    "MD",
+    "ME",
+    "MF",
+    "MG",
+    "MH",
+    "MK",
+    "ML",
+    "MM",
+    "MN",
+    "MO",
+    "MP",
+    "MQ",
+    "MR",
+    "MS",
+    "MT",
+    "MU",
+    "MV",
+    "MW",
+    "MX",
+    "MY",
+    "MZ",
+    "NA",
+    "NC",
+    "NE",
+    "NF",
+    "NG",
+    "NI",
+    "NL",
+    "NO",
+    "NP",
+    "NR",
+    "NU",
+    "NZ",
+    "OM",
+    "PA",
+    "PE",
+    "PF",
+    "PG",
+    "PH",
+    "PK",
+    "PL",
+    "PM",
+    "PN",
+    "PR",
+    "PS",
+    "PT",
+    "PW",
+    "PY",
+    "QA",
+    "RE",
+    "RO",
+    "RS",
+    "RU",
+    "RW",
+    "SA",
+    "SB",
+    "SC",
+    "SD",
+    "SE",
+    "SG",
+    "SH",
+    "SI",
+    "SJ",
+    "SK",
+    "SL",
+    "SM",
+    "SN",
+    "SO",
+    "SR",
+    "SS",
+    "ST",
+    "SV",
+    "SX",
+    "SY",
+    "SZ",
+    "TC",
+    "TD",
+    "TF",
+    "TG",
+    "TH",
+    "TJ",
+    "TK",
+    "TL",
+    "TM",
+    "TN",
+    "TO",
+    "TR",
+    "TT",
+    "TV",
+    "TW",
+    "TZ",
+    "UA",
+    "UG",
+    "UM",
+    "US",
+    "UY",
+    "UZ",
+    "VA",
+    "VC",
+    "VE",
+    "VG",
+    "VI",
+    "VN",
+    "VU",
+    "WF",
+    "WS",
+    "YE",
+    "YT",
+    "ZA",
+    "ZM",
+    "ZW"
+  ]
+}

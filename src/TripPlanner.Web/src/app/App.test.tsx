@@ -44,6 +44,33 @@ test("offers both configured sign-in providers", async () => {
   ).toHaveAttribute("href", expect.stringContaining("/.auth/login/aad"));
 });
 
+test("the footer opens public notices without signing in", async () => {
+  render(
+    <FluentProvider theme={webLightTheme}>
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
+    </FluentProvider>,
+  );
+  const footer = document.querySelector("footer")!;
+  const link = within(footer).getByRole("link", { name: "Notices" });
+  expect(link).toHaveAttribute("href", "/notices");
+  fireEvent.click(link);
+  expect(await screen.findByRole("heading", { name: "Notices" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "City Icons" })).toHaveAttribute(
+    "href",
+    "https://svgcities.com/",
+  );
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  expect(
+    screen.getByRole("link", { name: "Third-party software licenses" }),
+  ).toHaveAttribute("href", "/notices/software-licenses.txt");
+  const city = screen.getByRole("link", { name: "City Icons" }).closest("li")!;
+  expect(
+    within(city).getByText(/^City Icons by Studio Partdirector/),
+  ).toBeVisible();
+});
+
 test("opens the profile route from the user menu and keeps sign out there", async () => {
   let userReads = 0;
   vi.stubGlobal(
@@ -85,6 +112,9 @@ test("opens the profile route from the user menu and keeps sign out there", asyn
   );
 
   fireEvent.click(await screen.findByLabelText("User profile"));
+  expect(
+    screen.queryByRole("link", { name: "Icon credits" }),
+  ).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Sign out" })).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Your profile" }));
   expect(

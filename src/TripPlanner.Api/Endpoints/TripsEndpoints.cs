@@ -246,6 +246,7 @@ public static class TripsEndpoints
     )
     {
         var visits = await database.GetDestinationVisitsAsync(userId, trip.Id, cancellationToken);
+        var places = await database.GetDestinationPlacesAsync(userId, trip.Id, cancellationToken);
         var first = visits.MinBy(visit => visit.Order);
         var last = visits.MaxBy(visit => visit.Order);
         return TripResponse.From(
@@ -256,6 +257,11 @@ public static class TripsEndpoints
         {
             StartDate = first?.ArrivalDate ?? first?.DepartureDate,
             EndDate = last?.DepartureDate ?? last?.ArrivalDate,
+            CountryCodes = TripResponse.DistinctCountries(
+                places
+                    .Where(place => visits.Any(visit => visit.CityId == place.CityId))
+                    .Select(place => place.CountryCode)
+            ),
         };
     }
 

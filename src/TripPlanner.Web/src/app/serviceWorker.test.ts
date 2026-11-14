@@ -31,12 +31,12 @@ function worker() {
     URL,
     Response,
   });
-  function navigate(path: string) {
+  function navigate(path: string, mode = "navigate") {
     const event: WorkerEvent = {
       request: {
         method: "GET",
         url: `https://planner.test${path}`,
-        mode: "navigate",
+        mode,
       },
       respondWith: vi.fn(),
       waitUntil: vi.fn(),
@@ -57,16 +57,40 @@ test.each([
   expect(app.fetch).not.toHaveBeenCalled();
   expect(app.cache.put).not.toHaveBeenCalled();
 });
-test("offline trip navigation serves the last complete application shell", async () => {
-  const app = worker();
-  app.fetch.mockRejectedValue(new Error("offline"));
-  app.caches.match.mockResolvedValue(new Response("saved application"));
-  const event = app.navigate(
-    "/trips/11111111-1111-1111-1111-111111111111/activities",
-  );
-  const response = (await event.respondWith.mock.calls[0][0]) as Response;
-  expect(await response.text()).toBe("saved application");
-});
+
+test.each([
+  "/artwork/cities.svg",
+  "/artwork/flags.svg",
+  "/notices/software-licenses.txt",
+])(
+  "bundled artwork %s is served from the offline shell cache",
+  async (file) => {
+    const app = worker();
+    app.fetch.mockRejectedValue(new Error("offline"));
+    app.caches.match.mockResolvedValue(new Response("saved artwork"));
+    const event = app.navigate(
+      file,
+      file.endsWith("html") ? "navigate" : "cors",
+    );
+    const response = (await event.respondWith.mock.calls[0][0]) as Response;
+    expect(await response.text()).toBe("saved artwork");
+    expect(app.fetch).not.toHaveBeenCalled();
+  },
+);
+test.each([
+  "/notices",
+  "/trips/11111111-1111-1111-1111-111111111111/activities",
+])(
+  "offline navigation to %s serves the last complete application shell",
+  async (path) => {
+    const app = worker();
+    app.fetch.mockRejectedValue(new Error("offline"));
+    app.caches.match.mockResolvedValue(new Response("saved application"));
+    const event = app.navigate(path);
+    const response = (await event.respondWith.mock.calls[0][0]) as Response;
+    expect(await response.text()).toBe("saved application");
+  },
+);
 test("a failed asset download preserves the previous offline shell", async () => {
   const app = worker();
   app.fetch

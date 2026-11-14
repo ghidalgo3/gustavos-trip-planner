@@ -37,10 +37,22 @@ for (const selection of ["partial", "complete"]) {
       await expect(
         page.getByRole("link", { name: `Open trip: ${trip.name}` }),
       ).toBeVisible();
+      await expect(
+        page.getByRole("img", { name: "Japan", exact: true }),
+      ).toBeVisible();
       await page.getByRole("link", { name: `Open trip: ${trip.name}` }).click();
       await expect(
         page.getByRole("heading", { name: trip.name }),
       ).toBeVisible();
+      await expect(
+        page.getByRole("img", { name: "Japan", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.locator(".overview-destination-link .city-icon"),
+      ).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath("online-trip-artwork.png"),
+      });
       await expect
         .poll(() =>
           page.evaluate(
@@ -59,6 +71,21 @@ for (const selection of ["partial", "complete"]) {
           ),
         )
         .toBe(true);
+      await page.getByRole("link", { name: "Activities", exact: true }).click();
+      const destinationTab = page.getByRole("tab", { name: /Tokyo/ });
+      await expect(destinationTab.locator(".city-icon")).toBeVisible();
+      await expect
+        .poll(() =>
+          destinationTab
+            .locator(".city-icon")
+            .evaluate(
+              (element) => (element as SVGGraphicsElement).getBBox().width,
+            ),
+        )
+        .toBeGreaterThan(0);
+      await page.screenshot({
+        path: testInfo.outputPath("online-destination-artwork.png"),
+      });
       await page.getByRole("link", { name: "Flights", exact: true }).click();
       await expect(
         page.getByRole("region", {
@@ -88,13 +115,36 @@ for (const selection of ["partial", "complete"]) {
       context = await engine.launchPersistentContext(profile, options);
       await context.setOffline(true);
       const offlinePage = await context.newPage();
+      await offlinePage.clock.install({
+        time: new Date("2030-01-01T00:00:00Z"),
+      });
+      await offlinePage.clock.pauseAt(new Date("2030-01-01T00:01:00Z"));
       await offlinePage.goto(origin);
       await expect(
         offlinePage.getByRole("region", { name: "Your trips" }),
       ).toBeVisible();
       await expect(
+        offlinePage.getByRole("img", { name: "Japan", exact: true }),
+      ).toBeVisible();
+      await expect(
         offlinePage.getByRole("button", { name: "New trip" }),
       ).toBeDisabled();
+      await expect(
+        offlinePage.getByText("Offline · View only", { exact: true }),
+      ).toHaveCount(0);
+      await offlinePage.clock.fastForward(29_999);
+      await expect(
+        offlinePage.getByText("Offline · View only", { exact: true }),
+      ).toHaveCount(0);
+      await offlinePage.clock.fastForward(1);
+      await expect(
+        offlinePage.getByText("Offline · View only", { exact: true }),
+      ).toHaveCount(1);
+      const offlineNotice = offlinePage.locator(".offline-notice");
+      await expect(offlineNotice).toHaveCount(1);
+      expect((await offlineNotice.boundingBox())!.height).toBeLessThanOrEqual(
+        44,
+      );
       await expect(
         offlinePage.getByRole("link", { name: `Open trip: ${trip.name}` }),
       ).toBeVisible();
@@ -111,6 +161,21 @@ for (const selection of ["partial", "complete"]) {
         offlinePage.getByText("Offline · View only", { exact: true }),
       ).toBeVisible();
       await expect(
+        offlinePage.getByRole("img", { name: "Japan", exact: true }),
+      ).toBeVisible();
+      const cityIcon = offlinePage.locator(
+        ".overview-destination-link .city-icon",
+      );
+      await expect(cityIcon).toBeVisible();
+      // Confirm external SVG symbols have rendered geometry while disconnected.
+      await expect
+        .poll(() =>
+          cityIcon.evaluate(
+            (element) => (element as SVGGraphicsElement).getBBox().width,
+          ),
+        )
+        .toBeGreaterThan(0);
+      await expect(
         offlinePage.getByRole("button", { name: "Add destination" }),
       ).toHaveCount(0);
       await offlinePage.reload();
@@ -119,10 +184,14 @@ for (const selection of ["partial", "complete"]) {
       ).toBeVisible();
 
       await expect(
-        offlinePage.getByRole("button", { name: "Refresh connection" }),
+        offlinePage.getByText("Offline · View only", { exact: true }),
+      ).toHaveCount(0);
+      await offlinePage.clock.fastForward(30_000);
+      await expect(
+        offlinePage.getByRole("button", { name: "Retry connection" }),
       ).toBeVisible();
       await offlinePage
-        .getByRole("button", { name: "Refresh connection" })
+        .getByRole("button", { name: "Retry connection" })
         .click();
       await offlinePage.screenshot({
         path: testInfo.outputPath("offline-trip.png"),

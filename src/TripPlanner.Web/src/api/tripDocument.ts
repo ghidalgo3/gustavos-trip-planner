@@ -294,6 +294,14 @@ export function hydrateTripDocument(document: TripDocument): TripView {
     canPlan: d.etag ? (d.canPlan ?? false) : false,
     startDate: dates[0]?.start ?? dates[0]?.end ?? null,
     endDate: dates.at(-1)?.end ?? dates.at(-1)?.start ?? null,
+    countryCodes: [
+      ...new Set(
+        d.places
+          .filter((place) => place.destinationId && place.active === true)
+          .map((place) => text(place.countryCode).trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    ].sort(),
     etag: metadata[prefix]?.etag,
   });
   const member = (p: ObjectValue) => ({

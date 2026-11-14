@@ -1,0 +1,22 @@
+{
+  "attributions": [
+    {
+      "name": "City Icons",
+      "version": "feb7d73c995555b94bc7dbe3cecf4205f245e61f",
+      "group": "Artwork and data",
+      "license": "CC-BY-4.0",
+      "url": "https://svgcities.com/",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "City Icons by Studio Partdirector (https://partdirector.ch). Standalone SVGs were converted into symbols and internal IDs were namespaced; artwork is visually unchanged."
+    },
+    {
+      "name": "Timezone Boundary Builder / OpenStreetMap",
+      "version": "",
+      "group": "Artwork and data",
+      "license": "ODbL-1.0",
+      "url": "https://github.com/evansiroky/timezone-boundary-builder",
+      "licenseUrl": "https://www.openstreetmap.org/copyright",
+      "attribution": "Time zone boundaries used by GeoTimeZone are derived from Timezone Boundary Builder. © OpenStreetMap contributors. OpenStreetMap data is available under the Open Database License (ODbL)."
+    }
+  ]
+}

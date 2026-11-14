@@ -1,0 +1,11 @@
+{
+  "cityIcons": {
+    "repository": "https://github.com/anto1/city-icons",
+    "commit": "feb7d73c995555b94bc7dbe3cecf4205f245e61f"
+  },
+  "flagpack": {
+    "repository": "https://github.com/Yummygum/flagpack-core",
+    "commit": "6e57695337a46831d3772ab4945d7a7f8e25d5c1"
+  },
+  "changes": "Converted standalone SVGs into symbols and namespaced internal IDs; artwork unchanged."
+}

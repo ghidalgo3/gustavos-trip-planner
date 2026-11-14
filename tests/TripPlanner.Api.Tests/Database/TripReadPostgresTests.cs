@@ -98,6 +98,30 @@ public sealed class TripReadPostgresTests
                         owner.Id,
                         new(trip.Id, "paris-fr", Guid.NewGuid(), 0, date, date)
                     );
+                    if (index == 2)
+                    {
+                        foreach (
+                            var (city, country, order) in new[]
+                            {
+                                ("lyon-fr", "FR", 1),
+                                ("rome-it", "IT", 2),
+                                ("inactive-us", "US", 3),
+                            }
+                        )
+                        {
+                            await database.SaveDestinationPlaceAsync(
+                                owner.Id,
+                                new(trip.Id, city, city, country, "Europe/Paris", 2.35, 48.86)
+                            );
+                            if (country != "US")
+                            {
+                                await database.AddDestinationVisitAsync(
+                                    owner.Id,
+                                    new(trip.Id, city, Guid.NewGuid(), order, date, date)
+                                );
+                            }
+                        }
+                    }
                 }
                 await database.CreateTripAsync(owner.Id, "Undated", "");
                 var query = new TripListQuery(Past: false);
@@ -117,8 +141,13 @@ public sealed class TripReadPostgresTests
                 Assert.AreEqual("Trip 02", first.Trips[0].Name);
                 Assert.AreEqual(today, first.Trips[0].StartDate);
                 Assert.AreEqual(today, first.Trips[0].EndDate);
+                CollectionAssert.AreEqual(
+                    new[] { "FR", "IT" },
+                    first.Trips[0].CountryCodes.ToArray()
+                );
                 Assert.IsTrue(first.Trips.All(trip => trip.CanPlan));
                 Assert.AreEqual("Undated", second.Trips[^1].Name);
+                Assert.IsEmpty(second.Trips[^1].CountryCodes);
                 var past = await database.GetTripPageAsync(
                     owner.Id,
                     query with

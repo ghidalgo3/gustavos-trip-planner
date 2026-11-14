@@ -29,6 +29,7 @@ struct TripListTests {
         let trips = try await api.trips()
         #expect(trips.count == 11)
         #expect(trips.first?.startDate == "2030-06-15")
+        #expect(trips.first?.countryCodes == ["FR", "IT"])
         #expect(trips.last?.name == "Trip 10")
         let queries = try transport.requests.map { request in
             let url = try #require(request.url)
@@ -62,7 +63,7 @@ private final class TripListTransport: TripHTTPTransport {
             ["id": UUID().uuidString, "ownerUserId": UUID().uuidString, "canPlan": true,
              "name": "Trip \(index)", "description": "", "constraints": [:],
              "createdAt": "2029-01-01T00:00:00Z", "updatedAt": "2029-01-01T00:00:00Z",
-             "startDate": "2030-06-15", "endDate": "2030-06-20"]
+             "startDate": "2030-06-15", "endDate": "2030-06-20", "countryCodes": ["FR", "IT"]]
         }
         let body = try JSONSerialization.data(withJSONObject: ["trips": trips, "hasMore": offset == 0])
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))

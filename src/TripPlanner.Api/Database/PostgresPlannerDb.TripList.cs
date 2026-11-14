@@ -32,7 +32,17 @@ public sealed partial class PostgresPlannerDb
                 )) AND strpos(lower(t.name), lower($2)) > 0
             )
             SELECT id, owner_user_id, name, description, constraints::text,
-                created_at, updated_at, flight_constraints::text, can_plan, start_date, end_date
+                created_at, updated_at, flight_constraints::text, can_plan, start_date, end_date,
+                ARRAY(
+                    SELECT DISTINCT upper(btrim(d.country_code))
+                    FROM destination_places d
+                    WHERE d.trip_id = visible.id AND btrim(d.country_code) <> ''
+                        AND EXISTS (
+                            SELECT 1 FROM destination_stays s
+                            WHERE s.trip_id = d.trip_id AND s.city_id = d.city_id
+                        )
+                    ORDER BY 1
+                ) AS country_codes
             FROM visible
             WHERE $3::boolean IS NULL OR $3 = COALESCE(end_date < $4, false)
             ORDER BY
@@ -59,6 +69,7 @@ public sealed partial class PostgresPlannerDb
                 {
                     StartDate = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateOnly>(9),
                     EndDate = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateOnly>(10),
+                    CountryCodes = reader.GetFieldValue<string[]>(11),
                 }
             );
         }

@@ -150,6 +150,9 @@ public sealed class TripResourceProjection(
         {
             StartDate = firstVisit?.ArrivalDate ?? firstVisit?.DepartureDate,
             EndDate = lastVisit?.DepartureDate ?? lastVisit?.ArrivalDate,
+            CountryCodes = TripResponse.DistinctCountries(
+                destinations.Collection.Features.Select(place => place.Properties.CountryCode)
+            ),
         };
         Add(prefix, tripResponse, tripResponse.Etag);
         Add($"{prefix}/transportation", data.Transportation);

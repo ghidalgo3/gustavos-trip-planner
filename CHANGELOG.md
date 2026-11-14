@@ -11,12 +11,22 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Added
+
+- A public Notices page linked from the footer shows required attributions and
+  links to the retained third-party software license notices.
+- Trip headers show dates and unique, borderless country flags from Flagpack.
+  Destination cards and activity tabs show matching City Icons, including while offline.
+- Trip list cards also show unique country flags beside their dates, online and offline.
+
 ### Removed
 
 - Removed the Transportation editor from the web trip overview.
 
 ### Changed
 
+- Offline notices appear only after 30 seconds and use one compact status line
+  with a Retry button. Editing is disabled immediately when offline.
 - Replaced the web activity-plan accordion and planning forms with a day calendar.
   Tap events to edit their dates/times and travel blocks to choose Driving or
   Walking, calculate Azure Maps travel time, and save the connection.

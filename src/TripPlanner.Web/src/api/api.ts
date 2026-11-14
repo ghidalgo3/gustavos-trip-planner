@@ -103,6 +103,7 @@ export type Trip = {
   updatedAt: string;
   startDate?: string | null;
   endDate?: string | null;
+  countryCodes?: string[];
 };
 
 export type TripListPage = { trips: Trip[]; hasMore: boolean };

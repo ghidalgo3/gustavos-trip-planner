@@ -15,6 +15,7 @@ public sealed partial class InMemoryPlannerDb
         foreach (var trip in await GetTripsAsync(viewerUserId, cancellationToken))
         {
             var visits = await GetDestinationVisitsAsync(viewerUserId, trip.Id, cancellationToken);
+            var places = await GetDestinationPlacesAsync(viewerUserId, trip.Id, cancellationToken);
             var first = visits.MinBy(visit => visit.Order);
             var last = visits.MaxBy(visit => visit.Order);
             trips.Add(
@@ -22,6 +23,11 @@ public sealed partial class InMemoryPlannerDb
                 {
                     StartDate = first?.ArrivalDate ?? first?.DepartureDate,
                     EndDate = last?.DepartureDate ?? last?.ArrivalDate,
+                    CountryCodes = TripResponse.DistinctCountries(
+                        places
+                            .Where(place => visits.Any(visit => visit.CityId == place.CityId))
+                            .Select(place => place.CountryCode)
+                    ),
                 }
             );
         }

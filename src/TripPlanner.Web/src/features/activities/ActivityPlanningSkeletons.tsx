@@ -36,6 +36,7 @@ export function ActivityWorkspaceSkeleton() {
         <div className="skeleton-row skeleton-destination-tabs">
           {[0, 1, 2].map((index) => (
             <div className="skeleton-stack" key={index}>
+              <SkeletonItem size={32} style={{ width: 36 }} />
               <SkeletonItem size={20} style={{ width: "70%" }} />
               <SkeletonItem size={12} />
             </div>

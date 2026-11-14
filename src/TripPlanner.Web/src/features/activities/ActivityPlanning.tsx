@@ -56,6 +56,7 @@ import { useActionToast } from "../../shared/hooks/useActionToast";
 import { durationMinutes } from "../../shared/time/durations";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { destinationDates } from "../trips/tripDates";
+import CityIcon from "../../shared/components/CityIcon";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
 import ActivityDurationSlider from "./ActivityDurationSlider";
@@ -1364,6 +1365,10 @@ export default function ActivityPlanning({
         {destinations.features.map((item) => (
           <Tab value={item.id} key={item.id} disabled={busy}>
             <span className="activity-tab-label">
+              <CityIcon
+                name={item.properties.name}
+                countryCode={item.properties.countryCode}
+              />
               <strong>{item.properties.name}</strong>
               <small>{destinationDates(item)}</small>
             </span>
