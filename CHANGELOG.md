@@ -11,6 +11,8 @@ source commit. Failed releases and `--check` runs leave entries unreleased.
 
 ## Unreleased
 
+## 2026.11.13.2
+
 ### Added
 
 - Transportation FeatureCollections with notes, referenced or inline endpoints,
@@ -20,14 +22,20 @@ source commit. Failed releases and `--check` runs leave entries unreleased.
 - Database-enforced endpoint references, snapshot-on-delete behavior, and stale
   route tracking when linked locations move.
 
+### Changed
+
+- Replaced the trip-wide travel collection with individual transportation
+  resources; updated web/iOS document adapters and hotel selection contracts.
+
+## 2026.11.13.1
+
+### Added
+
 - Activity-kind autocomplete reuses labels from your own trips, with searchable
   REST and MCP lists of existing labels.
 - Started this changelog and documented how to use Travel connections.
 
 ### Changed
-
-- Replaced the trip-wide travel collection with individual transportation
-  resources; updated web/iOS document adapters and hotel selection contracts.
 
 - Activity editing uses a mobile-friendly kind TagPicker and clearer activity-name
   and place-search labels.
