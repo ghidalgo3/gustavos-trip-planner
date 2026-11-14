@@ -305,7 +305,10 @@ test("selecting a Plan travel step opens the map and forwards its route; closing
   show(true);
   await screen.findByRole("tab", { name: "Plan" });
   click(screen.getByRole("tab", { name: "Plan" }));
-  click(screen.getByRole("button", { name: "Hide map" }));
+  expect(screen.getByRole("button", { name: "Show map" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
   const scrollToMap = vi.fn();
   document.querySelector<HTMLDivElement>(
     ".activity-map-panel",

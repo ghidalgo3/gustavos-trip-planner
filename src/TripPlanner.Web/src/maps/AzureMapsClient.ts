@@ -1,5 +1,6 @@
 import { tripFetch } from "../api/tripDocumentStore";
 import { apiBaseUrl } from "../api/config";
+import { durationFromMinutes } from "../shared/time/durations";
 import type {
   CitySuggestion,
   PlaceSuggestion,
@@ -354,6 +355,65 @@ export function createAzureMapsClient(): MapsClient {
   }
 
   return {
+    async estimateTravelTime(from, to, mode, signal) {
+      if (
+        ![from, to].every(
+          (point) =>
+            point.length === 2 &&
+            point.every(Number.isFinite) &&
+            Math.abs(point[0]) <= 180 &&
+            Math.abs(point[1]) <= 90,
+        )
+      ) {
+        throw new Error("Set both locations before calculating travel time.");
+      }
+      const timeout = AbortSignal.timeout(20_000);
+      const requestSignal = signal
+        ? AbortSignal.any([signal, timeout])
+        : timeout;
+      const token = await getMapToken(requestSignal);
+      const response = await tripFetch(
+        `${token.endpoint}/route/matrix?api-version=2025-01-01`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `jwt-sas ${token.token}`,
+            "Content-Type": "application/geo+json",
+          },
+          signal: requestSignal,
+          body: JSON.stringify({
+            type: "FeatureCollection",
+            features: [from, to].map((point, index) => ({
+              type: "Feature",
+              geometry: { type: "MultiPoint", coordinates: [point] },
+              properties: {
+                pointType: index === 0 ? "origins" : "destinations",
+              },
+            })),
+            travelMode: mode,
+            departAt: "any",
+            traffic: "historical",
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("Travel time could not be calculated. Try again.");
+      }
+      const result = await response.json();
+      const cell = result?.properties?.matrix?.[0];
+      const seconds = cell?.durationTrafficInSeconds ?? cell?.durationInSeconds;
+      if (
+        cell?.statusCode !== 200 ||
+        typeof seconds !== "number" ||
+        !Number.isFinite(seconds) ||
+        seconds < 0
+      ) {
+        throw new Error(
+          "Azure Maps could not find a route between these locations.",
+        );
+      }
+      return durationFromMinutes(Math.ceil(seconds / 60));
+    },
     getToken: getMapToken,
     searchCities,
     geocodeCity,

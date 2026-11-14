@@ -337,10 +337,13 @@ public sealed class ActivityPlanningContextTests
     }
 
     [TestMethod]
-    [DataRow("walking", null, 20)]
-    [DataRow("driving", null, 6)]
-    [DataRow("walking", 9, 9)]
+    [DataRow("fastest", "walking", null, 20)]
+    [DataRow("fastest", "driving", null, 6)]
+    [DataRow("fastest", "walking", 9, 9)]
+    [DataRow("driving", "walking", null, 20)]
+    [DataRow("driving", "walking", 9, 9)]
     public void AutomaticTravel_PreservesExplicitLegChoicesAndDurations(
+        string setting,
         string mode,
         int? supplied,
         int expectedMinutes
@@ -348,6 +351,7 @@ public sealed class ActivityPlanningContextTests
     {
         var context = Context(TimeSpan.FromHours(1));
         var plan = Plan(context);
+        plan = plan with { Settings = plan.Settings with { TransportMode = setting } };
         var day = plan.Days[0];
         var id = context.Activities[0].Id;
         var from = context.StayLocations[day.StayId].Geometry!.Position;

@@ -2920,33 +2920,6 @@ main:has(.trip-workspace-activities) > .topbar {
   border: 1px solid var(--colorNeutralStroke1);
   border-radius: 8px;
 }
-.skeleton-agenda {
-  gap: 28px;
-}
-.skeleton-agenda-heading {
-  min-height: 48px;
-  padding: 8px 12px;
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 4px;
-  background: var(--colorNeutralBackground2);
-}
-.skeleton-agenda-entry {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
-}
-.skeleton-agenda-entry > .fui-SkeletonItem {
-  margin-top: 16px;
-}
-.skeleton-agenda-activity {
-  min-height: 96px;
-  border-left: 4px solid var(--colorNeutralStroke2);
-  align-content: center;
-}
-.skeleton-agenda-routine {
-  padding-block: 14px;
-}
 .skeleton-destination-tabs > .skeleton-stack {
   flex: 1;
   padding-block: 12px;
@@ -3006,12 +2979,6 @@ main:has(.trip-workspace-activities) > .topbar {
   .skeleton-workspace-ideas {
     grid-column: 1;
     grid-row: 1;
-  }
-}
-@media (max-width: 480px) {
-  .skeleton-agenda-entry {
-    grid-template-columns: 44px minmax(0, 1fr);
-    gap: 8px;
   }
 }
 .content-skeleton--text {
@@ -3153,54 +3120,4 @@ main:has(.trip-workspace-activities) > .topbar {
   border: 1px solid var(--colorNeutralStroke1);
   border-radius: 8px;
   background: var(--colorNeutralBackground2);
-}
-
-.trip-travel {
-  padding: 12px;
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 8px;
-}
-.trip-travel summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-.travel-editor-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-  gap: 12px;
-  margin: 12px 0;
-  padding: 12px;
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 8px;
-}
-.travel-editor-fields label {
-  display: grid;
-  gap: 6px;
-}
-.travel-editor-fields input,
-.travel-editor-fields select,
-.travel-editor-fields textarea {
-  width: 100%;
-  min-height: 40px;
-  padding: 6px;
-  color: var(--colorNeutralForeground1);
-  background: var(--colorNeutralBackground1);
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 4px;
-  box-sizing: border-box;
-}
-.travel-editor-fields textarea {
-  min-height: 100px;
-  resize: vertical;
-}
-.travel-editor-fields fieldset {
-  min-width: 0;
-}
-.trip-travel [role="status"] {
-  color: var(--colorPaletteMarigoldForeground1);
-}
-.travel-editor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }

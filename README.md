@@ -474,11 +474,10 @@ returns `destination_not_found` (404), an ambiguous name returns
 cannot be loaded returns `planning_lookup_failed` (503).
 
 Each destination's activity-plan day has an optional `name` of up to 200 characters,
-such as **EPCOT Visit**. Names appear with the date in agenda headings, day choices,
-settings, and proposal previews. Expand a day to edit its name; existing days save
-on blur with saving/error status and Retry. Offline and read-only views retain the
-same layout with editing disabled. A newly added draft day's name is saved with
-**Save changes**. Names are labels and do not constrain the scheduler or move with
+such as **EPCOT Visit**. Names appear with the date in the calendar heading and
+its date picker. Open **Day details** to edit the name; existing days save on blur
+with saving/error status and Retry. Offline and read-only views retain the same
+layout with editing disabled. Names are labels and do not constrain the scheduler or move with
 activities. Removing a day removes its name; changing a date does not shift names
 by day number.
 
@@ -778,91 +777,39 @@ Activities now has **Ideas** and **Plan** views. Ideas are grouped by state
 collapsible group headers. Map marker numbers stay consistent across groups.
 A plan selects activities,
 assigns each activity at most once across repeat visits, and orders each day.
-Plan opens as an agenda. Its map shows only activities marked Yes (along with the stay).
-It starts empty until activities are marked
-**Yes** in Ideas. Every dated visit day appears, including days with no activities.
-Tap a day header to collapse or expand its activities and daily routines.
-Selected flights, including individually saved legs of an incomplete itinerary,
-appear in the agenda with departure and arrival airports, dates,
-and times in the destination's time zone. Unavailable periods include airport and
-transfer buffers. Known flight matches automatically constrain the shared day to
-the latest traveller arrival and earliest departure; manual availability can only
-narrow that window. Dragging and the Day selector check a proposed move before
-applying it, and leave the activity in place if it overlaps flight travel or the
-check fails. The API also rejects saving flight conflicts, and generated schedules
-use the same limits. Meals during unavailable travel time do not reserve a second
-meal allowance in the destination. Ambiguous flight-to-visit matches still require
-choosing the matching flight in day availability; until then, planning uses the
-latest possible arrival and earliest possible departure from the known candidates.
-Small sunrise and sunset dividers appear at their chronological positions for each
-visit date, including before wake-up. Times are calculated locally with
-[SunCalc](https://github.com/mourner/suncalc) from the destination coordinates and
-time zone, including daylight saving time. They are approximate reference markers
-and do not reserve time or affect dragging or capacity. Polar days/nights show a
-short daylight note instead; missing location or time-zone data omits the markers.
-Drag an activity's dotted handle to reorder it or move it between days, using a
-mouse or touch. Drop before or after meals and activities, or on a day header to append
-it to that day, including empty or collapsed days. The insertion line marks the
-chosen boundary. Single activities can also be dragged. Up/Down arrow keys move
-through meals and activities within a day; Escape cancels a drag.
-The Day selector provides a keyboard alternative for moving between days. Choose
-Save changes to keep manual edits. Meal positions are saved with the day, and the
-server recalculates activity start times from this order, durations, travel, opening
-hours, and fixed bookings. A drag
-does not create a fixed-time booking. For example, a lone three-hour activity
-dropped after a 07:00 breakfast lasting 30 minutes starts at 07:30 when travel and
-opening hours impose no delay.
-Compact travel cards between activities show the assessed transport method and
-duration, with provisional routes labeled estimated. Assessed stay connections
-appear at the start and end of the route; missing travel times remain unknown.
-Manual day ordering uses optional `mealPositions: { breakfast, lunch, dinner }`,
-where each value counts activities before that meal. Counts must be ordered and
-within the day's activity count. Omitting it retains automatic meal placement.
-Generated schedule proposals use automatic meal placement; applying a proposal
-replaces the manual order along with the activity schedule.
-The header shows free hours after activities, travel, meals, and reserved slack;
-provisional figures are labeled estimated. Gaps before meals, bookings, or opening
-hours remain free time. The assessment's `waitingDuration` describes those gaps
-and is already included in `slackDuration`; it is not an additional time cost.
-Actual waiting within a transport journey remains part of its travel duration.
-Edits automatically preview the current draft after a short typing pause, without
-saving it. The preview uses the
-same server evaluator with cached evidence, makes no external provider calls, and
-creates no saved assessment or background job. Outdated responses are discarded.
-Overview destination cards let you edit dates by tapping the date range, with delete
-in the top-right corner. Once a visit has saved scheduled activities, its utilization
-bar totals available and free time across that visit's days (including empty days).
-Free time uses the agenda calculation, after travel, meals, and reserved slack;
-estimates are labeled. The bar is green through 60%, warning through 80%, and red
-above 80% utilization.
+Plan is a day calendar with an hour rail and time-proportional event blocks. Use
+previous/next or the date picker to navigate visit days, including empty days.
+The map starts collapsed and can be opened separately. Selected activities without
+confirmed timing appear in **Unscheduled**. Tap one, or use **Add event**, to choose
+its visit date, start, and end. **Save** submits the complete plan with its ETag and
+planning context; **Cancel** discards the editor draft. Moving an event schedules
+it exactly once, retains its other restrictions, and validates flight availability
+before saving. Overnight events use **Ends next day**. Times use the destination's
+time zone, which appears in the calendar toolbar. Saved meals and flights appear
+alongside activities. Overlapping events occupy separate columns.
 
-Those activities appear under **To schedule** until assigned to a day. Choose
-**Schedule activities** to ask the solver to assign days, order, and times for
-exactly the selected activities. It minimizes total travel on daily routes from
-the stay, through the activities, and back to the stay when accommodation is set.
-Without a stay, it optimizes an open route through the activities, with no travel
-before the first or after the last activity. Breakfast precedes the first activity;
-the last activity starts after dinner (19:00 by default, plus its meal allowance).
-Dining activities can satisfy meal allowances without double-counting. Fixed times
-that conflict remain visible and are reported rather than silently moved.
-Meals, sleep, travel, and reserved slack still count;
-unknown travel between activities remains an estimate. Choosing accommodation
-with **Stay** on Overview adds those connections to subsequent assessments and
-scheduling. It refreshes routing evidence and respects fixed
-days/times and other restrictions; unavailable routes remain labeled estimates.
-If everything cannot fit, it explains that without silently dropping activities.
-The **Schedule activities** button saves the solver's best validated schedule directly
-to the agenda and calendar. If no schedule fits or inputs change while it runs,
-the current plan is preserved and the reason is shown. REST and MCP proposal
-creation use `kind: "schedule"` for this mode; they still return proposals to apply
-explicitly. `draft` still permits subset selection.
-Manual edits show **Save changes** and **Discard changes** only when needed.
-Saving applies the manual draft to the shared plan and calendar; discarding
-restores the saved plan. Draft alternatives and incremental suggestions still require
-explicit review and application.
-The detailed assessments, optimizer, and settings are available under
-**Planning tools**, which expands below the agenda without hiding it. On phones,
-entering the agenda collapses the map.
+Tap a travel block between activities (or to/from a saved stay) to choose
+**Driving** or **Walking**. **Calculate travel time** calls the Azure Maps Route
+Matrix API from the browser using its authenticated Maps SAS. Estimates use
+historical traffic without a specific departure time and round up to whole minutes.
+Users can also enter a travel allowance directly. Changing mode clears the draft
+allowance. **Save** updates the complete plan with a leg-specific mode and ISO 8601
+duration; individual choices take precedence over the day's default mode.
+Failed calculations retain the allowance and can be retried. **View route** previews
+the selected mode on the map without saving the draft. No standalone transportation form appears on Overview.
+
+The calendar remains available offline with date navigation, scrolling, event
+inspection, and disabled editing/calculation controls. Save failures retain the
+draft for correction or refresh; pending saves prevent overlapping writes. Day
+names remain editable on blur under **Day details**, using a complete versioned
+plan update. Scheduling proposals, detailed assessments, and advanced restrictions
+remain available through REST/MCP rather than a second planning form below the
+calendar. Existing saved restrictions are preserved when editing event timing.
+
+Overview destination cards let you edit dates by tapping the date range. Their
+utilization bars use saved assessments of travel, meals, activities, and reserved
+slack; gaps between scheduled events remain free time.
+
 On tablets and laptops (768px and wider), drag the divider between the activity
 column and the map to resize them. Focus the divider and use the arrow keys for
 keyboard resizing; Home and End move to the minimum and maximum column sizes.
@@ -875,20 +822,20 @@ can omit `timeZone`; repeat visits reuse the saved city timezone. Older destinat
 with a missing timezone also resolve it in destination and planning responses without
 mutating shared data during a read. Destination replacement resolves an omitted zone
 before saving, and saved plans missing a zone inherit the city's zone when loaded.
-The Plan view displays the resolved city timezone under **Default timing and transport**;
+The Plan view displays the resolved city timezone in the calendar toolbar;
 it does not ask users to choose a timezone. Explicit API overrides remain supported.
 If both lookup sources fail, the zone remains unknown with a retry explanation;
 manual planning remains available and calendar entries need known timing rather than a guessed zone.
-Mobile controls move stops earlier/later or to another day. Must-do, fixed day/time,
-relative-order, meal, duration, opening-hours, transport, and daily availability
-restrictions remain editable. Conflicting plans can be saved with explanations.
+The event editor changes dates, start/end times, and transportation. Must-do,
+relative-order, meal, opening-hours, and availability restrictions remain supported
+by REST/MCP and are preserved by web timing edits. Conflicting plans can be saved with explanations.
 Profile interests are private; trip and destination interests are shared. Preference
 scoring combines all travellers with equal weight and narrower instructions take
 precedence. Agent-proposed timing rules and flight-derived availability require
 explicit acceptance.
 
 On phones, Ideas and Plan scroll with the page, and activity editors scroll
-through their action buttons. Overview keeps destination names and dates above
+through their action buttons. The calendar's hour grid scrolls independently. Overview keeps destination names and dates above
 the card actions. Action results use dismissible Fluent UI toasts anchored at the viewport’s top-right, above drawers and dialogs without moving when focus changes: successes close
 automatically, while failures stay visible for review. Field validation and
 loading failures remain beside the relevant content.
@@ -1258,7 +1205,7 @@ In Development, review the interactive API reference at
 `http://localhost:8080/scalar`. The underlying OpenAPI document remains at
 `/openapi/v1.json`.
 
-Walking, driving and taxi steps in the daily Plan are selectable. Selecting a step opens the map, draws its street route in the planned mode, and frames the path, including travel to and from the visit's stay. Changing the plan or destination clears the selection. Route previews are available to Travellers as well as Planners and do not save the draft. The API derives both locations and the departure from the authorized day's plan; it does not accept arbitrary routing coordinates. This map-only preview is deliberately excluded from MCP tools. Route responses whose start or end is over 500 metres from the requested location are rejected instead of drawn. Azure can return coarse paths on sparse road coverage in Japan; a successful HTTP response does not establish a usable street route there.
+Travel blocks in the daily Plan open a transportation editor. **View route** opens the map, draws the previewed street route in the selected mode, and frames the path, including travel to and from the visit's stay. Changing the plan or destination clears the selection. Route previews are available to Travellers as well as Planners and do not save the draft. The API derives both locations and the departure from the authorized day's plan; it does not accept arbitrary routing coordinates. This map-only preview is deliberately excluded from MCP tools. Route responses whose start or end is over 500 metres from the requested location are rejected instead of drawn. Azure can return coarse paths on sparse road coverage in Japan; a successful HTTP response does not establish a usable street route there.
 
 ### SPA updates after release
 

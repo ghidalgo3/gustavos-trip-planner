@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "^/trips/[^/]+/(document|document|travel|travellers)(/|\\?|$)": {
+      "^/trips/[^/]+/(document|transportation|travel|travellers)(/|\\?|$)": {
         target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8080",
         changeOrigin: true,
       },

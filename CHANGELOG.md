@@ -11,7 +11,16 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Removed
+
+- Removed the Transportation editor from the web trip overview.
+
 ### Changed
+
+- Replaced the web activity-plan accordion and planning forms with a day calendar.
+  Tap events to edit their dates/times and travel blocks to choose Driving or
+  Walking, calculate Azure Maps travel time, and save the connection.
+- Individual transportation choices now override a day-wide Driving default.
 
 - Activity planning decisions now use Yes, No, and Maybe. New activities start at
   Maybe; existing selections and schedules are preserved when stored states are

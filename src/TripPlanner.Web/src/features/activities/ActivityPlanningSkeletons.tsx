@@ -3,39 +3,27 @@ import ContentSkeleton from "../../shared/components/ContentSkeleton";
 
 export function DailyPlanSkeleton() {
   return (
-    <ContentSkeleton label="Loading daily plan">
-      <div className="skeleton-stack skeleton-agenda">
-        {[0, 1, 2].map((day) => (
-          <div className="skeleton-agenda-day skeleton-stack" key={day}>
-            <div className="skeleton-row skeleton-agenda-heading">
-              <SkeletonItem size={16} style={{ width: 16 }} />
-              <div className="skeleton-stack" style={{ width: "50%" }}>
-                <SkeletonItem size={24} />
-                <SkeletonItem size={12} style={{ width: "75%" }} />
-              </div>
-              <div className="skeleton-stack" style={{ width: "25%" }}>
-                <SkeletonItem size={12} />
-                <SkeletonItem size={12} style={{ width: "75%" }} />
+    <ContentSkeleton label="Loading calendar">
+      <div className="skeleton-stack calendar-loading">
+        <div className="skeleton-row">
+          <SkeletonItem size={32} style={{ width: "65%" }} />
+          <SkeletonItem size={32} style={{ width: 100 }} />
+        </div>
+        <SkeletonItem size={20} style={{ width: "40%" }} />
+        <div className="calendar-loading-grid">
+          {[0, 1, 2, 3, 4].map((hour) => (
+            <div className="calendar-loading-hour" key={hour}>
+              <SkeletonItem size={12} style={{ width: 40 }} />
+              <div>
+                {hour % 2 === 0 && (
+                  <SkeletonItem
+                    style={{ height: hour === 2 ? 90 : 60, width: "95%" }}
+                  />
+                )}
               </div>
             </div>
-            {[0, 1, 2, 3].map((entry) => (
-              <div className="skeleton-agenda-entry" key={entry}>
-                <SkeletonItem size={16} style={{ width: "80%" }} />
-                <div
-                  className={`skeleton-panel ${entry === 2 ? "skeleton-agenda-activity" : "skeleton-agenda-routine"}`}
-                >
-                  <SkeletonItem
-                    size={entry === 2 ? 20 : 16}
-                    style={{ width: "60%" }}
-                  />
-                  {entry === 2 && (
-                    <SkeletonItem size={12} style={{ width: "35%" }} />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </ContentSkeleton>
   );

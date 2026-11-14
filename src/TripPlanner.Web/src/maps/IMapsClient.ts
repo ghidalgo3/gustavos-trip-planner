@@ -48,6 +48,12 @@ export interface MapControl {
 }
 
 export interface MapsClient {
+  estimateTravelTime(
+    from: [number, number],
+    to: [number, number],
+    mode: "driving" | "walking",
+    signal?: AbortSignal,
+  ): Promise<string>;
   getToken(signal?: AbortSignal, forceRefresh?: boolean): Promise<MapToken>;
   searchCities(query: string, signal?: AbortSignal): Promise<CitySuggestion[]>;
   geocodeCity(

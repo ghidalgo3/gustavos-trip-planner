@@ -5,8 +5,10 @@ import { planningRequest, type CalendarSubscription } from "./activityPlanApi";
 
 export default function ActivityCalendarSubscriptions({
   tripId,
+  readOnly = false,
 }: {
   tripId: string;
+  readOnly?: boolean;
 }) {
   const [items, setItems] = useState<CalendarSubscription[]>();
   const [url, setUrl] = useState<string>();
@@ -30,7 +32,7 @@ export default function ActivityCalendarSubscriptions({
     <section className="planning-calendar">
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || readOnly}
         aria-expanded={items !== undefined}
         onClick={() => (items ? setItems(undefined) : void run(load))}
       >
@@ -46,7 +48,7 @@ export default function ActivityCalendarSubscriptions({
           </p>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || readOnly}
             onClick={() =>
               void run(async () => {
                 const created = (
@@ -81,7 +83,7 @@ export default function ActivityCalendarSubscriptions({
                 ) : (
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || readOnly}
                     onClick={() =>
                       void run(async () => {
                         await planningRequest(`${path}/${item.id}`, {

@@ -1,4 +1,3 @@
-import TransportationEditor from "./TransportationEditor";
 import {
   useExplicitResourceRefresh,
   useTripResourceVersion,
@@ -372,9 +371,6 @@ export default function TripOverview({
         </div>
       )}
       {toaster}
-      {destinations && (
-        <TransportationEditor tripId={trip.id} readOnly={readOnly} />
-      )}
       {error ? (
         <div className="overview-load-error">
           <Text role="alert">{error}</Text>

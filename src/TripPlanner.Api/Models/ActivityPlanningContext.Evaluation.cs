@@ -80,8 +80,8 @@ public sealed partial record ActivityPlanningContext
             t.Date == day.Date && t.FromActivityId == fromId && t.ToActivityId == toId
         );
         string[] modes =
-            settings.TransportMode == "driving" ? ["driving"]
-            : change is not null ? [change.Mode]
+            change is not null ? [change.Mode]
+            : settings.TransportMode == "driving" ? ["driving"]
             : settings.TransportMode is "fastest" or "walking" ? ["walking", "driving"]
             : [settings.TransportMode];
         string mode = modes[0];

@@ -81,7 +81,6 @@ import {
 import { validActivityKinds, type TicketRequirement } from "./activityKinds";
 import { validActivityLink } from "./activityLinks";
 import {
-  activityRouteKey,
   useActivityRoute,
   type ActivityRouteSelection,
 } from "./activityRouteApi";
@@ -1351,7 +1350,10 @@ export default function ActivityPlanning({
   );
 
   return (
-    <section className="activity-planning" aria-label="Activity planning">
+    <section
+      className={`activity-planning${activityView === "daily" ? " activity-calendar-view" : ""}`}
+      aria-label="Activity planning"
+    >
       {toaster}
       <TabList
         aria-label="Destinations"
@@ -1373,6 +1375,7 @@ export default function ActivityPlanning({
         selectedValue={activityView}
         onTabSelect={(_, data) => {
           setActivityView(String(data.value));
+          setMapCollapsed(data.value === "daily");
           setSelectedTravel(undefined);
           setShowMapCard(false);
         }}
@@ -1442,9 +1445,6 @@ export default function ActivityPlanning({
               readOnly={!canEdit}
 
               onSelect={selectActivity}
-              selectedRouteKey={
-                routeSelection ? activityRouteKey(routeSelection) : undefined
-              }
               onPlanChange={() => setSelectedTravel(undefined)}
               onSelectTravel={(selection) => {
                 setSelectedTravel({ cityId: destination.id, selection });

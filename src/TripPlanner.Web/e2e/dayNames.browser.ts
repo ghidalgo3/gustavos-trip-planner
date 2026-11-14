@@ -9,7 +9,7 @@ for (const width of [390, 1280]) {
   test.describe(`day names at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
 
-    test("wraps names, saves on blur, and keeps the agenda available offline", async ({
+    test("wraps names, saves on blur, and keeps the calendar available offline", async ({
       page,
       request,
     }, testInfo) => {
@@ -105,10 +105,9 @@ for (const width of [390, 1280]) {
       );
       await page.goto(`/trips/${trip.id}/activities`);
       await page.getByRole("tab", { name: "Plan", exact: true }).click();
-      const toggle = page.getByRole("button", {
-        name: new RegExp(initialName),
-      });
-      await toggle.click();
+      await page
+        .getByRole("button", { name: "Day details", exact: true })
+        .click();
       const editor = page.getByRole("textbox", { name: "Day name (optional)" });
       await expect(editor).toHaveValue(initialName);
       expect(
@@ -117,14 +116,14 @@ for (const width of [390, 1280]) {
         ),
       ).toBe(true);
       await page
-        .locator(".activity-agenda")
+        .getByRole("dialog")
         .screenshot({ path: testInfo.outputPath("day-name.png") });
       await editor.fill("EPCOT Visit");
       expect(writes).toHaveLength(0);
       await editor.blur();
       await expect(
-        page.getByRole("button", { name: /^EPCOT Visit ·/ }),
-      ).toBeVisible();
+        page.locator('select[aria-label="Calendar day"] option:checked'),
+      ).toHaveText(/^EPCOT Visit ·/);
       await expect(editor).toBeEnabled();
       expect(writes).toHaveLength(1);
       expect(writes[0].days[0].name).toBe("EPCOT Visit");
@@ -134,15 +133,17 @@ for (const width of [390, 1280]) {
       ).toBeVisible();
       await expect(editor).toHaveValue("EPCOT Visit");
       await expect(editor).toBeDisabled();
-      await page.getByRole("button", { name: /^EPCOT Visit ·/ }).click();
-      await expect(editor).toBeHidden();
-      await page.getByRole("button", { name: /^EPCOT Visit ·/ }).click();
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Day details", exact: true })
+        .click();
       await expect(editor).toBeVisible();
+      await page.getByRole("button", { name: "Close", exact: true }).click();
       await page.getByRole("tab", { name: "Ideas", exact: true }).click();
       await page.getByRole("tab", { name: "Plan", exact: true }).click();
       await expect(
-        page.getByRole("button", { name: /^EPCOT Visit ·/ }),
-      ).toBeVisible();
+        page.locator('select[aria-label="Calendar day"] option:checked'),
+      ).toHaveText(/^EPCOT Visit ·/);
     });
   });
 }
