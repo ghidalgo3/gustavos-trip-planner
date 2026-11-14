@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.13.3
+
 ### Changed
 
 - Successful releases automatically version and commit the changelog rollover,
