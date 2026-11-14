@@ -37,13 +37,22 @@ public static class McpAccessEndpoints
                 var tokens = context.RequestServices.GetRequiredService<IOpenIddictTokenManager>();
                 var applications =
                     context.RequestServices.GetRequiredService<IOpenIddictApplicationManager>();
-                var application = await applications.FindByClientIdAsync(
-                    McpServiceExtensions.ClientId,
-                    context.RequestAborted
-                );
-                string? applicationId = application is null
-                    ? null
-                    : await applications.GetIdAsync(application, context.RequestAborted);
+                var applicationIds = new HashSet<string>();
+                foreach (var client in McpServiceExtensions.GetMcpClients(options.Value))
+                {
+                    var application = await applications.FindByClientIdAsync(
+                        client.ClientId,
+                        context.RequestAborted
+                    );
+                    if (
+                        application is not null
+                        && await applications.GetIdAsync(application, context.RequestAborted)
+                            is { } applicationId
+                    )
+                    {
+                        applicationIds.Add(applicationId);
+                    }
+                }
                 await foreach (
                     var token in tokens.FindBySubjectAsync(
                         user.Id.ToString("D"),
@@ -52,9 +61,9 @@ public static class McpAccessEndpoints
                 )
                 {
                     if (
-                        applicationId is not null
-                        && await tokens.GetApplicationIdAsync(token, context.RequestAborted)
-                            == applicationId
+                        await tokens.GetApplicationIdAsync(token, context.RequestAborted)
+                            is { } tokenApplicationId
+                        && applicationIds.Contains(tokenApplicationId)
                         && await tokens.HasStatusAsync(
                             token,
                             OpenIddictConstants.Statuses.Valid,
@@ -97,12 +106,16 @@ public static class McpAccessEndpoints
         string subject = user.Id.ToString("D");
         var applications =
             context.RequestServices.GetRequiredService<IOpenIddictApplicationManager>();
-        var application = await applications.FindByClientIdAsync(
-            McpServiceExtensions.ClientId,
-            context.RequestAborted
-        );
-        if (application is not null)
+        foreach (var client in McpServiceExtensions.GetMcpClients(options.Value))
         {
+            var application = await applications.FindByClientIdAsync(
+                client.ClientId,
+                context.RequestAborted
+            );
+            if (application is null)
+            {
+                continue;
+            }
             string? applicationId = await applications.GetIdAsync(
                 application,
                 context.RequestAborted

@@ -13,6 +13,9 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
+- Muse can connect to the MCP server as public OAuth client `muse` with S256 PKCE
+  and refresh tokens, alongside ChatGPT. Connected agents revokes access for both,
+  and Muse changes appear under the MCP Activity Log filter.
 - The profile page lists MCP server and OAuth discovery URLs for connecting an agent.
 - A public Notices page linked from the footer shows required attributions and
   links to the retained third-party software license notices.

@@ -35,7 +35,7 @@ public sealed class InMemoryActivityLogStore(IPlannerDb database) : IActivityLog
             .Where(entry =>
                 source switch
                 {
-                    "MCP" => entry.Source is "ChatGPT" or "MCP",
+                    "MCP" => entry.Source is "ChatGPT" or "Muse" or "MCP",
                     "API" => entry.Source is "Website" or "API client",
                     _ => true,
                 }

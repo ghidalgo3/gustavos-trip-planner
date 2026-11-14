@@ -34,13 +34,13 @@ export default function ConnectedAgents() {
       await revokeMcpAccess();
       setAccess({ enabled: true, connected: false });
       notify(
-        "ChatGPT disconnected. Previous actions remain in your Activity Log.",
+        "Agents disconnected. Previous actions remain in your Activity Log.",
       );
     } catch (reason) {
       notify(
         reason instanceof Error
           ? reason.message
-          : "Unable to disconnect ChatGPT.",
+          : "Unable to disconnect agents.",
         "error",
       );
     } finally {
@@ -55,8 +55,8 @@ export default function ConnectedAgents() {
       {access?.enabled && (
         <Text>
           {access.connected
-            ? "ChatGPT can access TripPlanner with the permissions you granted."
-            : "ChatGPT is not connected to your TripPlanner account."}
+            ? "Connected agents can access TripPlanner with the permissions you granted."
+            : "No agents are connected to your TripPlanner account."}
         </Text>
       )}
       {toaster}
@@ -80,7 +80,7 @@ export default function ConnectedAgents() {
           disabled={busy}
           onClick={() => void disconnect()}
         >
-          {busy ? "Disconnecting…" : "Disconnect ChatGPT"}
+          {busy ? "Disconnecting…" : "Disconnect all agents"}
         </Button>
       )}
     </Card>

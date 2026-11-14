@@ -195,7 +195,9 @@ public class AuditedPlannerDb : DispatchProxy
                 context?.Request.Path.StartsWithSegments("/mcp") == true
                     ? context.User.GetPresenters().Contains(McpServiceExtensions.ClientId)
                         ? "ChatGPT"
-                        : "MCP"
+                        : context.User.GetPresenters().Contains("muse")
+                            ? "Muse"
+                            : "MCP"
                     : context
                         ?.Request.Headers.Authorization.ToString()
                         .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true

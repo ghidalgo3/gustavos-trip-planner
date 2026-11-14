@@ -25,6 +25,16 @@ public static class McpServiceExtensions
     public const string Policy = "McpUser";
     public const string ClientId = "chatgpt";
 
+    public static IEnumerable<PublicOAuthClient> GetMcpClients(McpOptions options) =>
+        options.AgentClients.Prepend(
+            new PublicOAuthClient
+            {
+                ClientId = ClientId,
+                DisplayName = "ChatGPT",
+                RedirectUris = options.RedirectUris,
+            }
+        );
+
     public static void UseMcpSecurity(this WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
@@ -89,27 +99,41 @@ public static class McpServiceExtensions
             );
         }
 
+        var clients = GetMcpClients(configuration).Concat(configuration.NativeClients).ToArray();
         if (
-            configuration.RedirectUris.Length == 0
-            || configuration.RedirectUris.Any(value =>
-                !Uri.TryCreate(value, UriKind.Absolute, out var uri)
-                || uri.Scheme != "https"
-                || uri.Fragment.Length != 0
+            clients.Any(client =>
+                string.IsNullOrWhiteSpace(client.ClientId)
+                || string.IsNullOrWhiteSpace(client.DisplayName)
+                || clients.Count(other => other.ClientId == client.ClientId) != 1
             )
         )
         {
             throw new InvalidOperationException(
-                "Mcp:RedirectUris must contain exact HTTPS OAuth callback URLs."
+                "OAuth clients require unique IDs and nonempty display names."
+            );
+        }
+
+        if (
+            GetMcpClients(configuration)
+                .Any(client =>
+                    client.RedirectUris.Length == 0
+                    || client.RedirectUris.Any(value =>
+                        !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+                        || uri.Scheme != "https"
+                        || uri.Fragment.Length != 0
+                    )
+                )
+        )
+        {
+            throw new InvalidOperationException(
+                "MCP clients must have exact HTTPS OAuth callback URLs."
             );
         }
 
         foreach (var client in configuration.NativeClients)
         {
             if (
-                string.IsNullOrWhiteSpace(client.ClientId)
-                || client.ClientId == ClientId
-                || client.RedirectUris.Length == 0
-                || configuration.NativeClients.Count(c => c.ClientId == client.ClientId) != 1
+                client.RedirectUris.Length == 0
                 || client.RedirectUris.Any(value =>
                     !Uri.TryCreate(value, UriKind.Absolute, out var uri)
                     || uri.Fragment.Length > 0
@@ -292,12 +316,28 @@ public static class McpServiceExtensions
         await using var scope = app.Services.CreateAsyncScope();
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
         var options = scope.ServiceProvider.GetRequiredService<IOptions<McpOptions>>().Value;
+        foreach (var client in GetMcpClients(options))
+        {
+            await RegisterClientAsync(manager, client, new Uri(new Uri(options.Issuer!), "/mcp"));
+        }
+        foreach (var client in options.NativeClients)
+        {
+            await RegisterClientAsync(manager, client, new Uri(new Uri(options.Issuer!), "/api"));
+        }
+    }
+
+    private static async Task RegisterClientAsync(
+        IOpenIddictApplicationManager manager,
+        PublicOAuthClient client,
+        Uri resource
+    )
+    {
         var descriptor = new OpenIddictApplicationDescriptor
         {
-            ClientId = ClientId,
+            ClientId = client.ClientId,
             ClientType = ClientTypes.Public,
             ConsentType = ConsentTypes.Explicit,
-            DisplayName = "ChatGPT",
+            DisplayName = client.DisplayName,
             Permissions =
             {
                 Permissions.Endpoints.Authorization,
@@ -308,17 +348,15 @@ public static class McpServiceExtensions
                 Permissions.ResponseTypes.Code,
                 Permissions.Prefixes.Scope + ReadScope,
                 Permissions.Prefixes.Scope + WriteScope,
-                Permissions.Prefixes.Resource
-                    + new Uri(new Uri(options.Issuer!), "/mcp").AbsoluteUri,
+                Permissions.Prefixes.Resource + resource.AbsoluteUri,
             },
             Requirements = { Requirements.Features.ProofKeyForCodeExchange },
         };
-        foreach (var uri in options.RedirectUris)
+        foreach (var uri in client.RedirectUris)
         {
             descriptor.RedirectUris.Add(new Uri(uri));
         }
-
-        var existing = await manager.FindByClientIdAsync(ClientId);
+        var existing = await manager.FindByClientIdAsync(client.ClientId);
         if (existing is null)
         {
             await manager.CreateAsync(descriptor);
@@ -326,43 +364,6 @@ public static class McpServiceExtensions
         else
         {
             await manager.UpdateAsync(existing, descriptor);
-        }
-        foreach (var client in options.NativeClients)
-        {
-            var native = new OpenIddictApplicationDescriptor
-            {
-                ClientId = client.ClientId,
-                ClientType = ClientTypes.Public,
-                ConsentType = ConsentTypes.Explicit,
-                DisplayName = client.DisplayName,
-                Permissions =
-                {
-                    Permissions.Endpoints.Authorization,
-                    Permissions.Endpoints.Token,
-                    Permissions.Endpoints.Revocation,
-                    Permissions.GrantTypes.AuthorizationCode,
-                    Permissions.GrantTypes.RefreshToken,
-                    Permissions.ResponseTypes.Code,
-                    Permissions.Prefixes.Scope + ReadScope,
-                    Permissions.Prefixes.Scope + WriteScope,
-                    Permissions.Prefixes.Resource
-                        + new Uri(new Uri(options.Issuer!), "/api").AbsoluteUri,
-                },
-                Requirements = { Requirements.Features.ProofKeyForCodeExchange },
-            };
-            foreach (var redirect in client.RedirectUris)
-            {
-                native.RedirectUris.Add(new Uri(redirect));
-            }
-            var registered = await manager.FindByClientIdAsync(client.ClientId);
-            if (registered is null)
-            {
-                await manager.CreateAsync(native);
-            }
-            else
-            {
-                await manager.UpdateAsync(registered, native);
-            }
         }
     }
 }

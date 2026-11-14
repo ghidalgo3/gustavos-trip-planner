@@ -98,7 +98,7 @@ export default function ActivityLog() {
       )}
       <ol className="activity-log-entries">
         {entries.map((entry) => {
-          const isMcp = entry.source === "ChatGPT" || entry.source === "MCP";
+          const isMcp = ["ChatGPT", "Muse", "MCP"].includes(entry.source);
           const isApi =
             entry.source === "Website" || entry.source === "API client";
           return (

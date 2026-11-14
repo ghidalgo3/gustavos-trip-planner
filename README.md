@@ -662,14 +662,15 @@ agent instructions; existing activity names are preserved, and genuine dated eve
 names remain valid.
 
 OpenIddict provides an OAuth authorization server alongside the existing Google
-and Microsoft sign-in. ChatGPT uses a registered public client (`chatgpt`, no
-client secret), authorization-code flow with S256 PKCE, exact callback allowlists,
-explicit CSRF-protected consent, and tokens bound to the canonical `/mcp` resource.
+and Microsoft sign-in. ChatGPT and Muse use separate registered public clients
+(`chatgpt` and `muse`, no client secrets), authorization-code flow with S256 PKCE,
+exact callback allowlists, explicit CSRF-protected consent, and tokens bound to the
+canonical `/mcp` resource.
 `tripplanner.read` permits reads; `tripplanner.write` permits reads and writes that
 the connected user is authorized to perform. Request `offline_access` for refresh
 tokens. Access tokens last 15 minutes; refresh tokens last 30 days. Reference access
 tokens and OAuth protocol state persist in PostgreSQL. Token revocation is checked
-on each MCP request. Profile → **Connected agents** can revoke all ChatGPT tokens
+on each MCP request. Profile → **Connected agents** can revoke all MCP agent tokens
 for the current user without removing their Activity Log.
 
 Profile → **Activity Log** shows compact rows, loads five changes at a time, and
@@ -718,8 +719,20 @@ distribution is a separate workflow. See
 [OpenAI's connection guide](https://developers.openai.com/api/docs/guides/custom-mcp-server)
 and [OAuth requirements](https://developers.openai.com/plugins/build/auth).
 
+For Muse, use the same MCP server URL and OAuth discovery URLs, client ID `muse`,
+and no client secret (token endpoint authentication method `none`). Its exact
+registered callback is `https://agent.meta.ai/api/hatch/oauth/callback`. Request
+`openid offline_access tripplanner.read tripplanner.write` using response type
+`code`, authorization-code flow with S256 PKCE, and the canonical `/mcp` resource.
+Refresh tokens use the `refresh_token` grant. Muse returns directly to its callback
+after consent. Both clients are registered or updated at API startup, including
+after a release; adding Muse does not change ChatGPT's registration.
+
 Configuration binds to `McpOptions`: `Mcp:Enabled`, `Mcp:Issuer`, `Mcp:Certificate`
-(base64 PFX), and `Mcp:RedirectUris`. Development Compose enables MCP through Vite
+(base64 PFX), `Mcp:RedirectUris` (ChatGPT callbacks), and `Mcp:AgentClients`
+(additional public MCP clients, defaulting to Muse with the callback above).
+Agent client IDs must be unique across MCP and native clients, and MCP callbacks
+must be exact HTTPS URLs. Development Compose enables MCP through Vite
 at `http://localhost:5173/mcp` with ephemeral OAuth keys, so restarting invalidates
 development tokens. `LOCAL_MCP_ISSUER` can override the development issuer. For
 ChatGPT testing, use a publicly reachable HTTPS host/tunnel and register its login
@@ -760,9 +773,9 @@ refresh protocol as the web app. Offline writes are not queued.
 
 **Profile → Activity Log** shows new successful trip mutations, newest first, with
 the authorizing user, client/source, trip name, resource, action, and timestamp.
-Website changes, ChatGPT changes, and activities saved by the background assistant
-are attributed separately. The `ChatGPT` label identifies the registered OAuth
-client; it is not derived from a caller-supplied header. Logs are visible to the
+Website changes, agent changes, and activities saved by the background assistant
+are attributed separately. The `ChatGPT` and `Muse` labels identify the registered
+OAuth client; they are not derived from a caller-supplied header. Logs are visible to the
 actor, trip owner, and current trip members. Former members lose visibility into
 other people's actions; actors retain their own history. Historical names and
 actors survive trip deletion. Existing history is not backfilled.

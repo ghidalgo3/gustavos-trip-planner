@@ -61,7 +61,7 @@ export async function revokeMcpAccess(): Promise<void> {
     method: "DELETE",
     credentials: "include",
   });
-  if (!response.ok) throw new Error("Unable to disconnect ChatGPT. Try again.");
+  if (!response.ok) throw new Error("Unable to disconnect agents. Try again.");
 }
 
 export type ActivityLogSource = "API" | "MCP";

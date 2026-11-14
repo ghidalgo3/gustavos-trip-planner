@@ -218,6 +218,157 @@ public class McpEndpointTests
         "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-._~";
 
     [TestMethod]
+    public async Task Muse_CanWriteAlongsideChatGpt_AndDisconnectRevokesBothClients()
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = CreateClient(factory);
+        var user = await SeedAndSetCookie(factory, browser);
+        SetTestPrincipal(browser, user.Email);
+        var muse = await Tokens(
+            browser,
+            "openid offline_access tripplanner.read tripplanner.write",
+            "muse"
+        );
+        using var agent = CreateClient(factory);
+        agent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            muse.GetProperty("access_token").GetString()
+        );
+        var created = await Result(
+            await Rpc(
+                agent,
+                "tools/call",
+                new
+                {
+                    name = "create_trip",
+                    arguments = new { request = new { name = "Muse trip", description = "" } },
+                }
+            )
+        );
+        Assert.IsFalse(created.GetProperty("isError").GetBoolean(), created.ToString());
+        var log = await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log?source=MCP");
+        Assert.AreEqual("Muse", log!.Entries.Single().Source);
+        Assert.AreEqual(user.Id, log.Entries.Single().ActorUserId);
+        Assert.IsTrue(
+            (await browser.GetFromJsonAsync<JsonElement>("/user/mcp-access"))
+                .GetProperty("connected")
+                .GetBoolean()
+        );
+
+        var chatgpt = await Tokens(browser, "tripplanner.read offline_access");
+        using var otherAgent = CreateClient(factory);
+        otherAgent.DefaultRequestHeaders.Authorization = new(
+            "Bearer",
+            chatgpt.GetProperty("access_token").GetString()
+        );
+        Assert.AreEqual(HttpStatusCode.OK, (await Rpc(otherAgent, "tools/list")).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.NoContent,
+            (await browser.DeleteAsync("/user/mcp-access")).StatusCode
+        );
+        Assert.AreEqual(HttpStatusCode.Unauthorized, (await Rpc(agent, "tools/list")).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.Unauthorized,
+            (await Rpc(otherAgent, "tools/list")).StatusCode
+        );
+        using var tokenClient = CreateClient(factory);
+        foreach (var (clientId, token) in new[] { ("muse", muse), ("chatgpt", chatgpt) })
+        {
+            using var refresh = await tokenClient.PostAsync(
+                "/oauth/token",
+                new FormUrlEncodedContent(
+                    new Dictionary<string, string>
+                    {
+                        ["grant_type"] = "refresh_token",
+                        ["client_id"] = clientId,
+                        ["resource"] = Resource,
+                        ["refresh_token"] = token.GetProperty("refresh_token").GetString()!,
+                    }
+                )
+            );
+            Assert.AreEqual(HttpStatusCode.BadRequest, refresh.StatusCode);
+            Assert.AreEqual(
+                "invalid_grant",
+                (await refresh.Content.ReadFromJsonAsync<JsonElement>())
+                    .GetProperty("error")
+                    .GetString()
+            );
+        }
+        Assert.IsFalse(
+            (await browser.GetFromJsonAsync<JsonElement>("/user/mcp-access"))
+                .GetProperty("connected")
+                .GetBoolean()
+        );
+        Assert.HasCount(
+            1,
+            (
+                await browser.GetFromJsonAsync<ActivityLogPage>("/user/activity-log?source=MCP")
+            )!.Entries
+        );
+    }
+
+    [TestMethod]
+    public async Task MuseConsent_CancelReturnsDenialWithoutIssuingTokens()
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = CreateClient(factory);
+        await SeedAndSetCookie(factory, browser);
+        var query = AuthorizationParameters(
+            "openid offline_access tripplanner.read tripplanner.write",
+            "muse"
+        );
+        using var response = await SubmitConsent(browser, query, "deny");
+        Assert.AreEqual(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.AreEqual(
+            ClientRedirect("muse"),
+            response.Headers.Location!.GetLeftPart(UriPartial.Path)
+        );
+        var returned = QueryHelpers.ParseQuery(response.Headers.Location.Query);
+        Assert.AreEqual("access_denied", returned["error"].ToString());
+        Assert.AreEqual(query["state"], returned["state"].ToString());
+        Assert.IsFalse(returned.ContainsKey("code"));
+        using var scope = factory.Services.CreateScope();
+        Assert.AreEqual(
+            0L,
+            await scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>().CountAsync()
+        );
+    }
+
+    [TestMethod]
+    [DataRow("chatgpt", "muse")]
+    [DataRow("muse", "chatgpt")]
+    public async Task OAuthClients_RejectEachOthersCallbacksAndAuthorizationCodes(
+        string clientId,
+        string otherClientId
+    )
+    {
+        await using var factory = new TestApplicationFactory { McpEnabled = true };
+        using var browser = CreateClient(factory);
+        await SeedAndSetCookie(factory, browser);
+        var query = AuthorizationParameters("tripplanner.read", clientId);
+        query["redirect_uri"] = ClientRedirect(otherClientId);
+        using var invalidCallback = await browser.GetAsync(
+            QueryHelpers.AddQueryString("/oauth/authorize", query!)
+        );
+        Assert.AreEqual(HttpStatusCode.BadRequest, invalidCallback.StatusCode);
+        Assert.IsNull(invalidCallback.Headers.Location);
+        string code = await Authorize(browser, "tripplanner.read", clientId);
+        using var wrongClient = await Exchange(browser, code, clientId: otherClientId);
+        Assert.AreEqual(HttpStatusCode.BadRequest, wrongClient.StatusCode);
+
+        query = AuthorizationParameters("tripplanner.read", clientId);
+        query["code_challenge_method"] = "plain";
+        query["code_challenge"] = Verifier;
+        using var plainPkce = await browser.GetAsync(
+            QueryHelpers.AddQueryString("/oauth/authorize", query!)
+        );
+        StringAssert.Contains(
+            plainPkce.Headers.Location?.ToString() ?? await plainPkce.Content.ReadAsStringAsync(),
+            "invalid_request"
+        );
+    }
+
+    [TestMethod]
     public async Task Discovery_AdvertisesPkceResourceAndScopes_AndMcpRequiresBearer()
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
@@ -251,12 +402,16 @@ public class McpEndpointTests
     }
 
     [TestMethod]
-    public async Task OAuthConsent_RequiresCsrfAndPkce_AndRejectsUnregisteredRedirectsAndResources()
+    [DataRow("chatgpt")]
+    [DataRow("muse")]
+    public async Task OAuthConsent_RequiresCsrfAndPkce_AndRejectsUnregisteredRedirectsAndResources(
+        string clientId
+    )
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
         using var client = CreateClient(factory);
         await SeedAndSetCookie(factory, client);
-        var query = AuthorizationParameters("tripplanner.read");
+        var query = AuthorizationParameters("tripplanner.read", clientId);
         var missingCsrf = await client.PostAsync(
             "/oauth/authorize",
             new FormUrlEncodedContent(query.Append(new("decision", "allow")))
@@ -273,7 +428,7 @@ public class McpEndpointTests
         );
         Assert.AreEqual(HttpStatusCode.BadRequest, invalidRedirect.StatusCode);
         Assert.IsNull(invalidRedirect.Headers.Location);
-        query = AuthorizationParameters("tripplanner.read");
+        query = AuthorizationParameters("tripplanner.read", clientId);
         query.Remove("code_challenge");
         Assert.IsTrue(
             (
@@ -282,7 +437,7 @@ public class McpEndpointTests
                 is HttpStatusCode.Redirect
                     or HttpStatusCode.BadRequest
         );
-        query = AuthorizationParameters("tripplanner.read");
+        query = AuthorizationParameters("tripplanner.read", clientId);
         query["resource"] = "https://another-service.example/mcp";
         var invalidResource = await client.GetAsync(
             QueryHelpers.AddQueryString("/oauth/authorize", query!)
@@ -373,26 +528,43 @@ public class McpEndpointTests
     }
 
     [TestMethod]
-    public async Task AuthorizationCode_IsBoundToPkceClientAndResource_AndCannotBeReplayed()
+    [DataRow("chatgpt")]
+    [DataRow("muse")]
+    public async Task AuthorizationCode_IsBoundToPkceClientAndResource_AndCannotBeReplayed(
+        string clientId
+    )
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
         using var browser = CreateClient(factory);
         await SeedAndSetCookie(factory, browser);
-        string code = await Authorize(browser, "tripplanner.read offline_access");
+        string code = await Authorize(browser, "tripplanner.read offline_access", clientId);
         using var client = CreateClient(factory);
-        var wrongVerifier = await Exchange(client, code, verifier: new string('z', 43));
+        var wrongVerifier = await Exchange(
+            client,
+            code,
+            clientId: clientId,
+            verifier: new string('z', 43)
+        );
         Assert.AreEqual(HttpStatusCode.BadRequest, wrongVerifier.StatusCode);
-        code = await Authorize(browser, "tripplanner.read offline_access");
-        var wrongResource = await Exchange(client, code, resource: "https://wrong.example/mcp");
+        code = await Authorize(browser, "tripplanner.read offline_access", clientId);
+        var wrongResource = await Exchange(
+            client,
+            code,
+            clientId: clientId,
+            resource: "https://wrong.example/mcp"
+        );
         Assert.AreEqual(HttpStatusCode.BadRequest, wrongResource.StatusCode);
-        code = await Authorize(browser, "tripplanner.read offline_access");
-        var token = await Exchange(client, code);
+        code = await Authorize(browser, "tripplanner.read offline_access", clientId);
+        var token = await Exchange(client, code, clientId: clientId);
         Assert.AreEqual(
             HttpStatusCode.OK,
             token.StatusCode,
             await token.Content.ReadAsStringAsync()
         );
-        Assert.AreEqual(HttpStatusCode.BadRequest, (await Exchange(client, code)).StatusCode);
+        Assert.AreEqual(
+            HttpStatusCode.BadRequest,
+            (await Exchange(client, code, clientId: clientId)).StatusCode
+        );
     }
 
     [TestMethod]
@@ -606,12 +778,16 @@ public class McpEndpointTests
     }
 
     [TestMethod]
-    public async Task ReadOnlyTokenCannotWrite_RefreshCannotEscalate_AndRevocationStopsAccess()
+    [DataRow("chatgpt")]
+    [DataRow("muse")]
+    public async Task ReadOnlyTokenCannotWrite_RefreshCannotEscalate_AndRevocationStopsAccess(
+        string clientId
+    )
     {
         await using var factory = new TestApplicationFactory { McpEnabled = true };
         using var browser = CreateClient(factory);
         await SeedAndSetCookie(factory, browser);
-        var token = await Tokens(browser, "tripplanner.read offline_access");
+        var token = await Tokens(browser, "tripplanner.read offline_access", clientId);
         using var agent = CreateClient(factory);
         string access = token.GetProperty("access_token").GetString()!;
         agent.DefaultRequestHeaders.Authorization = new("Bearer", access);
@@ -648,7 +824,7 @@ public class McpEndpointTests
                 new Dictionary<string, string>
                 {
                     ["grant_type"] = "refresh_token",
-                    ["client_id"] = "chatgpt",
+                    ["client_id"] = clientId,
                     ["resource"] = Resource,
                     ["refresh_token"] = token.GetProperty("refresh_token").GetString()!,
                     ["scope"] = "tripplanner.write",
@@ -662,7 +838,7 @@ public class McpEndpointTests
                 new Dictionary<string, string>
                 {
                     ["grant_type"] = "refresh_token",
-                    ["client_id"] = "chatgpt",
+                    ["client_id"] = clientId,
                     ["resource"] = Resource,
                     ["refresh_token"] = token.GetProperty("refresh_token").GetString()!,
                 }
@@ -680,7 +856,7 @@ public class McpEndpointTests
             new FormUrlEncodedContent(
                 new Dictionary<string, string>
                 {
-                    ["client_id"] = "chatgpt",
+                    ["client_id"] = clientId,
                     ["token"] = access,
                     ["token_type_hint"] = "access_token",
                 }
@@ -749,11 +925,17 @@ public class McpEndpointTests
         client.DefaultRequestHeaders.Add("X-Test-Name", "Ada Traveler");
     }
 
-    private static Dictionary<string, string> AuthorizationParameters(string scopes) =>
+    private static string ClientRedirect(string clientId) =>
+        clientId == "muse" ? "https://agent.meta.ai/api/hatch/oauth/callback" : Redirect;
+
+    private static Dictionary<string, string> AuthorizationParameters(
+        string scopes,
+        string clientId = "chatgpt"
+    ) =>
         new()
         {
-            ["client_id"] = "chatgpt",
-            ["redirect_uri"] = Redirect,
+            ["client_id"] = clientId,
+            ["redirect_uri"] = ClientRedirect(clientId),
             ["response_type"] = "code",
             ["scope"] = scopes,
             ["state"] = "unpredictable-test-state",
@@ -764,14 +946,28 @@ public class McpEndpointTests
             ),
         };
 
-    private static async Task<string> Authorize(HttpClient browser, string scopes)
+    private static async Task<string> Authorize(
+        HttpClient browser,
+        string scopes,
+        string clientId = "chatgpt"
+    )
     {
-        var query = AuthorizationParameters(scopes);
+        var query = AuthorizationParameters(scopes, clientId);
         using var post = await SubmitConsent(browser, query, "allow");
         string html = await post.Content.ReadAsStringAsync();
-        Assert.AreEqual(HttpStatusCode.OK, post.StatusCode, html);
-        StringAssert.Contains(html, "Access approved");
-        var callback = ConsentCallback(html, "query");
+        Uri callback;
+        if (clientId == "chatgpt")
+        {
+            Assert.AreEqual(HttpStatusCode.OK, post.StatusCode, html);
+            StringAssert.Contains(html, "Access approved");
+            callback = ConsentCallback(html, "query");
+        }
+        else
+        {
+            Assert.AreEqual(HttpStatusCode.Redirect, post.StatusCode, html);
+            callback = post.Headers.Location!;
+        }
+        Assert.AreEqual(ClientRedirect(clientId), callback.GetLeftPart(UriPartial.Path));
         var returned = QueryHelpers.ParseQuery(callback.Query);
         Assert.AreEqual(query["state"], returned["state"].ToString());
         Assert.IsTrue(returned.ContainsKey("code"), callback.ToString());
@@ -787,7 +983,7 @@ public class McpEndpointTests
         var get = await browser.GetAsync(QueryHelpers.AddQueryString("/oauth/authorize", query!));
         string html = await get.Content.ReadAsStringAsync();
         Assert.AreEqual(HttpStatusCode.OK, get.StatusCode, html);
-        StringAssert.Contains(html, "Allow ChatGPT");
+        StringAssert.Contains(html, query["client_id"] == "muse" ? "Allow Muse" : "Allow ChatGPT");
         var fields = ConsentFields(html);
         fields["decision"] = decision;
         return await browser.PostAsync("/oauth/authorize", new FormUrlEncodedContent(fields));
@@ -823,7 +1019,8 @@ public class McpEndpointTests
         HttpClient client,
         string code,
         string verifier = Verifier,
-        string resource = Resource
+        string resource = Resource,
+        string clientId = "chatgpt"
     ) =>
         client.PostAsync(
             "/oauth/token",
@@ -831,19 +1028,23 @@ public class McpEndpointTests
                 new Dictionary<string, string>
                 {
                     ["grant_type"] = "authorization_code",
-                    ["client_id"] = "chatgpt",
+                    ["client_id"] = clientId,
                     ["code"] = code,
-                    ["redirect_uri"] = Redirect,
+                    ["redirect_uri"] = ClientRedirect(clientId),
                     ["resource"] = resource,
                     ["code_verifier"] = verifier,
                 }
             )
         );
 
-    internal static async Task<JsonElement> Tokens(HttpClient browser, string scopes)
+    internal static async Task<JsonElement> Tokens(
+        HttpClient browser,
+        string scopes,
+        string clientId = "chatgpt"
+    )
     {
-        string code = await Authorize(browser, scopes);
-        var response = await Exchange(browser, code);
+        string code = await Authorize(browser, scopes, clientId);
+        var response = await Exchange(browser, code, clientId: clientId);
         Assert.AreEqual(
             HttpStatusCode.OK,
             response.StatusCode,

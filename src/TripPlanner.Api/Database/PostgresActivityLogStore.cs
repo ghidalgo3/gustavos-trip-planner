@@ -56,7 +56,7 @@ public sealed class PostgresActivityLogStore(NpgsqlDataSource dataSource) : IAct
             WHERE (actor_user_id = $1 OR owner_user_id = $1 OR EXISTS (
                 SELECT 1 FROM parties p WHERE p.trip_id = l.trip_id AND $1 = ANY(p.user_ids)))
                 AND ($4::text IS NULL
-                    OR ($4 = 'MCP' AND source IN ('ChatGPT', 'MCP'))
+                    OR ($4 = 'MCP' AND source IN ('ChatGPT', 'Muse', 'MCP'))
                     OR ($4 = 'API' AND source IN ('Website', 'API client')))
             ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3;
             """

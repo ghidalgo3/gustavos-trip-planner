@@ -10,64 +10,67 @@ function show(component: React.ReactNode) {
   );
 }
 
-test("shows agent actions with the person, trip and timestamp, then loads older changes", async () => {
-  const entry = {
-    id: "entry-1",
-    occurredAt: "2026-10-16T12:30:00Z",
-    actorUserId: "ada",
-    actorName: "Ada Traveler",
-    source: "ChatGPT",
-    action: "Saved activity",
-    tripId: "trip-1",
-    tripName: "Autumn in Paris",
-    resourceId: "activity-1",
-    description: "Visit the Louvre",
-  };
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json({ entries: [entry], hasMore: true }))
-    .mockResolvedValueOnce(
-      Response.json({
-        entries: [
-          {
-            ...entry,
-            id: "entry-2",
-            action: "Created trip",
-            source: "Website",
-            description: "Created trip",
-          },
-        ],
-        hasMore: false,
-      }),
+test.each(["ChatGPT", "Muse"])(
+  "shows %s actions with the person, trip and timestamp, then loads older changes",
+  async (agent) => {
+    const entry = {
+      id: "entry-1",
+      occurredAt: "2026-10-16T12:30:00Z",
+      actorUserId: "ada",
+      actorName: "Ada Traveler",
+      source: agent,
+      action: "Saved activity",
+      tripId: "trip-1",
+      tripName: "Autumn in Paris",
+      resourceId: "activity-1",
+      description: "Visit the Louvre",
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ entries: [entry], hasMore: true }))
+      .mockResolvedValueOnce(
+        Response.json({
+          entries: [
+            {
+              ...entry,
+              id: "entry-2",
+              action: "Created trip",
+              source: "Website",
+              description: "Created trip",
+            },
+          ],
+          hasMore: false,
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    show(<ActivityLog />);
+    expect(
+      screen.getByRole("status", { name: "Loading activity" }),
+    ).toHaveClass("fui-Skeleton");
+    expect(document.querySelector(".fui-Spinner")).toBeNull();
+    expect(await screen.findByText("Visit the Louvre")).toBeVisible();
+    expect(screen.getByText("MCP", { selector: ".fui-Badge" })).toBeVisible();
+    expect(screen.getByText(`By Ada Traveler · ${agent}`)).toBeVisible();
+    expect(screen.getByText(/Autumn in Paris/)).toBeVisible();
+    expect(document.querySelector("time")).toHaveAttribute(
+      "dateTime",
+      entry.occurredAt,
     );
-  vi.stubGlobal("fetch", fetch);
-  show(<ActivityLog />);
-  expect(screen.getByRole("status", { name: "Loading activity" })).toHaveClass(
-    "fui-Skeleton",
-  );
-  expect(document.querySelector(".fui-Spinner")).toBeNull();
-  expect(await screen.findByText("Visit the Louvre")).toBeVisible();
-  expect(screen.getByText("MCP", { selector: ".fui-Badge" })).toBeVisible();
-  expect(screen.getByText("By Ada Traveler · ChatGPT")).toBeVisible();
-  expect(screen.getByText(/Autumn in Paris/)).toBeVisible();
-  expect(document.querySelector("time")).toHaveAttribute(
-    "dateTime",
-    entry.occurredAt,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Load more activity" }));
-  expect(screen.getByText("Visit the Louvre")).toBeVisible();
-  expect(screen.getByRole("status", { name: "Loading activity" })).toHaveClass(
-    "fui-Skeleton",
-  );
-  expect(await screen.findByText("Created trip")).toBeVisible();
-  expect(fetch).toHaveBeenLastCalledWith(
-    expect.stringContaining("skip=1"),
-    expect.objectContaining({ credentials: "include" }),
-  );
-  expect(
-    screen.queryByRole("button", { name: "Load more activity" }),
-  ).toBeNull();
-});
+    fireEvent.click(screen.getByRole("button", { name: "Load more activity" }));
+    expect(screen.getByText("Visit the Louvre")).toBeVisible();
+    expect(
+      screen.getByRole("status", { name: "Loading activity" }),
+    ).toHaveClass("fui-Skeleton");
+    expect(await screen.findByText("Created trip")).toBeVisible();
+    expect(fetch).toHaveBeenLastCalledWith(
+      expect.stringContaining("skip=1"),
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Load more activity" }),
+    ).toBeNull();
+  },
+);
 
 test.each([false, true])(
   "shows an empty log and recovers from a load error: %s",
@@ -91,7 +94,7 @@ test.each([false, true])(
   },
 );
 
-test("disconnects ChatGPT without removing historical activity", async () => {
+test("disconnects all agents without removing historical activity", async () => {
   const fetch = vi
     .fn()
     .mockResolvedValueOnce(Response.json({ enabled: true, connected: true }))
@@ -99,7 +102,7 @@ test("disconnects ChatGPT without removing historical activity", async () => {
   vi.stubGlobal("fetch", fetch);
   show(<ConnectedAgents />);
   fireEvent.click(
-    await screen.findByRole("button", { name: "Disconnect ChatGPT" }),
+    await screen.findByRole("button", { name: "Disconnect all agents" }),
   );
   expect(
     (
@@ -111,7 +114,7 @@ test("disconnects ChatGPT without removing historical activity", async () => {
     expect.objectContaining({ method: "DELETE", credentials: "include" }),
   );
   expect(
-    screen.queryByRole("button", { name: "Disconnect ChatGPT" }),
+    screen.queryByRole("button", { name: "Disconnect all agents" }),
   ).toBeNull();
 });
 

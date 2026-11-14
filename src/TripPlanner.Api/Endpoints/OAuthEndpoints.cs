@@ -86,7 +86,10 @@ public static class OAuthEndpoints
 
         string clientName = native
             ? options.Value.NativeClients.Single(c => c.ClientId == request.ClientId).DisplayName
-            : "ChatGPT";
+            : McpServiceExtensions
+                .GetMcpClients(options.Value)
+                .Single(c => c.ClientId == request.ClientId)
+                .DisplayName;
         if (request.GetPromptValues().Contains(PromptValues.None))
         {
             return Deny(

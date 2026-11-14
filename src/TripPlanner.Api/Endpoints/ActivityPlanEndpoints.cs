@@ -769,7 +769,9 @@ public static class ActivityPlanEndpoints
             || c.User.HasScope(McpServiceExtensions.WriteScope)
                 ? c.User.GetPresenters().Contains(McpServiceExtensions.ClientId)
                     ? "ChatGPT"
-                    : "MCP"
+                    : c.User.GetPresenters().Contains("muse")
+                        ? "Muse"
+                        : "MCP"
                 : "Website";
         var job = new ActivityPlanningJob(
             id,

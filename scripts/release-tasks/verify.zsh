@@ -42,4 +42,4 @@ mcp_status="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
 printf '\nRelease complete.\n'
 printf '  API image:  %s\n' "$IMAGE_REF"
 printf '  Application: %s\n' "$WEB_APP_URL"
-printf '  MCP server:  %s/mcp (OAuth client ID: chatgpt; no client secret)\n' "$WEB_APP_URL"
+printf '  MCP server:  %s/mcp (OAuth client IDs: chatgpt, muse; no client secret)\n' "$WEB_APP_URL"
