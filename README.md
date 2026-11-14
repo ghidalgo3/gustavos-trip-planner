@@ -672,6 +672,12 @@ tokens and OAuth protocol state persist in PostgreSQL. Token revocation is check
 on each MCP request. Profile → **Connected agents** can revoke all ChatGPT tokens
 for the current user without removing their Activity Log.
 
+Profile → **Activity Log** shows compact rows, loads five changes at a time, and
+offers **Load more activity** for older entries. The **Activity source** filter
+selects all changes, API (website and API-client changes), or MCP (ChatGPT and other
+MCP agents). `GET /user/activity-log?skip=0&source=MCP` returns `{ entries, hasMore }`;
+`source` is optional (`API` or `MCP`), and filtering happens before pagination.
+
 One-time production setup:
 
 ```zsh

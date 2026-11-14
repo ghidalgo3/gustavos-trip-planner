@@ -49,12 +49,12 @@ public sealed class AuditedPlannerDbTests
                 new("google", "owner@example.com", "Owner")
             );
             var trip = await audited.CreateTripAsync(user.Id, "Audited trip", "");
-            Assert.HasCount(1, await store.ListAsync(user.Id, 100, 0, default));
+            Assert.HasCount(1, await store.ListAsync(user.Id, 100, 0, null, default));
             Assert.HasCount(1, await database.GetTripsAsync(user.Id));
             Assert.IsNull(
                 await audited.UpdateTripAsync(Guid.NewGuid(), trip.Id, "Unauthorized", "")
             );
-            Assert.HasCount(1, await store.ListAsync(user.Id, 100, 0, default));
+            Assert.HasCount(1, await store.ListAsync(user.Id, 100, 0, null, default));
             var failing = AuditedPlannerDb.Create(
                 database,
                 new FailingLogStore(),
@@ -74,7 +74,7 @@ public sealed class AuditedPlannerDbTests
             );
             Assert.AreEqual("Audited trip", (await database.GetTripAsync(user.Id, trip.Id))!.Name);
             Assert.IsTrue(await audited.DeleteTripAsync(user.Id, trip.Id));
-            Assert.HasCount(2, await store.ListAsync(user.Id, 100, 0, default));
+            Assert.HasCount(2, await store.ListAsync(user.Id, 100, 0, null, default));
             await using (var tamper = source.CreateCommand("DELETE FROM trip_activity_log"))
             {
                 await Assert.ThrowsAsync<PostgresException>(() => tamper.ExecuteNonQueryAsync());
@@ -108,6 +108,7 @@ public sealed class AuditedPlannerDbTests
             Guid userId,
             int take,
             int skip,
+            string? source,
             CancellationToken cancellationToken
         ) => throw new NotSupportedException();
     }

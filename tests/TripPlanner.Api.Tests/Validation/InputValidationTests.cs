@@ -592,6 +592,7 @@ public class InputValidationTests
     [DataRow("/operations?skip=-1")]
     [DataRow("/operations?type=invented")]
     [DataRow("/user/activity-log?skip=100001")]
+    [DataRow("/user/activity-log?source=invalid")]
     [DataRow("/airports?q=x")]
     [DataRow("/airports/home?city=Boston&longitude=181&latitude=0")]
     [DataRow("/airports/cities?codes=123")]

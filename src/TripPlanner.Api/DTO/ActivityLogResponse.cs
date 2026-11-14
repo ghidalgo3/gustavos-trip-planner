@@ -1,6 +1,15 @@
+using System.ComponentModel.DataAnnotations;
 using TripPlanner.Api.Models;
 
 namespace TripPlanner.Api.DTO;
+
+public sealed record ActivityLogQuery(
+    [property: Range(0, 100000)] int Skip = 0,
+    [property: AllowedValues(null, "API", "MCP")] string? Source = null
+)
+{
+    public const int PageSize = 5;
+}
 
 public sealed record ActivityLogEntry(
     Guid Id,

@@ -64,15 +64,21 @@ export async function revokeMcpAccess(): Promise<void> {
   if (!response.ok) throw new Error("Unable to disconnect ChatGPT. Try again.");
 }
 
+export type ActivityLogSource = "API" | "MCP";
+
 export async function getActivityLog(
   skip = 0,
   signal?: AbortSignal,
+  source?: ActivityLogSource,
 ): Promise<{
   entries: ActivityLogEntry[];
   hasMore: boolean;
 }> {
   const response = await tripFetch(
-    `${apiBaseUrl}/user/activity-log?skip=${skip}`,
+    `${apiBaseUrl}/user/activity-log?${new URLSearchParams({
+      skip: String(skip),
+      ...(source ? { source } : {}),
+    })}`,
     {
       credentials: "include",
       signal,

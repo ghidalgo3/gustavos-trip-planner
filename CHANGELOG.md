@@ -13,6 +13,7 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
+- The profile page lists MCP server and OAuth discovery URLs for connecting an agent.
 - A public Notices page linked from the footer shows required attributions and
   links to the retained third-party software license notices.
 - Trip headers show dates and unique, borderless country flags from Flagpack.
@@ -25,6 +26,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Changed
 
+- The profile Activity Log uses compact rows, loads five entries at a time, and
+  filters changes by API or MCP.
 - Offline notices appear only after 30 seconds and use one compact status line
   with a Retry button. Editing is disabled immediately when offline.
 - Replaced the web activity-plan accordion and planning forms with a day calendar.

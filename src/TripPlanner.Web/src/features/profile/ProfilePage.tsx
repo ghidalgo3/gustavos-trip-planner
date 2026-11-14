@@ -1,7 +1,14 @@
 import { mapsClient } from "../../maps/mapsClient";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { FormEvent, useRef, useState } from "react";
-import { Button, Card, Field, Text, Title1 } from "@fluentui/react-components";
+import {
+  Button,
+  Card,
+  Field,
+  Text,
+  Title1,
+  Title2,
+} from "@fluentui/react-components";
 import { useNavigate } from "react-router";
 import HomeAirportPicker from "./HomeAirportPicker";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
@@ -10,6 +17,7 @@ import ActivityLog from "../trips/ActivityLog";
 import ConnectedAgents from "./ConnectedAgents";
 import ActivityPreferencesEditor from "../activities/ActivityPreferencesEditor";
 import "../activities/activityPlan.css";
+import { apiBaseUrl } from "../../api/config";
 import {
   saveUserProfile,
   type CitySuggestion,
@@ -241,6 +249,28 @@ export default function ProfilePage({
         label="My activity interests (private)"
       />
       <ConnectedAgents />
+      <Card aria-label="Connect an agent">
+        <Title2 as="h2">Connect an agent</Title2>
+        <dl className="mcp-connection-urls">
+          {[
+            ["MCP server", "/mcp"],
+            ["Authorization discovery", "/.well-known/openid-configuration"],
+            [
+              "Protected-resource discovery",
+              "/.well-known/oauth-protected-resource/mcp",
+            ],
+          ].map(([label, path]) => (
+            <div key={path}>
+              <dt>{label}</dt>
+              <dd>
+                <code>
+                  {new URL(`${apiBaseUrl}${path}`, window.location.origin).href}
+                </code>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Card>
     </section>
   );
 }

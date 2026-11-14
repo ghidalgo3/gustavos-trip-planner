@@ -196,6 +196,19 @@ main {
   gap: 20px;
   padding: 12px;
 }
+.mcp-connection-urls {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mcp-connection-urls dt {
+  font-weight: 600;
+}
+.mcp-connection-urls dd {
+  margin: 4px 0 0;
+}
 .profile-form > button {
   justify-self: start;
 }
@@ -2469,9 +2482,14 @@ main:has(.trip-workspace-activities) > .topbar {
 .profile-activity-log {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  margin-top: 24px;
+}
+.activity-log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .activity-log-heading {
   display: flex;
@@ -2482,18 +2500,29 @@ main:has(.trip-workspace-activities) > .topbar {
 }
 .activity-log-entries {
   display: grid;
-  gap: 12px;
+  gap: 0;
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.activity-log-entries li {
+.activity-log-entry {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.activity-log-entries time {
+.activity-log-entry:last-child {
+  border-bottom: 0;
+}
+.activity-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
   color: var(--colorNeutralForeground2);
-  font-size: 13px;
+  font-size: 12px;
 }
 .activity-delete-button:hover:not(:disabled) {
   filter: brightness(0.9);

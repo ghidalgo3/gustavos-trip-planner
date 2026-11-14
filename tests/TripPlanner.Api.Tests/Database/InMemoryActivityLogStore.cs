@@ -19,6 +19,7 @@ public sealed class InMemoryActivityLogStore(IPlannerDb database) : IActivityLog
         Guid userId,
         int take,
         int skip,
+        string? source,
         CancellationToken cancellationToken
     )
     {
@@ -30,6 +31,14 @@ public sealed class InMemoryActivityLogStore(IPlannerDb database) : IActivityLog
                 entry.ActorUserId == userId
                 || entry.OwnerUserId == userId
                 || visible.Contains(entry.TripId)
+            )
+            .Where(entry =>
+                source switch
+                {
+                    "MCP" => entry.Source is "ChatGPT" or "MCP",
+                    "API" => entry.Source is "Website" or "API client",
+                    _ => true,
+                }
             )
             .OrderByDescending(entry => entry.OccurredAt)
             .ThenByDescending(entry => entry.Id)

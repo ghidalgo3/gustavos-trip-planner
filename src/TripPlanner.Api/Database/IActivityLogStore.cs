@@ -9,6 +9,7 @@ public interface IActivityLogStore
         Guid userId,
         int take,
         int skip,
+        string? source,
         CancellationToken cancellationToken
     );
 }

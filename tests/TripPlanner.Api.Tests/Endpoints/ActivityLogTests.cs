@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
+using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
 using TripPlanner.Api.Tests.Mcp;
@@ -137,26 +139,110 @@ public sealed class ActivityLogTests
             (await client.GetAsync("/user/activity-log")).StatusCode
         );
         await Seed(factory, client, "owner@example.com");
-        for (int index = 0; index < 52; index++)
+        for (int index = 0; index < 12; index++)
         {
             await Create(client, $"Trip {index}");
         }
 
         var first = (await client.GetFromJsonAsync<ActivityLogPage>("/user/activity-log"))!;
-        var second = (
-            await client.GetFromJsonAsync<ActivityLogPage>("/user/activity-log?skip=50")
-        )!;
-        Assert.HasCount(50, first.Entries);
+        var second = (await client.GetFromJsonAsync<ActivityLogPage>("/user/activity-log?skip=5"))!;
+        var third = (await client.GetFromJsonAsync<ActivityLogPage>("/user/activity-log?skip=10"))!;
+        Assert.HasCount(5, first.Entries);
         Assert.IsTrue(first.HasMore);
-        Assert.HasCount(2, second.Entries);
-        Assert.IsFalse(second.HasMore);
+        Assert.HasCount(5, second.Entries);
+        Assert.IsTrue(second.HasMore);
+        Assert.HasCount(2, third.Entries);
+        Assert.IsFalse(third.HasMore);
         Assert.AreEqual(
-            52,
-            first.Entries.Concat(second.Entries).Select(entry => entry.Id).Distinct().Count()
+            12,
+            first
+                .Entries.Concat(second.Entries)
+                .Concat(third.Entries)
+                .Select(entry => entry.Id)
+                .Distinct()
+                .Count()
         );
         Assert.AreEqual(
             HttpStatusCode.BadRequest,
             (await client.GetAsync("/user/activity-log?skip=-1")).StatusCode
+        );
+    }
+
+    [TestMethod]
+    [DataRow("API", "Website", "API client")]
+    [DataRow("MCP", "ChatGPT", "MCP")]
+    public async Task Log_FiltersBeforePaging_WithoutExposingOtherUsers(
+        string source,
+        string firstSource,
+        string secondSource
+    )
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var user = await Seed(factory, client, "owner@example.com");
+        var store = factory.Services.GetRequiredService<IActivityLogStore>();
+        string[] sources = ["Website", "ChatGPT", "API client", "MCP"];
+        var now = DateTimeOffset.UtcNow;
+        for (int index = 0; index < 12; index++)
+        {
+            await store.AppendAsync(
+                new(
+                    Guid.NewGuid(),
+                    now.AddSeconds(index),
+                    user.Id,
+                    "Owner",
+                    sources[index % 4],
+                    "Updated trip",
+                    Guid.NewGuid(),
+                    user.Id,
+                    $"Trip {index}",
+                    null,
+                    "Updated trip"
+                ),
+                default
+            );
+        }
+        var stranger = Guid.NewGuid();
+        await store.AppendAsync(
+            new(
+                Guid.NewGuid(),
+                now.AddMinutes(1),
+                stranger,
+                "Stranger",
+                firstSource,
+                "Updated trip",
+                Guid.NewGuid(),
+                stranger,
+                "Private trip",
+                null,
+                "Updated trip"
+            ),
+            default
+        );
+
+        var first = (
+            await client.GetFromJsonAsync<ActivityLogPage>($"/user/activity-log?source={source}")
+        )!;
+        var second = (
+            await client.GetFromJsonAsync<ActivityLogPage>(
+                $"/user/activity-log?source={source}&skip=5"
+            )
+        )!;
+        Assert.HasCount(5, first.Entries);
+        Assert.IsTrue(first.HasMore);
+        Assert.HasCount(1, second.Entries);
+        Assert.IsFalse(second.HasMore);
+        var entries = first.Entries.Concat(second.Entries).ToArray();
+        Assert.AreEqual(6, entries.Select(entry => entry.Id).Distinct().Count());
+        Assert.IsTrue(
+            entries.All(entry =>
+                entry.ActorUserId == user.Id
+                && (entry.Source == firstSource || entry.Source == secondSource)
+            )
+        );
+        CollectionAssert.AreEqual(
+            entries.OrderByDescending(entry => entry.OccurredAt).ToArray(),
+            entries
         );
     }
 

@@ -44,6 +44,7 @@ public sealed class PostgresActivityLogStore(NpgsqlDataSource dataSource) : IAct
         Guid userId,
         int take,
         int skip,
+        string? source,
         CancellationToken cancellationToken
     )
     {
@@ -52,14 +53,21 @@ public sealed class PostgresActivityLogStore(NpgsqlDataSource dataSource) : IAct
             SELECT id, occurred_at, actor_user_id, actor_name, source, action, trip_id,
                 owner_user_id, trip_name, resource_id, description
             FROM trip_activity_log l
-            WHERE actor_user_id = $1 OR owner_user_id = $1 OR EXISTS (
-                SELECT 1 FROM parties p WHERE p.trip_id = l.trip_id AND $1 = ANY(p.user_ids))
+            WHERE (actor_user_id = $1 OR owner_user_id = $1 OR EXISTS (
+                SELECT 1 FROM parties p WHERE p.trip_id = l.trip_id AND $1 = ANY(p.user_ids)))
+                AND ($4::text IS NULL
+                    OR ($4 = 'MCP' AND source IN ('ChatGPT', 'MCP'))
+                    OR ($4 = 'API' AND source IN ('Website', 'API client')))
             ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3;
             """
         );
         command.Parameters.AddWithValue(userId);
         command.Parameters.AddWithValue(take);
         command.Parameters.AddWithValue(skip);
+        command.Parameters.AddWithValue(
+            NpgsqlTypes.NpgsqlDbType.Text,
+            (object?)source ?? DBNull.Value
+        );
         var entries = new List<TripMutation>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))

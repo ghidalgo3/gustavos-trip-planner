@@ -84,16 +84,17 @@ export function ActivityLogSkeleton() {
   return (
     <ContentSkeleton label="Loading activity">
       <div className="activity-log-entries">
-        {[0, 1, 2].map((index) => (
-          <div className="skeleton-panel" key={index}>
+        {[0, 1, 2, 3, 4].map((index) => (
+          <div className="activity-log-entry" key={index}>
             <div className="skeleton-row">
               <SkeletonItem size={16} style={{ width: "55%" }} />
-              <SkeletonItem size={20} style={{ width: 72 }} />
+              <SkeletonItem size={16} style={{ width: 32 }} />
             </div>
-            <SkeletonItem size={16} style={{ width: "40%" }} />
             <SkeletonItem size={12} style={{ width: "85%" }} />
-            <SkeletonItem size={12} style={{ width: "35%" }} />
-            <SkeletonItem size={12} style={{ width: "45%" }} />
+            <div className="skeleton-row">
+              <SkeletonItem size={12} style={{ width: "45%" }} />
+              <SkeletonItem size={12} style={{ width: "30%" }} />
+            </div>
           </div>
         ))}
       </div>
