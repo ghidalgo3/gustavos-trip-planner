@@ -11,6 +11,12 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Fixed
+
+- Muse consent now shows an approval or cancellation result with **Return to Muse**,
+  avoiding a blocked cross-site form redirect that could leave **Allow access**
+  appearing unresponsive.
+
 ### Added
 
 - Muse can connect to the MCP server as public OAuth client `muse` with S256 PKCE

@@ -189,14 +189,18 @@ public static class OAuthEndpoints
         OpenIddictServerEvents.ApplyAuthorizationResponseContext context
     )
     {
-        if (
-            context.Transaction.GetHttpRequest()?.HttpContext.GetOpenIddictServerRequest()?.ClientId
-            != McpServiceExtensions.ClientId
-        )
+        var http = context.Transaction.GetHttpRequest()?.HttpContext;
+        string? clientId = http?.GetOpenIddictServerRequest()?.ClientId;
+        var options = http?.RequestServices.GetRequiredService<IOptions<McpOptions>>().Value;
+        var client = options is null
+            ? null
+            : McpServiceExtensions
+                .GetMcpClients(options)
+                .SingleOrDefault(c => c.ClientId == clientId);
+        if (client is null)
         {
             return;
         }
-        var http = context.Transaction.GetHttpRequest()?.HttpContext;
         // Only acknowledge a CSRF-validated user decision, never a protocol validation failure.
         // OpenIddict has already validated the callback and generated the code/error and state.
         if (
@@ -213,6 +217,7 @@ public static class OAuthEndpoints
         }
 
         string Encode(string value) => HtmlEncoder.Default.Encode(value);
+        string displayClient = Encode(client.DisplayName);
         var parameters = context
             .Response.GetParameters()
             .SelectMany(parameter =>
@@ -230,7 +235,7 @@ public static class OAuthEndpoints
                 )
             );
             handoff =
-                $"<form method=\"post\" action=\"{Encode(context.RedirectUri)}\">{fields}<button type=\"submit\">Return to ChatGPT</button></form>";
+                $"<form method=\"post\" action=\"{Encode(context.RedirectUri)}\">{fields}<button type=\"submit\">Return to {displayClient}</button></form>";
             string origin = new Uri(context.RedirectUri).GetLeftPart(UriPartial.Authority);
             http.Response.Headers.ContentSecurityPolicy =
                 $"default-src 'none'; style-src 'unsafe-inline'; form-action {origin}; frame-ancestors 'none'; base-uri 'none'";
@@ -244,7 +249,7 @@ public static class OAuthEndpoints
                         + "#"
                         + QueryHelpers.AddQueryString("", parameters).TrimStart('?');
             handoff =
-                $"<a class=\"return-to-chatgpt\" href=\"{Encode(callback)}\">Return to ChatGPT</a>";
+                $"<a class=\"return-to-client\" href=\"{Encode(callback)}\">Return to {displayClient}</a>";
         }
         else
         {
@@ -253,8 +258,8 @@ public static class OAuthEndpoints
 
         http.Response.Headers["Referrer-Policy"] = "no-referrer";
         string outcome = allowed
-            ? "<h1>Access approved</h1><p>You approved ChatGPT’s access to TripPlanner. Return to ChatGPT to finish connecting.</p><p>You can review agent actions in your profile’s Activity Log and revoke access under Connected agents.</p>"
-            : "<h1>Access not granted</h1><p>You declined this request. No new access was granted to ChatGPT. Any previously connected access is unchanged.</p><p>Return to ChatGPT to finish canceling the connection.</p>";
+            ? $"<h1>Access approved</h1><p>You approved {displayClient}’s access to TripPlanner. Return to {displayClient} to finish connecting.</p><p>You can review agent actions in your profile’s Activity Log and revoke access under Connected agents.</p>"
+            : $"<h1>Access not granted</h1><p>You declined this request. No new access was granted to {displayClient}. Any previously connected access is unchanged.</p><p>Return to {displayClient} to finish canceling the connection.</p>";
         await Html($"<section role=\"status\">{outcome}</section>{handoff}").ExecuteAsync(http);
         context.HandleRequest();
     }
@@ -321,7 +326,7 @@ public static class OAuthEndpoints
 
     private static IResult Html(string body, int statusCode = StatusCodes.Status200OK) =>
         Results.Content(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Connect TripPlanner</title><style>body{font:17px system-ui;max-width:32rem;margin:3rem auto;padding:1rem}button,a{display:inline-block;border:1px solid #145da0;border-radius:6px;padding:12px;margin:8px 8px 8px 0;background:#eff6ff;color:#134b7f}button{font:inherit}button[value=allow],.return-to-chatgpt,button[type=submit]{background:#145da0;color:white}</style>"
+            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Connect TripPlanner</title><style>body{font:17px system-ui;max-width:32rem;margin:3rem auto;padding:1rem}button,a{display:inline-block;border:1px solid #145da0;border-radius:6px;padding:12px;margin:8px 8px 8px 0;background:#eff6ff;color:#134b7f}button{font:inherit}button[value=allow],.return-to-client,button[type=submit]{background:#145da0;color:white}</style>"
                 + body
                 + "</html>",
             "text/html",

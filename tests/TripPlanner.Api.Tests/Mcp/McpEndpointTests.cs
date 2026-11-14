@@ -308,33 +308,6 @@ public class McpEndpointTests
     }
 
     [TestMethod]
-    public async Task MuseConsent_CancelReturnsDenialWithoutIssuingTokens()
-    {
-        await using var factory = new TestApplicationFactory { McpEnabled = true };
-        using var browser = CreateClient(factory);
-        await SeedAndSetCookie(factory, browser);
-        var query = AuthorizationParameters(
-            "openid offline_access tripplanner.read tripplanner.write",
-            "muse"
-        );
-        using var response = await SubmitConsent(browser, query, "deny");
-        Assert.AreEqual(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.AreEqual(
-            ClientRedirect("muse"),
-            response.Headers.Location!.GetLeftPart(UriPartial.Path)
-        );
-        var returned = QueryHelpers.ParseQuery(response.Headers.Location.Query);
-        Assert.AreEqual("access_denied", returned["error"].ToString());
-        Assert.AreEqual(query["state"], returned["state"].ToString());
-        Assert.IsFalse(returned.ContainsKey("code"));
-        using var scope = factory.Services.CreateScope();
-        Assert.AreEqual(
-            0L,
-            await scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>().CountAsync()
-        );
-    }
-
-    [TestMethod]
     [DataRow("chatgpt", "muse")]
     [DataRow("muse", "chatgpt")]
     public async Task OAuthClients_RejectEachOthersCallbacksAndAuthorizationCodes(
@@ -450,15 +423,24 @@ public class McpEndpointTests
     }
 
     [TestMethod]
-    [DataRow("allow", "tripplanner.read", "query")]
-    [DataRow("allow", "tripplanner.read tripplanner.write", "query")]
-    [DataRow("deny", "tripplanner.read", "query")]
-    [DataRow("deny", "tripplanner.read tripplanner.write", "query")]
-    [DataRow("allow", "tripplanner.read", "form_post")]
-    [DataRow("deny", "tripplanner.read", "form_post")]
-    [DataRow("allow", "tripplanner.read", "fragment")]
-    [DataRow("deny", "tripplanner.read", "fragment")]
-    public async Task OAuthConsent_ShowsOutcomeBeforeReturningValidatedResponseToChatGpt(
+    [DataRow("chatgpt", "allow", "tripplanner.read", "query")]
+    [DataRow("chatgpt", "allow", "tripplanner.read tripplanner.write", "query")]
+    [DataRow("chatgpt", "deny", "tripplanner.read", "query")]
+    [DataRow("chatgpt", "deny", "tripplanner.read tripplanner.write", "query")]
+    [DataRow("chatgpt", "allow", "tripplanner.read", "form_post")]
+    [DataRow("chatgpt", "deny", "tripplanner.read", "form_post")]
+    [DataRow("chatgpt", "allow", "tripplanner.read", "fragment")]
+    [DataRow("chatgpt", "deny", "tripplanner.read", "fragment")]
+    [DataRow("muse", "allow", "tripplanner.read", "query")]
+    [DataRow("muse", "allow", "tripplanner.read tripplanner.write", "query")]
+    [DataRow("muse", "deny", "tripplanner.read", "query")]
+    [DataRow("muse", "deny", "tripplanner.read tripplanner.write", "query")]
+    [DataRow("muse", "allow", "tripplanner.read", "form_post")]
+    [DataRow("muse", "deny", "tripplanner.read", "form_post")]
+    [DataRow("muse", "allow", "tripplanner.read", "fragment")]
+    [DataRow("muse", "deny", "tripplanner.read", "fragment")]
+    public async Task OAuthConsent_ShowsOutcomeAndExplicitHandoffWithoutCrossOriginPostRedirect(
+        string clientId,
         string decision,
         string scopes,
         string responseMode
@@ -467,7 +449,7 @@ public class McpEndpointTests
         await using var factory = new TestApplicationFactory { McpEnabled = true };
         using var browser = CreateClient(factory);
         await SeedAndSetCookie(factory, browser);
-        var query = AuthorizationParameters(scopes);
+        var query = AuthorizationParameters(scopes, clientId);
         query["response_mode"] = responseMode;
         query["state"] = "state-with-<&\"-characters";
         using var response = await SubmitConsent(browser, query, decision);
@@ -483,11 +465,18 @@ public class McpEndpointTests
         Assert.AreEqual("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
         StringAssert.Contains(html, "role=\"status\"");
         StringAssert.Contains(html, decision == "allow" ? "Access approved" : "Access not granted");
-        StringAssert.Contains(html, "Return to ChatGPT");
+        string clientName = clientId == "muse" ? "Muse" : "ChatGPT";
+        StringAssert.Contains(html, $"Return to {clientName}");
+        StringAssert.Contains(
+            html,
+            decision == "allow"
+                ? $"{clientName}’s access"
+                : $"No new access was granted to {clientName}"
+        );
         Assert.DoesNotContain("<script", html);
 
         var callback = ConsentCallback(html, responseMode);
-        Assert.AreEqual(Redirect, callback.GetLeftPart(UriPartial.Path));
+        Assert.AreEqual(ClientRedirect(clientId), callback.GetLeftPart(UriPartial.Path));
         var returned = QueryHelpers.ParseQuery(
             responseMode == "fragment" ? callback.Fragment.TrimStart('#') : callback.Query
         );
@@ -498,7 +487,11 @@ public class McpEndpointTests
             StringAssert.Contains(html, "finish connecting");
             StringAssert.Contains(html, "Activity Log");
             Assert.IsFalse(returned.ContainsKey("error"));
-            using var exchange = await Exchange(browser, returned["code"].ToString());
+            using var exchange = await Exchange(
+                browser,
+                returned["code"].ToString(),
+                clientId: clientId
+            );
             Assert.AreEqual(
                 HttpStatusCode.OK,
                 exchange.StatusCode,
@@ -522,7 +515,7 @@ public class McpEndpointTests
         {
             StringAssert.Contains(
                 response.Headers.GetValues("Content-Security-Policy").Single(),
-                "form-action https://chatgpt.com;"
+                $"form-action {new Uri(ClientRedirect(clientId)).GetLeftPart(UriPartial.Authority)};"
             );
         }
     }
@@ -955,18 +948,9 @@ public class McpEndpointTests
         var query = AuthorizationParameters(scopes, clientId);
         using var post = await SubmitConsent(browser, query, "allow");
         string html = await post.Content.ReadAsStringAsync();
-        Uri callback;
-        if (clientId == "chatgpt")
-        {
-            Assert.AreEqual(HttpStatusCode.OK, post.StatusCode, html);
-            StringAssert.Contains(html, "Access approved");
-            callback = ConsentCallback(html, "query");
-        }
-        else
-        {
-            Assert.AreEqual(HttpStatusCode.Redirect, post.StatusCode, html);
-            callback = post.Headers.Location!;
-        }
+        Assert.AreEqual(HttpStatusCode.OK, post.StatusCode, html);
+        StringAssert.Contains(html, "Access approved");
+        var callback = ConsentCallback(html, "query");
         Assert.AreEqual(ClientRedirect(clientId), callback.GetLeftPart(UriPartial.Path));
         var returned = QueryHelpers.ParseQuery(callback.Query);
         Assert.AreEqual(query["state"], returned["state"].ToString());
@@ -1010,7 +994,7 @@ public class McpEndpointTests
                 )
             );
         }
-        var link = Regex.Match(html, "<a class=\"return-to-chatgpt\" href=\"([^\"]+)\"");
+        var link = Regex.Match(html, "<a class=\"return-to-client\" href=\"([^\"]+)\"");
         Assert.IsTrue(link.Success, html);
         return new Uri(WebUtility.HtmlDecode(link.Groups[1].Value));
     }

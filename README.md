@@ -724,8 +724,10 @@ and no client secret (token endpoint authentication method `none`). Its exact
 registered callback is `https://agent.meta.ai/api/hatch/oauth/callback`. Request
 `openid offline_access tripplanner.read tripplanner.write` using response type
 `code`, authorization-code flow with S256 PKCE, and the canonical `/mcp` resource.
-Refresh tokens use the `refresh_token` grant. Muse returns directly to its callback
-after consent. Both clients are registered or updated at API startup, including
+Refresh tokens use the `refresh_token` grant. After **Allow access** or **Cancel**,
+Muse shows **Access approved** or **Access not granted**, with **Return to Muse**
+to finish the OAuth handoff. This avoids browser restrictions on cross-site
+redirects after the consent form POST. Both clients are registered or updated at API startup, including
 after a release; adding Muse does not change ChatGPT's registration.
 
 Configuration binds to `McpOptions`: `Mcp:Enabled`, `Mcp:Issuer`, `Mcp:Certificate`
