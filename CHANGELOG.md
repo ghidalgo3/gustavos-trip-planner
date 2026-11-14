@@ -3,13 +3,18 @@
 Significant changes, new features, and bug fixes are recorded here, newest first.
 Add entries under **Unreleased**, grouped as **Added**, **Changed**, **Fixed**, or
 **Removed**. Describe the effect on users or development workflows; omit routine
-formatting and test-only changes. Move entries into a dated release section when
-a release is made, using the exact `YYYY.MM.DD.N` tag reported by
-`scripts/release`. Keep an empty **Unreleased** section above the released entries
-and commit the changelog rollover separately; the tag stays on the deployed
-source commit. Failed releases and `--check` runs leave entries unreleased.
+formatting and test-only changes. After a successful release, `scripts/release`
+automatically moves entries into a section named with its exact `YYYY.MM.DD.N`
+tag, keeps an empty **Unreleased** section above it, and commits the rollover
+separately. The tag stays on the deployed source commit. Failed releases and
+`--check` runs leave entries unreleased.
 
 ## Unreleased
+
+### Changed
+
+- Successful releases automatically version and commit the changelog rollover,
+  preserving the release tag on the deployed source commit.
 
 ### Fixed
 

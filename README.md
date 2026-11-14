@@ -1125,11 +1125,16 @@ the script does not push Git commits or tags. Failed pipelines do not create a
 release tag. If tagging itself fails after verification, the deployment has
 already completed; resolve the tagging failure before recording the release.
 
-After success, move the **Unreleased** changelog entries into a section named
-with the exact tag printed by the script, retain an empty **Unreleased** section
-above it, and commit that documentation update separately. The tag remains on
-the deployed source commit. See [AGENTS.md](AGENTS.md#release-and-changelog-instructions)
-for agent release instructions.
+After tagging, the script automatically moves the **Unreleased** changelog entries
+into a section named with that exact tag, retains an empty **Unreleased** section
+above it, and creates a separate commit containing only `CHANGELOG.md`. The tag
+remains on the deployed source commit; neither the tag nor the changelog commit
+is pushed. Empty **Unreleased** sections produce no release section or commit.
+The changelog structure is validated before deployment. If the rollover commit
+fails after tagging, the script reports the completed deployment and tag; resolve
+the Git error and commit the rollover separately without moving the tag or
+redeploying. See [AGENTS.md](AGENTS.md#release-and-changelog-instructions) for agent
+release instructions.
 
 `scripts/release` runs the dependency graph in `Taskfile.yml`, with zsh stages in `scripts/release-tasks`. Azure preflight checks, Bicep validation, C# formatting checks, and frontend dependency installation can overlap. Frontend lint, tests, and the production build share one frozen pnpm install and then run independently. The API test suite and Docker image build wait for the frontend tests to finish, so native solver threads and container compilation do not compete with timed UI interactions. The Docker image also waits for the frontend build because it packages `dist` into `wwwroot`, and for the release airport-catalog refresh. A failed catalog download or incomplete result stops release preparation. Publishing the stable image tag waits for every required check and the image build to succeed; deployment, restart, and readiness verification follow in order. A failed prerequisite cancels the remaining preparation work immediately. Infrastructure outputs are fetched once per release.
 

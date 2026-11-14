@@ -21,12 +21,13 @@ Run scripts/buildout before the first release and after infrastructure changes.
 All changes must be committed, including untracked files.
 Successful deployments create a local annotated YYYY.MM.DD.N tag (New York date,
 daily sequence starting at 1). Fetch shared tags before releasing; tags are not pushed.
+Unreleased changelog entries are rolled into that version and committed separately.
 
 Options:
   -g, --resource-group NAME   Resource group (default: rg-tripplanner-dev)
   -s, --subscription ID|NAME  Azure subscription
   -p, --name-prefix PREFIX    Resource name prefix (default: tripplanner)
-      --check                 Run checks/builds without publishing, deploying, or tagging
+      --check                 Run checks/builds without publishing, deploying, tagging, or rolling over the changelog
       --skip-tests            Skip formatting, API tests, and web lint/tests
   -h, --help                  Show this help
 
@@ -90,14 +91,21 @@ trap 'exit 143' TERM
 print -r -- "$$" > "$RELEASE_LOCK_DIR/pid"
 
 if [[ "$RELEASE_TARGET" == release:pipeline ]]; then
-  # Validate the tag identity before publishing anything.
+  # Validate tag and changelog-commit identities before publishing anything.
   git var GIT_COMMITTER_IDENT >/dev/null
+  git var GIT_AUTHOR_IDENT >/dev/null
   RELEASE_VERSION="$(next_release_version "$(TZ=America/New_York date +%Y.%m.%d)")"
   log "Releasing $RELEASE_VERSION from $RELEASE_COMMIT"
 fi
 
 RELEASE_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tripplanner-release.XXXXXX")"
 export RELEASE_STATE_DIR
+
+if [[ "$RELEASE_TARGET" == release:pipeline ]]; then
+  # Validate and prepare the rollover before deployment; apply it only after tagging.
+  node "$REPO_ROOT/scripts/release-tasks/changelog.mjs" "$RELEASE_VERSION" CHANGELOG.md \
+    > "$RELEASE_STATE_DIR/CHANGELOG.md"
+fi
 
 # Task cancels remaining preparation work when a prerequisite fails.
 # The per-invocation directory is removed after all stages have stopped.
@@ -109,5 +117,5 @@ if [[ "$RELEASE_TARGET" == release:pipeline ]]; then
   git tag -a "$RELEASE_VERSION" "$RELEASE_COMMIT" -m "Release $RELEASE_VERSION" \
     || die "deployment verified, but creating tag $RELEASE_VERSION failed; resolve the Git error before recording the release"
   log "Created release tag $RELEASE_VERSION"
-  print -r -- "Move CHANGELOG.md Unreleased entries to ## $RELEASE_VERSION, keep an empty ## Unreleased, and commit the changelog update separately."
+  commit_release_changelog "$RELEASE_VERSION" "$RELEASE_COMMIT" "$RELEASE_STATE_DIR/CHANGELOG.md"
 fi
