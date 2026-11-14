@@ -1294,10 +1294,18 @@ match returns a GeoJSON Point in `data.geometry` and a `data.formattedAddress`
 to check against the source. Agents can pass that Point as `request.geometry`
 to `create_activity` or `update_activity`. The tool returns null fields when it
 cannot identify a precise match; this is a provider limitation, not evidence that
-the venue cannot be located. Null, failed or incorrect results require best-effort
-independent coordinate research using official venue information, geographic
-databases (including OpenStreetMap and Wikidata), government records or reputable
-mapping services. Government records are useful but are not required.
+the venue cannot be located. Null, failed, ambiguous or geographically inconsistent
+results require an independent web-based coordinate search before declaring the
+location unresolved. Search the venue's official and local-language names and full
+address with terms such as GPS coordinates, latitude longitude, 緯度 経度 and 地図.
+Consult relevant official venue maps, Google Maps, NAVITIME, MapFan, Yahoo! Maps
+Japan, OpenStreetMap, Wikidata, government/tourism sources and reputable directories.
+Extract coordinates from published points, map metadata, structured data or
+documented map links; a viewport center alone does not identify a venue. Check the
+establishment, branch, building or entrance and corroborate with a second independent
+source when possible. Independently verified coordinates can be saved directly;
+they do not require validation by `geocode_address`. Government records are useful
+but are not required, and a failure at one provider is never sufficient to stop.
 
 The versioned planning guidance describes the full location workflow. Physical
 venues need a meaningful point; areas use a representative entrance or landmark,
@@ -1308,7 +1316,11 @@ provenance uses the existing `properties.links` for source URLs and
 `properties.description` for resolution method, precision classification
 (Verified entrance, Verified venue, Representative area, Approximate, Unresolved),
 verification status and uncertainty. Approximate points are labeled for preliminary
-planning; unresolved locations retain null geometry and a reason. Agents preserve
+planning and do not fulfill a specific venue's reliable GPS requirement. Every
+identifiable physical venue must have a saved verified address and reliable GPS
+point, or an explicit Unresolved record after reasonable independent alternatives
+are exhausted, listing attempted sources and the specific reason no reliable point
+could be established. Unresolved locations retain null geometry. Agents preserve
 existing fields, state and scheduling, use the current activity ETag and destination
 contextVersion, and read back with `get_activity` to verify both address and GeoJSON
 Point coordinates in `[longitude, latitude]` order. Address resolution and coordinate

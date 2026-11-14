@@ -11,6 +11,14 @@ source commit. Failed releases and `--check` runs leave entries unreleased.
 
 ## Unreleased
 
+### Fixed
+
+- MCP location research now requires independent web coordinate searches after
+  failed, ambiguous or inconsistent geocoding, with saved sources, precision and
+  address/coordinate read-back verification before reporting completion.
+- Geocoding provider errors direct assistants to independent research instead of
+  retrying the failed lookup; unresolved venues require documented alternatives.
+
 ## 2026.11.13.2
 
 ### Added

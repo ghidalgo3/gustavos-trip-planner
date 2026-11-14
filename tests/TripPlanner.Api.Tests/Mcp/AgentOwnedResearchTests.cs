@@ -74,8 +74,14 @@ public sealed class AgentOwnedResearchTests
             var requirement in new[]
             {
                 "MUST save any researched address in properties.address regardless of geocoding success",
-                "null, fails or is incorrect",
-                "MUST attempt independent coordinate research",
+                "null, fails, is ambiguous or has coordinates inconsistent with the researched address",
+                "MUST perform an independent web-based coordinate search before declaring the location unresolved",
+                "Do not require geocode_address to validate independently sourced coordinates",
+                "緯度 経度",
+                "NAVITIME, MapFan, Yahoo! Maps Japan",
+                "map metadata, structured data or documented map links",
+                "second independent source when possible",
+                "documenting the attempted source URLs and specific reason",
                 "Government records are desirable when relevant but are not required",
                 "[longitude, latitude]",
                 "Read back with get_activity",
@@ -93,6 +99,10 @@ public sealed class AgentOwnedResearchTests
             StringAssert.Contains(
                 tool.GetProperty("description").GetString()!,
                 "properties.address"
+            );
+            StringAssert.Contains(
+                tool.GetProperty("description").GetString()!,
+                "without requiring geocode_address validation"
             );
             var addressDescription = tool.GetProperty("inputSchema")
                 .GetProperty("properties")
@@ -254,6 +264,13 @@ public sealed class AgentOwnedResearchTests
     [DataRow(ActivityState.Proposed, "missing", true)]
     [DataRow(ActivityState.Planned, "missing", true)]
     [DataRow(ActivityState.Rejected, "missing", true)]
+    [DataRow(ActivityState.Proposed, "failure", true)]
+    [DataRow(ActivityState.Planned, "failure", true)]
+    [DataRow(ActivityState.Rejected, "failure", true)]
+    [DataRow(ActivityState.Planned, "ambiguous", true)]
+    [DataRow(ActivityState.Planned, "multiple", true)]
+    [DataRow(ActivityState.Planned, "medium", true)]
+    [DataRow(ActivityState.Planned, "incorrect", true)]
     [DataRow(ActivityState.Proposed, "failure", false)]
     [DataRow(ActivityState.Planned, "failure", false)]
     [DataRow(ActivityState.Rejected, "failure", false)]
@@ -372,6 +389,19 @@ public sealed class AgentOwnedResearchTests
                 geocode.GetProperty("structuredContent").GetProperty("status").GetInt32()
             );
         }
+        else if (outcome == "incorrect")
+        {
+            // A high-confidence provider match in Tokyo cannot locate this Paris venue.
+            Assert.AreEqual(
+                139.702,
+                geocode
+                    .GetProperty("structuredContent")
+                    .GetProperty("data")
+                    .GetProperty("geometry")
+                    .GetProperty("coordinates")[0]
+                    .GetDouble()
+            );
+        }
         else
         {
             Assert.AreEqual(
@@ -393,7 +423,7 @@ public sealed class AgentOwnedResearchTests
         var request = JsonNode.Parse(before.GetProperty("data").GetRawText())!;
         var provenance = resolved
             ? "Verified venue; independently published coordinates from the venue map; no remaining uncertainty."
-            : "Unresolved; reasonable research exhausted with conflicting coordinates; coordinate resolution remains incomplete.";
+            : "Unresolved; independent venue map and mapping directory research exhausted: their published points identify different buildings and neither identifies the intended branch; coordinate resolution remains incomplete.";
         request["geometry"] = resolved
             ? JsonSerializer.SerializeToNode(
                 new { type = "Point", coordinates = new[] { 2.3364, 48.8606 } }
@@ -409,6 +439,17 @@ public sealed class AgentOwnedResearchTests
                     {
                         url = "https://venue.example/map",
                         label = "Official address and venue map",
+                    }
+                )
+            );
+        request["properties"]!["links"]!
+            .AsArray()
+            .Add(
+                JsonSerializer.SerializeToNode(
+                    new
+                    {
+                        url = "https://maps.example/venue",
+                        label = "Independent mapping directory",
                     }
                 )
             );
@@ -524,6 +565,15 @@ public sealed class AgentOwnedResearchTests
             unavailable.GetProperty("structuredContent").GetProperty("status").GetInt32()
         );
         Assert.DoesNotContain("provider internals", unavailable.ToString());
+        StringAssert.Contains(
+            unavailable.ToString(),
+            "MUST perform an independent web-based coordinate search"
+        );
+        StringAssert.Contains(
+            unavailable.ToString(),
+            "Do not require geocode_address to validate independently sourced coordinates"
+        );
+        Assert.DoesNotContain("Try again", unavailable.ToString());
     }
 
     private static async Task<JsonElement> Geocode(
