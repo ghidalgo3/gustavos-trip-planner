@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Button, Select, Card, Text, Title3 } from "@fluentui/react-components";
+import { Add20Regular } from "@fluentui/react-icons";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
 import {
   changePartyMember,
@@ -153,6 +154,7 @@ export default function PartySelector({
         </Select>
         <Button
           appearance="primary"
+          icon={<Add20Regular />}
           disabled={!selected || busy || party.members.length >= 9}
           onClick={() => selected && void change(selected.id, true, inviteRole)}
         >

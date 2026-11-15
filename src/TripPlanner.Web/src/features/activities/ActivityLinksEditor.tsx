@@ -1,4 +1,5 @@
 import { Button, Field, Input } from "@fluentui/react-components";
+import { Add20Regular } from "@fluentui/react-icons";
 import type { ActivityLink } from "./activitiesApi";
 import { validActivityLink } from "./activityLinks";
 export default function ActivityLinksEditor({
@@ -55,6 +56,7 @@ export default function ActivityLinksEditor({
         </div>
       ))}
       <Button
+        icon={<Add20Regular />}
         disabled={links.length >= 20}
         onClick={() => onChange([...links, { url: "", label: "" }])}
       >

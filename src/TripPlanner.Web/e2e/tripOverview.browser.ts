@@ -1,9 +1,76 @@
 import { test, expect } from "@playwright/test";
 import fixtures from "./fixtures.json" with { type: "json" };
 
-for (const width of [390, 1280]) {
+for (const width of [320, 390, 1280]) {
   test.describe(`trip overview at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
+
+    for (const offline of [false, true]) {
+      test(`opens contextual links and Share from Overview (offline: ${offline})`, async ({
+        page,
+        request,
+        context,
+      }, testInfo) => {
+        await request.post("/__test/session", {
+          data: { authenticated: true },
+        });
+        const overviewPath = `/trips/${fixtures.trip.id}`;
+        await page.goto(overviewPath);
+        const share = page.getByRole("button", { name: "Share", exact: true });
+        await expect(share).toBeVisible();
+        await expect(
+          page.getByRole("navigation", { name: "Trip pages" }),
+        ).toHaveCount(0);
+        await expect(
+          page.locator(".overview-destination-link").first(),
+        ).toBeVisible();
+        if (offline) await context.setOffline(true);
+        await page.screenshot({
+          path: testInfo.outputPath("overview-navigation.png"),
+        });
+        for (const [name, section] of [
+          ["Activities", "activities"],
+          ["Flights", "flights"],
+          ["Party", "party"],
+        ]) {
+          const link =
+            section === "party"
+              ? share
+              : section === "activities"
+                ? page.locator(".overview-destination-link").first()
+                : page
+                    .locator(".overview-flight-spacer")
+                    .getByRole("link", { name: /^(Plan|View) Flights$/ })
+                    .first();
+          await link.focus();
+          await link.press("Enter");
+          await expect(page).toHaveURL(
+            new RegExp(`${overviewPath}/${section}(\\?.*)?$`),
+          );
+          await expect(share).toHaveCount(0);
+          await expect(page.locator(".trip-navigation")).toHaveCount(0);
+          const breadcrumb = page.getByRole("navigation", {
+            name: "Breadcrumb",
+          });
+          await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText(
+            name,
+          );
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          ).toBe(true);
+          await page.screenshot({
+            path: testInfo.outputPath(`${section}-breadcrumb.png`),
+          });
+          await breadcrumb
+            .getByRole("link", { name: "Overview", exact: true })
+            .click();
+          await expect(page).toHaveURL(overviewPath);
+          await expect(share).toBeVisible();
+        }
+      });
+    }
 
     test("highlights destinations and opens activities without intercepting card controls", async ({
       page,

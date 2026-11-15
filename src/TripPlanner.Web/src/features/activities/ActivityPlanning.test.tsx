@@ -286,7 +286,7 @@ test("an empty trip points back to Overview without destination forms", async ()
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 });
 
-test("selecting a Plan travel step opens the map and forwards its route; closing it clears the path", async () => {
+test("selecting a Plan travel step focuses the map and forwards its route; closing it clears the path", async () => {
   vi.mocked(planningRequest).mockResolvedValue({
     data: {
       mode: "walking",
@@ -305,10 +305,10 @@ test("selecting a Plan travel step opens the map and forwards its route; closing
   show(true);
   await screen.findByRole("tab", { name: "Plan" });
   click(screen.getByRole("tab", { name: "Plan" }));
-  expect(screen.getByRole("button", { name: "Show map" })).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
+  expect(
+    screen.queryByRole("button", { name: /^(Show|Hide) map$/ }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Map")).toBeVisible();
   const scrollToMap = vi.fn();
   document.querySelector<HTMLDivElement>(
     ".activity-map-panel",
@@ -317,10 +317,7 @@ test("selecting a Plan travel step opens the map and forwards its route; closing
   const selected = await screen.findByRole("button", {
     name: "Selected walking route",
   });
-  expect(screen.getByRole("button", { name: "Hide map" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
+  expect(screen.getByLabelText("Map")).toBeVisible();
   await waitFor(() =>
     expect(scrollToMap).toHaveBeenCalledWith({ block: "nearest" }),
   );
@@ -407,8 +404,9 @@ test("destination tabs show every visit's dates and switch the selected city wit
     "href",
     "/artwork/cities.svg#fr-paris",
   );
-  expect(paris).toHaveTextContent("Jun 10, 2027 – Jun 14, 2027");
-  expect(paris).toHaveTextContent("Jun 18, 2027 – Jun 20, 2027");
+  expect(paris).toHaveTextContent("Jun 10 – Jun 14");
+  expect(paris).toHaveTextContent("Jun 18 – Jun 20");
+  expect(paris).not.toHaveTextContent("2027");
   expect(screen.queryByText("Destination details")).not.toBeInTheDocument();
   expect(
     screen.queryByRole("heading", { name: "Paris" }),
@@ -600,11 +598,11 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
     target: { value: "Tickets" },
   });
   const stateTrigger = within(drawer).getByRole("button", {
-    name: "State Maybe",
+    name: "Status Considering",
   });
   act(() => stateTrigger.focus());
   click(stateTrigger);
-  click(await screen.findByRole("menuitemradio", { name: "Yes" }));
+  click(await screen.findByRole("menuitemradio", { name: "Planned" }));
   const saveButton = within(drawer).getByRole("button", {
     name: "Save activity",
     hidden: true,
@@ -773,13 +771,9 @@ test.each([false, true])(
       within(list).queryByText("See the paintings"),
     ).not.toBeInTheDocument();
     expect(within(list).queryByText("2h")).not.toBeInTheDocument();
+    expect(await within(list).findAllByText("Considering")).toHaveLength(2);
     expect(
-      await within(
-        await within(list).findByRole("list", { name: "Maybe activities" }),
-      ).findAllByText("Maybe"),
-    ).toHaveLength(2);
-    expect(
-      within(list).queryAllByRole("button", { name: /^State for/ }),
+      within(list).queryAllByRole("button", { name: /^Status for/ }),
     ).toHaveLength(readOnly ? 0 : 2);
     expect(within(list).getByText("Needs location · Not on map")).toBeVisible();
     expect(
@@ -802,7 +796,7 @@ test.each([false, true])(
     expect(within(card).getByText("See the paintings")).toBeVisible();
     expect(within(card).getByLabelText("Activity 1")).toHaveTextContent("1");
     expect(within(card).getByText("2h")).toBeVisible();
-    expect(within(card).getByText("Maybe")).toBeVisible();
+    expect(within(card).getByText("Considering")).toBeVisible();
     click(within(card).getByText("See the paintings"));
     expect(
       within(list).getByRole("button", { name: "Louvre" }),
@@ -1014,46 +1008,131 @@ test("activity costs use a known currency selection and save the selected curren
   );
 });
 
-test("the map can collapse for list browsing and reopen when selecting an activity", async () => {
-  vi.mocked(getActivities).mockResolvedValue({
-    type: "FeatureCollection",
-    features: [activity],
-  });
-  show(true);
-  const toggle = await screen.findByRole("button", { name: "Hide map" });
-  const map = screen.getByLabelText("Map");
-  expect(toggle).toHaveAttribute("aria-expanded", "true");
-  const panel = map.closest(".activity-map-panel")!;
-  expect(toggle).toHaveAttribute("aria-controls", panel.id);
-  click(toggle);
-  expect(screen.getByRole("button", { name: "Show map" })).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-  expect(panel.parentElement).toHaveClass("activity-map-collapsed");
-  expect(map).toBeInTheDocument();
-  click(screen.getByRole("button", { name: "Show map" }));
-  expect(panel.parentElement).not.toHaveClass("activity-map-collapsed");
-  click(screen.getByRole("button", { name: "Hide map" }));
-  click(await screen.findByRole("button", { name: "Louvre" }));
-  expect(panel.parentElement).not.toHaveClass("activity-map-collapsed");
-  expect(screen.getByRole("button", { name: "Hide map" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  expect(
-    await screen.findByRole("region", { name: "Selected activity details" }),
-  ).toBeInTheDocument();
-});
+test.each([false, true])(
+  "the map stays visible in Ideas and Plan, including read-only mode (%s)",
+  async (readOnly) => {
+    show(readOnly);
+    await screen.findByRole("tab", { name: "Plan" });
+    expect(
+      screen.queryByRole("button", { name: /^(Show|Hide) map$/ }),
+    ).not.toBeInTheDocument();
+    const map = screen.getByLabelText("Map");
+    expect(map).toBeVisible();
+    click(screen.getByRole("tab", { name: "Plan" }));
+    expect(map).toBeVisible();
+    click(screen.getByRole("tab", { name: "Ideas" }));
+    expect(map).toBeVisible();
+  },
+);
+
+test.each([false, true])(
+  "searches activity details locally without changing map markers, including read-only mode (%s)",
+  async (readOnly) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        activity,
+        {
+          ...activity,
+          id: "cafe",
+          geometry: null,
+          properties: {
+            ...activity.properties,
+            name: "Riverside café",
+            state: "Yes",
+            kinds: ["Food & Drink"],
+            description: "Coffee and pastries",
+            notes: "Arrive early",
+            address: "12 River Street",
+            placeName: "Old Town",
+          },
+        },
+      ],
+    });
+    show(readOnly);
+    let list = await screen.findByRole("list", { name: "Paris activities" });
+    await within(list).findByRole("button", { name: "Louvre" });
+    expect(
+      screen.queryByRole("searchbox", { name: "Search activities" }),
+    ).not.toBeInTheDocument();
+    click(screen.getByRole("button", { name: "Search activities" }));
+    const search = screen.getByRole("searchbox", { name: "Search activities" });
+    expect(search).toHaveFocus();
+    expect(
+      screen.queryByRole("heading", { name: "Activities" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add activity" }),
+    ).not.toBeInTheDocument();
+    const reads = vi.mocked(getActivities).mock.calls.length;
+    for (const [query, result] of [
+      ["  LOUVRE  ", "Louvre"],
+      ["food", "Riverside café"],
+      ["river street", "Riverside café"],
+      ["coffee", "Riverside café"],
+      ["arrive early", "Riverside café"],
+      ["old town", "Riverside café"],
+    ]) {
+      change(search, { target: { value: query } });
+      expect(within(list).getByRole("button", { name: result })).toBeVisible();
+      const other = result === "Louvre" ? "Riverside café" : "Louvre";
+      expect(
+        within(list).queryByRole("button", { name: other }),
+      ).not.toBeInTheDocument();
+      if (result === "Riverside café")
+        expect(within(list).getByText("2", { exact: true })).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: "Map marker: Louvre" }),
+      ).toBeVisible();
+    }
+    change(search, { target: { value: "No matching place" } });
+    expect(screen.getByText("No activities match your search.")).toBeVisible();
+    expect(within(list).queryAllByRole("heading")).toHaveLength(0);
+    click(screen.getByRole("tab", { name: "Plan" }));
+    click(screen.getByRole("tab", { name: "Ideas" }));
+    list = screen.getByRole("list", { name: "Paris activities" });
+    expect(
+      screen.getByRole("searchbox", { name: "Search activities" }),
+    ).toHaveValue("No matching place");
+    expect(screen.getByText("No activities match your search.")).toBeVisible();
+    click(
+      screen.getByRole("button", { name: "Clear and dismiss activity search" }),
+    );
+    expect(
+      screen.queryByRole("searchbox", { name: "Search activities" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Activities" })).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Search activities" }),
+      ).toHaveFocus(),
+    );
+    expect(within(list).getByRole("button", { name: "Louvre" })).toBeVisible();
+    expect(
+      within(list).getByRole("button", { name: "Riverside café" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("No activities match your search."),
+    ).not.toBeInTheDocument();
+    click(screen.getByRole("button", { name: "Search activities" }));
+    expect(
+      screen.getByRole("searchbox", { name: "Search activities" }),
+    ).toHaveValue("");
+    click(
+      screen.getByRole("button", { name: "Clear and dismiss activity search" }),
+    );
+    expect(getActivities).toHaveBeenCalledTimes(reads);
+  },
+);
 
 test.each([
-  ["ideas", "Maybe", "Yes"],
-  ["ideas", "Yes", "No"],
-  ["ideas", "No", "Maybe"],
-  ["map", "Maybe", "Yes"],
+  ["ideas", "Maybe", "Yes", "Considering", "Planned"],
+  ["ideas", "Yes", "No", "Planned", "Not Interested"],
+  ["ideas", "No", "Maybe", "Not Interested", "Considering"],
+  ["map", "Maybe", "Yes", "Considering", "Planned"],
 ])(
   "%s card menu changes %s to %s with the current ETag and preserves other fields",
-  async (view, state, nextState) => {
+  async (view, state, nextState, label, nextLabel) => {
     const current = {
       ...activity,
       properties: { ...activity.properties, state },
@@ -1082,7 +1161,7 @@ test.each([
         : list;
     click(
       await within(container).findByRole("button", {
-        name: `State for Louvre: ${state}`,
+        name: `Status for Louvre: ${label}`,
       }),
     );
     expect(
@@ -1092,20 +1171,22 @@ test.each([
       (await screen.findAllByRole("menuitemradio")).map(
         (item) => item.textContent,
       ),
-    ).toEqual(["Maybe", "Yes", "No"]);
-    click(await screen.findByRole("menuitemradio", { name: nextState }));
+    ).toEqual(["Considering", "Planned", "Not Interested"]);
+    click(await screen.findByRole("menuitemradio", { name: nextLabel }));
     await within(container).findByRole("button", {
-      name: `State for Louvre: ${nextState}`,
+      name: `Status for Louvre: ${nextLabel}`,
     });
+    expect(
+      screen.getByRole("button", { name: `${nextLabel} activities: 1` }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: `${label} activities: 0` }),
+    ).toHaveAttribute("aria-pressed", "true");
     expect(
       screen.queryByRole("dialog", { name: "Edit activity" }),
     ).not.toBeInTheDocument();
     expect(getActivity).toHaveBeenCalledTimes(1);
-    expect(
-      within(
-        screen.getByRole("list", { name: `${nextState} activities` }),
-      ).getByRole("button", { name: "Louvre" }),
-    ).toBeVisible();
+    expect(within(list).getByRole("button", { name: "Louvre" })).toBeVisible();
     if (view === "ideas")
       expect(
         screen.queryByRole("region", { name: "Selected activity details" }),
@@ -1150,13 +1231,13 @@ test.each(["ideas", "map", "fullscreen"])(
             name: "Selected activity details",
           });
     const stateButton = await within(container).findByRole("button", {
-      name: "State for Louvre: Maybe",
+      name: "Status for Louvre: Considering",
     });
     const openDelete = async () => {
       act(() => stateButton.focus());
       click(stateButton);
       const item = await screen.findByRole("menuitem", {
-        name: "Delete activity",
+        name: "Remove activity",
       });
       act(() => item.focus());
       click(item);
@@ -1422,7 +1503,7 @@ test("read-only members can see accepted research sources and conditions", async
 });
 
 test.each([false, true])(
-  "groups Ideas by state and collapses groups independently, read-only=%s",
+  "filters Ideas independently by status with counts and stable map numbers, read-only=%s",
   async (readOnly) => {
     const states = ["Yes", "Maybe", "No", "Maybe", "Maybe"];
     vi.mocked(getActivities).mockResolvedValue({
@@ -1440,37 +1521,75 @@ test.each([false, true])(
     show(readOnly);
     const list = await screen.findByRole("list", { name: "Paris activities" });
     await within(list).findByRole("button", { name: "Idea 5" });
-    expect(
+    const filters = screen.getByRole("group", {
+      name: "Filter activities by status",
+    });
+    const considering = within(filters).getByRole("button", {
+      name: "Considering activities: 3",
+    });
+    const planned = within(filters).getByRole("button", {
+      name: "Planned activities: 1",
+    });
+    const notInterested = within(filters).getByRole("button", {
+      name: "Not Interested activities: 1",
+    });
+    const visibleNames = () =>
       within(list)
-        .getAllByRole("heading")
-        .map((heading) => heading.textContent),
-    ).toEqual(["Maybe3", "Yes1", "No1"]);
-    const proposed = within(list).getByRole("button", {
-      name: "Maybe activities",
-    });
-    const planned = within(list).getByRole("button", {
-      name: "Yes activities",
-    });
-    const contents = document.getElementById(
-      proposed.getAttribute("aria-controls")!,
-    )!;
-    // Keep the map's original numbering even when grouping changes the list order.
-    const card = within(contents)
+        .getAllByRole("button", { name: /^Idea / })
+        .map((button) => button.getAttribute("aria-label"));
+    expect(visibleNames()).toEqual([
+      "Idea 1",
+      "Idea 2",
+      "Idea 3",
+      "Idea 4",
+      "Idea 5",
+    ]);
+    for (const filter of [considering, planned, notInterested]) {
+      expect(filter).toBeEnabled();
+      expect(filter).toHaveAttribute("aria-pressed", "true");
+    }
+    expect(within(list).queryByRole("heading")).not.toBeInTheDocument();
+    click(planned);
+    click(notInterested);
+    expect(visibleNames()).toEqual(["Idea 2", "Idea 4", "Idea 5"]);
+    expect(planned).toHaveAttribute("aria-pressed", "false");
+    const card = within(list)
       .getByRole("button", { name: "Idea 2" })
       .closest(".activity-list-item")! as HTMLElement;
     expect(within(card).getByText("2", { exact: true })).toBeVisible();
-    click(proposed);
-    expect(proposed).toHaveAttribute("aria-expanded", "false");
-    expect(contents).not.toBeVisible();
+    click(considering);
     expect(
-      within(list).queryByRole("button", { name: "Idea 2" }),
-    ).not.toBeInTheDocument();
-    expect(within(list).getByRole("button", { name: "Idea 1" })).toBeVisible();
+      within(list).queryAllByRole("button", { name: /^Idea / }),
+    ).toHaveLength(0);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No activities match your filters.",
+    );
     click(planned);
-    click(proposed);
-    expect(proposed).toHaveAttribute("aria-expanded", "true");
-    expect(contents).toBeVisible();
-    expect(planned).toHaveAttribute("aria-expanded", "false");
+    expect(visibleNames()).toEqual(["Idea 1"]);
+    click(screen.getByRole("button", { name: "Search activities" }));
+    change(screen.getByRole("searchbox", { name: "Search activities" }), {
+      target: { value: "Idea 4" },
+    });
+    expect(
+      within(filters).getByRole("button", {
+        name: "Considering activities: 1",
+      }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(filters).getByRole("button", { name: "Planned activities: 0" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    click(considering);
+    expect(visibleNames()).toEqual(["Idea 4"]);
+    click(
+      screen.getByRole("button", { name: "Clear and dismiss activity search" }),
+    );
+    expect(visibleNames()).toEqual(["Idea 1", "Idea 2", "Idea 4", "Idea 5"]);
+    expect(considering).toHaveAccessibleName("Considering activities: 3");
+    click(screen.getByRole("tab", { name: "Plan" }));
+    click(screen.getByRole("tab", { name: "Ideas" }));
+    expect(
+      screen.getByRole("button", { name: "Not Interested activities: 1" }),
+    ).toHaveAttribute("aria-pressed", "false");
     expect(saveActivity).not.toHaveBeenCalled();
   },
 );

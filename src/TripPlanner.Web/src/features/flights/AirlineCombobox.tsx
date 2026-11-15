@@ -115,10 +115,10 @@ export default function AirlineCombobox({
     options.find((option) => option.value === code)?.label ??
     (airlines[code] ? `${airlines[code]} (${code})` : code);
   return (
-    <div className="airline-picker">
+    <div className="tag-list-picker">
       {value.length > 0 && (
         <TagGroup
-          className="airline-tags"
+          className="tag-list-tags"
           aria-label={tagsLabel}
           dismissible
           onDismiss={(_, data) =>

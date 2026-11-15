@@ -5,16 +5,14 @@ import {
   DrawerHeader,
   DrawerHeaderTitle,
   Field,
-  Input,
   OverlayDrawer,
-  Radio,
-  RadioGroup,
+  SearchBox,
   Text,
 } from "@fluentui/react-components";
 import { Dismiss24Regular, Search20Regular } from "@fluentui/react-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ActivityMap from "../../maps/ActivityMap";
-import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import PlaceSearchResultButton from "../../shared/components/PlaceSearchResultButton";
 import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import {
@@ -56,6 +54,21 @@ export default function StayLocationDrawer({
     index: string;
   }>();
   const [results, setResults] = useState<StayPlaceResult[]>([]);
+  const places = useMemo(
+    () =>
+      results.map((match, index) => ({
+        id: String(index),
+        name: match.name,
+        label:
+          match.address && match.address !== match.name
+            ? `${match.name}, ${match.address}`
+            : match.name,
+        address: match.address,
+        longitude: match.geometry?.coordinates[0],
+        latitude: match.geometry?.coordinates[1],
+      })),
+    [results],
+  );
   const [selectedIndex, setSelectedIndex] = useState<string>("");
   const [searched, setSearched] = useState(false);
   const [researching, setResearching] = useState(false);
@@ -94,9 +107,9 @@ export default function StayLocationDrawer({
     }
   }
 
-  function selectResult(index: string) {
-    const match = results[Number(index)];
-    if (!match?.geometry) return;
+  function selectResult(index: number) {
+    const match = results[index];
+    if (!match?.geometry || selectedIndex === String(index)) return;
     void save(
       {
         type: "Feature",
@@ -104,7 +117,7 @@ export default function StayLocationDrawer({
         geometry: match.geometry,
         properties: { name: match.name.slice(0, 200), address: match.address },
       },
-      index,
+      String(index),
     );
   }
 
@@ -170,11 +183,8 @@ export default function StayLocationDrawer({
               void search();
             }}
           >
-            <Field
-              label="Stay location"
-              hint="Search for a hotel name or address. Selecting a result saves it immediately."
-            >
-              <Input
+            <Field label="Stay location">
+              <SearchBox
                 value={query}
                 placeholder="Hotel name or address"
                 maxLength={200}
@@ -197,7 +207,10 @@ export default function StayLocationDrawer({
             </Button>
           </form>
           {researching && (
-            <SearchResultsSkeleton label="Searching stays" appearance="stays" />
+            <SearchResultsSkeleton
+              label="Searching stays"
+              appearance="places"
+            />
           )}
           {searched && results.length === 0 && (
             <Text role="status">
@@ -206,64 +219,54 @@ export default function StayLocationDrawer({
             </Text>
           )}
           {results.length > 0 && (
-            <RadioGroup
-              className="stay-search-results"
+            <div
+              className="place-search-results"
+              role="group"
               aria-label="Matching stays"
-              value={selectedIndex}
-              onChange={(_, data) => selectResult(data.value)}
             >
-              {results.map((match, index) => (
+              {places.map((place, index) => (
                 <div
-                  className={`stay-search-result interactive-card${selectedIndex === String(index) ? " is-selected" : ""}`}
-                  key={`${match.name}|${match.address}|${match.geometry?.coordinates.join(",") ?? index}`}
+                  className="place-search-result-row"
+                  key={`${index}-${place.label}`}
                 >
-                  <Radio
-                    className="card-action"
-                    value={String(index)}
-                    disabled={busy || !match.geometry}
-                    label={
-                      <div className="place-search-result">
-                        <PlaceSearchResult
-                          place={{
-                            id: String(index),
-                            name: match.name,
-                            label: match.name,
-                            address: match.address,
-                          }}
-                        />
-                      </div>
-                    }
+                  <PlaceSearchResultButton
+                    place={place}
+                    index={index}
+                    disabled={busy || !results[index].geometry}
+                    selected={selectedIndex === String(index)}
+                    onClick={() => selectResult(index)}
                   />
                 </div>
               ))}
-            </RadioGroup>
+            </div>
           )}
           <section
             className="stay-location-preview"
-            aria-label="Saved stay location"
+            aria-label="Stay location map"
           >
-            <Text>
-              {selectedStay
-                ? selectedStay.properties.name
-                : "Select a matching stay to save its location."}
-            </Text>
+            {selectedStay && <Text>{selectedStay.properties.name}</Text>}
             <ActivityMap
               center={selectedStay?.geometry ?? destination.geometry}
               destinationName={
-                selectedStay?.properties.name ?? destination.properties.name
+                places.length > 0
+                  ? destination.properties.name
+                  : (selectedStay?.properties.name ??
+                    destination.properties.name)
               }
               zoom={selectedStay ? 15 : 11}
               activities={noActivities}
               stayLocation={selectedStay}
               selectedId="stay"
               onSelect={selectStayMarker}
+              placeSearch={
+                places.length > 0
+                  ? {
+                      results: places,
+                      onSelect: selectResult,
+                    }
+                  : undefined
+              }
             />
-            {selectedStay && (
-              <Text size={200}>
-                Selecting a matching stay saves it immediately. You can choose
-                another result to change it.
-              </Text>
-            )}
           </section>
         </DrawerBody>
         <DrawerFooter className="activity-drawer-footer">

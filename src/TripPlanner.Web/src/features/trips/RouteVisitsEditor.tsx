@@ -1,4 +1,5 @@
 import { Button, Card, Field, Input, Text } from "@fluentui/react-components";
+import { Add20Regular } from "@fluentui/react-icons";
 import FlightAirportPicker from "../flights/FlightAirportPicker";
 import type { PlannedVisit, PlanningDocument } from "../flights/planningApi";
 
@@ -138,6 +139,7 @@ export default function RouteVisitsEditor({
         </Card>
       ))}
       <Button
+        icon={<Add20Regular />}
         onClick={() =>
           onChange({
             ...document,

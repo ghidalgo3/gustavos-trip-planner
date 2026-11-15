@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Text } from "@fluentui/react-components";
+import { Add20Regular } from "@fluentui/react-icons";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
 import {
   searchAirports,
@@ -166,6 +167,7 @@ export default function FlightAirportPicker({
           <Button
             size="small"
             appearance="subtle"
+            icon={<Add20Regular />}
             onClick={() => {
               setAdding(true);
               setQuery("");

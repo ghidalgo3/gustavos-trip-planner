@@ -69,6 +69,9 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 These do not apply to iOS.
 
 - Mobile UI is the primary design target. Design for small screens.
+- All place searches must use the shared `PlaceSearchResultButton` and `PlaceSearchResult` components, with consistent full-width numbered buttons, name/address typography, spacing, selection feedback, and loading placeholders. When a place-search drawer has a map, show the same results as numbered map pins with matching indices; selecting a list result or its pin must perform the same action. Do not create feature-specific radio cards or alternate result layouts.
+- Search fields must use the same text sizing in toolbars and edit drawers, with a computed inner-input font size of at least 16 CSS pixels at every viewport width to prevent Safari focus zoom. Do not rely only on mobile-width or coarse-pointer media queries; tablets and touch devices can use wider layouts. Verify computed font sizes in browser checks, including desktop-width layouts, and preserve browser pinch zoom.
+- New or modified icon-only actions must provide at least a 44×44 CSS pixel tap target. Search clear/dismiss buttons must be at least 48 CSS pixels wide.
 - The offline GUI should not substantially change from the online GUI; it should preserve the same screens, layouts, navigation, and components while preventing edits. Keep read-only interactions such as filtering, sorting, scrolling, and viewing details available, and disable actions that require a network connection.
 - Use Skeletons when loading GUI content. Reserve Spinners for long-running operations; short saves should retain existing content with disabled controls and status text.
 - Skeletons must mirror the content being loaded, including its layout and approximate dimensions. Define feature-specific placeholders for agendas, search results, forms, and other distinct views instead of reusing a generic card skeleton.

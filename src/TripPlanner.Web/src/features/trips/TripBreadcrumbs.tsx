@@ -9,11 +9,9 @@ import type { Trip } from "../../api/api";
 export default function TripBreadcrumbs({
   trip,
   section,
-  destinationName,
 }: {
   trip: Trip;
-  section: "overview" | "activities" | "flights";
-  destinationName?: string;
+  section: "overview" | "activities" | "flights" | "party";
 }) {
   const tripUrl = `/trips/${encodeURIComponent(trip.id)}`;
   return (
@@ -23,27 +21,23 @@ export default function TripBreadcrumbs({
       </BreadcrumbItem>
       <BreadcrumbDivider />
       <BreadcrumbItem>
-        <Link to={tripUrl}>{trip.name}</Link>
-      </BreadcrumbItem>
-      <BreadcrumbDivider />
-      <BreadcrumbItem>
-        {section === "activities" && destinationName ? (
-          <Link to={`${tripUrl}/activities`}>Activities</Link>
+        {section === "overview" ? (
+          <span aria-current="page">Overview</span>
         ) : (
-          <span aria-current="page">
-            {section === "overview"
-              ? "Overview"
-              : section === "flights"
-                ? "Flights"
-                : "Activities"}
-          </span>
+          <Link to={tripUrl}>Overview</Link>
         )}
       </BreadcrumbItem>
-      {section === "activities" && destinationName && (
+      {section !== "overview" && (
         <>
           <BreadcrumbDivider />
           <BreadcrumbItem>
-            <span aria-current="page">{destinationName}</span>
+            <span aria-current="page">
+              {section === "activities"
+                ? "Activities"
+                : section === "flights"
+                  ? "Flights"
+                  : "Party"}
+            </span>
           </BreadcrumbItem>
         </>
       )}

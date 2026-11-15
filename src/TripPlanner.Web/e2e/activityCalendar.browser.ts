@@ -125,7 +125,10 @@ for (const width of [390, 1280]) {
       });
       await expect(calendar).toBeVisible();
       await expect(
-        page.getByRole("button", { name: "Show map", exact: true }),
+        page.getByRole("button", { name: /^(Show|Hide) map$/ }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("img", { name: "Map of Tokyo" }),
       ).toBeVisible();
       await calendar.screenshot({ path: testInfo.outputPath("calendar.png") });
       await page.screenshot({
@@ -188,9 +191,6 @@ for (const width of [390, 1280]) {
         ),
       ).toBe(true);
       await page.context().setOffline(true);
-      await expect(
-        page.getByText("Offline · View only", { exact: true }),
-      ).toBeVisible();
       await page.getByRole("button", { name: "Museum", exact: true }).click();
       await expect(page.getByLabel("Event start", { exact: true })).toHaveValue(
         "08:30",

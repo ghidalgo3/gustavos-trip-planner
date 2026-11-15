@@ -35,7 +35,9 @@ test("browses owned kinds on focus, searches while typing, and accepts suggestio
   const input = show();
   expect(listActivityKinds).not.toHaveBeenCalled();
   fireEvent.focus(input);
-  fireEvent.click(await screen.findByRole("option", { name: "Architecture" }));
+  await screen.findByRole("menuitemcheckbox", { name: "Architecture" });
+  fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
   expect(listActivityKinds).toHaveBeenCalledWith(
     { search: "" },
     expect.any(AbortSignal),
@@ -82,12 +84,12 @@ test("debounces searches, shows a kind skeleton, and discards late responses", a
   fireEvent.change(input, { target: { value: "night" } });
   expect(signal.aborted).toBe(true);
   expect(
-    await screen.findByRole("option", { name: "Nightlife" }),
+    await screen.findByRole("menuitemcheckbox", { name: "Nightlife" }),
   ).toBeVisible();
   finish({ kinds: ["Architecture"], hasMore: false });
   await waitFor(() =>
     expect(
-      screen.queryByRole("option", { name: "Architecture" }),
+      screen.queryByRole("menuitemcheckbox", { name: "Architecture" }),
     ).not.toBeInTheDocument(),
   );
   expect(input).toHaveValue("night");
@@ -103,7 +105,9 @@ test("failed suggestions preserve custom text and can be retried", async () => {
     await screen.findByRole("button", { name: "Retry kind suggestions" }),
   );
   expect(input).toHaveValue("Custom label");
-  fireEvent.click(await screen.findByRole("option", { name: "Custom label" }));
+  fireEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Custom label" }),
+  );
   expect(input).toHaveValue("");
   expect(screen.getByLabelText("Remove Custom label")).toBeVisible();
 });

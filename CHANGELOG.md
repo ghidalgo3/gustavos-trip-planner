@@ -11,6 +11,47 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Changed
+
+- Stay and activity place searches share full-width numbered result buttons and
+  loading placeholders. Stay search results also appear as matching, selectable
+  pins on the drawer map.
+- Activity status groups are replaced by independent pill filters with icons and
+  search-aware counts, keeping matching activities in one list, including offline.
+- Activity statuses display as Considering, Planned, and Not Interested, with
+  bookmark, calendar-check, and minus-circle icons; the delete menu action is Remove.
+- Removed the page-background gradient and updated dark mode with a navy canvas,
+  slate surfaces, brighter blue accents, and coordinated drawer and menu colors.
+- Add and create buttons consistently display a plus icon, including Add activity.
+- Activity destination tabs use fixed-width cards with shadows and a highlighted
+  selected state, with matching loading placeholders.
+- Destination tab dates show years only when the trip spans multiple calendar years.
+- Ideas and Plan use filled, circular tabs with matching loading placeholders.
+- The activity map is shorter on phones, leaving more room for activities below it.
+- Removed the map visibility toggle and added local activity-list search, available
+  while offline and in read-only mode. A search icon opens a field in place of the
+  heading and Add activity button; it filters all activity fields until dismissed
+  with X.
+- Activity kinds use the preferred-airlines layout, with removable tags above a
+  separate search box.
+- Breadcrumbs replace trip section tabs and return to Overview from each subpage.
+  Overview opens activities from destination cards, flights from itinerary links,
+  and sharing controls from a Share button at the top right.
+
+### Fixed
+
+- Activity status filters stay on one horizontally scrollable row at every width,
+  with no visible scrollbar.
+- Activity status menus highlight the current status without a selection checkmark
+  and align status and Remove icons in a consistent column.
+- Search fields share a minimum 16px text size at every viewport width to prevent
+  Safari focus zoom. The activity-search dismiss button has a wider tap target.
+- Opening activity search preserves card positions, and header controls align with
+  card edges beside the map divider, including when the list has a scrollbar.
+- Destination cards scroll horizontally without a visible scrollbar.
+- Breadcrumb labels have consistent spacing around separators, including the
+  current page.
+
 ## 2026.11.14.1
 
 ### Fixed

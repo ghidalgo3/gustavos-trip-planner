@@ -1,4 +1,6 @@
 import { CalendarSubscriptionsSkeleton } from "./ActivityPlanningSkeletons";
+import { Button } from "@fluentui/react-components";
+import { Add20Regular } from "@fluentui/react-icons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { useState } from "react";
 import { planningRequest, type CalendarSubscription } from "./activityPlanApi";
@@ -46,8 +48,9 @@ export default function ActivityCalendarSubscriptions({
             Subscribe to saved dated activities across this trip. Proposals stay
             out of your calendar. Each traveller manages their own private link.
           </p>
-          <button
+          <Button
             type="button"
+            icon={<Add20Regular />}
             disabled={busy || readOnly}
             onClick={() =>
               void run(async () => {
@@ -63,7 +66,7 @@ export default function ActivityCalendarSubscriptions({
             }
           >
             Create my subscription
-          </button>
+          </Button>
           {url && (
             <label>
               Copy this private subscription URL into your calendar app. It is

@@ -36,7 +36,10 @@ for (const width of [320, 390, 1280]) {
       });
       await input.fill("arch");
       await expect(
-        page.getByRole("option", { name: "Architecture", exact: true }),
+        page.getByRole("menuitemcheckbox", {
+          name: "Architecture",
+          exact: true,
+        }),
       ).toBeVisible();
       await input.press("ArrowDown");
       await input.press("Enter");
@@ -74,6 +77,11 @@ for (const width of [320, 390, 1280]) {
         drawer.getByLabel("Remove Shopping", { exact: true }),
       ).toBeVisible();
       await drawer.locator(".activity-kinds-picker").scrollIntoViewIfNeeded();
+      const tags = drawer.getByRole("toolbar", { name: "Selected kinds" });
+      const tagBounds = (await tags.boundingBox())!;
+      expect(tagBounds.y + tagBounds.height).toBeLessThanOrEqual(
+        (await input.boundingBox())!.y,
+      );
       expect(
         (await drawer
           .locator(".activity-kinds-picker .fui-Field__label")

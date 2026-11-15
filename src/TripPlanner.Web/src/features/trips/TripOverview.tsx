@@ -4,6 +4,7 @@ import {
 } from "../../api/tripDocumentStore";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import CityIcon from "../../shared/components/CityIcon";
+import { activityStatus } from "../activities/activityStatus";
 import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { Fragment, useEffect, useState } from "react";
@@ -502,26 +503,30 @@ export default function TripOverview({
                           activitySummaries[destination.id].counts!,
                         )
                           .sort(([a], [b]) => a.localeCompare(b))
-                          .map(([state, count]) => (
-                            <Link
-                              key={state}
-                              to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
-                              aria-label={`${count} ${state} activities in ${destination.properties.name}`}
-                            >
-                              <Badge
-                                appearance="tint"
-                                color={
-                                  state === "Yes"
-                                    ? "success"
-                                    : state === "No"
-                                      ? "danger"
-                                      : "informative"
-                                }
+                          .map(([state, count]) => {
+                            const status = activityStatus(state);
+                            return (
+                              <Link
+                                key={state}
+                                to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
+                                aria-label={`${count} ${status.label} activities in ${destination.properties.name}`}
                               >
-                                {state} · {count}
-                              </Badge>
-                            </Link>
-                          ))}
+                                <Badge
+                                  appearance="tint"
+                                  icon={<status.Icon />}
+                                  color={
+                                    state === "Yes"
+                                      ? "success"
+                                      : state === "No"
+                                        ? "danger"
+                                        : "informative"
+                                  }
+                                >
+                                  {status.label} · {count}
+                                </Badge>
+                              </Link>
+                            );
+                          })}
                       </div>
                     ) : (
                       <Link

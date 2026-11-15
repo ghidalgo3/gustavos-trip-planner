@@ -1,12 +1,7 @@
 import { Button, Text, Title1 } from "@fluentui/react-components";
-import {
-  Airplane24Regular,
-  Home24Regular,
-  Map24Regular,
-  People24Regular,
-} from "@fluentui/react-icons";
+import { Share24Regular } from "@fluentui/react-icons";
 import { useEffect } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { apiBaseUrl, type Trip } from "../../api/api";
 import {
   openTripDocument,
@@ -21,6 +16,7 @@ import PartySkeleton from "../party/PartySkeleton";
 import TripParties from "../party/TripParties";
 import TripOverview from "./TripOverview";
 import TripDateSummary from "./TripDateSummary";
+import TripBreadcrumbs from "./TripBreadcrumbs";
 import OfflineNotice from "../../shared/components/OfflineNotice";
 import type { DestinationCollection } from "../activities/activitiesApi";
 import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
@@ -36,7 +32,7 @@ export default function TripPlanningPage({
 }) {
   const { tripId, "*": section } = useParams();
   const navigate = useNavigate();
-  const activeTab =
+  const activeSection =
     section === "activities"
       ? "activities"
       : section === "party"
@@ -73,12 +69,12 @@ export default function TripPlanningPage({
     );
   if (!current?.trip)
     return (
-      <TripPageSkeleton>
-        {activeTab === "activities" ? (
+      <TripPageSkeleton overview={activeSection === "overview"}>
+        {activeSection === "activities" ? (
           <ActivityWorkspaceSkeleton />
-        ) : activeTab === "flights" ? (
+        ) : activeSection === "flights" ? (
           <FlightPlanningSkeleton />
-        ) : activeTab === "party" ? (
+        ) : activeSection === "party" ? (
           <PartySkeleton />
         ) : (
           <DestinationOverviewSkeleton />
@@ -96,7 +92,7 @@ export default function TripPlanningPage({
 
   return (
     <div
-      className={`trip-workspace trip-workspace-overview${activeTab === "activities" ? " trip-workspace-activities" : ""}`}
+      className={`trip-workspace trip-workspace-overview${activeSection === "activities" ? " trip-workspace-activities" : ""}`}
     >
       {(documentState.conflict ||
         (documentState.message && !documentState.offline)) && (
@@ -126,8 +122,21 @@ export default function TripPlanningPage({
         onRetry={() => void refreshConflictedResource().catch(() => undefined)}
       />
       <header className="trip-page-header">
-        <div className="trip-page-title">
+        <div className="trip-page-heading">
           <Title1 as="h1">{trip.name}</Title1>
+          {activeSection === "overview" && (
+            <Button
+              appearance="outline"
+              icon={<Share24Regular />}
+              onClick={() =>
+                navigate(`/trips/${encodeURIComponent(trip.id)}/party`)
+              }
+            >
+              Share
+            </Button>
+          )}
+        </div>
+        <div className="trip-page-title">
           <TripDateSummary
             trip={trip}
             destinations={destinations?.features ?? []}
@@ -136,57 +145,23 @@ export default function TripPlanningPage({
             <Text size={200}>Shared with you · View only</Text>
           )}
         </div>
-        <nav className="trip-navigation" aria-label="Trip sections">
-          <NavLink
-            to={`/trips/${encodeURIComponent(trip.id)}`}
-            end
-            aria-label="Overview"
-            title="Overview"
-          >
-            <Home24Regular aria-hidden="true" />
-            <span>Overview</span>
-          </NavLink>
-          <NavLink
-            to={`/trips/${encodeURIComponent(trip.id)}/activities`}
-            aria-label="Activities"
-            title="Activities"
-          >
-            <Map24Regular aria-hidden="true" />
-            <span>Activities</span>
-          </NavLink>
-          <NavLink
-            to={`/trips/${encodeURIComponent(trip.id)}/flights`}
-            aria-label="Flights"
-            title="Flights"
-          >
-            <Airplane24Regular aria-hidden="true" />
-            <span>Flights</span>
-          </NavLink>
-          <NavLink
-            to={`/trips/${encodeURIComponent(trip.id)}/party`}
-            aria-label="Party"
-            title="Party"
-          >
-            <People24Regular aria-hidden="true" />
-            <span>Party</span>
-          </NavLink>
-        </nav>
+        <TripBreadcrumbs trip={trip} section={activeSection} />
       </header>
       <div className="trip-page-body">
         <div className="planning-page trip-page-content">
-          {activeTab === "flights" ? (
+          {activeSection === "flights" ? (
             <TripPlanning
               trip={trip}
               readOnly={readOnly}
               onBack={() => navigate(`/trips/${encodeURIComponent(trip.id)}`)}
             />
-          ) : activeTab === "party" ? (
+          ) : activeSection === "party" ? (
             <TripParties
               tripId={trip.id}
               userId={userId}
               readOnly={readOnly || trip.ownerUserId !== userId}
             />
-          ) : activeTab === "overview" ? (
+          ) : activeSection === "overview" ? (
             <TripOverview
               key={`overview:${trip.id}`}
               trip={trip}
@@ -196,7 +171,7 @@ export default function TripPlanningPage({
           ) : null}
           <ActivityPlanningTab
             key={trip.id}
-            active={activeTab === "activities"}
+            active={activeSection === "activities"}
             trip={trip}
             readOnly={readOnly}
           />

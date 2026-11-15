@@ -344,22 +344,6 @@
   border-top: 1px solid var(--colorNeutralStroke2);
   padding-top: 2px;
 }
-.activity-calendar-view > .activity-map-toggle {
-  display: inline-flex !important;
-  align-self: flex-start;
-}
-.trip-workspace-activities .activity-workspace.activity-map-collapsed {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-.activity-map-collapsed > .activity-map-panel,
-.activity-map-collapsed > .activity-resize-handle {
-  display: none;
-}
-.activity-map-collapsed > .activity-cards-section {
-  grid-column: 1;
-  grid-row: 1;
-}
 .calendar-date-picker select,
 .calendar-editor-fields select {
   appearance: none;

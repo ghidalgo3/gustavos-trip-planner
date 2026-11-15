@@ -11,11 +11,9 @@ const minimumPanelWidth = 260;
 
 export default function ResizableActivityWorkspace({
   children,
-  mapCollapsed,
   mapPanelId,
 }: {
   children: ReactNode;
-  mapCollapsed: boolean;
   mapPanelId: string;
 }) {
   const workspace = useRef<HTMLDivElement>(null);
@@ -55,7 +53,7 @@ export default function ResizableActivityWorkspace({
   return (
     <div
       ref={workspace}
-      className={`activity-workspace${mapCollapsed ? " activity-map-collapsed" : ""}${dragging ? " is-resizing" : ""}`}
+      className={`activity-workspace${dragging ? " is-resizing" : ""}`}
       style={
         {
           "--activity-plan-track": `${displayedPercent}fr`,

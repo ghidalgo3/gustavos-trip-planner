@@ -489,7 +489,12 @@ function TripForm({
         />
       </Field>
       <div className="trip-form-actions">
-        <Button type="submit" appearance="primary" disabled={busy}>
+        <Button
+          type="submit"
+          appearance="primary"
+          icon={<Add24Regular />}
+          disabled={busy}
+        >
           {busy ? "Saving…" : submitLabel}
         </Button>
         <Button type="button" appearance="secondary" onClick={onCancel}>

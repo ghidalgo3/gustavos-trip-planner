@@ -10,7 +10,7 @@ import {
   OverlayDrawer,
   Text,
 } from "@fluentui/react-components";
-import { Dismiss24Regular } from "@fluentui/react-icons";
+import { Add20Regular, Dismiss24Regular } from "@fluentui/react-icons";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
 import type { CitySuggestion } from "../../api/api";
 import {
@@ -209,6 +209,7 @@ export default function AddDestinationDrawer({
           </Button>
           <Button
             appearance="primary"
+            icon={editing ? undefined : <Add20Regular />}
             type="submit"
             form="add-destination-form"
             disabled={(!editing && !city) || saving || invalidDates}

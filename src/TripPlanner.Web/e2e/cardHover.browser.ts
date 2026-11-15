@@ -78,7 +78,7 @@ for (const width of [390, 1280]) {
 
         await page.goto(`${prefix}/activities`);
         const activity = page.locator(".activity-list-item").first();
-        const state = activity.getByRole("button", { name: /^State for/ });
+        const state = activity.getByRole("button", { name: /^Status for/ });
         await expectCardHover(page, activity, state);
         const initial = await cardColors(activity);
         const title = (await activity
@@ -161,22 +161,28 @@ for (const width of [390, 1280]) {
         await destination.getByRole("button", { name: /Choose stay/ }).click();
         const drawer = page.getByRole("dialog", { name: "Stay in Tokyo" });
         await drawer
-          .getByRole("textbox", { name: "Stay location" })
+          .getByRole("searchbox", { name: "Stay location" })
           .fill("Tokyo hotel");
         await drawer
           .getByRole("button", { name: "Search", exact: true })
           .click();
-        const stay = drawer.locator(".stay-search-result").first();
-        await expectCardHover(page, stay);
-        const hitIsLabel = await stay.evaluate((element) => {
+        const stay = drawer.locator(".place-search-result-button").first();
+        await expect(stay).toBeVisible();
+        await page.mouse.move(0, 0);
+        const stayColors = await cardColors(stay);
+        await stay.hover();
+        await expect
+          .poll(async () => (await cardColors(stay)).background)
+          .not.toBe(stayColors.background);
+        const hitIsButton = await stay.evaluate((element) => {
           const bounds = element.getBoundingClientRect();
           return Boolean(
             document
               .elementFromPoint(bounds.right - 8, bounds.bottom - 8)
-              ?.closest("label"),
+              ?.closest("button"),
           );
         });
-        expect(hitIsLabel).toBe(true);
+        expect(hitIsButton).toBe(true);
       });
     });
   }

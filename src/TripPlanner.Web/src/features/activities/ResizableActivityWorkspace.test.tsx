@@ -11,7 +11,7 @@ afterEach(() => vi.restoreAllMocks());
 
 function show() {
   render(
-    <ResizableActivityWorkspace mapCollapsed={false} mapPanelId="map">
+    <ResizableActivityWorkspace mapPanelId="map">
       <section>Daily plan</section>
       <div id="map">Map</div>
     </ResizableActivityWorkspace>,

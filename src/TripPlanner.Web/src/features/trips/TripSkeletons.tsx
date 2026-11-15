@@ -59,17 +59,28 @@ export function DestinationOverviewSkeleton() {
   );
 }
 
-export function TripPageSkeleton({ children }: { children: ReactNode }) {
+export function TripPageSkeleton({
+  children,
+  overview = false,
+}: {
+  children: ReactNode;
+  overview?: boolean;
+}) {
   return (
     <div className="trip-workspace trip-workspace-overview">
       <ContentSkeleton label="Loading trip">
         <div className="trip-page-header skeleton-stack">
-          <SkeletonItem size={32} style={{ width: "min(75%, 360px)" }} />
+          <div className="trip-page-heading">
+            <SkeletonItem size={32} style={{ width: "min(75%, 360px)" }} />
+            {overview && (
+              <SkeletonItem style={{ width: 88, height: 44, flexShrink: 0 }} />
+            )}
+          </div>
           <SkeletonItem size={20} style={{ width: "min(85%, 300px)" }} />
-          <div className="skeleton-row skeleton-trip-navigation">
-            {[0, 1, 2, 3].map((index) => (
-              <SkeletonItem key={index} size={32} />
-            ))}
+          <div className="skeleton-row skeleton-trip-breadcrumbs">
+            <SkeletonItem size={20} style={{ width: 48 }} />
+            <SkeletonItem size={20} style={{ width: 12 }} />
+            <SkeletonItem size={20} style={{ width: 80 }} />
           </div>
         </div>
       </ContentSkeleton>

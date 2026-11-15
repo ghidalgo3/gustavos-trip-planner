@@ -43,8 +43,8 @@ export function ActivityWorkspaceSkeleton() {
           ))}
         </div>
         <div className="skeleton-row skeleton-activity-tabs">
-          <SkeletonItem size={32} style={{ width: 72 }} />
-          <SkeletonItem size={32} style={{ width: 72 }} />
+          <SkeletonItem shape="circle" size={32} style={{ width: 72 }} />
+          <SkeletonItem shape="circle" size={32} style={{ width: 72 }} />
         </div>
         <div className="skeleton-activity-workspace">
           <div className="activity-map-shell skeleton-workspace-map">
@@ -54,6 +54,17 @@ export function ActivityWorkspaceSkeleton() {
             <div className="skeleton-row">
               <SkeletonItem size={24} style={{ width: "35%" }} />
               <SkeletonItem size={32} style={{ width: 128 }} />
+              <SkeletonItem size={32} style={{ width: 32 }} />
+            </div>
+            <div className="activity-status-filters">
+              {[160, 130, 180].map((width) => (
+                <SkeletonItem
+                  key={width}
+                  shape="circle"
+                  size={48}
+                  style={{ width }}
+                />
+              ))}
             </div>
             {[0, 1, 2].map((index) => (
               <div className="skeleton-panel skeleton-idea" key={index}>

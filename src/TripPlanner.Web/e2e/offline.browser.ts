@@ -71,7 +71,7 @@ for (const selection of ["partial", "complete"]) {
           ),
         )
         .toBe(true);
-      await page.getByRole("link", { name: "Activities", exact: true }).click();
+      await page.locator(".overview-destination-link").first().click();
       const destinationTab = page.getByRole("tab", { name: /Tokyo/ });
       await expect(destinationTab.locator(".city-icon")).toBeVisible();
       await expect
@@ -86,7 +86,12 @@ for (const selection of ["partial", "complete"]) {
       await page.screenshot({
         path: testInfo.outputPath("online-destination-artwork.png"),
       });
-      await page.getByRole("link", { name: "Flights", exact: true }).click();
+      await page.getByRole("link", { name: "Overview", exact: true }).click();
+      await page
+        .locator(".overview-flight-spacer")
+        .getByRole("link")
+        .first()
+        .click();
       await expect(
         page.getByRole("region", {
           name: "Flight destinations and connections",
@@ -200,7 +205,9 @@ for (const selection of ["partial", "complete"]) {
         offlinePage.getByRole("link", { name: "JL 8", exact: true }),
       ).toBeVisible();
       await offlinePage
-        .getByRole("link", { name: "Flights", exact: true })
+        .locator(".overview-flight-spacer")
+        .getByRole("link")
+        .first()
         .click();
       const grid = offlinePage.getByRole("region", {
         name: "Flight destinations and connections",

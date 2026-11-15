@@ -29,18 +29,18 @@ import {
   TagGroup,
   Text,
   Title2,
+  ToggleButton,
   useId,
 } from "@fluentui/react-components";
 import {
+  Add24Regular,
   ArrowExpand24Regular,
-  ChevronDown24Regular,
-  ChevronRight24Regular,
-  ChevronUp24Regular,
   Delete24Regular,
   Dismiss24Regular,
   Share24Regular,
+  Search24Regular,
 } from "@fluentui/react-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import type { PlaceSuggestion, Trip } from "../../api/api";
 import {
@@ -50,12 +50,12 @@ import {
 import ActivityMap from "../../maps/ActivityMap";
 import { activityMapLink } from "../../maps/activityMapLink";
 import { mapsClient } from "../../maps/mapsClient";
-import PlaceSearchResult from "../../shared/components/PlaceSearchResult";
+import PlaceSearchResultButton from "../../shared/components/PlaceSearchResultButton";
 import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { durationMinutes } from "../../shared/time/durations";
 import { trackBehavior } from "../../telemetry/telemetry";
-import { destinationDates } from "../trips/tripDates";
+import { destinationDates, tripSpansMultipleYears } from "../trips/tripDates";
 import CityIcon from "../../shared/components/CityIcon";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
@@ -65,6 +65,8 @@ import ActivityKindsPicker from "./ActivityKindsPicker";
 import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
 import DailyActivityPlan from "./DailyActivityPlan";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
+import { activityMatchesSearch } from "./activitySearch";
+import { activityStatus, activityStatuses } from "./activityStatus";
 import {
   deleteActivity,
   getActivities,
@@ -150,10 +152,9 @@ export default function ActivityPlanning({
   );
   const [query, setQuery] = useSearchParams();
   const [activityView, setActivityView] = useState("ideas");
-  const [collapsedStates, setCollapsedStates] = useState<Set<string>>(
+  const [excludedStatuses, setExcludedStatuses] = useState<Set<string>>(
     new Set(),
   );
-  const stateGroupsId = useId("activity-state-groups");
   const [destinations, setDestinations] =
     useState<DestinationCollection | null>();
   const [activityData, setActivityData] = useState<{
@@ -173,7 +174,17 @@ export default function ActivityPlanning({
   }>();
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
-  const [mapCollapsed, setMapCollapsed] = useState(false);
+  const [activitySearch, setActivitySearch] = useState("");
+  const [activitySearchOpen, setActivitySearchOpen] = useState(false);
+  const activitySearchInput = useRef<HTMLInputElement>(null);
+  const activitySearchButton = useRef<HTMLButtonElement>(null);
+  const activityList = useRef<HTMLUListElement>(null);
+  const activityHeading = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activitySearchOpen && activityView === "ideas" && active) {
+      activitySearchInput.current?.focus();
+    }
+  }, [activitySearchOpen, activityView, active]);
   const mapPanelId = useId("activity-map-panel");
   const mapPanel = useRef<HTMLDivElement>(null);
   const [fullscreenContainer, setFullscreenContainer] =
@@ -201,6 +212,21 @@ export default function ActivityPlanning({
     destinations?.features.find((item) => item.id === selectedCity) ??
     destinations?.features[0];
   const cityId = destination?.id;
+  useLayoutEffect(() => {
+    const list = activityList.current;
+    const heading = activityHeading.current;
+    if (!list || !heading) return;
+    // Match the actual list width inside its scrollbar across browser settings.
+    const measure = () => {
+      heading.style.width =
+        list.clientWidth > 0 ? `${list.clientWidth}px` : "100%";
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [active, activityView, cityId, loading]);
   const routeSelection =
     activityView === "daily" &&
     !editor &&
@@ -220,22 +246,18 @@ export default function ActivityPlanning({
     activityData && activityData.cityId === cityId
       ? activityData.collection
       : emptyCollection;
-  const groups = new Map<string, { item: Activity; index: number }[]>();
-  activities.features.forEach((item, index) => {
-    const group = groups.get(item.properties.state) ?? [];
-    group.push({ item, index });
-    groups.set(item.properties.state, group);
-  });
-  const stateOrder = ["Maybe", "Yes", "No"];
-  const groupedActivities = [...groups].sort(([a], [b]) => {
-    const rank = (state: string) =>
-      stateOrder.includes(state)
-        ? stateOrder.indexOf(state)
-        : stateOrder.length;
-    return rank(a) - rank(b) || a.localeCompare(b);
-  });
+  const searchText = activitySearch.trim().toLocaleLowerCase();
+  const matchingActivities = activities.features
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => activityMatchesSearch(item, searchText));
+  const visibleActivities = matchingActivities.filter(
+    ({ item }) => !excludedStatuses.has(item.properties.state),
+  );
   const selected = activities.features.find((item) => item.id === selectedId);
   const canEdit = !readOnly && destination?.properties.isActive === true;
+  const editorStatus = activityStatus(
+    editor?.value.properties.state ?? "Maybe",
+  );
 
   const deleteOpen = Boolean(deleteTarget && active);
   const editorOpen = Boolean(editor && canEdit && active);
@@ -336,6 +358,12 @@ export default function ActivityPlanning({
       { preventScrollReset: true },
     );
     setError(undefined);
+  }
+
+  function dismissActivitySearch() {
+    setActivitySearch("");
+    setActivitySearchOpen(false);
+    requestAnimationFrame(() => activitySearchButton.current?.focus());
   }
 
   function updateEditor(changes: Partial<ActivityInput["properties"]>) {
@@ -563,7 +591,6 @@ export default function ActivityPlanning({
   async function searchPlace() {
     if (!destination || !placeQuery.trim() || busy || searching) return;
     setPlaceSearchActive(true);
-    setMapCollapsed(false);
     setShowMapCard(false);
     placeAbort.current?.abort();
     const controller = new AbortController();
@@ -661,7 +688,6 @@ export default function ActivityPlanning({
 
   function selectActivity(id: string) {
     setSelectedTravel(undefined);
-    setMapCollapsed(false);
     setSelectedId(id);
     setShowMapCard(true);
   }
@@ -673,6 +699,7 @@ export default function ActivityPlanning({
   }
 
   function renderActivityMenu(item: Activity) {
+    const status = activityStatus(item.properties.state);
     return canEdit ? (
       <Menu
         checkedValues={{ state: [item.properties.state] }}
@@ -686,21 +713,29 @@ export default function ActivityPlanning({
             className="activity-state-menu-button"
             appearance="secondary"
             disabled={busy}
-            aria-label={`State for ${item.properties.name}: ${item.properties.state}`}
+            icon={<status.Icon />}
+            aria-label={`Status for ${item.properties.name}: ${status.label}`}
           >
-            {item.properties.state}
+            <span className="activity-status-label">{status.label}</span>
           </MenuButton>
         </MenuTrigger>
         <MenuPopover onClick={(event) => event.stopPropagation()}>
-          <MenuList>
-            {Array.from(new Set(["Maybe", "Yes", "No"])).map((state) => (
-              <MenuItemRadio key={state} name="state" value={state}>
-                {state}
+          <MenuList className="activity-status-menu" hasCheckmarks={false}>
+            {activityStatuses.map((status) => (
+              <MenuItemRadio
+                key={status.value}
+                name="state"
+                value={status.value}
+                checkmark={null}
+                icon={<status.Icon />}
+              >
+                {status.label}
               </MenuItemRadio>
             ))}
             <MenuDivider />
             <MenuItem
               className="activity-delete-menu-item"
+              aria-label="Remove activity"
               icon={<Delete24Regular />}
               disabled={busy}
               onClick={() => {
@@ -708,13 +743,16 @@ export default function ActivityPlanning({
                 window.setTimeout(() => setDeleteTarget(item), 0);
               }}
             >
-              Delete activity
+              Remove
             </MenuItem>
           </MenuList>
         </MenuPopover>
       </Menu>
     ) : (
-      <span className="activity-state">{item.properties.state}</span>
+      <span className="activity-state">
+        <status.Icon aria-hidden="true" />
+        {status.label}
+      </span>
     );
   }
 
@@ -1099,25 +1137,23 @@ export default function ActivityPlanning({
                   )}
                 {places.length > 0 && (
                   <div
-                    className="activity-place-results"
+                    className="place-search-results"
                     aria-label="Place results"
                   >
                     {places.map((place, index) => (
                       <div
-                        className="activity-place-result"
+                        className="place-search-result-row"
                         key={`${index}-${place.label}`}
                       >
-                        <Button
-                          aria-label={`${index + 1}. ${place.label}`}
+                        <PlaceSearchResultButton
+                          place={place}
+                          index={index}
                           disabled={
                             place.longitude === undefined ||
                             place.latitude === undefined
                           }
                           onClick={() => choosePlace(place)}
-                        >
-                          <span aria-hidden="true">{index + 1}.</span>
-                          <PlaceSearchResult place={place} />
-                        </Button>
+                        />
                         {place.mapAddress &&
                           place.mapAddress !== place.address && (
                             <Text size={200}>
@@ -1271,7 +1307,7 @@ export default function ActivityPlanning({
                     </select>
                   </label>
                   <div className="activity-state-picker">
-                    <span id="activity-state-label">State</span>
+                    <span id="activity-state-label">Status</span>
                     <Menu
                       checkedValues={{
                         state: [editor.value.properties.state],
@@ -1283,27 +1319,31 @@ export default function ActivityPlanning({
                     >
                       <MenuTrigger disableButtonEnhancement>
                         <MenuButton
-                          aria-label={`State: ${editor.value.properties.state}`}
+                          aria-label={`Status: ${editorStatus.label}`}
                           aria-labelledby="activity-state-label activity-state-value"
+                          icon={<editorStatus.Icon />}
                         >
                           <span id="activity-state-value">
-                            {editor.value.properties.state}
+                            {editorStatus.label}
                           </span>
                         </MenuButton>
                       </MenuTrigger>
                       <MenuPopover>
-                        <MenuList>
-                          {Array.from(new Set(["Maybe", "Yes", "No"])).map(
-                            (state) => (
-                              <MenuItemRadio
-                                key={state}
-                                name="state"
-                                value={state}
-                              >
-                                {state}
-                              </MenuItemRadio>
-                            ),
-                          )}
+                        <MenuList
+                          className="activity-status-menu"
+                          hasCheckmarks={false}
+                        >
+                          {activityStatuses.map((status) => (
+                            <MenuItemRadio
+                              key={status.value}
+                              name="state"
+                              value={status.value}
+                              checkmark={null}
+                              icon={<status.Icon />}
+                            >
+                              {status.label}
+                            </MenuItemRadio>
+                          ))}
                         </MenuList>
                       </MenuPopover>
                     </Menu>
@@ -1356,6 +1396,10 @@ export default function ActivityPlanning({
     </OverlayDrawer>
   );
 
+  const includeDestinationYears = tripSpansMultipleYears(
+    trip,
+    destinations.features,
+  );
   return (
     <section
       className={`activity-planning${activityView === "daily" ? " activity-calendar-view" : ""}`}
@@ -1376,17 +1420,17 @@ export default function ActivityPlanning({
                 countryCode={item.properties.countryCode}
               />
               <strong>{item.properties.name}</strong>
-              <small>{destinationDates(item)}</small>
+              <small>{destinationDates(item, includeDestinationYears)}</small>
             </span>
           </Tab>
         ))}
       </TabList>
       <TabList
         aria-label="Activity views"
+        appearance="filled-circular"
         selectedValue={activityView}
         onTabSelect={(_, data) => {
           setActivityView(String(data.value));
-          setMapCollapsed(data.value === "daily");
           setSelectedTravel(undefined);
           setShowMapCard(false);
         }}
@@ -1395,19 +1439,7 @@ export default function ActivityPlanning({
         <Tab value="daily">Plan</Tab>
       </TabList>
       {error && !editor && <Text role="alert">{error}</Text>}
-      <Button
-        className="activity-map-toggle"
-        aria-expanded={!mapCollapsed}
-        aria-controls={mapPanelId}
-        icon={mapCollapsed ? <ChevronDown24Regular /> : <ChevronUp24Regular />}
-        onClick={() => setMapCollapsed((collapsed) => !collapsed)}
-      >
-        {mapCollapsed ? "Show map" : "Hide map"}
-      </Button>
-      <ResizableActivityWorkspace
-        mapCollapsed={mapCollapsed}
-        mapPanelId={mapPanelId}
-      >
+      <ResizableActivityWorkspace mapPanelId={mapPanelId}>
         <div ref={mapPanel} id={mapPanelId} className="activity-map-panel">
           <ActivityMap
             center={destination.geometry}
@@ -1462,7 +1494,6 @@ export default function ActivityPlanning({
                 setSelectedTravel({ cityId: destination.id, selection });
                 setSelectedId(undefined);
                 setShowMapCard(false);
-                setMapCollapsed(false);
               }}
               onChooseActivities={() => setActivityView("ideas")}
               onSaved={async () => {
@@ -1472,143 +1503,179 @@ export default function ActivityPlanning({
             />
           ) : (
             <>
-              <div className="activity-cards-heading">
-                <Title2 as="h2">Activities</Title2>
-                {canEdit && (
+              <div ref={activityHeading} className="activity-cards-heading">
+                <div
+                  className="activity-cards-toolbar"
+                  aria-hidden={activitySearchOpen || undefined}
+                  inert={activitySearchOpen}
+                >
+                  <Title2 as="h2">Activities</Title2>
                   <div className="activity-cards-actions">
+                    {canEdit && (
+                      <Button
+                        appearance="primary"
+                        icon={<Add24Regular />}
+                        disabled={busy}
+                        onClick={openAdd}
+                      >
+                        Add activity
+                      </Button>
+                    )}
                     <Button
-                      appearance="primary"
-                      disabled={busy}
-                      onClick={openAdd}
-                    >
-                      Add activity
-                    </Button>
+                      ref={activitySearchButton}
+                      appearance="outline"
+                      icon={<Search24Regular />}
+                      aria-label="Search activities"
+                      title="Search activities"
+                      onClick={() => setActivitySearchOpen(true)}
+                    />
+                  </div>
+                </div>
+                {activitySearchOpen && (
+                  <div className="activity-search-toolbar">
+                    <SearchBox
+                      ref={activitySearchInput}
+                      className="activity-list-search"
+                      aria-label="Search activities"
+                      placeholder="Search activities"
+                      dismiss={null}
+                      value={activitySearch}
+                      onChange={(_, data) => setActivitySearch(data.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          dismissActivitySearch();
+                        }
+                      }}
+                    />
+                    <Button
+                      appearance="outline"
+                      icon={<Dismiss24Regular />}
+                      aria-label="Clear and dismiss activity search"
+                      title="Clear and dismiss search"
+                      onClick={dismissActivitySearch}
+                    />
                   </div>
                 )}
+                <div
+                  className="activity-status-filters"
+                  role="group"
+                  aria-label="Filter activities by status"
+                >
+                  {activityStatuses.map((status) => {
+                    const count = matchingActivities.filter(
+                      ({ item }) => item.properties.state === status.value,
+                    ).length;
+                    return (
+                      <ToggleButton
+                        key={status.value}
+                        className="activity-status-filter"
+                        shape="circular"
+                        icon={<status.Icon />}
+                        checked={!excludedStatuses.has(status.value)}
+                        aria-label={`${status.label} activities: ${count}`}
+                        onClick={() =>
+                          setExcludedStatuses((current) => {
+                            const next = new Set(current);
+                            if (next.has(status.value))
+                              next.delete(status.value);
+                            else next.add(status.value);
+                            return next;
+                          })
+                        }
+                      >
+                        {status.label}
+                        <span className="activity-status-filter-count">
+                          {count}
+                        </span>
+                      </ToggleButton>
+                    );
+                  })}
+                </div>
               </div>
-
               <ul
-                className="activity-cards activity-state-groups"
+                ref={activityList}
+                className="activity-cards"
                 aria-label={`${destination.properties.name} activities`}
               >
-                {groupedActivities.map(([state, items], groupIndex) => {
-                  const key = JSON.stringify([cityId, state]);
-                  const expanded = !collapsedStates.has(key);
-                  const contentId = `${stateGroupsId}-${groupIndex}`;
-                  return (
-                    <li key={state} className="activity-state-group">
-                      <h3>
-                        <Button
-                          className="activity-state-group-toggle"
-                          appearance="secondary"
-                          icon={
-                            expanded ? (
-                              <ChevronDown24Regular />
-                            ) : (
-                              <ChevronRight24Regular />
-                            )
-                          }
-                          aria-label={`${state} activities`}
-                          aria-expanded={expanded}
-                          aria-controls={contentId}
-                          onClick={() =>
-                            setCollapsedStates((current) => {
-                              const next = new Set(current);
-                              if (next.has(key)) next.delete(key);
-                              else next.add(key);
-                              return next;
-                            })
-                          }
+                {visibleActivities.map(({ item, index }) => (
+                  <li
+                    key={item.id}
+                    className="activity-list-item interactive-card"
+                    onClick={(event) => {
+                      if (
+                        event.target instanceof Element &&
+                        event.target.closest("a, button")
+                      )
+                        return;
+                      openIdea(item);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="card-action card-overlay"
+                      aria-label={item.properties.name}
+                      aria-pressed={selectedId === item.id}
+                      disabled={busy}
+                      onClick={() => openIdea(item)}
+                    />
+                    <div className="activity-list-heading">
+                      <span className="activity-list-title">
+                        <span className="activity-number" aria-hidden="true">
+                          {index + 1}
+                        </span>
+                        <span>{item.properties.name}</span>
+                      </span>
+                      {renderActivityMenu(item)}
+                    </div>
+                    <TagGroup
+                      className="activity-kinds"
+                      aria-label="Activity kinds"
+                      size="small"
+                    >
+                      {item.properties.kinds.map((kind) => (
+                        <Tag
+                          key={kind}
+                          value={kind}
+                          appearance="outline"
+                          className="activity-kind-tag"
                         >
-                          <span>{state}</span>
-                          <span className="activity-state-group-count">
-                            {items.length}
-                          </span>
-                        </Button>
-                      </h3>
-                      <ul
-                        id={contentId}
-                        className="activity-state-group-items"
-                        aria-label={`${state} activities`}
-                        hidden={!expanded}
-                      >
-                        {items.map(({ item, index }) => (
-                          <li
-                            key={item.id}
-                            className="activity-list-item interactive-card"
-                            onClick={(event) => {
-                              if (
-                                event.target instanceof Element &&
-                                event.target.closest("a, button")
-                              )
-                                return;
-                              openIdea(item);
-                            }}
+                          {kind}
+                        </Tag>
+                      ))}
+                    </TagGroup>
+                    {item.properties.address && (
+                      <p>{item.properties.address}</p>
+                    )}
+                    {!item.geometry && (
+                      <div className="activity-list-location">
+                        <span>Needs location · Not on map</span>
+                        {canEdit && (
+                          <Button
+                            appearance="secondary"
+                            size="small"
+                            disabled={busy}
+                            aria-label={`${item.properties.locationSuggestion ? "Review" : "Set"} location for ${item.properties.name}`}
+                            onClick={() => void openEdit(item)}
                           >
-                            <button
-                              type="button"
-                              className="card-action card-overlay"
-                              aria-label={item.properties.name}
-                              aria-pressed={selectedId === item.id}
-                              disabled={busy}
-                              onClick={() => openIdea(item)}
-                            />
-                            <div className="activity-list-heading">
-                              <span className="activity-list-title">
-                                <span
-                                  className="activity-number"
-                                  aria-hidden="true"
-                                >
-                                  {index + 1}
-                                </span>
-                                <span>{item.properties.name}</span>
-                              </span>
-                              {renderActivityMenu(item)}
-                            </div>
-                            <TagGroup
-                              className="activity-kinds"
-                              aria-label="Activity kinds"
-                              size="small"
-                            >
-                              {item.properties.kinds.map((kind) => (
-                                <Tag
-                                  key={kind}
-                                  value={kind}
-                                  appearance="outline"
-                                  className="activity-kind-tag"
-                                >
-                                  {kind}
-                                </Tag>
-                              ))}
-                            </TagGroup>
-                            {item.properties.address && (
-                              <p>{item.properties.address}</p>
-                            )}
-                            {!item.geometry && (
-                              <div className="activity-list-location">
-                                <span>Needs location · Not on map</span>
-                                {canEdit && (
-                                  <Button
-                                    appearance="secondary"
-                                    size="small"
-                                    disabled={busy}
-                                    aria-label={`${item.properties.locationSuggestion ? "Review" : "Set"} location for ${item.properties.name}`}
-                                    onClick={() => void openEdit(item)}
-                                  >
-                                    {item.properties.locationSuggestion
-                                      ? "Review location"
-                                      : "Set location"}
-                                  </Button>
-                                )}
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  );
-                })}
+                            {item.properties.locationSuggestion
+                              ? "Review location"
+                              : "Set location"}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                ))}
               </ul>
+              {activities.features.length > 0 &&
+                visibleActivities.length === 0 && (
+                  <Text className="activity-empty" role="status">
+                    {excludedStatuses.size > 0
+                      ? "No activities match your filters."
+                      : "No activities match your search."}
+                  </Text>
+                )}
               {activities.features.length === 0 && (
                 <Text className="activity-empty">
                   {canEdit

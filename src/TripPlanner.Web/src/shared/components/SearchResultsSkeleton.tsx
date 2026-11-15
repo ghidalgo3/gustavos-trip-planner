@@ -6,7 +6,7 @@ export default function SearchResultsSkeleton({
   appearance = "options",
 }: {
   label: string;
-  appearance?: "options" | "places" | "stays";
+  appearance?: "options" | "places";
 }) {
   return (
     <ContentSkeleton label={label}>
@@ -25,9 +25,6 @@ export default function SearchResultsSkeleton({
               />
               {appearance !== "options" && (
                 <SkeletonItem size={12} style={{ width: "95%" }} />
-              )}
-              {appearance === "stays" && (
-                <SkeletonItem size={12} style={{ width: "35%" }} />
               )}
             </div>
           </div>

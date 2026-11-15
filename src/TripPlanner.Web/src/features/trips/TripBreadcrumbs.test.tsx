@@ -19,21 +19,17 @@ function Location() {
 }
 
 test.each([
-  ["overview", undefined, "Overview"],
-  ["flights", undefined, "Flights"],
-  ["activities", undefined, "Activities"],
-  ["activities", "Paris", "Paris"],
+  ["overview", "Overview"],
+  ["flights", "Flights"],
+  ["activities", "Activities"],
+  ["party", "Party"],
 ] as const)(
-  "breadcrumbs identify %s with destination %s and navigate to parents",
-  (section, destinationName, current) => {
+  "breadcrumbs identify %s and navigate to parents",
+  (section, current) => {
     render(
       <ColorSchemeProvider>
         <MemoryRouter initialEntries={["/trips/trip/activities"]}>
-          <TripBreadcrumbs
-            trip={trip}
-            section={section}
-            destinationName={destinationName}
-          />
+          <TripBreadcrumbs trip={trip} section={section} />
           <Location />
         </MemoryRouter>
       </ColorSchemeProvider>,
@@ -43,12 +39,15 @@ test.each([
       "aria-current",
       "page",
     );
-    if (destinationName)
+    if (section !== "overview") {
       expect(
-        within(breadcrumb).getByRole("link", { name: "Activities" }),
-      ).toHaveAttribute("href", "/trips/trip/activities");
-    fireEvent.click(within(breadcrumb).getByRole("link", { name: "Europe" }));
-    expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip");
+        within(breadcrumb).getByRole("link", { name: "Overview" }),
+      ).toHaveAttribute("href", "/trips/trip");
+      fireEvent.click(
+        within(breadcrumb).getByRole("link", { name: "Overview" }),
+      );
+      expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip");
+    }
     fireEvent.click(within(breadcrumb).getByRole("link", { name: "Trips" }));
     expect(screen.getByTestId("route").textContent).toBe("/");
   },

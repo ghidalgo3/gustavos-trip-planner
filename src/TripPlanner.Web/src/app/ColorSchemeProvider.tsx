@@ -1,11 +1,8 @@
 import { type ReactNode } from "react";
-import {
-  FluentProvider,
-  webDarkTheme,
-  webLightTheme,
-} from "@fluentui/react-components";
+import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 
 import { useSystemDarkMode } from "../shared/hooks/useSystemDarkMode";
+import { darkTheme } from "./theme";
 
 export default function ColorSchemeProvider({
   children,
@@ -20,7 +17,7 @@ export default function ColorSchemeProvider({
       applyStylesToPortals={false}
       className="app-theme"
       data-color-scheme={darkMode ? "dark" : "light"}
-      theme={darkMode ? webDarkTheme : webLightTheme}
+      theme={darkMode ? darkTheme : webLightTheme}
     >
       {children}
     </FluentProvider>

@@ -709,10 +709,10 @@ test("shows activity counts by decision state instead of a plan button for a pop
   });
   show();
   expect(
-    await screen.findByRole("link", { name: "2 Yes activities in Paris" }),
+    await screen.findByRole("link", { name: "2 Planned activities in Paris" }),
   ).toHaveAttribute("href", "/trips/trip/activities?destination=paris-fr");
   expect(
-    screen.getByRole("link", { name: "1 Maybe activities in Paris" }),
+    screen.getByRole("link", { name: "1 Considering activities in Paris" }),
   ).toBeVisible();
   expect(
     screen.queryByRole("link", { name: "Plan activities in Paris" }),
@@ -1029,7 +1029,7 @@ test.each([false, true])(
         name: "Stay in Paris",
       });
       expect(
-        within(drawer).getByRole("textbox", { name: "Stay location" }),
+        within(drawer).getByRole("searchbox", { name: "Stay location" }),
       ).toHaveValue("Airport Hotel");
       expect(within(drawer).getByText("2027-06-20 – 2027-06-22")).toBeVisible();
     }
@@ -1082,7 +1082,7 @@ test.each([null, "Hotel Paris"])(
     fireEvent.click(button);
     const drawer = await screen.findByRole("dialog", { name: "Stay in Paris" });
     expect(
-      within(drawer).getByRole("textbox", { name: "Stay location" }),
+      within(drawer).getByRole("searchbox", { name: "Stay location" }),
     ).toBeVisible();
     if (!stayName) {
       expect(

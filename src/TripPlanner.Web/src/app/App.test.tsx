@@ -479,57 +479,52 @@ test.each([false, true])(
     expect(
       screen.queryByText("A spring getaway in Paris."),
     ).not.toBeInTheDocument();
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(breadcrumb).getByText("Overview")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(
-      screen.queryByRole("navigation", { name: "Breadcrumb" }),
+      within(breadcrumb).getByRole("link", { name: "Trips" }),
+    ).toHaveAttribute("href", "/");
+    expect(
+      screen.queryByRole("navigation", { name: "Trip sections" }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: "Trips" }),
-    ).not.toBeInTheDocument();
-    expect(
-      await screen.findByRole("link", { name: "Overview" }),
-    ).toHaveAttribute("aria-current", "page");
     expect(
       await screen.findByRole("heading", { name: "Your trip starts here" }),
     ).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Add destination" }),
     ).toBeEnabled();
-    const navigation = screen.getByRole("navigation", {
-      name: "Trip sections",
-    });
-    fireEvent.click(
-      within(navigation).getByRole("link", { name: "Activities" }),
-    );
-    expect(screen.getByTestId("route")).toHaveTextContent(
-      "/trips/trip-1/activities",
-    );
     expect(
-      within(navigation).getByRole("link", { name: "Activities" }),
-    ).toHaveAttribute("aria-current", "page");
-    fireEvent.click(within(navigation).getByRole("link", { name: "Flights" }));
-    expect(screen.getByTestId("route")).toHaveTextContent(
-      "/trips/trip-1/flights",
-    );
-    expect(
-      within(navigation).getByRole("link", { name: "Flights" }),
-    ).toHaveAttribute("aria-current", "page");
-    expect(
-      within(navigation).getByRole("link", { name: "Activities" }),
-    ).not.toHaveAttribute("aria-current");
-    fireEvent.click(within(navigation).getByRole("link", { name: "Party" }));
+      screen.queryByRole("navigation", { name: "Trip pages" }),
+    ).not.toBeInTheDocument();
+    const share = screen.getByRole("button", { name: "Share" });
+    expect(share.closest("header")).not.toBeNull();
+    fireEvent.click(share);
     expect(screen.getByTestId("route")).toHaveTextContent(
       "/trips/trip-1/party",
     );
+    const currentBreadcrumb = screen.getByRole("navigation", {
+      name: "Breadcrumb",
+    });
+    expect(within(currentBreadcrumb).getByText("Party")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(await screen.findByRole("heading", { name: "Party" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Share" }),
+    ).not.toBeInTheDocument();
     if (planner)
       expect(
         screen.queryByRole("combobox", { name: "Add traveler" }),
       ).not.toBeInTheDocument();
-    expect(
-      within(navigation).getByRole("link", { name: "Party" }),
-    ).toHaveAttribute("aria-current", "page");
-    fireEvent.click(within(navigation).getByRole("link", { name: "Overview" }));
+    fireEvent.click(
+      within(currentBreadcrumb).getByRole("link", { name: "Overview" }),
+    );
     expect(screen.getByTestId("route")).toHaveTextContent("/trips/trip-1");
+    expect(screen.getByRole("button", { name: "Share" })).toBeVisible();
     expect(
       screen.queryByRole("region", { name: "Trip party" }),
     ).not.toBeInTheDocument();

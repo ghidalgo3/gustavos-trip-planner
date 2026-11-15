@@ -1,15 +1,12 @@
 import {
   Button,
+  Combobox,
   Field,
+  Option,
   Skeleton,
   SkeletonItem,
   Tag,
-  TagPicker,
-  TagPickerControl,
-  TagPickerGroup,
-  TagPickerInput,
-  TagPickerList,
-  TagPickerOption,
+  TagGroup,
 } from "@fluentui/react-components";
 import { useEffect, useState } from "react";
 import { listActivityKinds } from "./activityKindsApi";
@@ -85,28 +82,22 @@ export default function ActivityKindsPicker({
           !validActivityKinds(value) ? "Add at least one kind." : undefined
         }
       >
-        <TagPicker
-          inline
-          disableAutoFocus
-          disabled={disabled}
-          selectedOptions={value}
-          open={open && !disabled}
-          onOpenChange={(_, data) => setOpen(data.open)}
-          onOptionSelect={(_, data) => {
-            onChange(data.selectedOptions);
-            if (!value.includes(data.value)) setInputValue("");
-          }}
-        >
-          <TagPickerControl className="activity-kinds-control">
-            <TagPickerGroup
+        <div className="tag-list-picker activity-kinds-control">
+          {value.length > 0 && (
+            <TagGroup
               aria-label="Selected kinds"
-              className="activity-kind-tags"
+              className="tag-list-tags"
+              dismissible
+              onDismiss={(_, data) =>
+                !disabled &&
+                onChange(value.filter((kind) => kind !== data.value))
+              }
             >
               {value.map((kind) => (
                 <Tag
                   key={kind}
                   value={kind}
-                  dismissible
+                  size="small"
                   disabled={disabled}
                   aria-label={`Remove ${kind}`}
                   title={kind}
@@ -115,41 +106,51 @@ export default function ActivityKindsPicker({
                   {kind}
                 </Tag>
               ))}
-            </TagPickerGroup>
-            <TagPickerInput
-              aria-label="Kinds"
-              placeholder="Add a kind"
-              value={inputValue}
-              maxLength={200}
-              className="activity-kinds-input"
-              onFocus={() => setOpen(true)}
-              onChange={(event) => {
-                setInputValue(event.target.value);
-                setOpen(true);
-              }}
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  !event.nativeEvent.isComposing &&
-                  !event.currentTarget.getAttribute("aria-activedescendant")
-                ) {
-                  event.preventDefault();
-                  commit();
-                }
-              }}
-            />
-          </TagPickerControl>
-          <TagPickerList>
+            </TagGroup>
+          )}
+          <Combobox
+            inlinePopup
+            disableAutoFocus
+            multiselect
+            disabled={disabled}
+            selectedOptions={value}
+            open={open && !disabled}
+            onOpenChange={(_, data) => setOpen(data.open)}
+            onOptionSelect={(_, data) => {
+              if (!data.optionValue || disabled) return;
+              onChange(data.selectedOptions);
+              setInputValue("");
+            }}
+            aria-label="Kinds"
+            placeholder="Add a kind"
+            value={inputValue}
+            maxLength={200}
+            className="activity-kinds-input"
+            onFocus={() => setOpen(true)}
+            onChange={(event) => {
+              setInputValue(event.target.value);
+              setOpen(true);
+            }}
+            onKeyDownCapture={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.nativeEvent.isComposing &&
+                event.target instanceof HTMLInputElement &&
+                !event.target.getAttribute("aria-activedescendant")
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                commit();
+              }
+            }}
+          >
             {suggestions.map((kind) => (
-              <TagPickerOption key={kind} value={kind}>
+              <Option key={kind} value={kind} text={kind}>
                 {kind}
-              </TagPickerOption>
+              </Option>
             ))}
             {canAdd && !suggestions.includes(query) && (
-              <TagPickerOption
-                value={query}
-                text={query}
-              >{`Add “${query}”`}</TagPickerOption>
+              <Option value={query} text={query}>{`Add “${query}”`}</Option>
             )}
             {loading && (
               <div className="activity-kind-suggestion-loading">
@@ -158,8 +159,8 @@ export default function ActivityKindsPicker({
                 </Skeleton>
               </div>
             )}
-          </TagPickerList>
-        </TagPicker>
+          </Combobox>
+        </div>
       </Field>
       {current?.error && (
         <div role="status">

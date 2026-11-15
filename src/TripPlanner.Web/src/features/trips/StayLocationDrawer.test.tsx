@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import ColorSchemeProvider from "../../app/ColorSchemeProvider";
+import type { PlaceSearch } from "../../maps/ActivityMap";
 import {
   saveStayLocation,
   searchStayPlaces,
@@ -14,11 +15,23 @@ vi.mock("../activities/activitiesApi", () => ({
 vi.mock("../../maps/ActivityMap", () => ({
   default: ({
     stayLocation,
+    placeSearch,
   }: {
     stayLocation?: { properties: { name: string } } | null;
+    placeSearch?: PlaceSearch;
   }) => (
     <div role="img" aria-label="Stay map preview">
       {stayLocation?.properties.name}
+      {placeSearch?.results.map((place, index) =>
+        place.longitude !== undefined && place.latitude !== undefined ? (
+          <button
+            key={index}
+            aria-label={`Map result ${index + 1}: ${place.label}`}
+            data-coordinates={`${place.longitude},${place.latitude}`}
+            onClick={() => placeSearch.onSelect(index)}
+          />
+        ) : null,
+      )}
     </div>
   ),
 }));
@@ -94,41 +107,49 @@ const matches = [
     },
   },
 ];
-test("searches Maps only after Search and saves a selected accommodation", async () => {
-  vi.mocked(searchStayPlaces).mockResolvedValue(matches);
-  vi.mocked(saveStayLocation).mockResolvedValue(undefined);
-  const { onSaved } = showDrawer();
-  fireEvent.change(screen.getByRole("textbox", { name: "Stay location" }), {
-    target: { value: "Hotel Mets" },
-  });
-  expect(searchStayPlaces).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  const choice = await screen.findByRole("radio", {
-    name: /Hotel Mets Shibuya/,
-  });
-  expect(searchStayPlaces).toHaveBeenCalledWith(
-    destination,
-    "Hotel Mets",
-    expect.any(AbortSignal),
-  );
-  fireEvent.click(choice);
-  await waitFor(() =>
-    expect(saveStayLocation).toHaveBeenCalledWith(
-      "trip",
-      "tokyo-jp",
-      "visit",
-      expect.objectContaining({
-        geometry: matches[0].geometry,
-        properties: { name: "Hotel Mets Shibuya", address: "Shibuya, Tokyo" },
-      }),
-    ),
-  );
-  await waitFor(() => expect(onSaved).toHaveBeenCalled());
-});
+test.each(["list", "map"])(
+  "searches Maps only after Search and saves an accommodation from the %s",
+  async (source) => {
+    vi.mocked(searchStayPlaces).mockResolvedValue(matches);
+    vi.mocked(saveStayLocation).mockResolvedValue(undefined);
+    const { onSaved } = showDrawer();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Stay location" }), {
+      target: { value: "Hotel Mets" },
+    });
+    expect(searchStayPlaces).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    const choice = await screen.findByRole("button", {
+      name:
+        source === "map"
+          ? /^Map result 1: Hotel Mets Shibuya/
+          : /^1\. Hotel Mets Shibuya/,
+    });
+    expect(searchStayPlaces).toHaveBeenCalledWith(
+      destination,
+      "Hotel Mets",
+      expect.any(AbortSignal),
+    );
+    fireEvent.click(choice);
+    await waitFor(() =>
+      expect(saveStayLocation).toHaveBeenCalledWith(
+        "trip",
+        "tokyo-jp",
+        "visit",
+        expect.objectContaining({
+          geometry: matches[0].geometry,
+          properties: { name: "Hotel Mets Shibuya", address: "Shibuya, Tokyo" },
+        }),
+      ),
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    fireEvent.click(choice);
+    expect(saveStayLocation).toHaveBeenCalledTimes(1);
+  },
+);
 test("keeps the confirmed hotel visible while Maps search is pending", async () => {
   vi.mocked(searchStayPlaces).mockReturnValue(new Promise(() => {}));
   showDrawer(savedDestination);
-  fireEvent.change(screen.getByRole("textbox", { name: "Stay location" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "Stay location" }), {
     target: { value: "Another hotel" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
@@ -137,18 +158,43 @@ test("keeps the confirmed hotel visible while Maps search is pending", async () 
   ).toHaveTextContent("Existing Hotel");
   expect(saveStayLocation).not.toHaveBeenCalled();
 });
+test("numbers mapped results consistently, disables unlocated results, and clears stale search pins", async () => {
+  vi.mocked(searchStayPlaces).mockResolvedValue([
+    { name: "Unlocated Hotel", address: "Tokyo", geometry: null },
+    ...matches,
+  ]);
+  showDrawer();
+  const search = screen.getByRole("searchbox", { name: "Stay location" });
+  fireEvent.change(search, { target: { value: "Hotel" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(
+    await screen.findByRole("button", { name: /^1\. Unlocated Hotel/ }),
+  ).toBeDisabled();
+  const pin = await screen.findByRole("button", {
+    name: /^Map result 2: Hotel Mets Shibuya/,
+  });
+  expect(pin).toHaveAttribute("data-coordinates", "139.703,35.655");
+  expect(
+    screen.queryByRole("button", { name: /^Map result 1:/ }),
+  ).not.toBeInTheDocument();
+  fireEvent.change(search, { target: { value: "Another hotel" } });
+  expect(
+    screen.queryByRole("button", { name: /^Map result / }),
+  ).not.toBeInTheDocument();
+  expect(saveStayLocation).not.toHaveBeenCalled();
+});
 test("a failed accommodation save preserves the confirmed hotel", async () => {
   vi.mocked(searchStayPlaces).mockResolvedValue(matches);
   vi.mocked(saveStayLocation).mockRejectedValue(
     new Error("Could not save hotel"),
   );
   const { onSaved } = showDrawer(savedDestination);
-  fireEvent.change(screen.getByRole("textbox", { name: "Stay location" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "Stay location" }), {
     target: { value: "Hotel Mets" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
   fireEvent.click(
-    await screen.findByRole("radio", { name: /Hotel Mets Shibuya/ }),
+    await screen.findByRole("button", { name: /^1\. Hotel Mets Shibuya/ }),
   );
   await screen.findByText("Could not save hotel");
   expect(
