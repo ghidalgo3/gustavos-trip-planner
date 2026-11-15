@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.14.1
+
 ### Fixed
 
 - Clickable trip, destination, activity, flight, and stay cards share border-only
