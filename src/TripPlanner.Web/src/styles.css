@@ -25,6 +25,68 @@ body {
   min-height: 100vh;
 }
 
+/* Outline and transparent buttons need the same full-surface hover cue as other buttons. */
+.fui-Button {
+  --colorTransparentBackgroundHover: var(--colorNeutralBackground1Hover);
+}
+
+/* Card actions share one border-only hover cue; nested controls keep their own feedback. */
+.interactive-card {
+  position: relative;
+  isolation: isolate;
+}
+.interactive-card:has(.card-action):not(
+    :has(.card-action:disabled, .card-action input:disabled)
+  ) {
+  cursor: pointer;
+}
+.card-action:disabled {
+  cursor: default;
+}
+.interactive-card:has(.card-action):hover:not(
+    :has(
+      .card-action:is(:disabled, [aria-disabled="true"]),
+      .card-action input:disabled,
+      :is(button, a, input, select, textarea, summary, [role="button"]):not(
+          .card-action,
+          .card-action *
+        ):hover
+    )
+  ) {
+  border-color: var(--colorBrandStroke1);
+  --interactive-card-border: var(--colorBrandStroke1);
+}
+.interactive-card.fui-Card::after {
+  border-color: var(--interactive-card-border, var(--colorTransparentStroke));
+}
+.interactive-card:has(
+  .card-action:focus-visible,
+  .card-action input:focus-visible
+) {
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 2px;
+}
+.interactive-card :is(button, a, summary):not(.card-action, .card-action *) {
+  position: relative;
+  z-index: 2;
+}
+/* The accessible action covers the card; its visible feedback is the card border. */
+.card-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+.card-overlay:focus-visible {
+  outline: none;
+}
+
 @media (max-width: 767px), (pointer: coarse) {
   /* Prevent iOS focus zoom, including in portals and landscape touch layouts.
      Override Fluent and feature styles while preserving larger inherited text. */
@@ -377,7 +439,6 @@ main {
   position: relative;
   justify-content: center;
   padding: 20px;
-  cursor: pointer;
 }
 .trip-grid > .trip-card {
   overflow: visible;
@@ -1360,15 +1421,6 @@ main {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.overview-destination-navigable {
-  position: relative;
-  isolation: isolate;
-}
-.overview-destination-navigable:hover,
-.overview-destination-navigable:has(.overview-destination-link:focus-visible) {
-  border-color: var(--colorBrandStroke1);
-  background: var(--colorNeutralBackground1Hover);
-}
 .overview-destination-link {
   display: inline-flex;
   align-items: center;
@@ -1495,10 +1547,6 @@ main {
   padding: 0;
   margin: 0;
   min-width: 0;
-}
-.destination-drawer-description {
-  line-height: 1.6;
-  color: var(--colorNeutralForeground2);
 }
 .destination-drawer-footer {
   justify-content: flex-end;
@@ -1896,15 +1944,6 @@ main {
   padding: 8px 0;
 }
 
-.trip-calendar-selection {
-  margin: 8px 0;
-  font-weight: 600;
-}
-.trip-calendar-instruction {
-  font-size: 12px;
-  color: var(--colorNeutralForeground2);
-  min-height: 32px;
-}
 .trip-calendar-day[aria-pressed="true"] {
   background: var(--colorBrandBackground2);
   border: 1px solid var(--colorBrandStroke2);
@@ -1930,16 +1969,6 @@ main {
   border-radius: 12px;
   background: var(--colorNeutralBackground1);
 }
-.activity-card {
-  cursor: pointer;
-}
-.activity-card:hover {
-  border-color: var(--colorBrandStroke1);
-}
-.activity-card:has(.activity-card-heading button:focus-visible) {
-  outline: 2px solid var(--colorBrandStroke1);
-  outline-offset: 3px;
-}
 .activity-card.selected {
   border-color: var(--colorBrandStroke1);
   box-shadow: inset 0 0 0 1px var(--colorBrandStroke1);
@@ -1954,21 +1983,6 @@ main {
   flex: 1 1 160px;
   margin: 0;
   font-size: 18px;
-}
-.activity-card-heading h3 button {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  color: var(--colorBrandForegroundLink);
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-.activity-card-heading h3 button:focus-visible {
-  outline: 2px solid var(--colorBrandStroke1);
-  outline-offset: 4px;
 }
 .activity-card-description {
   margin: 0;
@@ -2007,13 +2021,6 @@ main {
 }
 .trip-parties h2 {
   margin: 0;
-}
-.destination-flight-constraints {
-  display: grid;
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--colorNeutralStroke2);
 }
 .flight-planning {
   display: grid;
@@ -2345,13 +2352,12 @@ main:has(.trip-workspace-activities) > .topbar {
   border: 1px solid var(--colorNeutralStroke2);
   border-radius: 10px;
   background: var(--colorNeutralBackground1);
-  cursor: pointer;
 }
-.activity-list-item:has(.activity-list-select[aria-pressed="true"]) {
+.activity-list-item:has(.card-action[aria-pressed="true"]) {
   border-color: var(--colorBrandStroke1);
   background: var(--colorBrandBackground2);
 }
-.activity-list-select {
+.activity-list-title {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -2367,17 +2373,9 @@ main:has(.trip-workspace-activities) > .topbar {
   font: inherit;
   font-weight: 600;
   text-align: left;
-  cursor: pointer;
 }
-.activity-list-select > span:last-child {
+.activity-list-title > span:last-child {
   overflow-wrap: anywhere;
-}
-.activity-list-select:hover {
-  background: var(--colorNeutralBackground1Hover);
-}
-.activity-list-select:focus-visible {
-  outline: 2px solid var(--colorBrandStroke1);
-  outline-offset: 2px;
 }
 .activity-map-panel > .activity-map-bottom-card {
   max-height: 65%;
@@ -2634,10 +2632,6 @@ main:has(.trip-workspace-activities) > .topbar {
   align-items: center;
   gap: 16px;
 }
-.flight-grid-toolbar > div {
-  display: grid;
-  gap: 6px;
-}
 .flight-grid-status {
   min-height: 28px;
   display: flex;
@@ -2721,9 +2715,7 @@ main:has(.trip-workspace-activities) > .topbar {
 }
 .flight-grid-card.is-connected {
   border-color: var(--colorBrandStroke1);
-  box-shadow: 0 0 0 3px var(--colorBrandBackground2);
 }
-.flight-grid-card.is-active,
 .flight-grid-card:focus-visible {
   border-color: var(--colorBrandBackground);
   outline: 2px solid var(--colorBrandStroke1);
@@ -2834,6 +2826,9 @@ main:has(.trip-workspace-activities) > .topbar {
   border: 1px solid var(--colorNeutralStroke1);
   border-radius: 6px;
 }
+.flight-grid-card-actions summary:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
 .flight-grid-connections {
   position: absolute;
   inset: 0;
@@ -2876,7 +2871,7 @@ main:has(.trip-workspace-activities) > .topbar {
   min-width: 0;
   width: 100%;
 }
-.flight-grid-toolbar > .flight-grid-selection-actions {
+.flight-grid-selection-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2884,7 +2879,6 @@ main:has(.trip-workspace-activities) > .topbar {
 }
 .flight-grid-card {
   position: relative;
-  cursor: pointer;
 }
 .flight-grid-select {
   position: absolute;
@@ -3165,6 +3159,16 @@ main:has(.trip-workspace-activities) > .topbar {
 .stay-search-result.is-selected {
   border-color: var(--colorBrandStroke1);
   background: var(--colorBrandBackground2);
+}
+.stay-search-result > .fui-Radio {
+  position: static;
+  width: 100%;
+}
+.stay-search-result .fui-Radio__label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
 }
 .stay-map-address {
   font-size: 12px;

@@ -270,12 +270,15 @@ public class DestinationFlightPlanningTests
     }
 
     [TestMethod]
-    [DataRow(6, 0, true)]
-    [DataRow(12, 0, true)]
-    [DataRow(12, 1, false)]
-    [DataRow(13, 0, false)]
-    public void PastArrivalWindowIdentifiesTheDestination(
+    [DataRow(6, 20, 0, true)]
+    [DataRow(12, 20, 0, true)]
+    [DataRow(12, 20, 1, true)]
+    [DataRow(13, 12, 0, true)]
+    [DataRow(13, 20, 0, false)]
+    [DataRow(14, 20, 0, false)]
+    public void PastDestinationDatesPreventSearchRegardlessOfFlexibility(
         int arrivalDay,
+        int departureDay,
         int flexibility,
         bool expired
     )
@@ -287,7 +290,7 @@ public class DestinationFlightPlanningTests
             Id = Guid.NewGuid(),
             Location = airports.Resolve("HND")! with { Label = "Tokyo" },
             PresentFrom = new(2026, 10, arrivalDay),
-            PresentThrough = new(2026, 10, 20),
+            PresentThrough = new(2026, 10, departureDay),
             ArrivalFlexibilityDays = flexibility,
             DepartureFlexibilityDays = 0,
         };
@@ -304,8 +307,11 @@ public class DestinationFlightPlanningTests
         if (expired)
         {
             var issue = issues.Single(item => item.Message.Contains("in the past"));
-            StringAssert.Contains(issue.Message, "Tokyo");
-            StringAssert.Contains(issue.Message, "Overview");
+            Assert.AreEqual("pastDestinationDates", issue.Code);
+            Assert.AreEqual(
+                "Destination Tokyo's dates are in the past, you must plan a future trip",
+                issue.Message
+            );
             CollectionAssert.Contains(issue.ConstraintIds, visit.Id);
         }
         else

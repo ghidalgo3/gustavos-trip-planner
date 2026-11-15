@@ -232,9 +232,10 @@ test("a click selects only that flight, dims its column, filters the other colum
   render(<Grid />);
   const middle = screen.getByRole("group", { name: /Middle$/ });
   fireEvent.click(within(middle).getByText("Flight details"));
-  expect(screen.getByText("0 of 3 flights selected")).toBeVisible();
+  expect(screen.queryByText(/\d+ of \d+ flights selected/)).toBeNull();
+  expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
   fireEvent.click(middle);
-  expect(screen.getByText("1 of 3 flights selected")).toBeVisible();
+  expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
   expect(middle).toHaveClass("is-chosen");
   expect(
     within(middle).getByRole("button", { name: /^Choose flight/ }),
@@ -257,7 +258,7 @@ test("a click selects only that flight, dims its column, filters the other colum
   fireEvent.click(screen.getByRole("button", { name: "Clear selections" }));
   for (const name of [/Middle$/, /First$/, /Return$/])
     fireEvent.click(screen.getByRole("group", { name }));
-  expect(screen.getByText("3 of 3 flights selected")).toBeVisible();
+  expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(3);
   expect(
     screen.queryByRole("button", { name: "Review selected flights" }),
   ).toBeNull();
@@ -463,7 +464,7 @@ test("hover reuses card geometry while resizing and expanded flight details upda
   await waitFor(() =>
     expect(middle.querySelector(".flight-onboard-details")).not.toBeNull(),
   );
-  expect(screen.getByText("0 of 3 flights selected")).toBeVisible();
+  expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
   // A detail drawer or viewport resize changes layout without changing flight data.
   offset = 40;
   act(() => {

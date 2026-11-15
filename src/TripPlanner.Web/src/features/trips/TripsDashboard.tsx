@@ -141,7 +141,7 @@ export default function TripsDashboard({
   const renderTrips = (items: Trip[]) => (
     <div className="trip-grid">
       {items.map((trip) => (
-        <Card key={trip.id} className="trip-card">
+        <Card key={trip.id} className="trip-card interactive-card">
           {!readOnly &&
           editingId === trip.id &&
           trip.ownerUserId === user.id ? (
@@ -167,7 +167,7 @@ export default function TripsDashboard({
             <>
               {(!readOnly || hasOfflineTrip(user.id, trip.id)) && (
                 <Link
-                  className="trip-card-link"
+                  className="trip-card-link card-action"
                   to={`/trips/${encodeURIComponent(trip.id)}`}
                   aria-label={`Open trip: ${trip.name}`}
                 />

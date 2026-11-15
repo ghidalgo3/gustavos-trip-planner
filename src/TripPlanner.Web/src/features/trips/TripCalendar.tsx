@@ -127,18 +127,8 @@ export default function TripCalendar({
       role="group"
       aria-label="Destination dates"
     >
-      <strong>Visit dates · Optional</strong>
-      <p className="trip-calendar-selection" aria-live="polite">
+      <p className="visually-hidden" aria-live="polite">
         {formatStayDates(arrivalDate || null, departureDate || null)}
-      </p>
-      <p className="trip-calendar-instruction">
-        {arrivalDate && !departureDate
-          ? "Choose a departure date. Choose an earlier day to change arrival."
-          : "Choose an arrival date, then a departure date."}
-      </p>
-      <p className="trip-calendar-instruction">
-        Visits can share an arrival/departure day, but cannot overlap inside
-        another visit.
       </p>
       <div className="trip-calendar-heading">
         <Button

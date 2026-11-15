@@ -208,6 +208,7 @@ export default function RouteFareResults({
   showGrid = false,
   searching = false,
   readOnly = false,
+  searchAction,
 }: {
   tripId: string;
   results: FareSearchResult[];
@@ -225,6 +226,7 @@ export default function RouteFareResults({
   showGrid?: boolean;
   searching?: boolean;
   readOnly?: boolean;
+  searchAction?: ReactNode;
 }) {
   const selectedVersion = useTripResourceVersion(`/trips/${tripId}/flights`);
   const [selected, setSelected] = useState<SelectedFlight[]>([]);
@@ -358,6 +360,10 @@ export default function RouteFareResults({
     }
   }
 
+  const emptyParties = parties.filter(
+    (party) => !displayResults.some((result) => result.partyId === party.id),
+  );
+
   return (
     <div className="route-visits">
       {!showGrid && (
@@ -369,31 +375,23 @@ export default function RouteFareResults({
       )}
       {error && <Text role="alert">{error}</Text>}
       {showGrid &&
-        parties
-          .filter(
-            (party) =>
-              !displayResults.some((result) => result.partyId === party.id),
-          )
-          .map((party) => (
-            <section key={party.id} className="route-visits">
-              <Title3 as="h3">
-                {party.members.map((member) => member.name).join(", ") ||
-                  "Travel party"}
-              </Title3>
-              <FlightRouteGrid
-                visits={visits}
-                returnDate={returnDate}
-                cities={cities}
-                searching={searching}
-                chosen={[]}
-                readOnly={readOnly}
-                busy={false}
-                onChoose={() => {}}
-                preferredAirlines={[]}
-              />
-            </section>
-          ))}
-      {displayResults.map((result) => (
+        emptyParties.map((party, index) => (
+          <section key={party.id} className="route-visits">
+            <FlightRouteGrid
+              visits={visits}
+              returnDate={returnDate}
+              cities={cities}
+              searching={searching}
+              chosen={[]}
+              readOnly={readOnly}
+              busy={false}
+              onChoose={() => {}}
+              preferredAirlines={[]}
+              searchAction={index === 0 ? searchAction : undefined}
+            />
+          </section>
+        ))}
+      {displayResults.map((result, index) => (
         <RoutePartyResults
           key={result.partyId}
           tripId={tripId}
@@ -403,6 +401,9 @@ export default function RouteFareResults({
           showGrid={showGrid}
           readOnly={readOnly}
           searching={searching}
+          searchAction={
+            emptyParties.length === 0 && index === 0 ? searchAction : undefined
+          }
           savedChoices={effectiveChoices[result.partyId] ?? emptyChoices}
           progress={choiceProgress[result.partyId]}
           onChangeChoices={onChangeChoices}
@@ -450,6 +451,7 @@ function RoutePartyResults({
   onChoose,
   onPurchaseChange,
   readOnly = false,
+  searchAction,
 }: {
   tripId: string;
   result: FlightRouteResult;
@@ -472,6 +474,7 @@ function RoutePartyResults({
   onChoose: (index: number | null) => Promise<boolean>;
   onPurchaseChange: (index: number, purchased: boolean) => Promise<void>;
   readOnly?: boolean;
+  searchAction?: ReactNode;
 }) {
   const [localChosen, setLocalChosen] =
     useState<(string | null)[]>(savedChoices);
@@ -610,7 +613,7 @@ function RoutePartyResults({
       aria-label={`${partyName} flight choices`}
     >
       {dialog}
-      <Title3 as="h3">{partyName}</Title3>
+      {!showGrid && <Title3 as="h3">{partyName}</Title3>}
       {showGrid && Boolean(progress?.unmatchedFlights?.length) && (
         <div className="flight-retained-review" role="status">
           <Text weight="semibold">
@@ -644,6 +647,7 @@ function RoutePartyResults({
           retainedFlightCount={progress?.unmatchedFlights?.length ?? 0}
           onChoose={(keys) => void changeChosen(keys)}
           preferredAirlines={preferredAirlines}
+          searchAction={searchAction}
           renderCardActions={(node, isSelected, fares) => (
             <GridFlightBookingActions
               key={`${node.id}:${fares.get(node.id)?.ignavId ?? "saved"}`}

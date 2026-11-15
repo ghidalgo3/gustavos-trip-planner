@@ -3,7 +3,8 @@ import { FlightPlanningSkeleton } from "./FlightSkeletons";
 import { useEffect, useState } from "react";
 import { Button, Text } from "@fluentui/react-components";
 import type { Trip } from "../../api/api";
-import { getDestinations } from "../activities/activitiesApi";
+import { getDestinations, type Destination } from "../activities/activitiesApi";
+import { pastDestinationDateIssues } from "./flightSearchDates";
 import {
   getTripFlightPlanningData,
   type TripFlightPlanningData,
@@ -21,7 +22,7 @@ export default function TripPlanning({
 }) {
   const documentVersion = useTripResourceVersion(`/trips/${trip.id}/flights`);
   const [data, setData] = useState<TripFlightPlanningData>();
-  const [hasDestinations, setHasDestinations] = useState(false);
+  const [destinations, setDestinations] = useState<Destination[]>([]);
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -33,13 +34,7 @@ export default function TripPlanning({
       .then(([planning, destinations]) => {
         if (!controller.signal.aborted) {
           setData(planning);
-          setHasDestinations(
-            Boolean(
-              destinations?.features.some(
-                (item) => item.properties.stays.length,
-              ),
-            ),
-          );
+          setDestinations(destinations?.features ?? []);
           setError(undefined);
         }
       })
@@ -64,7 +59,7 @@ export default function TripPlanning({
         </>
       ) : !data ? (
         <FlightPlanningSkeleton />
-      ) : !hasDestinations ? (
+      ) : !destinations.some((item) => item.properties.stays.length) ? (
         <Text>Add destinations on Overview before finding flights.</Text>
       ) : (
         <PlanningRun
@@ -72,6 +67,11 @@ export default function TripPlanning({
           parties={data.parties}
           partySettings={data.document.parties}
           constraints={data.document.constraints}
+          validationIssues={pastDestinationDateIssues(
+            destinations,
+            data.document.visits ?? [],
+            new Date(),
+          )}
           multiCity={true}
           visitCount={data.document.visits?.length ?? 0}
           visits={data.document.visits ?? []}

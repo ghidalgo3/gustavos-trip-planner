@@ -62,7 +62,7 @@ const FlightGridCard = memo(function FlightGridCard({
   return (
     <div
       ref={ref}
-      className={`flight-grid-card${active ? " is-active" : connected ? " is-connected" : ""}${muted ? " is-muted" : ""}${selected ? " is-chosen" : ""}`}
+      className={`flight-grid-card interactive-card${active ? " is-active" : connected ? " is-connected" : ""}${muted ? " is-muted" : ""}${selected ? " is-chosen" : ""}`}
       role="group"
       onClick={(event) => {
         if (
@@ -78,11 +78,27 @@ const FlightGridCard = memo(function FlightGridCard({
       aria-label={`${first.departure_airport} to ${last.arrival_airport}, ${first.departure_time_local}, ${node.leg.carrier ?? first.marketing_carrier_code ?? "Flight"}`}
       onMouseEnter={highlightEnabled ? () => onHover(node.id) : undefined}
       onMouseLeave={highlightEnabled ? () => onHover(undefined) : undefined}
+      onMouseOver={
+        highlightEnabled
+          ? (event) => {
+              const control = (event.target as HTMLElement).closest(
+                "details, .flight-grid-booking-actions",
+              );
+              onHover(control ? undefined : node.id);
+            }
+          : undefined
+      }
       onFocus={
         highlightEnabled
-          ? () => {
+          ? (event) => {
               onHover(undefined);
-              onFocus(node.id);
+              onFocus(
+                (event.target as HTMLElement).closest(
+                  "details, .flight-grid-booking-actions",
+                )
+                  ? undefined
+                  : node.id,
+              );
             }
           : undefined
       }
@@ -126,7 +142,7 @@ const FlightGridCardContent = memo(function FlightGridCardContent({
     <>
       <button
         type="button"
-        className="flight-grid-select"
+        className="flight-grid-select card-action"
         disabled={busy || readOnly}
         aria-pressed={Boolean(selected)}
         aria-label={`Choose flight ${flightNumbers(node.leg)}, ${first.departure_airport} to ${last.arrival_airport}, ${first.departure_time_local}`}

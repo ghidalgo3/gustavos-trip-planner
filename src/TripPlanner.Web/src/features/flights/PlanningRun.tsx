@@ -2,13 +2,7 @@ import { useTripResourceVersion } from "../../api/tripDocumentStore";
 import type { PlannedVisit } from "./planningApi";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { useEffect, useRef, useState } from "react";
-import {
-  Button,
-  Card,
-  ProgressBar,
-  Text,
-  Title3,
-} from "@fluentui/react-components";
+import { Button, Card, ProgressBar, Text } from "@fluentui/react-components";
 import type {
   PlanningConstraint,
   PlanningParty,
@@ -37,6 +31,7 @@ export default function PlanningRun({
   parties,
   partySettings,
   constraints,
+  validationIssues = [],
   currentAiPrompt,
   multiCity = false,
   visitCount = 0,
@@ -53,6 +48,7 @@ export default function PlanningRun({
   parties: PlanningParty[];
   partySettings: PartySettings[];
   constraints: PlanningConstraint[];
+  validationIssues?: FlightSearchIssue[];
   currentAiPrompt?: string | null;
   multiCity?: boolean;
   visitCount?: number;
@@ -78,6 +74,13 @@ export default function PlanningRun({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
   const [issues, setIssues] = useState<FlightSearchIssue[]>([]);
+  const currentIssues = [...validationIssues, ...issues].filter(
+    (issue, index, all) =>
+      all.findIndex((other) => other.message === issue.message) === index,
+  );
+  const hasPastDates = currentIssues.some(
+    (issue) => issue.code === "pastDestinationDates",
+  );
   const [pollError, setPollError] = useState<string>();
   const [refresh, setRefresh] = useState(0);
   const [checkedAt, setCheckedAt] = useState(() => Date.now());
@@ -194,6 +197,7 @@ export default function PlanningRun({
           const found = await getFlightSearchResults(tripId, controller.signal);
           if (controller.signal.aborted) return;
           setResults(found);
+          setIssues([]);
           setResultsKey(`${tripId}:${savedVersion}`);
           loadedResults = resultVersion;
         }
@@ -230,7 +234,7 @@ export default function PlanningRun({
   }, [tripId, refresh, savedVersion, readOnly]);
 
   async function plan() {
-    if (readOnly) return;
+    if (readOnly || disabled || starting || active || hasPastDates) return;
     trackBehavior("flight_search_started");
     setStarting(true);
     setError(undefined);
@@ -255,69 +259,72 @@ export default function PlanningRun({
     }
   }
 
+  const searchAction = (
+    <Button
+      appearance="primary"
+      onClick={plan}
+      disabled={readOnly || disabled || starting || active || hasPastDates}
+    >
+      {readOnly
+        ? "Find flights"
+        : starting
+          ? "Starting…"
+          : active
+            ? "Searching flights…"
+            : "Find flights"}
+    </Button>
+  );
+  const searchInGrid = showGrid && !hasUnsavedChanges && parties.length > 0;
+
   return (
     <Card
       id="flight-search"
       className="planning-card"
       aria-label="Flight search"
     >
-      <div className="planning-section-heading">
-        <Title3 as="h2">Find flights</Title3>
-        <Button
-          appearance="primary"
-          onClick={plan}
-          disabled={readOnly || disabled || starting || active}
-        >
-          {readOnly
-            ? "Find flights"
-            : starting
-              ? "Starting…"
-              : active
-                ? "Searching flights…"
-                : "Find flights"}
-        </Button>
-      </div>
-      <Text>
-        Search flights using your trip destinations and travelers. You can leave
-        this page and return while the search continues.
-      </Text>
+      {!searchInGrid && searchAction}
       {error && <Text role="alert">{error}</Text>}
-      {issues.length > 0 && (
+      {currentIssues.length > 0 && (
         <div className="planning-conflict" aria-label="Planning conflicts">
-          {issues.map((issue, index) => (
+          {currentIssues.map((issue, index) => (
             <div key={index}>
               <Text weight="semibold">{issue.message}</Text>
-              {issue.constraintIds.length > 0 && (
-                <ul>
-                  {issue.constraintIds.map((id) => {
-                    const position = constraints.findIndex(
-                      (constraint) => constraint.id === id,
-                    );
-                    return position < 0 ? null : (
-                      <li key={id}>
-                        {describeRequirement(
-                          constraints[position],
-                          position,
-                          currentAiPrompt,
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              {issue.code !== "pastDestinationDates" &&
+                issue.constraintIds.length > 0 && (
+                  <ul>
+                    {issue.constraintIds.map((id) => {
+                      const position = constraints.findIndex(
+                        (constraint) => constraint.id === id,
+                      );
+                      return position < 0 ? null : (
+                        <li key={id}>
+                          {describeRequirement(
+                            constraints[position],
+                            position,
+                            currentAiPrompt,
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
             </div>
           ))}
-          <Button
-            onClick={() => onReviewRequirements(issues[0]?.constraintIds[0])}
-          >
-            Review trip details
-          </Button>
+          {!hasPastDates && (
+            <Button
+              onClick={() =>
+                onReviewRequirements(currentIssues[0]?.constraintIds[0])
+              }
+            >
+              Review trip details
+            </Button>
+          )}
         </div>
       )}
-      {pollError && !readOnly && issues.length === 0 && (
+      {pollError && !readOnly && currentIssues.length === 0 && (
         <Text>{pollError} Checking again shortly.</Text>
       )}
-      {operation && issues.length === 0 && (
+      {operation && currentIssues.length === 0 && (
         <>
           <Text role="status">
             {readOnly
@@ -366,6 +373,7 @@ export default function PlanningRun({
               showGrid={showGrid}
               searching={!readOnly && Boolean(active || starting)}
               readOnly={readOnly}
+              searchAction={searchInGrid ? searchAction : undefined}
               parties={parties}
               partySettings={partySettings}
               savedChoices={Object.fromEntries(

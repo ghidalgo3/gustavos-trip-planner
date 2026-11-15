@@ -723,7 +723,7 @@ export default function ActivityPlanning({
     return (
       <li
         key={item.id}
-        className={`activity-card${selectedId === item.id ? " selected" : ""}`}
+        className={`activity-card interactive-card${selectedId === item.id ? " selected" : ""}`}
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -733,6 +733,12 @@ export default function ActivityPlanning({
           selectActivity(item.id);
         }}
       >
+        <button
+          type="button"
+          className="card-action card-overlay"
+          aria-label={`Show ${item.properties.name} on map`}
+          onClick={() => selectActivity(item.id)}
+        />
         <div className="activity-card-heading">
           <span
             className="activity-number"
@@ -1406,6 +1412,7 @@ export default function ActivityPlanning({
           <ActivityMap
             center={destination.geometry}
             destinationName={destination.properties.name}
+            destinationId={destination.id}
             stayLocations={destination.properties.stays.flatMap((visit) =>
               visit.stayLocation
                 ? [{ ...visit.stayLocation, id: visit.id }]
@@ -1528,7 +1535,7 @@ export default function ActivityPlanning({
                         {items.map(({ item, index }) => (
                           <li
                             key={item.id}
-                            className="activity-list-item"
+                            className="activity-list-item interactive-card"
                             onClick={(event) => {
                               if (
                                 event.target instanceof Element &&
@@ -1538,15 +1545,16 @@ export default function ActivityPlanning({
                               openIdea(item);
                             }}
                           >
+                            <button
+                              type="button"
+                              className="card-action card-overlay"
+                              aria-label={item.properties.name}
+                              aria-pressed={selectedId === item.id}
+                              disabled={busy}
+                              onClick={() => openIdea(item)}
+                            />
                             <div className="activity-list-heading">
-                              <button
-                                type="button"
-                                className="activity-list-select"
-                                aria-label={item.properties.name}
-                                aria-pressed={selectedId === item.id}
-                                disabled={busy}
-                                onClick={() => openIdea(item)}
-                              >
+                              <span className="activity-list-title">
                                 <span
                                   className="activity-number"
                                   aria-hidden="true"
@@ -1554,7 +1562,7 @@ export default function ActivityPlanning({
                                   {index + 1}
                                 </span>
                                 <span>{item.properties.name}</span>
-                              </button>
+                              </span>
                               {renderActivityMenu(item)}
                             </div>
                             <TagGroup

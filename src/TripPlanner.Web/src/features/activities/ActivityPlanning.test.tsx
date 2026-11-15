@@ -1455,9 +1455,10 @@ test.each([false, true])(
       proposed.getAttribute("aria-controls")!,
     )!;
     // Keep the map's original numbering even when grouping changes the list order.
-    expect(
-      within(contents).getByRole("button", { name: "Idea 2" }),
-    ).toHaveTextContent("2");
+    const card = within(contents)
+      .getByRole("button", { name: "Idea 2" })
+      .closest(".activity-list-item")! as HTMLElement;
+    expect(within(card).getByText("2", { exact: true })).toBeVisible();
     click(proposed);
     expect(proposed).toHaveAttribute("aria-expanded", "false");
     expect(contents).not.toBeVisible();

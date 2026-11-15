@@ -4,6 +4,7 @@ import { Combobox, Field, Option, Text } from "@fluentui/react-components";
 
 type Props<OptionType> = {
   label: string;
+  hideLabel?: boolean;
   placeholder: string;
   inputValue: string;
   selectedOptionValue?: string;
@@ -23,6 +24,7 @@ type Props<OptionType> = {
 
 export default function AsyncAutocomplete<OptionType>({
   label,
+  hideLabel = false,
   placeholder,
   inputValue,
   selectedOptionValue,
@@ -87,7 +89,7 @@ export default function AsyncAutocomplete<OptionType>({
   return (
     <>
       <Field
-        label={label}
+        label={hideLabel ? undefined : label}
         hint={hint}
         validationState={message ? "error" : "none"}
         validationMessage={message}

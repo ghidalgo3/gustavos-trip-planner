@@ -69,6 +69,7 @@ export default function FlightRouteGrid({
   renderCardActions,
   retainedFlightCount = 0,
   readOnly = false,
+  searchAction,
 }: {
   result?: FlightRouteResult;
   visits: PlannedVisit[];
@@ -87,6 +88,7 @@ export default function FlightRouteGrid({
   ) => ReactNode;
   retainedFlightCount?: number;
   readOnly?: boolean;
+  searchAction?: ReactNode;
 }) {
   const graph = useMemo(
     () => buildFlightGraph(result, visits.length + 1, preferredAirlines),
@@ -330,17 +332,7 @@ export default function FlightRouteGrid({
   return (
     <div className="flight-route-explorer">
       <div className="flight-grid-toolbar">
-        <div>
-          <Text weight="semibold">Explore flight paths</Text>
-          <Text>
-            Choose one flight per column. Scroll sideways to see more
-            destinations.
-          </Text>
-        </div>
         <div className="flight-grid-selection-actions">
-          <Text>
-            {selectedCount} of {graph.columns.length} flights selected
-          </Text>
           <Button
             disabled={
               readOnly ||
@@ -353,6 +345,7 @@ export default function FlightRouteGrid({
           >
             Clear selections
           </Button>
+          {searchAction}
         </div>
       </div>
       <div

@@ -79,6 +79,9 @@ function show(
 
 test("one calendar highlights other cities, overlapping days, and repeat visits with a color legend", () => {
   const { calendar } = show();
+  expect(within(calendar).queryByText("Visit dates · Optional")).toBeNull();
+  expect(within(calendar).queryByText(/Choose.*date/)).toBeNull();
+  expect(within(calendar).queryByText(/Visits can share/)).toBeNull();
   const boundary = within(calendar).getByRole("button", {
     name: "Jun 14, 2027 · Paris, Rome",
   });

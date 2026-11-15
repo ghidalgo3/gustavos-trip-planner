@@ -873,7 +873,9 @@ test("desktop selections stay individual until explicit review, survive recompos
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 20/ }));
-  expect(await screen.findByText("1 of 2 flights selected")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1),
+  );
   const returnCard = screen
     .getByRole("button", { name: /Choose flight AA 20/ })
     .closest(".flight-grid-card") as HTMLElement;
@@ -886,7 +888,9 @@ test("desktop selections stay individual until explicit review, survive recompos
   expect(screen.queryByRole("region", { name: "Selected flights" })).toBeNull();
   expect(change).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: /Choose flight AA 100/ }));
-  expect(await screen.findByText("2 of 2 flights selected")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(2),
+  );
   expect(change).toHaveBeenCalledTimes(2);
   expect(
     screen.queryByRole("heading", { name: "Your route is ready" }),
@@ -908,7 +912,9 @@ test("desktop selections stay individual until explicit review, survive recompos
   fireEvent.click(
     await screen.findByRole("button", { name: "Deselect flights" }),
   );
-  expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0),
+  );
   expect(
     await screen.findByRole("button", { name: /Choose flight JL 10/ }),
   ).toBeVisible();

@@ -18,6 +18,7 @@ import {
 import { mapsClient } from "./mapsClient";
 import type { MapControl, MapHandle } from "./IMapsClient";
 import PersistentMapSurface from "./PersistentMapSurface";
+import { DestinationFlight } from "./destinationFlight";
 import type {
   Activity,
   Point,
@@ -34,6 +35,7 @@ export type PlaceSearch = {
 export default function ActivityMap({
   center,
   destinationName,
+  destinationId,
   activities: savedActivities,
   selectedId,
   onSelect,
@@ -53,6 +55,7 @@ export default function ActivityMap({
   stayLocations?: StayLocation[];
   center: Point;
   destinationName?: string;
+  destinationId?: string;
   activities: Activity[];
   selectedId?: string;
   onSelect: (id: string) => void;
@@ -98,11 +101,15 @@ export default function ActivityMap({
   const reducedMotion = useReducedMotion();
   const style = darkMode ? "grayscale_dark" : "grayscale_light";
   const styleRef = useRef(style);
-  const framedMap = useRef<{ instance: MapHandle; positions: string } | null>(
-    null,
-  );
+  const framedMap = useRef<{
+    instance: MapHandle;
+    positions: string;
+    destination?: string;
+  } | null>(null);
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<MapHandle | null>(null);
+  const flight = useRef<DestinationFlight | null>(null);
+  const destinationKey = destinationId ?? destinationName;
   const routeWasShown = useRef(false);
   const markerTransitions = useRef<AnimatedMapMarkers<Marker> | null>(null);
   const centerRef = useRef(center.coordinates);
@@ -131,22 +138,26 @@ export default function ActivityMap({
     [longitude, latitude, stayLocations, activities, placeSearch],
   );
   const positions = JSON.stringify({ points, zoom });
-  const fitActivities = useCallback(() => {
-    const instance = map.current;
-    if (!instance || !ready) return;
-    instance.setCamera({
-      bounds: [
-        Math.min(...points.map((point) => point[0])),
-        Math.min(...points.map((point) => point[1])),
-        Math.max(...points.map((point) => point[0])),
-        Math.max(...points.map((point) => point[1])),
-      ],
-      padding: 48,
-      maxZoom: zoom,
-      type: reducedMotion ? "jump" : "ease",
-      duration: reducedMotion ? 0 : 650,
-    });
-  }, [points, ready, reducedMotion, zoom]);
+  const fitActivities = useCallback(
+    (immediate = false) => {
+      const instance = map.current;
+      if (!instance || !ready) return;
+      flight.current?.cancel();
+      instance.setCamera({
+        bounds: [
+          Math.min(...points.map((point) => point[0])),
+          Math.min(...points.map((point) => point[1])),
+          Math.max(...points.map((point) => point[0])),
+          Math.max(...points.map((point) => point[1])),
+        ],
+        padding: 48,
+        maxZoom: zoom,
+        type: reducedMotion || immediate ? "jump" : "ease",
+        duration: reducedMotion || immediate ? 0 : 650,
+      });
+    },
+    [points, ready, reducedMotion, zoom],
+  );
 
   useEffect(() => {
     centerRef.current = [longitude, latitude];
@@ -165,7 +176,8 @@ export default function ActivityMap({
       !instance ||
       (placeSearch && locatedCount === 0) ||
       (framedMap.current?.instance === instance &&
-        framedMap.current.positions === positions)
+        framedMap.current.positions === positions &&
+        framedMap.current.destination === destinationKey)
     )
       return;
     // An empty map starts at its destination already. Later destination changes pan.
@@ -174,11 +186,23 @@ export default function ActivityMap({
       stayLocations.length === 0 &&
       locatedCount === 0
     ) {
-      framedMap.current = { instance, positions };
+      framedMap.current = { instance, positions, destination: destinationKey };
       return;
     }
-    fitActivities();
-    framedMap.current = { instance, positions };
+    const changedDestination =
+      framedMap.current?.instance === instance &&
+      framedMap.current.destination !== destinationKey;
+    const visible = Boolean(
+      element.current?.clientWidth && element.current?.clientHeight,
+    );
+    if (changedDestination && !reducedMotion && visible && flight.current) {
+      flight.current.start(points as [number, number][], zoom);
+    } else if (flight.current?.active && !reducedMotion) {
+      flight.current.retarget(points as [number, number][], zoom);
+    } else {
+      fitActivities(changedDestination && !visible);
+    }
+    framedMap.current = { instance, positions, destination: destinationKey };
   }, [
     ready,
     stayLocations,
@@ -186,11 +210,31 @@ export default function ActivityMap({
     positions,
     fitActivities,
     placeSearch,
+    destinationKey,
+    points,
+    reducedMotion,
+    zoom,
   ]);
 
   useEffect(() => {
     callbacks.current = { onSelect, onPick, placeSearch };
   }, [onSelect, onPick, placeSearch]);
+
+  useEffect(() => {
+    if (reducedMotion && flight.current?.active) fitActivities();
+  }, [reducedMotion, fitActivities]);
+
+  useEffect(() => {
+    const surface = element.current;
+    if (!ready || !surface) return;
+    const cancel = () => flight.current?.cancel();
+    surface.addEventListener("pointerdown", cancel);
+    surface.addEventListener("wheel", cancel, { passive: true });
+    return () => {
+      surface.removeEventListener("pointerdown", cancel);
+      surface.removeEventListener("wheel", cancel);
+    };
+  }, [ready]);
 
   useEffect(() => {
     let active = true;
@@ -249,6 +293,10 @@ export default function ActivityMap({
           },
         });
         map.current = instance;
+        flight.current = new DestinationFlight(instance, () => ({
+          width: element.current?.clientWidth ?? 0,
+          height: element.current?.clientHeight ?? 0,
+        }));
         markerTransitions.current = new AnimatedMapMarkers(
           ({ position, button }) => {
             const marker = control.createMarker({
@@ -309,6 +357,8 @@ export default function ActivityMap({
       observer?.disconnect();
       window.cancelAnimationFrame(resizeFrame);
       markerTransitions.current?.dispose();
+      flight.current?.cancel();
+      flight.current = null;
       markerTransitions.current = null;
       map.current?.dispose();
       map.current = null;
@@ -395,11 +445,12 @@ export default function ActivityMap({
     const instance = map.current;
     if (!ready || !instance || !control) return;
     if (!route) {
-      if (routeWasShown.current) restoreMap();
+      if (routeWasShown.current && !flight.current?.active) restoreMap();
       routeWasShown.current = false;
       return;
     }
     const source = control.createRouteSource();
+    flight.current?.cancel();
     instance.sources.add(source);
     source.add({ type: "Feature", geometry: route.geometry, properties: {} });
     const layer = control.createRouteLayer(source, {
@@ -491,7 +542,11 @@ export default function ActivityMap({
             </span>
           )}
           {locatedCount > 0 && (
-            <Button appearance="secondary" size="small" onClick={fitActivities}>
+            <Button
+              appearance="secondary"
+              size="small"
+              onClick={() => fitActivities()}
+            >
               Show all locations
             </Button>
           )}

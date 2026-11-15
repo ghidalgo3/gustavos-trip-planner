@@ -281,6 +281,19 @@ test("starts empty and adds a selected city through the drawer without requiring
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   const drawer = await openAndChooseCity();
   expect(
+    within(drawer).getByPlaceholderText("Search for a city"),
+  ).toHaveAccessibleName("Destination city");
+  for (const text of [
+    "Destination city",
+    "Where would you like to go? Add a city to start shaping your trip.",
+    "Visit dates · Optional",
+    "Choose an arrival date, then a departure date.",
+    "Flight date flexibility",
+  ]) {
+    expect(within(drawer).queryByText(text)).not.toBeInTheDocument();
+  }
+  expect(within(drawer).queryByRole("spinbutton")).not.toBeInTheDocument();
+  expect(
     within(drawer).queryByLabelText("Country code"),
   ).not.toBeInTheDocument();
   fireEvent.click(
@@ -383,7 +396,9 @@ test("retains the selected date range after a save failure for retry", async () 
   expect(
     within(drawer).getByRole("combobox", { name: "Destination city" }),
   ).toHaveValue("Paris, France");
-  expect(within(drawer).getByText("Jun 10, 2027 – Jun 14, 2027")).toBeVisible();
+  expect(within(drawer).getAllByRole("button", { pressed: true })).toHaveLength(
+    5,
+  );
   fireEvent.click(submit);
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
@@ -609,8 +624,8 @@ test("destination visit dates can be edited on Overview", async () => {
   fireEvent.click(reopen);
   const reopened = await screen.findByRole("dialog");
   expect(
-    within(reopened).getByText("Jun 10, 2027 – Jun 14, 2027"),
-  ).toBeVisible();
+    within(reopened).getAllByRole("button", { pressed: true }),
+  ).toHaveLength(5);
 });
 
 test("orders dated visits chronologically, then keeps undated visits in itinerary order", async () => {
@@ -796,7 +811,7 @@ test("flight cards follow chronological visits, including the trip home", async 
   ]);
 });
 
-test("destination date flexibility and fixed ordering are saved on the city resource while preserving other constraints", async () => {
+test("editing visit dates hides flight flexibility and preserves existing city constraints", async () => {
   const destination = {
     ...paris,
     properties: {
@@ -823,34 +838,30 @@ test("destination date flexibility and fixed ordering are saved on the city reso
   act(() => trigger.focus());
   fireEvent.click(trigger);
   const drawer = await screen.findByRole("dialog");
-  const arrival = within(drawer).getByLabelText("Arrival flexibility (± days)");
-  act(() => arrival.focus());
-  expect(arrival).toHaveValue(1);
+  expect(within(drawer).queryByText("Flight date flexibility")).toBeNull();
+  expect(within(drawer).queryByRole("spinbutton")).toBeNull();
   expect(
-    within(drawer).getByLabelText("Departure flexibility (± days)"),
-  ).toHaveValue(2);
+    within(drawer).queryByText(/Choose visit dates/),
+  ).not.toBeInTheDocument();
+  chooseStayDates(drawer);
   const submit = within(drawer).getByRole("button", { name: "Save dates" });
-  fireEvent.change(arrival, { target: { value: "6" } });
-  expect(submit).toBeDisabled();
-  fireEvent.change(arrival, { target: { value: "3" } });
-  fireEvent.change(
-    within(drawer).getByLabelText("Departure flexibility (± days)"),
-    { target: { value: "4" } },
-  );
-  expect(
-    within(drawer).queryByRole("checkbox", {
-      name: "Keep this destination after the previous one",
-    }),
-  ).toBeNull();
   fireEvent.click(submit);
   await waitFor(() =>
-    expect(replaceDestinationPlace).toHaveBeenCalledWith("trip", destination, {
-      budget: 400,
-      arrivalFlexibilityDays: 3,
-      departureFlexibilityDays: 4,
-      keepAfterPrevious: true,
-    }),
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
+  expect(replaceDestinationStay).toHaveBeenCalledWith(
+    "trip",
+    destination.id,
+    destination.properties.stays[0].id,
+    { arrivalDate: "2027-06-10", departureDate: "2027-06-14" },
+  );
+  expect(replaceDestinationPlace).not.toHaveBeenCalled();
+  expect(destination.properties.constraints).toEqual({
+    budget: 400,
+    arrivalFlexibilityDays: 1,
+    departureFlexibilityDays: 2,
+    keepAfterPrevious: false,
+  });
 });
 
 test.each([

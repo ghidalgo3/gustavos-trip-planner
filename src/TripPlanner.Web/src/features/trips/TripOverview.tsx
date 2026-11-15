@@ -418,11 +418,11 @@ export default function TripOverview({
                   : visitStop(visits[index - 1]),
                 visitStop({ destination, stay }),
               )}
-              <li className="overview-destination overview-destination-navigable">
+              <li className="overview-destination overview-destination-navigable interactive-card">
                 <div className="overview-destination-details">
                   <Title3 as="h3">
                     <Link
-                      className="overview-destination-link"
+                      className="overview-destination-link card-action"
                       to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
                     >
                       <CityIcon

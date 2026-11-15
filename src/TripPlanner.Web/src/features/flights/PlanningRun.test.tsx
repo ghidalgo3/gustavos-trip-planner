@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -16,6 +22,7 @@ import {
   startFlightSearch,
   type TrackedOperation,
   type FareSearchResult,
+  type FlightSearchIssue,
 } from "../../api/operationsApi";
 import {
   getFlightChoices,
@@ -80,6 +87,7 @@ function planningRun(
   currentAiPrompt?: string,
   savedVersion = 0,
   hasUnsavedChanges = false,
+  validationIssues?: FlightSearchIssue[],
 ) {
   return (
     <FluentProvider theme={webLightTheme}>
@@ -89,6 +97,7 @@ function planningRun(
           parties={parties}
           partySettings={settings}
           constraints={constraints}
+          validationIssues={validationIssues}
           currentAiPrompt={currentAiPrompt}
           disabled={false}
           hasUnsavedChanges={hasUnsavedChanges}
@@ -109,6 +118,102 @@ beforeEach(() => {
   vi.mocked(getSelectedFlights).mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+test.each([0, 1, 2])(
+  "keeps one search button beside clear selections with %i parties having results",
+  async (resultCount) => {
+    const parties = [
+      party,
+      {
+        ...party,
+        id: "second-party",
+        members: [{ id: "bob", name: "Bob", homeCity: null }],
+      },
+    ];
+    vi.mocked(getFlightSearchResults).mockResolvedValue(
+      parties.slice(0, resultCount).map((party) => ({
+        partyId: party.id,
+        cacheKey: party.id,
+        request: {
+          origin: "ATL",
+          destination: "BOS",
+          departure_date: "2030-05-01",
+          return_date: "2030-05-04",
+          adults: 1,
+          cabin_class: "economy",
+          market: "US",
+          searchKind: "itinerary",
+        },
+        response: { itineraries: [] },
+        evaluations: [],
+        fetchedAt: "2030-01-01T00:00:00Z",
+        expiresAt: "2030-01-01T01:00:00Z",
+      })),
+    );
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <MemoryRouter>
+          <PlanningRun
+            tripId="trip"
+            parties={parties}
+            partySettings={[partySettings]}
+            constraints={[]}
+            multiCity
+            visits={[
+              {
+                id: "boston",
+                location: {
+                  code: "BOS",
+                  label: "Boston",
+                  timeZone: "America/New_York",
+                },
+                nights: 3,
+                presentFrom: null,
+                presentThrough: null,
+                afterVisitIds: [],
+              },
+            ]}
+            disabled={false}
+            hasUnsavedChanges={false}
+            savedVersion={0}
+            onBeforeSearch={save}
+            onReviewRequirements={reviewRequirements}
+          />
+        </MemoryRouter>
+      </FluentProvider>,
+    );
+    await waitFor(() => expect(getFlightSearchResults).toHaveBeenCalled());
+    if (resultCount > 0) await screen.findByText(/Prices last retrieved/);
+
+    const search = screen.getByRole("button", { name: "Find flights" });
+    const actions = within(search.parentElement!);
+    expect(
+      actions.getByRole("button", { name: "Clear selections" }),
+    ).toBeVisible();
+    expect(actions.getAllByRole("button")).toHaveLength(2);
+    expect(screen.queryByText("Ada")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bob")).not.toBeInTheDocument();
+    expect(screen.queryByText("Explore flight paths")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Choose one flight per column/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Search flights using your trip/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Find flights" }),
+    ).not.toBeInTheDocument();
+
+    vi.mocked(startFlightSearch).mockResolvedValue(operation);
+    vi.mocked(getOperations).mockResolvedValue([operation]);
+    fireEvent.click(search);
+    await waitFor(() => expect(startFlightSearch).toHaveBeenCalledOnce());
+    expect(save).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("button", { name: "Searching flights…" }),
+    ).toBeDisabled();
+  },
+);
 
 test.each(["pending status", "failed results", "saved itinerary"])(
   "shows retained flights immediately without a search: %s",
@@ -223,11 +328,9 @@ test.each(["pending status", "failed results", "saved itinerary"])(
     );
     const flight = await screen.findByRole("button", { name: /DL 123/ });
     expect(flight).toHaveAttribute("aria-pressed", "true");
-    expect(
-      screen.getByText(
-        `${scenario === "saved itinerary" ? 2 : 1} of 2 flights selected`,
-      ),
-    ).toBeVisible();
+    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(
+      scenario === "saved itinerary" ? 2 : 1,
+    );
     expect(startFlightSearch).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
     expect(
@@ -353,11 +456,11 @@ test("desktop partial choices save immediately, roll back failures, reload witho
     await screen.findByRole("button", { name: /Choose flight DL 2/ }),
   );
   await screen.findAllByText("Flight choice could not be saved");
-  expect(screen.getByText("0 of 2 flights selected")).toBeVisible();
+  expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
   expect(screen.queryByRole("region", { name: "Selected flights" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Choose flight DL 2/ }));
   await waitFor(() => expect(stored).toEqual([null, legKey(inbound)]));
-  expect(screen.getByText("1 of 2 flights selected")).toBeVisible();
+  expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
   view.unmount();
   // Only the retained flight remains after cache expiry; no operation is needed.
   vi.mocked(getFlightSearchResults).mockResolvedValue([
@@ -371,7 +474,9 @@ test("desktop partial choices save immediately, roll back failures, reload witho
     },
   ]);
   render(page);
-  expect(await screen.findByText("1 of 2 flights selected")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1),
+  );
   const selected = await screen.findByRole("button", {
     name: /Choose flight DL 2/,
   });
@@ -389,7 +494,9 @@ test("desktop partial choices save immediately, roll back failures, reload witho
     await screen.findByRole("button", { name: "Deselect flights" }),
   );
   await waitFor(() => expect(stored).toEqual([]));
-  expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0),
+  );
   expect(setFlightChoices).toHaveBeenLastCalledWith(
     "trip",
     "party",
@@ -769,7 +876,32 @@ test("explains date conflicts with affected requirement values", async () => {
   expect(reviewRequirements).toHaveBeenCalledWith("old-return");
 });
 
-test("expired destination dates hide an unrelated historical search status and offer Overview", async () => {
+test("past destination dates disable search immediately, before the results request returns", async () => {
+  vi.mocked(getFlightSearchResults).mockReturnValue(new Promise(() => {}));
+  const issue: FlightSearchIssue = {
+    code: "pastDestinationDates",
+    message:
+      "Destination Tokyo's dates are in the past, you must plan a future trip",
+    partyId: null,
+    constraintIds: ["tokyo-stay"],
+  };
+  const view = render(planningRun([], [], [], undefined, 0, false, [issue]));
+  const search = screen.getByRole("button", { name: "Find flights" });
+  expect(search).toBeDisabled();
+  expect(screen.getByText(issue.message)).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Review trip details" }),
+  ).toBeNull();
+  fireEvent.click(search);
+  expect(startFlightSearch).not.toHaveBeenCalled();
+  await waitFor(() => expect(getFlightSearchResults).toHaveBeenCalled());
+  // Updating the destination to a future date makes search available again.
+  view.rerender(planningRun());
+  expect(search).toBeEnabled();
+  expect(screen.queryByText(issue.message)).toBeNull();
+});
+
+test("expired destination dates disable search and hide historical status and the Overview shortcut", async () => {
   vi.mocked(getOperations).mockResolvedValue([
     {
       ...operation,
@@ -778,11 +910,11 @@ test("expired destination dates hide an unrelated historical search status and o
     },
   ]);
   const message =
-    "The latest allowed arrival in Tokyo is 2026-10-06, which is in the past. Update this destination's dates on Overview.";
+    "Destination Tokyo's dates are in the past, you must plan a future trip";
   vi.mocked(getFlightSearchResults).mockRejectedValue(
     new FlightSearchValidationError([
       {
-        code: "invalidInput",
+        code: "pastDestinationDates",
         message,
         partyId: null,
         constraintIds: ["tokyo-stay"],
@@ -793,8 +925,14 @@ test("expired destination dates hide an unrelated historical search status and o
   expect(await screen.findByText(message)).toBeVisible();
   expect(screen.queryByText(/131 of 133/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Checking again shortly/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Review trip details" }));
-  expect(reviewRequirements).toHaveBeenCalledWith("tokyo-stay");
+  const search = screen.getByRole("button", { name: "Find flights" });
+  expect(search).toBeDisabled();
+  fireEvent.click(search);
+  expect(startFlightSearch).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Review trip details" }),
+  ).not.toBeInTheDocument();
+  expect(reviewRequirements).not.toHaveBeenCalled();
 });
 
 test.each([true, false])(

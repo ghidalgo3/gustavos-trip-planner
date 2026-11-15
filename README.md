@@ -162,7 +162,10 @@ Frontend code under `src/TripPlanner.Web/src` is grouped by responsibility:
 - `maps` owns the Azure Maps integration and marker transitions. Features use the
   `MapsClient` interface through `mapsClient`. `createAzureMapsClient` implements
   city/place searches, city geocoding, token caching, SDK loading, and map-control
-  factories.
+  factories. `ActivityMap` retains its SDK instance across destinations;
+  `destinationFlight.ts` blends panning and zooming in a cancellable camera flight,
+  adaptively fitting both endpoint views at its widest point. It defaults to
+  1.5 seconds with sine ease-in-out. Reduced motion uses an immediate camera change.
 - `shared/components`, `shared/hooks`, and `shared/time` hold reusable UI and utilities.
 - `api` holds shared API access, `app` holds application composition and theming,
   and `telemetry` holds browser instrumentation.

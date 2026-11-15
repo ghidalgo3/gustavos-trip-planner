@@ -22,12 +22,57 @@ for (const width of [390, 1280]) {
       const background = await card.evaluate(
         (element) => getComputedStyle(element).backgroundColor,
       );
-      await card.hover();
+      const border = await card.evaluate(
+        (element) => getComputedStyle(element).borderColor,
+      );
+      await card.hover({ position: { x: 8, y: 8 } });
       await expect
         .poll(() =>
-          card.evaluate((element) => getComputedStyle(element).backgroundColor),
+          card.evaluate((element) => getComputedStyle(element).borderColor),
         )
-        .not.toBe(background);
+        .not.toBe(border);
+      expect(
+        await card.evaluate(
+          (element) => getComputedStyle(element).backgroundColor,
+        ),
+      ).toBe(background);
+
+      for (const control of [
+        card.getByRole("button", { name: /^Delete destination:/ }),
+        card.getByRole("button", { name: /^Edit dates:/ }),
+        card.getByRole("button", { name: /Choose stay/ }),
+        card.getByRole("button", { name: /^Plans for/ }),
+        card.getByRole("link", { name: /^Plan activities in/ }),
+      ]) {
+        const controlBackground = await control.evaluate(
+          (element) => getComputedStyle(element).backgroundColor,
+        );
+        const isButton = await control.evaluate(
+          (element) => element.tagName === "BUTTON",
+        );
+        await control.hover();
+        if (isButton) {
+          await expect
+            .poll(() =>
+              control.evaluate(
+                (element) => getComputedStyle(element).backgroundColor,
+              ),
+            )
+            .not.toBe(controlBackground);
+        }
+        await expect
+          .poll(() =>
+            card.evaluate((element) => getComputedStyle(element).borderColor),
+          )
+          .toBe(border);
+        await expect
+          .poll(() =>
+            card.evaluate(
+              (element) => getComputedStyle(element).backgroundColor,
+            ),
+          )
+          .toBe(background);
+      }
 
       const plans = card.getByRole("button", { name: /^Plans for/ });
       await plans.click();

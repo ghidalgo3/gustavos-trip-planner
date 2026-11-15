@@ -71,8 +71,6 @@ public sealed class MultiCityPlanner(
 
             if (
                 complete
-                && visit.ArrivalFlexibilityDays is >= 0 and <= 5
-                && visit.PresentFrom is { } arrival
                 && visit.Location is { } target
                 && airports.FindByCode(target.AirportCodes.FirstOrDefault() ?? "") is { } airport
             )
@@ -85,12 +83,15 @@ public sealed class MultiCityPlanner(
                         )
                         .DateTime
                 );
-                var latestArrival = arrival.AddDays(visit.ArrivalFlexibilityDays.Value);
-                if (latestArrival < today)
+                if (visit.PresentFrom < today || visit.PresentThrough < today)
                 {
-                    Issue(
-                        $"The latest allowed arrival in {target.Label ?? airport.City} is {latestArrival:yyyy-MM-dd}, which is in the past. Update this destination's dates on Overview.",
-                        visit.Id
+                    issues.Add(
+                        new(
+                            "pastDestinationDates",
+                            $"Destination {target.Label ?? airport.City}'s dates are in the past, you must plan a future trip",
+                            null,
+                            [visit.Id]
+                        )
                     );
                 }
             }

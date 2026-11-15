@@ -265,7 +265,9 @@ test.each(["legs", "outbound/inbound"])(
         },
       ],
     );
-    expect(await screen.findByText("2 of 2 flights selected")).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(2),
+    );
     const flights = screen.getAllByRole("button", { name: /Choose flight JL/ });
     expect(flights).toHaveLength(2);
     for (const flight of flights) {
@@ -304,7 +306,8 @@ test("offline grid honors an explicit cleared choice over an old itinerary", asy
     [{ partyId: "party", legKeys: [], nextOrigins: [], flights: [] }],
     [{ partyId: "party", itinerary: { legs: [savedLeg, savedLeg] } }],
   );
-  expect(await screen.findByText("0 of 2 flights selected")).toBeVisible();
+  expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
+  expect(screen.queryByText(/\d+ of \d+ flights selected/)).toBeNull();
   expect(
     screen.queryByRole("button", { name: /Choose flight JL 8/ }),
   ).toBeNull();

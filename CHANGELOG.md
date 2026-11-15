@@ -13,6 +13,13 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Fixed
 
+- Clickable trip, destination, activity, flight, and stay cards share border-only
+  hover feedback across their full surfaces, with independent feedback for inner
+  controls. Activity names no longer highlight as separate buttons.
+- Destination cards highlight only their borders on hover and stop highlighting
+  while hovering their individual buttons and links.
+- Outline and transparent buttons, including destination date selectors, now
+  highlight their full background on hover.
 - Muse consent now shows an approval or cancellation result with **Return to Muse**,
   avoiding a blocked cross-site form redirect that could leave **Allow access**
   appearing unresponsive.
@@ -35,6 +42,14 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Changed
 
+- Destination map changes pan and zoom together, zooming out only far enough to
+  fit both endpoint views, using a 1.5-second sine ease-in-out animation.
+- Flight searches stay disabled for past destination dates, with shorter warnings
+  and no Overview shortcut. Removed the flight selection count.
+- Simplified destination forms to a city search and calendar, removing explanatory
+  text and hiding flight date flexibility controls.
+- Simplified the web flight planner by removing introductory text and traveler
+  headings, and placing **Find flights** beside **Clear selections**.
 - The profile Activity Log uses compact rows, loads five entries at a time, and
   filters changes by API or MCP.
 - Offline notices appear only after 30 seconds and use one compact status line

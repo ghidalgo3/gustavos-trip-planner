@@ -5,12 +5,13 @@ export function FlightPlanningSkeleton() {
   return (
     <ContentSkeleton label="Loading flight planning">
       <div className="skeleton-panel">
-        <div className="skeleton-row">
-          <SkeletonItem size={24} style={{ width: "40%" }} />
-          <SkeletonItem size={32} style={{ width: 120 }} />
+        <div className="flight-grid-toolbar">
+          <div className="flight-grid-selection-actions">
+            <SkeletonItem size={32} style={{ width: 130 }} />
+            <SkeletonItem size={32} style={{ width: 100 }} />
+          </div>
         </div>
-        <SkeletonItem size={16} style={{ width: "90%" }} />
-        <SkeletonItem size={16} style={{ width: "65%" }} />
+        <SkeletonItem size={32} style={{ width: "100%" }} />
       </div>
     </ContentSkeleton>
   );

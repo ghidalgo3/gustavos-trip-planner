@@ -22,6 +22,7 @@ type Marker = { getElement?: () => HTMLElement };
 type MapEvent = { position?: [number, number]; error?: Error };
 type RouteSource = { add: (feature: object) => void };
 type RouteLayer = object;
+export type MapCamera = { center: [number, number]; zoom: number };
 export type MapHandle = {
   events: {
     add: (event: string, callback: (event: MapEvent) => void) => void;
@@ -36,6 +37,8 @@ export type MapHandle = {
     remove: (layer: RouteLayer) => void;
   };
   setCamera: (options: object) => void;
+  getCamera: () => MapCamera;
+  stop: () => void;
   setStyle: (options: object) => void;
   dispose: () => void;
   resize: () => void;

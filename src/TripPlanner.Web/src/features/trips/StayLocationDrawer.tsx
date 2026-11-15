@@ -214,10 +214,11 @@ export default function StayLocationDrawer({
             >
               {results.map((match, index) => (
                 <div
-                  className={`stay-search-result${selectedIndex === String(index) ? " is-selected" : ""}`}
+                  className={`stay-search-result interactive-card${selectedIndex === String(index) ? " is-selected" : ""}`}
                   key={`${match.name}|${match.address}|${match.geometry?.coordinates.join(",") ?? index}`}
                 >
                   <Radio
+                    className="card-action"
                     value={String(index)}
                     disabled={busy || !match.geometry}
                     label={

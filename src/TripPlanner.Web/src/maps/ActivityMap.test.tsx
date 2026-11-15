@@ -55,6 +55,8 @@ beforeEach(() => {
     sources = { add: sourceAdd, remove: sourceRemove };
     layers = { add: layerAdd, remove: layerRemove };
     setCamera = setCamera;
+    getCamera = () => ({ center: [2.35, 48.86] as [number, number], zoom: 11 });
+    stop = vi.fn();
     setStyle = setStyle;
     dispose = vi.fn();
     resize = vi.fn();
@@ -173,8 +175,8 @@ test("centers the map on the destination and shows loading until the SDK is read
   expect(setCamera).toHaveBeenLastCalledWith(
     expect.objectContaining({
       bounds: [12.49, 41.9, 12.49, 41.9],
-      type: "ease",
-      duration: 650,
+      type: "jump",
+      duration: 0,
     }),
   );
   expect(screen.getByRole("img", { name: "Map of Rome" })).toBeInTheDocument();
