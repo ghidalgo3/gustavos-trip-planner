@@ -124,7 +124,6 @@ export default function ActivityMap({
   const locatedCount = activities.filter(
     (activity) => activity.geometry,
   ).length;
-  const missingCount = activities.length - locatedCount;
   const points = useMemo(
     () => [
       ...(!placeSearch || activities.length === 0
@@ -527,30 +526,6 @@ export default function ActivityMap({
             </Button>
           )}
         </section>
-      )}
-      {ready && !error && !routeLabel && activities.length > 0 && (
-        <div className="activity-map-summary">
-          <span>
-            {placeSearch
-              ? `${activities.length} search results`
-              : `${locatedCount} of ${activities.length} activities located`}
-          </span>
-          {missingCount > 0 && (
-            <span>
-              {missingCount} {missingCount === 1 ? "needs" : "need"} a location
-              to appear on the map.
-            </span>
-          )}
-          {locatedCount > 0 && (
-            <Button
-              appearance="secondary"
-              size="small"
-              onClick={() => fitActivities()}
-            >
-              Show all locations
-            </Button>
-          )}
-        </div>
       )}
       {!ready && !error && (
         <div className="activity-map-loading">

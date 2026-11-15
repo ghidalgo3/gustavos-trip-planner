@@ -115,7 +115,6 @@ public sealed record ActivityProperties(
         ActivityState State,
     [property:
         Required,
-        MinLength(1),
         StringItems(@"\S", 200),
         UniqueItems,
         Description(McpInstructions.Fields.ActivityKinds)

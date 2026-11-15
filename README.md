@@ -1343,7 +1343,8 @@ explicit request, destination, trip, profile, then application defaults; unrelat
 preferences combine. Conversational preferences are saved only when the user requests
 or accepts remembering them.
 
-Activities require a nonempty, duplicate-free `kinds` array of free-form strings.
+Activity kind selection is optional: `kinds` is a duplicate-free array of free-form
+strings and may be empty.
 Each label must be nonblank and at most 200 characters; there is no fixed catalog.
 The web editor supports adding, editing, and removing custom kind labels, with
 suggestions from the signed-in user's existing activities.

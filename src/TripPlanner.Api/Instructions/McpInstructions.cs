@@ -66,7 +66,7 @@ public static class McpInstructions
             Fill in supported location, address, description, duration, cost with currency and pricing basis, and website/source links.
             Never invent prices, addresses, coordinates, ticket requirements or availability to fill a field.
             Leave unverified details unknown; missing ticket information means Unknown, not NotRequired.
-            Assign one or more descriptive, free-form activity kinds, including multiple kinds when relevant.
+            Optionally assign descriptive, free-form activity kinds, including multiple kinds when relevant.
             Use list_activity_kinds to find and reuse relevant existing labels across the connected user's own trips; there is no fixed catalog.
             {LocationResolution.Instructions}
             Create undated activity ideas or reuse existing ideas before scheduling them.
@@ -266,7 +266,7 @@ public static class McpInstructions
             """;
 
         public const string CreateActivity = """
-            Create an undated activity idea with its complete GeoJSON Feature: what to do, one or more free-form kinds, place, duration and supported details.
+            Create an undated activity idea with its complete GeoJSON Feature: what to do, optional free-form kinds, place, duration and supported details.
             Always include a researched physical address in properties.address, even when geometry remains unresolved, plus website/source links and ticketRequirement.
             Follow the mandatory geographic workflow in get_planning_context: try geocode_address, then independently search the web on null, failed, ambiguous or geographically inconsistent results before declaring Unresolved.
             Save independently verified coordinates directly in request.geometry without requiring geocode_address validation, with coordinate source URLs in properties.links and precision classification in properties.description.
@@ -510,7 +510,7 @@ public static class McpInstructions
             "Maybe is an idea; Yes selects it for the plan but does not assign a day or time; No excludes it.";
 
         public const string ActivityKinds = """
-            One or more unique, nonblank, free-form kind labels (up to 200 characters each).
+            Optional unique, nonblank, free-form kind labels (up to 200 characters each). Use an empty array when no kinds are selected.
             For example: Art, Food, Architecture, or Nightlife. There is no fixed catalog.
             """;
 

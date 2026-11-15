@@ -1606,21 +1606,59 @@ test("Find location is hidden when all activities already have locations", async
   ).not.toBeInTheDocument();
 });
 
-test("activity details require a kind and save multiple kinds, address and tickets together", async () => {
+test.each([false, true])(
+  "saves an activity without kinds, editing=%s",
+  async (editing) => {
+    let drawer: HTMLElement;
+    if (editing) {
+      vi.mocked(getActivities).mockResolvedValue({
+        type: "FeatureCollection",
+        features: [activity],
+      });
+      vi.mocked(getActivity).mockResolvedValue({ activity, etag: '"v1"' });
+      show();
+      click(await screen.findByRole("button", { name: "Louvre" }));
+      drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+      click(within(drawer).getByLabelText("Remove Culture"));
+    } else {
+      show();
+      drawer = await add(false);
+      change(within(drawer).getByLabelText("Activity name"), {
+        target: { value: "Gallery visit" },
+      });
+    }
+    expect(
+      within(drawer).getByRole("combobox", { name: "Kinds" }),
+    ).not.toBeRequired();
+    const save = within(drawer).getByRole("button", { name: "Save activity" });
+    expect(save).toBeEnabled();
+    click(save);
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    expect(vi.mocked(saveActivity).mock.calls[0][2].properties).toMatchObject({
+      name: editing ? activity.properties.name : "Gallery visit",
+      kinds: [],
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  },
+);
+
+test("activity details save multiple kinds, address and tickets together", async () => {
   show();
   const drawer = await add(false);
   change(within(drawer).getByLabelText("Activity name"), {
     target: { value: "Gallery visit" },
   });
   const save = within(drawer).getByRole("button", { name: "Save activity" });
-  expect(save).toBeDisabled();
+  expect(save).toBeEnabled();
   const kinds = within(drawer).getByRole("combobox", { name: "Kinds" });
   const addKind = (value: string) => {
     change(kinds, { target: { value } });
     fireEvent.keyDown(kinds, { key: "Enter", code: "Enter" });
   };
   addKind("   ");
-  expect(save).toBeDisabled();
+  expect(save).toBeEnabled();
   addKind("Architecture & design");
   expect(save).toBeEnabled();
   addKind("Architecture & design");

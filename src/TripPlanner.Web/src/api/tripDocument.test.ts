@@ -542,7 +542,6 @@ test("calendar items retain hotel stays and unscheduled activity details", () =>
 
 test.each([
   "missing",
-  "empty",
   "blank",
   "whitespace",
   "null-kind",
@@ -560,7 +559,6 @@ test.each([
     (item: Record<string, unknown>) => item.kind === "activity",
   );
   if (change === "missing") delete activity.kinds;
-  if (change === "empty") activity.kinds = [];
   if (change === "blank") activity.kinds = [""];
   if (change === "whitespace") activity.kinds = [" \t\n"];
   if (change === "null-kind") activity.kinds = [null];
@@ -594,24 +592,31 @@ test("activity notes remain separate from descriptions in document views", () =>
   });
 });
 
-test("custom activity kinds survive portable document validation and hydration", () => {
-  const value = structuredClone(after);
-  const item = value.itinerary.items.find(
-    (item: Record<string, unknown>) => item.kind === "activity",
-  );
-  const kinds = [
-    "Architecture & design",
-    "夜景",
-    ...Array.from({ length: 10 }, (_, i) => `Kind ${i}`),
-    "k".repeat(200),
-  ];
-  item.kinds = kinds;
-  validateTripDocument(value, value.id);
-  const view = hydrateTripDocument(value);
-  const resource = Object.values(view.resources).find(
-    (resource) => (resource.data as { id?: string })?.id === item.id,
-  );
-  expect(
-    (resource?.data as { properties: { kinds: string[] } }).properties.kinds,
-  ).toEqual(kinds);
-});
+test.each([
+  { kinds: [] },
+  {
+    kinds: [
+      "Architecture & design",
+      "夜景",
+      ...Array.from({ length: 10 }, (_, i) => `Kind ${i}`),
+      "k".repeat(200),
+    ],
+  },
+])(
+  "activity kinds $kinds survive portable document validation and hydration",
+  ({ kinds }) => {
+    const value = structuredClone(after);
+    const item = value.itinerary.items.find(
+      (item: Record<string, unknown>) => item.kind === "activity",
+    );
+    item.kinds = kinds;
+    validateTripDocument(value, value.id);
+    const view = hydrateTripDocument(value);
+    const resource = Object.values(view.resources).find(
+      (resource) => (resource.data as { id?: string })?.id === item.id,
+    );
+    expect(
+      (resource?.data as { properties: { kinds: string[] } }).properties.kinds,
+    ).toEqual(kinds);
+  },
+);

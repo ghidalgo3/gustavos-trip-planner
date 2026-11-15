@@ -45,17 +45,17 @@ struct TripDocumentTests {
 
 @MainActor
 struct TripDocumentActivityTests {
-    @Test(arguments: ["Yes", "No", "Maybe"])
-    func decodesMultipleKindsAndPlanningDecisions(_ state: String) throws {
+    @Test(arguments: ["Yes", "No", "Maybe"], [[], ["Architecture & design", "夜景"]])
+    func decodesOptionalKindsAndPlanningDecisions(_ state: String, _ kinds: [String]) throws {
         let value: JSONValue = .object([
             "id": .string(UUID().uuidString), "name": .string("Museum"),
-            "destinationId": .string("paris-fr"), "kinds": .array([.string("Architecture & design"), .string("夜景")]),
+            "destinationId": .string("paris-fr"), "kinds": .array(kinds.map(JSONValue.string)),
             "address": .string("1 museum street"), "ticketRequirement": .string("Unknown"),
             "state": .string(state),
             "description": .string("Paintings"), "notes": .string("Book morning entry.\nMeet at the entrance."), "links": .array([])
         ])
         let activity = try TripDocumentActivity(value)
-        #expect(activity.kinds == ["Architecture & design", "夜景"])
+        #expect(activity.kinds == kinds)
         #expect(activity.address == "1 museum street")
         #expect(activity.ticketRequirement == .Unknown)
         #expect(activity.state.rawValue == state)
@@ -63,11 +63,11 @@ struct TripDocumentActivityTests {
         #expect(activity.notes == "Book morning entry.\nMeet at the entrance.")
     }
 
-    @Test(arguments: [[], [""], [" \t\n"], [String(repeating: "k", count: 201)], ["Art", "Art"]])
-    func rejectsEmptyBlankLongAndDuplicateKinds(_ kinds: [String]) throws {
+    @Test(arguments: [JSONValue.null, .string("Art"), .array([.null]), .array([.number(123)]), .array([.string("")]), .array([.string(" \t\n")]), .array([.string(String(repeating: "k", count: 201))]), .array([.string("Art"), .string("Art")])])
+    func rejectsInvalidKinds(_ kinds: JSONValue) throws {
         let value: JSONValue = .object([
             "id": .string(UUID().uuidString), "name": .string("Museum"),
-            "destinationId": .string("paris-fr"), "kinds": .array(kinds.map(JSONValue.string)),
+            "destinationId": .string("paris-fr"), "kinds": kinds,
             "ticketRequirement": .string("Unknown"), "state": .string("Maybe")
         ])
         #expect(throws: (any Error).self) { try TripDocumentActivity(value) }

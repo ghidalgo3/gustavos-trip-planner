@@ -3,7 +3,6 @@ export type TicketRequirement = "Unknown" | "Required" | "NotRequired";
 export function validActivityKinds(kinds: unknown): kinds is string[] {
   return (
     Array.isArray(kinds) &&
-    kinds.length > 0 &&
     kinds.every(
       (kind: unknown) =>
         typeof kind === "string" &&

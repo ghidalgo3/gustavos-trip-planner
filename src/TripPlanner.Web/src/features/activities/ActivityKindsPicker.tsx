@@ -76,10 +76,11 @@ export default function ActivityKindsPicker({
     >
       <Field
         label="Kinds"
-        required
         validationState={!validActivityKinds(value) ? "error" : "none"}
         validationMessage={
-          !validActivityKinds(value) ? "Add at least one kind." : undefined
+          !validActivityKinds(value)
+            ? "Use unique, nonblank kinds of up to 200 characters each."
+            : undefined
         }
       >
         <div className="tag-list-picker activity-kinds-control">

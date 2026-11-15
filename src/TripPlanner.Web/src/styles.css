@@ -89,6 +89,7 @@ body {
 
 /* Search inputs share drawer text sizing, including wide Safari touch layouts. */
 .fui-SearchBox__input,
+.activity-kinds-input .fui-Combobox__input,
 input[type="search"] {
   font-size: max(16px, 1em) !important;
 }
@@ -1217,22 +1218,6 @@ main {
   inset: 0;
   width: 100%;
   height: 100%;
-}
-.activity-map-summary {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  max-width: calc(100% - 76px);
-  display: grid;
-  justify-items: start;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 8px;
-  background: var(--colorNeutralBackground1);
-  color: var(--colorNeutralForeground1);
-  font-size: 12px;
-  box-shadow: var(--shadow4);
 }
 .activity-list-location {
   display: flex;

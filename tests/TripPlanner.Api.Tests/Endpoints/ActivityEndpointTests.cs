@@ -134,7 +134,7 @@ public class ActivityEndpointTests
     }
 
     [TestMethod]
-    [DataRow("empty", "Unknown", false)]
+    [DataRow("empty", "Unknown", true)]
     [DataRow("custom", "Unknown", true)]
     [DataRow("many", "Unknown", true)]
     [DataRow("blank", "Unknown", false)]
@@ -226,6 +226,37 @@ public class ActivityEndpointTests
                     .EnumerateArray()
                     .Select(kind => kind.GetString())
                     .ToArray()
+            );
+
+            string resource = $"/trips/{trip.Id}/destinations/paris-fr/activities/{saved.Id}";
+            using var fetched = await client.GetAsync(resource);
+            using var clearKinds = new HttpRequestMessage(HttpMethod.Put, resource)
+            {
+                Content = JsonContent.Create(
+                    input with
+                    {
+                        Id = saved.Id,
+                        Properties = input.Properties with { Kinds = [] },
+                    }
+                ),
+            };
+            clearKinds.Headers.Add("Destination-Context", place.ContextVersion);
+            clearKinds.Headers.TryAddWithoutValidation("If-Match", fetched.Headers.ETag!.Tag);
+            using var cleared = await client.SendAsync(clearKinds);
+            Assert.AreEqual(HttpStatusCode.OK, cleared.StatusCode);
+            var updated = (
+                await client.GetFromJsonAsync<GeoJsonFeature<ActivityProperties>>(resource)
+            )!;
+            Assert.IsEmpty(updated.Properties.Kinds);
+            Assert.AreEqual(input.Properties.Name, updated.Properties.Name);
+            Assert.AreEqual(input.Properties.Address, updated.Properties.Address);
+            Assert.AreEqual(
+                input.Properties.TicketRequirement,
+                updated.Properties.TicketRequirement
+            );
+            CollectionAssert.AreEqual(
+                input.Properties.Links.ToArray(),
+                updated.Properties.Links.ToArray()
             );
         }
         else

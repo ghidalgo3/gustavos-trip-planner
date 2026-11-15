@@ -399,7 +399,7 @@ test("place search replaces activity and stay bubbles with numbered selectable r
   expect(markers.map((marker) => marker.textContent)).toEqual(["1", "2"]);
   expect(markers[0]).toHaveAttribute("title", "1. Garden");
   expect(markers[1]).toHaveAccessibleName("Select Cafe");
-  expect(screen.getByText("2 search results")).toBeVisible();
+  expect(screen.queryByText("2 search results")).not.toBeInTheDocument();
   expect(setCamera).toHaveBeenLastCalledWith({
     bounds: [2.3, 48.8, 2.31, 48.81],
     padding: 48,
@@ -465,7 +465,7 @@ test.each([false, true])(
   },
 );
 
-test("fits all located activities without a hotel, refits new locations, and explains missing pins", async () => {
+test("fits and refits located activities without a floating summary panel", async () => {
   vi.mocked(mapsClient.getToken).mockResolvedValue({
     token: "sas",
     endpoint: "https://atlas.microsoft.com",
@@ -525,10 +525,13 @@ test("fits all located activities without a hotel, refits new locations, and exp
     type: "ease",
     duration: 650,
   });
-  expect(screen.getByText("1 of 2 activities located")).toBeVisible();
+  expect(screen.queryByText(/activities located/)).not.toBeInTheDocument();
   expect(
-    screen.getByText("1 needs a location to appear on the map."),
-  ).toBeVisible();
+    screen.queryByText(/needs a location to appear/),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Show all locations" }),
+  ).not.toBeInTheDocument();
   rerender(
     <ActivityMap {...props} selectedId="museum" activities={[...activities]} />,
   );
@@ -545,19 +548,13 @@ test("fits all located activities without a hotel, refits new locations, and exp
     type: "ease",
     duration: 650,
   });
-  expect(screen.getByText("2 of 2 activities located")).toBeVisible();
+  expect(screen.queryByText(/activities located/)).not.toBeInTheDocument();
   expect(
     screen.queryByText(/needs a location to appear/),
   ).not.toBeInTheDocument();
-  setCamera.mockClear();
-  fireEvent.click(screen.getByRole("button", { name: "Show all locations" }));
-  expect(setCamera).toHaveBeenCalledWith({
-    bounds: [2.3, 48.8, 2.5, 48.9],
-    padding: 48,
-    maxZoom: 11,
-    type: "ease",
-    duration: 650,
-  });
+  expect(
+    screen.queryByRole("button", { name: "Show all locations" }),
+  ).not.toBeInTheDocument();
 });
 
 test("stay preview animates to street level without recreating its map", async () => {

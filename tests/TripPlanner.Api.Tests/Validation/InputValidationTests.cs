@@ -112,6 +112,7 @@ public class InputValidationTests
         Assert.IsFalse(kind.TryGetProperty("enum", out _));
         Assert.AreEqual(200, kind.GetProperty("maxLength").GetInt32());
         Assert.IsTrue(kinds.GetProperty("uniqueItems").GetBoolean());
+        Assert.IsFalse(kinds.TryGetProperty("minItems", out _));
         Assert.IsFalse(kinds.TryGetProperty("maxItems", out _));
         var choiceItemType = schemas
             .GetProperty("SetFlightChoicesRequest")
@@ -395,7 +396,6 @@ public class InputValidationTests
     [DataRow("geometry.coordinates", "[0,0,0]")]
     [DataRow("geometry.coordinates", "[\"2\",48]")]
     [DataRow("properties.kinds", "null")]
-    [DataRow("properties.kinds", "[]")]
     [DataRow("properties.kinds", "[null]")]
     [DataRow("properties.kinds", "[123]")]
     [DataRow("properties.kinds", "[\"\"]")]

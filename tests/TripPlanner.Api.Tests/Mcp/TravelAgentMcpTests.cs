@@ -360,7 +360,7 @@ public sealed class TravelAgentMcpTests
                 .GetProperty("properties")
                 .GetProperty("properties");
             var kinds = properties.GetProperty("properties").GetProperty("kinds");
-            Assert.AreEqual(1, kinds.GetProperty("minItems").GetInt32());
+            Assert.IsFalse(kinds.TryGetProperty("minItems", out _));
             Assert.IsTrue(kinds.GetProperty("uniqueItems").GetBoolean());
             var item = kinds.GetProperty("items");
             Assert.AreEqual("string", item.GetProperty("type").GetString());

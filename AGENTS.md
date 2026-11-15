@@ -58,6 +58,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 ## UI Conventions
 
 - UI elements should be self-explanatory and not require descriptive text to explain to the user what they do or how they work.
+- All buttons, including icon-only and dismiss buttons, must be square or wider than they are tall (width >= height). Never make buttons taller than they are wide unless the user explicitly requests it. Preserve required minimum tap-target dimensions when applying this rule.
 
 ## Cross platform instructions
 

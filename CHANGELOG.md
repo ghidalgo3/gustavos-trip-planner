@@ -11,6 +11,15 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Removed
+
+- Removed the floating location summary and Show all locations button from maps.
+
+### Fixed
+
+- Activities can be saved without selecting a kind, including after removing all
+  existing kinds.
+
 ## 2026.11.15.1
 
 ### Changed

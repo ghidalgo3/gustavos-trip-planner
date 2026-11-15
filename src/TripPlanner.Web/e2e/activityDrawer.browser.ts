@@ -34,6 +34,18 @@ for (const width of [320, 390, 1280]) {
         name: "Kinds",
         exact: true,
       });
+      await expect(input).not.toHaveAttribute("aria-required", "true");
+      expect(
+        await input.evaluate((element) =>
+          parseFloat(getComputedStyle(element).fontSize),
+        ),
+      ).toBeGreaterThanOrEqual(16);
+      await drawer
+        .getByLabel("Activity name", { exact: true })
+        .fill("Photo walk");
+      await expect(
+        drawer.getByRole("button", { name: "Save activity", exact: true }),
+      ).toBeEnabled();
       await input.fill("arch");
       await expect(
         page.getByRole("menuitemcheckbox", {
@@ -110,6 +122,15 @@ for (const width of [320, 390, 1280]) {
           (element) => element.scrollWidth - element.clientWidth,
         ),
       ).toBeLessThanOrEqual(1);
+      for (const kind of ["Architecture", "Street photography", "Shopping"]) {
+        await drawer.getByLabel(`Remove ${kind}`, { exact: true }).click();
+      }
+      await expect(
+        drawer.getByRole("toolbar", { name: "Selected kinds" }),
+      ).toHaveCount(0);
+      await expect(
+        drawer.getByRole("button", { name: "Save activity", exact: true }),
+      ).toBeEnabled();
     });
 
     test("keeps balanced gutters and fits Description and Notes to their text", async ({

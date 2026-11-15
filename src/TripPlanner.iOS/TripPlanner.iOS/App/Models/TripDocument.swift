@@ -206,7 +206,7 @@ struct TripDocumentActivity: Equatable {
         guard let id = value["id"].stringValue,
               let name = value["name"].stringValue,
               let destinationID = value["destinationId"].stringValue,
-              !kinds.isEmpty, kinds.count == rawValues.count,
+              case .array = value["kinds"], kinds.count == rawValues.count,
               Set(kinds).count == kinds.count,
               kinds.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= 200 }),
               let ticket = value["ticketRequirement"].stringValue.flatMap(TicketRequirement.init(rawValue:)),
