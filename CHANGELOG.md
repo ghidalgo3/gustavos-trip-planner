@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.15.1
+
 ### Changed
 
 - Stay and activity place searches share full-width numbered result buttons and
