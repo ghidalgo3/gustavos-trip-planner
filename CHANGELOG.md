@@ -16,8 +16,6 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Clickable trip, destination, activity, flight, and stay cards share border-only
   hover feedback across their full surfaces, with independent feedback for inner
   controls. Activity names no longer highlight as separate buttons.
-- Destination cards highlight only their borders on hover and stop highlighting
-  while hovering their individual buttons and links.
 - Outline and transparent buttons, including destination date selectors, now
   highlight their full background on hover.
 - Muse consent now shows an approval or cancellation result with **Return to Muse**,
@@ -58,7 +56,6 @@ separately. The tag stays on the deployed source commit. Failed releases and
   Tap events to edit their dates/times and travel blocks to choose Driving or
   Walking, calculate Azure Maps travel time, and save the connection.
 - Individual transportation choices now override a day-wide Driving default.
-
 - Activity planning decisions now use Yes, No, and Maybe. New activities start at
   Maybe; existing selections and schedules are preserved when stored states are
   renamed.
