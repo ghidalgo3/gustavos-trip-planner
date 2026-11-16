@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.16.1
+
 ### Added
 
 - Choose flight, train, car, or walking transportation between destination visits
