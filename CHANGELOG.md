@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.16.2
+
 ### Fixed
 
 - Station search results align to the start of their buttons, and search clear
