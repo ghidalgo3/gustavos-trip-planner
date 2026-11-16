@@ -376,7 +376,7 @@ The UI uses explicit Save/Apply buttons for groups of values that need validatio
 | Home city and preferred airport | **Save home city** | The preferred airport must belong to the selected city's airport choices |
 | Preferred airlines | Adding or removing an airline saves immediately | Independent selection; unfinished city edits are preserved locally |
 | Private, trip, and destination interests | Each text field saves on blur | Each interest text is independently valid within its length limit |
-| Daily activity plan | **Save changes** | Dates, activity order, rules, availability, and timing can conflict and need validation together |
+| Daily activity plan | **Save** in the event editor; drag/drop saves immediately | Complete timing changes are validated and saved with the versioned plan |
 | Day name | On blur | Optional independent text; saves the confirmed plan with the new name while retaining unsaved schedule edits |
 | Schedule or proposal preview | **Apply schedule / Apply this proposal** | Explicitly accepts an entire proposed replacement plan |
 | Complete flight itinerary | **Save complete itinerary** | Commits the complete connected set of itinerary legs; individual flight choices already save when selected |
@@ -804,17 +804,26 @@ SQL migrator; no schemas need to be dropped.
 
 ## Activity selection and daily planning (milestone 3)
 
-Activities has **Ideas** and **Plan** views. Ideas has independent pill filters
+Activities has **Ideas** and **Schedule** views. Ideas has independent pill filters
 for Considering, Planned, and Not Interested, each with its status icon and count.
 All three start enabled. Counts reflect the current search, and enabled statuses
 share one list in their original order. Filters remain available offline and in
 read-only mode. Map marker numbers stay consistent when filtering the list.
 A plan selects activities,
 assigns each activity at most once across repeat visits, and orders each day.
-Plan is a day calendar with an hour rail and time-proportional event blocks. Use
-previous/next or the date picker to navigate visit days, including empty days.
-The map starts collapsed and can be opened separately. Selected activities without
-confirmed timing appear in **Unscheduled**. Tap one, or use **Add event**, to choose
+Schedule centers a day calendar with an hour rail and time-proportional event blocks.
+On wide screens, a searchable activity list sits to its left and the map to its
+right; both dividers resize with dragging or keyboard arrows. On smaller screens,
+the list and map stack below the calendar and scroll with the page.
+Drag an activity from the list onto the calendar to schedule it, move an event
+to change its time, or drag its start/end handles to resize it. Timing snaps to
+15 minutes, previews before release, and saves the complete versioned plan on
+drop. Drag near the calendar's top or bottom to scroll; hover the previous/next
+day button to move an event to another visit day. Escape or dropping outside
+the calendar cancels the gesture. Failed saves keep the confirmed event and offer
+a retry. Touch users drag activities by their dotted handle.
+Use previous/next or the date picker to navigate visit days, including empty days.
+Activities without timing appear in **Unscheduled**. Tap one, or use **Add event**, to choose
 its visit date, start, and end. **Save** submits the complete plan with its ETag and
 planning context; **Cancel** discards the editor draft. Moving an event schedules
 it exactly once, retains its other restrictions, and validates flight availability
@@ -856,7 +865,7 @@ can omit `timeZone`; repeat visits reuse the saved city timezone. Older destinat
 with a missing timezone also resolve it in destination and planning responses without
 mutating shared data during a read. Destination replacement resolves an omitted zone
 before saving, and saved plans missing a zone inherit the city's zone when loaded.
-The Plan view displays the resolved city timezone in the calendar toolbar;
+The Schedule view displays the resolved city timezone in the calendar toolbar;
 it does not ask users to choose a timezone. Explicit API overrides remain supported.
 If both lookup sources fail, the zone remains unknown with a retry explanation;
 manual planning remains available and calendar entries need known timing rather than a guessed zone.
@@ -868,11 +877,11 @@ scoring combines all travellers with equal weight and narrower instructions take
 precedence. Agent-proposed timing rules and flight-derived availability require
 explicit acceptance.
 
-The activity map stays visible in Ideas and Plan. Ideas has a search icon beside **Add activity**. Opening it replaces the heading
+The activity map stays visible in Ideas and Schedule. Ideas has a search icon beside **Add activity**. Opening it replaces the heading
 and actions with a focused search field and an X button. The filter searches all
 activity field values, works offline, and stays active until X clears and closes
 it. Map markers and their numbering remain unchanged.
-On phones, Ideas and Plan scroll with the page, and activity editors scroll
+On phones, Ideas and Schedule scroll with the page, and activity editors scroll
 through their action buttons. The calendar's hour grid scrolls independently. Overview keeps destination names and dates above
 the card actions. Action results use dismissible Fluent UI toasts anchored at the viewport’s top-right, above drawers and dialogs without moving when focus changes: successes close
 automatically, while failures stay visible for review. Field validation and

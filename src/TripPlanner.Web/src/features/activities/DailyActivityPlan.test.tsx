@@ -277,7 +277,7 @@ test("saving locks the draft and prevents overlapping writes while retaining the
 
 test("a selected unscheduled activity is scheduled exactly once on a chosen visit", async () => {
   render(<DailyActivityPlan {...props} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Cafe" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Schedule Cafe" }));
   fireEvent.change(screen.getByLabelText("Event date"), {
     target: { value: "visit-1:2027-06-15" },
   });

@@ -157,7 +157,6 @@
 }
 .calendar-event:hover {
   border-color: var(--colorBrandStroke1);
-  background: var(--colorBrandBackground2Hover);
 }
 .calendar-event:focus-visible {
   outline: 2px solid var(--colorBrandStroke1);
@@ -175,25 +174,6 @@
 }
 .calendar-event-estimated {
   border-top-style: dashed;
-}
-.calendar-unscheduled {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
-  background: var(--colorNeutralBackground2);
-  border: 1px solid var(--colorNeutralStroke1);
-  border-radius: 6px;
-  font-size: 12px;
-}
-.calendar-unscheduled > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.calendar-unscheduled strong {
-  color: var(--colorBrandForeground1);
 }
 .calendar-empty-day {
   position: absolute;
@@ -356,4 +336,312 @@
 .calendar-editor-fields input,
 .calendar-editor-fields select {
   font-size: 16px;
+}
+
+/* Keep the calendar primary when the side panels stack on small screens. */
+.calendar-interaction-workspace,
+.schedule-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.schedule-workspace {
+  gap: 16px;
+}
+.schedule-workspace > .activity-calendar {
+  order: -1;
+}
+.schedule-activities {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+.schedule-activities h2,
+.schedule-activities h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.schedule-activities h3 {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.schedule-activities h2 > span,
+.schedule-activities h3 > span {
+  color: var(--colorNeutralForeground3);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.schedule-activity-search {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.schedule-activity-search > .fui-SearchBox {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+}
+.schedule-activity-search input {
+  font-size: 16px !important;
+}
+.schedule-activity-search > button {
+  min-width: 48px;
+  min-height: 44px;
+}
+.schedule-activity-groups {
+  display: grid;
+  gap: 20px;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+}
+.schedule-activity-groups ul {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+}
+.schedule-activity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid var(--colorBrandStroke1);
+  border-radius: 6px;
+  background: var(--colorBrandBackground2);
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  text-align: left;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+}
+.schedule-activity.is-scheduled {
+  background: var(--colorNeutralBackground1);
+  border-color: var(--colorNeutralStroke1);
+}
+.schedule-activity:hover:not(:disabled) {
+  background: var(--colorBrandBackground2Hover);
+}
+.schedule-activity:disabled {
+  cursor: default;
+}
+.schedule-activity > [data-drag-handle] {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  color: var(--colorNeutralForeground3);
+  touch-action: none;
+}
+.schedule-activity > span:not([data-drag-handle]) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.schedule-activity small {
+  color: var(--colorNeutralForeground2);
+  font-size: 12px;
+}
+.schedule-activity strong,
+.schedule-activity small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.schedule-workspace.is-resizing,
+.schedule-workspace.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+.activity-plan-workspace .activity-resize-handle:hover,
+.activity-plan-workspace .activity-resize-handle:focus-visible {
+  background: transparent;
+}
+.activity-plan-workspace .activity-resize-handle:hover > span {
+  border-color: var(--colorBrandStroke1);
+}
+.calendar-event {
+  padding: 0;
+  min-width: 44px;
+  container-type: inline-size;
+}
+.calendar-event-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  height: min(100%, 84px);
+  max-height: 100cqw;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  background: inherit;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  overflow: hidden;
+}
+.calendar-event-content:hover {
+  background: var(--colorBrandBackground2Hover);
+}
+.schedule-activity[data-draggable="false"],
+.calendar-event-content[data-draggable="false"],
+.schedule-activity[data-draggable="false"] > [data-drag-handle] {
+  touch-action: pan-y;
+  cursor: pointer;
+}
+.calendar-resize {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: inherit;
+  color: inherit;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.calendar-resize-start {
+  top: 0;
+  right: 0;
+  align-items: start;
+  padding-top: 4px;
+}
+.calendar-resize-end {
+  bottom: 0;
+  left: 0;
+  align-items: end;
+  padding-bottom: 4px;
+}
+.calendar-resize > span {
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--colorBrandForeground1);
+}
+.calendar-resize:hover {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorBrandBackground2Hover);
+}
+.calendar-event:has(.calendar-resize) .calendar-event-content {
+  padding-right: 44px;
+}
+.calendar-event:has(.calendar-resize) {
+  touch-action: none;
+}
+.calendar-drag-preview {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 2px solid var(--colorBrandStroke1);
+  border-radius: 6px;
+  background: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  box-shadow: var(--shadow8);
+  pointer-events: none;
+}
+.calendar-save-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--colorNeutralForeground2);
+}
+.calendar-loading-workspace {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 16px;
+}
+.activity-plan-workspace > .activity-map-panel {
+  order: 1;
+}
+@media (min-width: 1100px) {
+  .calendar-loading-workspace {
+    display: grid;
+    grid-template-columns: minmax(180px, 28fr) minmax(300px, 72fr);
+    gap: 24px;
+  }
+  .schedule-workspace {
+    display: grid;
+    grid-template-columns:
+      minmax(180px, var(--activity-plan-track))
+      24px minmax(300px, var(--activity-map-track));
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+  }
+  .schedule-workspace > .activity-calendar {
+    grid-column: 3;
+    grid-row: 1;
+    order: 0;
+  }
+  .schedule-activities {
+    grid-column: 1;
+    grid-row: 1;
+    padding-right: 4px;
+  }
+  .trip-workspace-activities .activity-workspace.activity-plan-workspace {
+    grid-template-columns:
+      minmax(550px, var(--activity-plan-track))
+      24px minmax(260px, var(--activity-map-track));
+  }
+}
+@media (max-width: 1099px) {
+  main:has(.trip-workspace-activities .activity-calendar-view) {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .trip-workspace-activities:has(.activity-calendar-view),
+  .trip-workspace-activities:has(.activity-calendar-view) .trip-page-body {
+    flex: none;
+  }
+  .trip-workspace-activities .activity-planning.activity-calendar-view {
+    height: auto;
+  }
+  .trip-workspace-activities .activity-workspace.activity-plan-workspace {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  .activity-plan-workspace > .activity-cards-section,
+  .activity-plan-workspace > .activity-map-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .activity-plan-workspace .activity-map-panel .activity-map-shell {
+    height: clamp(200px, 30svh, 280px);
+  }
+  .activity-plan-workspace > .activity-resize-handle,
+  .schedule-workspace > .activity-resize-handle {
+    display: none;
+  }
+  .schedule-activity-groups {
+    max-height: 260px;
+  }
+}
+@media (max-width: 767px) {
+  .activity-plan-workspace > .activity-cards-section {
+    order: 0;
+  }
 }

@@ -4,25 +4,35 @@ import ContentSkeleton from "../../shared/components/ContentSkeleton";
 export function DailyPlanSkeleton() {
   return (
     <ContentSkeleton label="Loading calendar">
-      <div className="skeleton-stack calendar-loading">
-        <div className="skeleton-row">
-          <SkeletonItem size={32} style={{ width: "65%" }} />
-          <SkeletonItem size={32} style={{ width: 100 }} />
-        </div>
-        <SkeletonItem size={20} style={{ width: "40%" }} />
-        <div className="calendar-loading-grid">
-          {[0, 1, 2, 3, 4].map((hour) => (
-            <div className="calendar-loading-hour" key={hour}>
-              <SkeletonItem size={12} style={{ width: 40 }} />
-              <div>
-                {hour % 2 === 0 && (
-                  <SkeletonItem
-                    style={{ height: hour === 2 ? 90 : 60, width: "95%" }}
-                  />
-                )}
-              </div>
-            </div>
+      <div className="calendar-loading-workspace">
+        <div className="skeleton-stack calendar-loading-activities">
+          <SkeletonItem size={20} style={{ width: "60%" }} />
+          <SkeletonItem style={{ height: 44 }} />
+          <SkeletonItem size={16} style={{ width: "50%" }} />
+          {[0, 1, 2].map((index) => (
+            <SkeletonItem key={index} style={{ height: 72 }} />
           ))}
+        </div>
+        <div className="skeleton-stack calendar-loading">
+          <div className="skeleton-row">
+            <SkeletonItem size={32} style={{ width: "65%" }} />
+            <SkeletonItem size={32} style={{ width: 100 }} />
+          </div>
+          <SkeletonItem size={20} style={{ width: "40%" }} />
+          <div className="calendar-loading-grid">
+            {[0, 1, 2, 3, 4].map((hour) => (
+              <div className="calendar-loading-hour" key={hour}>
+                <SkeletonItem size={12} style={{ width: 40 }} />
+                <div>
+                  {hour % 2 === 0 && (
+                    <SkeletonItem
+                      style={{ height: hour === 2 ? 90 : 60, width: "95%" }}
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </ContentSkeleton>

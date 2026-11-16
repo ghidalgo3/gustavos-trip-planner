@@ -7,14 +7,14 @@ import {
 } from "react";
 
 const handleWidth = 24;
-const minimumPanelWidth = 260;
-
 export default function ResizableActivityWorkspace({
   children,
   mapPanelId,
+  layout = "ideas",
 }: {
   children: ReactNode;
   mapPanelId: string;
+  layout?: "ideas" | "plan" | "calendar";
 }) {
   const workspace = useRef<HTMLDivElement>(null);
   const drag = useRef<{
@@ -23,13 +23,30 @@ export default function ResizableActivityWorkspace({
     startPercent: number;
   } | null>(null);
   const [width, setWidth] = useState(0);
-  const [planPercent, setPlanPercent] = useState(40);
+  const [wide, setWide] = useState(false);
+  const [percentages, setPercentages] = useState({
+    ideas: 40,
+    plan: 75,
+    calendar: 28,
+  });
+  const planPercent = percentages[layout];
+  const setPlanPercent = (value: number) =>
+    setPercentages((current) => ({ ...current, [layout]: value }));
   const [dragging, setDragging] = useState(false);
   const availableWidth = Math.max(1, width - handleWidth);
+  const minimumLeft =
+    layout === "calendar" ? 180 : layout === "plan" && wide ? 550 : 260;
+  const minimumRight = layout === "calendar" ? 300 : 260;
   const minimumPercent = width
-    ? Math.min(50, (minimumPanelWidth / availableWidth) * 100)
+    ? Math.min(100, (minimumLeft / availableWidth) * 100)
     : 20;
-  const maximumPercent = 100 - minimumPercent;
+  const maximumPercent = width
+    ? Math.max(minimumPercent, 100 - (minimumRight / availableWidth) * 100)
+    : 80;
+  const label =
+    layout === "calendar"
+      ? "Resize activities and calendar"
+      : "Resize plan and map";
   const clamp = (value: number) =>
     Math.max(minimumPercent, Math.min(maximumPercent, value));
   const displayedPercent = clamp(planPercent);
@@ -37,7 +54,10 @@ export default function ResizableActivityWorkspace({
   useEffect(() => {
     const element = workspace.current;
     if (!element) return;
-    const measure = () => setWidth(element.getBoundingClientRect().width);
+    const measure = () => {
+      setWidth(element.getBoundingClientRect().width);
+      setWide(window.matchMedia?.("(min-width: 1100px)").matches ?? false);
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
@@ -53,7 +73,7 @@ export default function ResizableActivityWorkspace({
   return (
     <div
       ref={workspace}
-      className={`activity-workspace${dragging ? " is-resizing" : ""}`}
+      className={`${layout === "calendar" ? "schedule-workspace" : "activity-workspace"}${layout === "plan" ? " activity-plan-workspace" : ""}${dragging ? " is-resizing" : ""}`}
       style={
         {
           "--activity-plan-track": `${displayedPercent}fr`,
@@ -64,13 +84,17 @@ export default function ResizableActivityWorkspace({
       {children}
       <div
         role="separator"
-        aria-label="Resize plan and map"
+        aria-label={label}
         aria-orientation="vertical"
         aria-controls={mapPanelId}
-        aria-valuemin={Math.ceil(minimumPercent)}
-        aria-valuemax={Math.floor(maximumPercent)}
+        aria-valuemin={Math.round(minimumPercent)}
+        aria-valuemax={Math.round(maximumPercent)}
         aria-valuenow={Math.round(displayedPercent)}
-        aria-valuetext={`Plan ${Math.round(displayedPercent)}%, map ${Math.round(100 - displayedPercent)}%`}
+        aria-valuetext={
+          layout === "calendar"
+            ? `Activities ${Math.round(displayedPercent)}%, calendar ${Math.round(100 - displayedPercent)}%`
+            : `Plan ${Math.round(displayedPercent)}%, map ${Math.round(100 - displayedPercent)}%`
+        }
         tabIndex={0}
         className="activity-resize-handle"
         title="Drag to resize. Use the left and right arrow keys when focused."

@@ -47,6 +47,32 @@ export type CalendarEntry = {
   estimated?: boolean;
 };
 
+export type CalendarTiming = { activityId: string; start: number; end: number };
+export type CalendarGesture = "move" | "start" | "end";
+
+// A gesture edits destination wall-clock time in quarter-hour increments.
+export function calendarGestureTiming(
+  timing: CalendarTiming,
+  mode: CalendarGesture,
+  minute: number,
+): CalendarTiming {
+  const snapped = Math.round(minute / 15) * 15;
+  if (mode === "start") {
+    return {
+      ...timing,
+      start: Math.max(0, Math.min(1425, timing.end - 15, snapped)),
+    };
+  }
+  if (mode === "end") {
+    return {
+      ...timing,
+      end: Math.max(timing.start + 15, Math.min(timing.start + 1440, snapped)),
+    };
+  }
+  const start = Math.max(0, Math.min(1425, snapped));
+  return { ...timing, start, end: start + timing.end - timing.start };
+}
+
 export function calendarEntries(
   plan: ActivityPlan,
   day: PlanDay,

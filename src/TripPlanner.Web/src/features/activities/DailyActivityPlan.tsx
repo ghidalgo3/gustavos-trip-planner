@@ -36,6 +36,7 @@ import {
   calendarEntries,
   clockMinutes,
   type CalendarEntry,
+  type CalendarTiming,
 } from "./activityCalendarModel";
 import type {
   ActivityRouteSelection,
@@ -100,7 +101,7 @@ export default function DailyActivityPlan({
   destinationId,
   destination,
   activities,
-  readOnly,
+  readOnly: providedReadOnly,
   onSelect,
   onSaved,
   onChooseActivities,
@@ -120,6 +121,7 @@ export default function DailyActivityPlan({
 }) {
   const path = activityPlanPath(tripId, destinationId);
   const offline = useTripDocumentState().offline || navigator.onLine === false;
+  const readOnly = providedReadOnly || offline;
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [dayKey, setDayKey] = useState("");
   const [editor, setEditor] = useState<Editor>();
@@ -127,6 +129,11 @@ export default function DailyActivityPlan({
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState("");
   const [editorError, setEditorError] = useState("");
+  const [timingError, setTimingError] = useState<{
+    timing: CalendarTiming;
+    message: string;
+    dayKey: string;
+  }>();
   const operation = useRef(false);
   const active = useRef(true);
   const routeRequest = useRef<AbortController | undefined>(undefined);
@@ -227,6 +234,35 @@ export default function DailyActivityPlan({
       if (active.current) setBusy(false);
     }
   }
+  async function saveTiming(
+    timing: CalendarTiming,
+    targetKey = day && calendarDayKey(day),
+  ) {
+    if (!plan || !day || readOnly || operation.current) return;
+    const target = plan.days.find((item) => calendarDayKey(item) === targetKey);
+    if (!target) return;
+    setTimingError(undefined);
+    setError("");
+    try {
+      const next = applyEventTiming(
+        plan,
+        timing.activityId,
+        target,
+        calendarClock(timing.start),
+        calendarClock(timing.end),
+        timing.end >= 1440,
+        resource?.data.assessment,
+      );
+      await persist(next, false);
+    } catch (reason) {
+      if (active.current)
+        setTimingError({
+          timing,
+          message: (reason as Error).message,
+          dayKey: calendarDayKey(target),
+        });
+    }
+  }
   function openEvent(id?: string) {
     if (!plan || !day) return;
     const selected =
@@ -234,7 +270,8 @@ export default function DailyActivityPlan({
       plan.selectedActivityIds.find(
         (item) => !plan.days.some((d) => d.activityIds.includes(item)),
       ) ??
-      plan.selectedActivityIds[0];
+      plan.selectedActivityIds[0] ??
+      activities[0]?.id;
     if (!selected) return;
     const assigned =
       plan.days.find((item) => item.activityIds.includes(selected)) ?? day;
@@ -406,6 +443,29 @@ export default function DailyActivityPlan({
   return (
     <section className="daily-plan" aria-label="Activity calendar">
       {error && <p role="alert">{error}</p>}
+      {busy && (
+        <p className="calendar-save-status" role="status">
+          Saving schedule…
+        </p>
+      )}
+      {timingError && (
+        <div className="calendar-editor-error" role="alert">
+          {timingError.message}
+          <div>
+            <Button
+              disabled={busy || readOnly}
+              onClick={() =>
+                void saveTiming(timingError.timing, timingError.dayKey)
+              }
+            >
+              Retry schedule change
+            </Button>
+            <Button disabled={busy || offline} onClick={() => void reload()}>
+              Refresh calendar
+            </Button>
+          </div>
+        </div>
+      )}
       {resource.data.timingStale && (
         <p className="calendar-notice">
           Schedule needs review{" "}
@@ -430,6 +490,7 @@ export default function DailyActivityPlan({
         readOnly={readOnly}
         busy={busy}
         onDay={setDayKey}
+        onTiming={(timing) => void saveTiming(timing)}
         onEvent={openEvent}
         onEntry={openEntry}
         onDayDetails={() => {
@@ -478,7 +539,7 @@ export default function DailyActivityPlan({
                   value={editor.id}
                   onChange={(event) => openEvent(event.target.value)}
                 >
-                  {plan.selectedActivityIds.map((id) => (
+                  {activities.map(({ id }) => (
                     <option key={id} value={id}>
                       {activities.find((item) => item.id === id)?.properties
                         .name ?? "Activity"}

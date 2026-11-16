@@ -55,6 +55,21 @@ for (const width of [320, 390, 1280]) {
           await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText(
             name,
           );
+          if (width >= 1280) {
+            const title = (await page
+              .getByRole("heading", { level: 1 })
+              .boundingBox())!;
+            const navigation = (await breadcrumb.boundingBox())!;
+            expect(navigation.x).toBeGreaterThanOrEqual(title.x + title.width);
+            expect(
+              Math.abs(
+                navigation.y +
+                  navigation.height / 2 -
+                  title.y -
+                  title.height / 2,
+              ),
+            ).toBeLessThanOrEqual(1);
+          }
           expect(
             await page.evaluate(
               () => document.documentElement.scrollWidth <= innerWidth,

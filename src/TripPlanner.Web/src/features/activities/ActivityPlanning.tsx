@@ -1436,10 +1436,13 @@ export default function ActivityPlanning({
         }}
       >
         <Tab value="ideas">Ideas</Tab>
-        <Tab value="daily">Plan</Tab>
+        <Tab value="daily">Schedule</Tab>
       </TabList>
       {error && !editor && <Text role="alert">{error}</Text>}
-      <ResizableActivityWorkspace mapPanelId={mapPanelId}>
+      <ResizableActivityWorkspace
+        mapPanelId={mapPanelId}
+        layout={activityView === "daily" ? "plan" : "ideas"}
+      >
         <div ref={mapPanel} id={mapPanelId} className="activity-map-panel">
           <ActivityMap
             center={destination.geometry}

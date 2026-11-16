@@ -1407,7 +1407,12 @@ main {
   width: 100%;
   min-width: 0;
 }
-.trip-page-heading h1 {
+.trip-page-heading-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 0;
   flex: 1;
   min-width: 0;
 }

@@ -3,6 +3,7 @@ import {
   applyEventTiming,
   calendarEntries,
   calendarLayout,
+  calendarGestureTiming,
   localMinutes,
   type CalendarEntry,
 } from "./activityCalendarModel";
@@ -12,6 +13,27 @@ import {
   calendarAssessment,
 } from "../../test/activityCalendarFixture";
 import { activityRule } from "./activityPlanApi";
+
+test.each([
+  ["move", 579, 585, 675],
+  ["move", -30, 0, 90],
+  ["move", 1450, 1425, 1515],
+  ["start", 555, 555, 630],
+  ["start", 700, 615, 630],
+  ["end", 660, 540, 660],
+  ["end", 510, 540, 555],
+] as const)(
+  "%s to minute %s snaps and bounds the event without changing the opposite edge",
+  (mode, minute, start, end) => {
+    expect(
+      calendarGestureTiming(
+        { activityId: "activity-0", start: 540, end: 630 },
+        mode,
+        minute,
+      ),
+    ).toEqual({ activityId: "activity-0", start, end });
+  },
+);
 
 test.each([
   ["2027-06-10T09:00:00+09:00", "2027-06-10", 540],

@@ -104,7 +104,7 @@ for (const width of [390, 1280]) {
         },
       );
       await page.goto(`/trips/${trip.id}/activities`);
-      await page.getByRole("tab", { name: "Plan", exact: true }).click();
+      await page.getByRole("tab", { name: "Schedule", exact: true }).click();
       await page
         .getByRole("button", { name: "Day details", exact: true })
         .click();
@@ -140,7 +140,7 @@ for (const width of [390, 1280]) {
       await expect(editor).toBeVisible();
       await page.getByRole("button", { name: "Close", exact: true }).click();
       await page.getByRole("tab", { name: "Ideas", exact: true }).click();
-      await page.getByRole("tab", { name: "Plan", exact: true }).click();
+      await page.getByRole("tab", { name: "Schedule", exact: true }).click();
       await expect(
         page.locator('select[aria-label="Calendar day"] option:checked'),
       ).toHaveText(/^EPCOT Visit ·/);

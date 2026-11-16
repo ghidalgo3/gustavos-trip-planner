@@ -303,8 +303,8 @@ test("selecting a Plan travel step focuses the map and forwards its route; closi
     etag: "",
   });
   show(true);
-  await screen.findByRole("tab", { name: "Plan" });
-  click(screen.getByRole("tab", { name: "Plan" }));
+  await screen.findByRole("tab", { name: "Schedule" });
+  click(screen.getByRole("tab", { name: "Schedule" }));
   expect(
     screen.queryByRole("button", { name: /^(Show|Hide) map$/ }),
   ).not.toBeInTheDocument();
@@ -374,7 +374,7 @@ test("Plan shows only activity bubbles marked Yes, and Ideas restores the others
   expect(
     await screen.findByRole("button", { name: "Map marker: Louvre" }),
   ).toBeInTheDocument();
-  click(screen.getByRole("tab", { name: "Plan" }));
+  click(screen.getByRole("tab", { name: "Schedule" }));
   expect(
     screen.queryByRole("tab", { name: "Daily plan" }),
   ).not.toBeInTheDocument();
@@ -1009,16 +1009,16 @@ test("activity costs use a known currency selection and save the selected curren
 });
 
 test.each([false, true])(
-  "the map stays visible in Ideas and Plan, including read-only mode (%s)",
+  "the map stays visible in Ideas and Schedule, including read-only mode (%s)",
   async (readOnly) => {
     show(readOnly);
-    await screen.findByRole("tab", { name: "Plan" });
+    await screen.findByRole("tab", { name: "Schedule" });
     expect(
       screen.queryByRole("button", { name: /^(Show|Hide) map$/ }),
     ).not.toBeInTheDocument();
     const map = screen.getByLabelText("Map");
     expect(map).toBeVisible();
-    click(screen.getByRole("tab", { name: "Plan" }));
+    click(screen.getByRole("tab", { name: "Schedule" }));
     expect(map).toBeVisible();
     click(screen.getByRole("tab", { name: "Ideas" }));
     expect(map).toBeVisible();
@@ -1088,7 +1088,7 @@ test.each([false, true])(
     change(search, { target: { value: "No matching place" } });
     expect(screen.getByText("No activities match your search.")).toBeVisible();
     expect(within(list).queryAllByRole("heading")).toHaveLength(0);
-    click(screen.getByRole("tab", { name: "Plan" }));
+    click(screen.getByRole("tab", { name: "Schedule" }));
     click(screen.getByRole("tab", { name: "Ideas" }));
     list = screen.getByRole("list", { name: "Paris activities" });
     expect(
@@ -1585,7 +1585,7 @@ test.each([false, true])(
     );
     expect(visibleNames()).toEqual(["Idea 1", "Idea 2", "Idea 4", "Idea 5"]);
     expect(considering).toHaveAccessibleName("Considering activities: 3");
-    click(screen.getByRole("tab", { name: "Plan" }));
+    click(screen.getByRole("tab", { name: "Schedule" }));
     click(screen.getByRole("tab", { name: "Ideas" }));
     expect(
       screen.getByRole("button", { name: "Not Interested activities: 1" }),

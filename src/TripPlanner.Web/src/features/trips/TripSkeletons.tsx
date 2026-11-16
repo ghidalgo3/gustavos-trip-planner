@@ -71,17 +71,25 @@ export function TripPageSkeleton({
       <ContentSkeleton label="Loading trip">
         <div className="trip-page-header skeleton-stack">
           <div className="trip-page-heading">
-            <SkeletonItem size={32} style={{ width: "min(75%, 360px)" }} />
+            <div className="trip-page-heading-main">
+              <SkeletonItem size={32} style={{ width: "min(100%, 360px)" }} />
+              <div className="skeleton-row skeleton-trip-breadcrumbs">
+                <SkeletonItem size={20} style={{ width: 48 }} />
+                <SkeletonItem size={20} style={{ width: 12 }} />
+                <SkeletonItem size={20} style={{ width: 80 }} />
+                {!overview && (
+                  <>
+                    <SkeletonItem size={20} style={{ width: 12 }} />
+                    <SkeletonItem size={20} style={{ width: 80 }} />
+                  </>
+                )}
+              </div>
+            </div>
             {overview && (
               <SkeletonItem style={{ width: 88, height: 44, flexShrink: 0 }} />
             )}
           </div>
           <SkeletonItem size={20} style={{ width: "min(85%, 300px)" }} />
-          <div className="skeleton-row skeleton-trip-breadcrumbs">
-            <SkeletonItem size={20} style={{ width: 48 }} />
-            <SkeletonItem size={20} style={{ width: 12 }} />
-            <SkeletonItem size={20} style={{ width: 80 }} />
-          </div>
         </div>
       </ContentSkeleton>
       <div className="trip-page-body">

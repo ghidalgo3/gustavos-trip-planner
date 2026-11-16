@@ -290,7 +290,7 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         await expect(
           page.getByText("No activities match your search.", { exact: true }),
         ).toBeVisible();
-        await page.getByRole("tab", { name: "Plan", exact: true }).click();
+        await page.getByRole("tab", { name: "Schedule", exact: true }).click();
         await page.getByRole("tab", { name: "Ideas", exact: true }).click();
         await expect(search).toHaveValue("not a matching activity");
         await page.screenshot({

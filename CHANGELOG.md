@@ -11,12 +11,21 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Added
+
+- Schedule (formerly Plan) centers the calendar between a searchable activity list and the map, with
+  resizable side panels. Drag activities onto the calendar, move events between
+  times or days, and resize their start/end times to save the schedule directly.
+  Failed saves retain confirmed timing and offer retry; offline viewing stays available.
+
 ### Removed
 
 - Removed the floating location summary and Show all locations button from maps.
 
 ### Fixed
 
+- Trip breadcrumbs sit beside the trip name when space allows, reducing header
+  height while wrapping on small screens.
 - Activities can be saved without selecting a kind, including after removing all
   existing kinds.
 
