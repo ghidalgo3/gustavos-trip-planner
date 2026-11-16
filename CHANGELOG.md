@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.15.2
+
 ### Changed
 
 - Changing visit dates returns that visit's activities to Unscheduled and clears
