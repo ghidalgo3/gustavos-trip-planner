@@ -31,7 +31,7 @@ struct TripDestinationsView: View {
                         canAdd: model.isCloudAvailable && trip.canPlan && model.pendingWrite(for: trip) == nil
                             && !feature.loading && !feature.loadFailed && !feature.saveState.isSaving && !feature.saveState.needsRefresh,
                         data: .constant(Data()), serverDestinations: itinerary.destinations, savedFlights: itinerary.flights,
-                        home: itinerary.home,
+                        home: itinerary.home, transportation: itinerary.transportation,
                         unavailableReason: feature.editingUnavailableReason,
                         model: model, trip: trip, api: api,
                         saveToServer: { destination, completion in
@@ -77,10 +77,12 @@ private struct DestinationList: View {
     var serverDestinations: [Destination]? = nil
     var savedFlights: [SavedTripFlight] = []
     var home: Destination? = nil
+    var transportation: [TransportationResource] = []
+    @State private var savedTransportation: [TransportationResource] = []
     var unavailableReason: String? = nil
     var model: AppModel? = nil
     var trip: Trip? = nil
-    var api: (any TransferFlightServing)? = nil
+    var api: (any TripPlannerServing)? = nil
     var saveToServer: (@MainActor (Destination, MKLocalSearchCompletion?) async throws -> Void)? = nil
     var removeFromServer: (@MainActor (Destination) throws -> Void)? = nil
     @State private var edit: Edit?
@@ -181,7 +183,10 @@ private struct DestinationList: View {
                 .disabled(!canAdd)
         }
         .sheet(item: $transfer) { transfer in
-            DestinationTransferSheet(transfer: transfer, model: model, trip: trip, api: api)
+            DestinationTransferSheet(transfer: transfer, model: model, trip: trip, api: api, existing: transport(transfer)) { value in
+                savedTransportation.removeAll { $0.id == value.id }
+                savedTransportation.append(value)
+            }
                 .presentationDetents([.large])
         }
         .sheet(item: $edit) { edit in
@@ -243,15 +248,38 @@ private struct DestinationList: View {
         edit = nil
     }
 
+    private func displayTime(_ value: String) -> String {
+        (try? Date(value, strategy: .iso8601))?.formatted(date: .abbreviated, time: .shortened) ?? value
+    }
+
+    private func transport(_ leg: DestinationTransfer) -> TransportationResource? {
+        (savedTransportation + transportation).filter {
+            $0.originStayId == leg.origin.stayID && $0.destinationStayId == leg.destination.stayID
+            && (leg.origin.stayID != nil || leg.destination.stayID != nil)
+        }.max { $0.version < $1.version }
+    }
+
     private func transferCard(_ leg: DestinationTransfer, title: String, flights: [SavedTripFlight]?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let value = transport(leg)
+        return VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: "arrow.down").font(.headline)
             Text(leg.title).font(.subheadline).foregroundStyle(.secondary)
-            if let flights {
+            if let value {
+                Text(value.mode?.capitalized ?? "Transportation").font(.headline)
+                if value.mode == "train" {
+                    Text(value.features.filter { $0.id == "from" || $0.id == "to" }.compactMap { $0.properties.name }.joined(separator: " → "))
+                }
+                if let departure = value.departureAt, let arrival = value.arrivalAt {
+                    Text("\(displayTime(departure)) → \(displayTime(arrival))").font(.footnote).foregroundStyle(.secondary)
+                }
+                if let duration = value.displayDuration { Text(duration).font(.subheadline) }
+            }
+            if (value == nil || value?.mode == "flight"), let flights {
                 savedFlightDetails("Selected flights", flights: flights)
             }
-            Button("Compare options") { transfer = leg }
+            Button(value == nil ? "Choose transportation" : "View transportation") { transfer = leg }
                 .buttonStyle(.bordered)
+                .tint(value == nil ? .accentColor : .secondary)
                 .controlSize(.large)
                 .accessibilityHint(leg.title)
         }

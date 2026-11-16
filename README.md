@@ -1,5 +1,28 @@
 # Gustavo's Trip Planner
 
+Trips support flight, train, car, and walking transportation between visits,
+including the legs from and to home. Tap a transportation card on the web overview
+to open a map drawer with Flight, Train, Car, and Walking choices. Flight embeds the
+existing flight planner; hovering or focusing a flight previews great-circle arcs
+through its layovers and marks the airports. Car and Walking draw and save Azure Maps routes and duration
+estimates. Train searches show matching numbered list results and map pins.
+Select both stations and save departure and arrival times
+together. Times use explicit time zones and are stored as offset timestamps.
+Transportation retains optional GeoJSON route geometry, sequenced steps, and
+instructions supplied by richer clients. Each transport connects visit IDs rather
+than city names, so repeated visits remain independent. Saved transportation is
+available in offline documents with editing disabled.
+
+On iOS, MapKit searches stations and supplies public-transit ETA estimates.
+MapKit does not expose full transit route geometry or train-only itineraries;
+use **Train directions in Maps** for full directions, or enter train times manually.
+Car and walking estimates use the authenticated trip-scoped
+`POST /trips/{tripId}/transportation/estimate` endpoint, backed by Azure Maps.
+The optional `includeGeometry` request flag returns road/walking route geometry
+alongside the duration; iOS can continue requesting duration estimates alone.
+The existing transportation MCP tools accept visit IDs and offset times; the
+provider estimate endpoint is intentionally not exposed as an Azure Maps proxy tool.
+
 Starter architecture for a React single-page application and a C# API deployed to Azure.
 
 See [CHANGELOG.md](CHANGELOG.md) for significant changes, new features, and bug

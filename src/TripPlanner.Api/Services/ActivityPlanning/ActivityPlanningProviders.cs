@@ -56,7 +56,7 @@ public sealed class ActivityPlanningProviders(
             throw new PlanningProviderException("Choose walking, taxi, or driving.");
         }
         var estimate = await maps.EstimateRouteAsync(from, to, departure, mode, budget, ct);
-        if (estimate is null)
+        if (estimate is null || estimate.Duration > TimeSpan.FromDays(1))
         {
             return [];
         }

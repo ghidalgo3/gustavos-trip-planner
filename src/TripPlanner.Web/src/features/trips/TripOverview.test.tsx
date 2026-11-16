@@ -103,10 +103,10 @@ function show(readOnly = false, homeCity: string | null = "New York") {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(planningRequest).mockResolvedValue({
-    data: { version: 0 },
+  vi.mocked(planningRequest).mockImplementation(async (path) => ({
+    data: path.endsWith("/transportation") ? [] : { version: 0 },
     etag: '"0"',
-  });
+  }));
   vi.mocked(getSelectedFlights).mockResolvedValue([]);
   vi.mocked(getFlightChoices).mockResolvedValue([]);
   vi.mocked(getActivities).mockResolvedValue({
@@ -729,7 +729,7 @@ test("summary failures offer retry and do not imply a destination has no activit
 });
 
 test.each(["New York", null])(
-  "a single destination includes outbound and return flight links from %s",
+  "a single destination offers outbound and return transportation from %s",
   async (homeCity) => {
     vi.mocked(getDestinations).mockResolvedValue({
       type: "FeatureCollection",
@@ -737,24 +737,24 @@ test.each(["New York", null])(
       route: [],
     });
     show(false, homeCity);
-    const links = await screen.findAllByRole("link", { name: "Plan Flights" });
-    expect(links).toHaveLength(2);
-    for (const link of links)
-      expect(link).toHaveAttribute("href", "/trips/trip/flights");
+    const choices = await screen.findAllByRole("button", {
+      name: /Choose transportation/,
+    });
+    expect(choices).toHaveLength(2);
     expect(
       screen.getByRole("listitem", {
-        name: `Flights from ${homeCity ?? "Home"} to Paris`,
+        name: `Transportation from ${homeCity ?? "Home"} to Paris`,
       }),
     ).toBeVisible();
     expect(
       screen.getByRole("listitem", {
-        name: `Flights from Paris to ${homeCity ?? "Home"}`,
+        name: `Transportation from Paris to ${homeCity ?? "Home"}`,
       }),
     ).toBeVisible();
   },
 );
 
-test("flight cards follow chronological visits, including the trip home", async () => {
+test("transport cards follow chronological visits, including the trip home", async () => {
   const rome: Destination = {
     ...paris,
     id: "rome",
@@ -784,7 +784,7 @@ test("flight cards follow chronological visits, including the trip home", async 
   });
   show();
   expect(
-    await screen.findAllByRole("link", { name: "Plan Flights" }),
+    await screen.findAllByRole("button", { name: /Choose transportation/ }),
   ).toHaveLength(3);
   const list = screen.getByRole("list", { name: "Trip destinations" });
   expect(
@@ -796,11 +796,11 @@ test("flight cards follow chronological visits, including the trip home", async 
           within(item).getByRole("heading").textContent,
       ),
   ).toEqual([
-    "Flights from New York to Paris",
+    "Transportation from New York to Paris",
     "Paris",
-    "Flights from Paris to Rome",
+    "Transportation from Paris to Rome",
     "Rome",
-    "Flights from Rome to New York",
+    "Transportation from Rome to New York",
   ]);
 });
 
@@ -945,42 +945,38 @@ test.each([
     }
     show(readOnly);
     expect(
-      await screen.findByRole("link", {
-        name: selectedIndex === 1 ? "AA 101" : "AA 100",
+      await screen.findByRole("button", {
+        name: new RegExp(selectedIndex === 1 ? "AA 101" : "AA 100"),
       }),
-    ).toHaveAttribute("href", "/trips/trip/flights");
+    ).toBeVisible();
     for (const [index, route] of [
       "New York to Paris",
       "Paris to New York",
     ].entries()) {
       const card = screen.getByRole("listitem", {
-        name: `Flights from ${route}`,
+        name: `Transportation from ${route}`,
       });
       const selected = selectedIndex < 0 || selectedIndex === index;
       expect(card).toHaveAttribute("data-selected", String(selected));
       expect(
-        within(card).queryByRole("img", { name: "Flight not selected" }) !==
-          null,
-      ).toBe(!selected);
-      expect(
-        within(card).queryByRole("img", { name: "Flight selected" }) !== null,
-      ).toBe(selected);
+        within(card).getByRole("button", {
+          name: selected ? /Flight/ : /Choose transportation/,
+        }),
+      ).toBeVisible();
     }
     if (selectedIndex < 0) {
-      expect(screen.getByRole("link", { name: "AA 101" })).toBeVisible();
+      expect(screen.getByRole("button", { name: /AA 101/ })).toBeVisible();
       expect(
         screen.queryByRole("link", { name: "Plan Flights" }),
       ).not.toBeInTheDocument();
     } else {
       expect(
-        screen.queryByRole("link", {
-          name: selectedIndex === 0 ? "AA 101" : "AA 100",
+        screen.queryByRole("button", {
+          name: new RegExp(selectedIndex === 0 ? "AA 101" : "AA 100"),
         }),
       ).toBeNull();
       expect(
-        screen.getByRole("link", {
-          name: readOnly ? "View Flights" : "Plan Flights",
-        }),
+        screen.getByRole("button", { name: /Choose transportation/ }),
       ).toBeVisible();
     }
   },
@@ -1143,7 +1139,17 @@ test("failed planning summary can retry without losing activity counts", async (
     features: [paris],
     route: [{ destinationId: paris.id, stayId: "stay-1" }],
   });
-  vi.mocked(planningRequest).mockRejectedValueOnce(new Error("Unavailable"));
+  let failed = false;
+  vi.mocked(planningRequest).mockImplementation(async (path) => {
+    if (path.endsWith("activity-plan") && !failed) {
+      failed = true;
+      throw new Error("Unavailable");
+    }
+    return {
+      data: path.endsWith("/transportation") ? [] : { version: 0 },
+      etag: '"0"',
+    };
+  });
   show();
   const retry = await screen.findByRole("button", {
     name: "Retry planning summary",

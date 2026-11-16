@@ -3,8 +3,10 @@ using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.ActivityPlanning;
 using TripPlanner.Api.Services.Documents;
 using TripPlanner.Api.Services.Flights;
+using TripPlanner.Api.Services.Maps;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -15,11 +17,82 @@ public static class TransportationEndpoints
         var group = api.MapGroup("/trips/{tripId:guid}/transportation")
             .WithTags("Transportation")
             .RequireAuthorization(AuthenticationServiceExtensions.CurrentUserPolicy);
+        group.MapPost("/estimate", Estimate).WithName("EstimateTransportation");
         group.MapGet("", List).WithName("ListTransportation");
         group.MapPost("", Create).WithName("CreateTransportation");
         group.MapGet("/{transportationId:guid}", Get).WithName("GetTransportation");
         group.MapPut("/{transportationId:guid}", Replace).WithName("ReplaceTransportation");
         group.MapDelete("/{transportationId:guid}", Delete).WithName("DeleteTransportation");
+    }
+
+    internal static async Task<IResult> Estimate(
+        Guid tripId,
+        TransportationEstimateRequest request,
+        HttpContext context,
+        IPlannerDb database,
+        ICurrentUser currentUser,
+        IAzureMapsClient maps
+    )
+    {
+        var (_, _, error) = await PlanningEndpointHelpers.AuthorizeAsync(
+            tripId,
+            false,
+            context,
+            database,
+            currentUser
+        );
+        if (error is not null)
+        {
+            return error;
+        }
+        context.Response.Headers.CacheControl = "no-store";
+        using var budget = new PlanningProviderBudget(1);
+        try
+        {
+            var estimate = await maps.EstimateRouteAsync(
+                request.From.Position,
+                request.To.Position,
+                request.DepartureAt,
+                request.Mode == "walk" ? "walking" : "driving",
+                budget,
+                context.RequestAborted
+            );
+            var geometry =
+                request.IncludeGeometry && estimate is not null
+                    ? await maps.RouteAsync(
+                        request.From.Position,
+                        request.To.Position,
+                        request.DepartureAt,
+                        request.Mode == "walk" ? "walking" : "driving",
+                        context.RequestAborted
+                    )
+                    : null;
+            return estimate is null || (request.IncludeGeometry && geometry is null)
+                ? Results.Problem(
+                    statusCode: 422,
+                    title: "Azure Maps could not find a route between these locations."
+                )
+                : Results.Ok(
+                    new TransportationEstimateResponse(
+                        TimeSpan.FromMinutes(Math.Ceiling(estimate.Duration.TotalMinutes)),
+                        geometry
+                    )
+                );
+        }
+        catch (Exception ex)
+            when (ex
+                    is HttpRequestException
+                        or JsonException
+                        or PlanningProviderException
+                        or OperationCanceledException
+            )
+        {
+            context.RequestAborted.ThrowIfCancellationRequested();
+            return Results.Problem(
+                statusCode: 502,
+                title: "Travel time could not be estimated. Try again."
+            );
+        }
     }
 
     internal static async Task<IResult> List(
@@ -118,6 +191,35 @@ public static class TransportationEndpoints
         {
             return Results.NotFound();
         }
+        var invalid = new Dictionary<string, string[]>();
+        foreach (
+            var stayId in new[] { request.OriginStayId, request.DestinationStayId }.OfType<Guid>()
+        )
+        {
+            if (!data.Visits.Any(v => v.StayId == stayId))
+            {
+                invalid["stayId"] = ["Transportation must connect visits in this trip."];
+            }
+        }
+        if (request.OriginStayId is { } origin && origin == request.DestinationStayId)
+        {
+            invalid["destinationStayId"] = ["Choose different origin and destination visits."];
+        }
+        if (
+            request.ArrivalAt is { } arrival
+            && (
+                request.DepartureAt is not { } departure
+                || arrival <= departure
+                || arrival - departure > TimeSpan.FromDays(365)
+            )
+        )
+        {
+            invalid["arrivalAt"] = ["Arrival must follow departure and be within one year."];
+        }
+        if (invalid.Count > 0)
+        {
+            return Results.ValidationProblem(invalid);
+        }
         var previous = data.Transportation.FirstOrDefault(t => t.Id == id);
         if (!create && previous is null)
         {
@@ -154,7 +256,25 @@ public static class TransportationEndpoints
                 );
             }
         }
+        if (
+            (request.OriginStayId is not null || request.DestinationStayId is not null)
+            && data.Transportation.Any(t =>
+                t.Id != id
+                && t.OriginStayId == request.OriginStayId
+                && t.DestinationStayId == request.DestinationStayId
+            )
+        )
+        {
+            return Results.Problem(
+                statusCode: 409,
+                title: "Transportation already exists for these visits. Refresh before editing."
+            );
+        }
         var value = request.ToModel(id, previous?.Version ?? 0, false);
+        if (value.DepartureAt is { } start && value.ArrivalAt is { } end)
+        {
+            value = value with { Duration = end - start };
+        }
         static string Endpoint(TransportationFeature f) =>
             f.Properties.Reference is { } r
                 ? JsonSerializer.Serialize(r)
@@ -213,7 +333,7 @@ public static class TransportationEndpoints
             );
         }
         catch (Npgsql.PostgresException ex)
-            when (ex.SqlState is "23503" or "23514" or "40001" or "40P01")
+            when (ex.SqlState is "23503" or "23505" or "23514" or "40001" or "40P01")
         {
             return Results.Problem(
                 statusCode: 409,

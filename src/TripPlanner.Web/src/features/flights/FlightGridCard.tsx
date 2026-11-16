@@ -1,4 +1,5 @@
-import { memo, useCallback, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useState, type ReactNode } from "react";
+import { FlightMapPreviewContext } from "./FlightMapPreviewContext";
 import { Badge, Text } from "@fluentui/react-components";
 import {
   airportLabel,
@@ -53,6 +54,7 @@ const FlightGridCard = memo(function FlightGridCard({
   ...content
 }: Props) {
   const { node, busy, selected, readOnly } = content;
+  const mapPreview = useContext(FlightMapPreviewContext);
   const first = node.leg.segments[0];
   const last = node.leg.segments.at(-1)!;
   const ref = useCallback(
@@ -76,8 +78,14 @@ const FlightGridCard = memo(function FlightGridCard({
         onChoose(node.legIndex, legKey(node.leg));
       }}
       aria-label={`${first.departure_airport} to ${last.arrival_airport}, ${first.departure_time_local}, ${node.leg.carrier ?? first.marketing_carrier_code ?? "Flight"}`}
-      onMouseEnter={highlightEnabled ? () => onHover(node.id) : undefined}
-      onMouseLeave={highlightEnabled ? () => onHover(undefined) : undefined}
+      onMouseEnter={() => {
+        if (highlightEnabled) onHover(node.id);
+        mapPreview?.onHover(node.leg);
+      }}
+      onMouseLeave={() => {
+        if (highlightEnabled) onHover(undefined);
+        mapPreview?.onHover(undefined);
+      }}
       onMouseOver={
         highlightEnabled
           ? (event) => {
@@ -88,28 +96,32 @@ const FlightGridCard = memo(function FlightGridCard({
             }
           : undefined
       }
-      onFocus={
-        highlightEnabled
-          ? (event) => {
-              onHover(undefined);
-              onFocus(
-                (event.target as HTMLElement).closest(
-                  "details, .flight-grid-booking-actions",
-                )
-                  ? undefined
-                  : node.id,
-              );
-            }
-          : undefined
-      }
+      onFocus={(event) => {
+        mapPreview?.onHover(undefined);
+        mapPreview?.onFocus(node.leg);
+        if (highlightEnabled) {
+          onHover(undefined);
+          onFocus(
+            (event.target as HTMLElement).closest(
+              "details, .flight-grid-booking-actions",
+            )
+              ? undefined
+              : node.id,
+          );
+        }
+      }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget))
+        if (!event.currentTarget.contains(event.relatedTarget)) {
           onFocus(undefined);
+          mapPreview?.onFocus(undefined);
+        }
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           onHover(undefined);
           onFocus(undefined);
+          mapPreview?.onHover(undefined);
+          mapPreview?.onFocus(undefined);
         }
       }}
     >

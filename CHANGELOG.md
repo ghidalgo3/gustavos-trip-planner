@@ -11,6 +11,33 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Added
+
+- Choose flight, train, car, or walking transportation between destination visits
+  on web and iOS. On the web, tap the whole transport card to open a map drawer
+  with transport choices in a default-styled Fluent UI tablist at the top. Flights embed the
+  existing search GUI; car and walking draw Azure Maps routes and show travel-time estimates.
+  Train searches show matching numbered results and map pins; stations and times
+  save together, preserving detailed routes supplied by other clients.
+- iOS searches train stations with MapKit, estimates public-transit travel time,
+  and opens Apple Maps for full transit directions.
+- Hover or focus a flight in the transportation drawer to preview great-circle
+  arcs through every layover, with airport pins on the map.
+
+### Fixed
+
+- Hovering a flight frames all its hops and arcs instead of zooming out to the world.
+- Azure Maps estimates round up to whole minutes so route saves accept real
+  provider responses, including multi-day journeys between destinations.
+
+### Changed
+
+- Removed the search-status summary and search-started timestamp above flight options.
+- Transportation maps show routes without a floating route-summary panel.
+- Transportation connects specific visits, including repeat visits and home legs,
+  with one transport per leg. Removing a visit removes its associated transports.
+  Offset train times appear in the trip calendar and saved offline documents.
+
 ## 2026.11.15.2
 
 ### Changed

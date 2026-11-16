@@ -4,6 +4,16 @@ using System.Text.Json;
 namespace TripPlanner.Api.DTO;
 
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
+public sealed class SupportedTimestampAttribute : ValidationAttribute
+{
+    public override bool IsValid(object? value) =>
+        value is null || value is DateTimeOffset { Year: >= 2000 and <= 2100 };
+
+    public override string FormatErrorMessage(string name) =>
+        $"{name} must be an ISO offset timestamp within 2000–2100.";
+}
+
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
 public sealed class SupportedDateAttribute : ValidationAttribute
 {
     public override bool IsValid(object? value) =>

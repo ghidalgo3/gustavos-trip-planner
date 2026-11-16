@@ -61,7 +61,7 @@ public sealed class TransportationTools(
     )]
     [McpMeta("securitySchemes", JsonValue = WriteSecurity)]
     [Description(
-        "After user approval, create a complete transportation resource. Transportation is a FeatureCollection with from/to Point or reference Features, notes and ordered optional route geometry. Reference kinds are activity, airport, hotel and home (user ID). No routing or booking is performed."
+        "After user approval, create a complete transportation resource. Transportation is a FeatureCollection with from/to Point or reference Features, notes and ordered optional route geometry. Reference kinds are activity, airport, hotel and home (user ID). Optional originStayId/destinationStayId associate visits (null means home); departureAt/arrivalAt are offset timestamps. Arrival must follow departure. No routing or booking is performed."
     )]
     public Task<CallToolResult> CreateTransportation(Guid tripId, TransportationRequest request) =>
         adapter.ExecuteAsync(

@@ -240,6 +240,8 @@ export type AirportSuggestion = {
   name: string;
   city: string;
   country: string;
+  longitude?: number;
+  latitude?: number;
   location: SearchLocation;
 };
 const airportCache = new Map<string, AirportSuggestion[]>();

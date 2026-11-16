@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Spatial;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.ActivityPlanning;
 using TripPlanner.Api.Services.Documents;
+using TripPlanner.Api.Services.Maps;
 using TripPlanner.Api.Tests.Support;
 
 namespace TripPlanner.Api.Tests.Endpoints;
@@ -198,5 +201,189 @@ public sealed class TransportationEndpointTests
                 )
             ).StatusCode
         );
+    }
+
+    [TestMethod]
+    public async Task TrainConnectsAVisitAndKeepsOffsetTimesAndRichRouteWhenEdited()
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, user, _, _) = await ActivityPlanningFixture.Seed(factory, client);
+        var visit = (await factory.Database.GetDestinationVisitsAsync(user.Id, trip.Id)).First();
+        var request = TransportationFixture.Journey(route: true) with
+        {
+            Mode = "train",
+            DestinationStayId = visit.StayId,
+            DepartureAt = DateTimeOffset.Parse("2030-04-01T09:00:00+02:00"),
+            ArrivalAt = DateTimeOffset.Parse("2030-04-01T10:30:00+01:00"),
+        };
+        var path = $"/trips/{trip.Id}/transportation";
+        using var response = await client.PostAsJsonAsync(
+            path,
+            request,
+            TripResourceProjection.JsonOptions
+        );
+        Assert.AreEqual(
+            HttpStatusCode.Created,
+            response.StatusCode,
+            await response.Content.ReadAsStringAsync()
+        );
+        var value = (
+            await response.Content.ReadFromJsonAsync<Transportation>(
+                TripResourceProjection.JsonOptions
+            )
+        )!;
+        Assert.AreEqual(visit.StayId, value.DestinationStayId);
+        Assert.AreEqual(TimeSpan.FromMinutes(150), value.Duration);
+        Assert.AreEqual(request.DepartureAt, value.DepartureAt);
+        using var update = new HttpRequestMessage(HttpMethod.Put, $"{path}/{value.Id}")
+        {
+            Content = JsonContent.Create(
+                request with
+                {
+                    Notes = "Platform 4",
+                },
+                options: TripResourceProjection.JsonOptions
+            ),
+        };
+        update.Headers.IfMatch.Add(response.Headers.ETag!);
+        using var saved = await client.SendAsync(update);
+        var edited = (
+            await saved.Content.ReadFromJsonAsync<Transportation>(
+                TripResourceProjection.JsonOptions
+            )
+        )!;
+        Assert.AreEqual(
+            "Airport express",
+            edited.Features.Single(f => f.Id == "step-1").Properties.Line
+        );
+        Assert.AreEqual(request.ArrivalAt, edited.ArrivalAt);
+        Assert.AreEqual(
+            HttpStatusCode.Conflict,
+            (
+                await client.PostAsJsonAsync(path, request, TripResourceProjection.JsonOptions)
+            ).StatusCode
+        );
+    }
+
+    [TestMethod]
+    [DataRow("unknown-visit")]
+    [DataRow("arrival-before-departure")]
+    [DataRow("arrival-without-departure")]
+    public async Task InvalidVisitOrTrainTimesAreRejected(string invalid)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var user = await TripDocumentFixture.Seed(factory, client);
+        var trip = await factory.Database.CreateTripAsync(user.Id, "Trip", "");
+        var request = TransportationFixture.Journey() with
+        {
+            OriginStayId = invalid == "unknown-visit" ? Guid.NewGuid() : null,
+            DepartureAt =
+                invalid == "arrival-without-departure"
+                    ? null
+                    : DateTimeOffset.Parse("2030-04-01T12:00:00Z"),
+            ArrivalAt = DateTimeOffset.Parse("2030-04-01T11:00:00Z"),
+        };
+        var response = await client.PostAsJsonAsync(
+            $"/trips/{trip.Id}/transportation",
+            request,
+            TripResourceProjection.JsonOptions
+        );
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.IsEmpty(await factory.Database.GetTransportationAsync(user.Id, trip.Id));
+    }
+
+    [TestMethod]
+    [DataRow("car", "driving", false)]
+    [DataRow("walk", "walking", false)]
+    [DataRow("car", "driving", true)]
+    [DataRow("walk", "walking", true)]
+    public async Task GroundTransportationUsesAzureMapsWithoutCreatingAResource(
+        string mode,
+        string providerMode,
+        bool includeGeometry
+    )
+    {
+        var maps = new TransportMaps();
+        await using var factory = new TestApplicationFactory { MapsClient = maps };
+        using var client = factory.CreateClient();
+        var user = await TripDocumentFixture.Seed(factory, client);
+        var trip = await factory.Database.CreateTripAsync(user.Id, "Trip", "");
+        var response = await client.PostAsJsonAsync(
+            $"/trips/{trip.Id}/transportation/estimate",
+            new
+            {
+                from = new { type = "Point", coordinates = new[] { 2.3, 48.8 } },
+                to = new { type = "Point", coordinates = new[] { 2.4, 48.9 } },
+                mode,
+                departureAt = "2030-04-01T12:00:00Z",
+                includeGeometry,
+            }
+        );
+        Assert.AreEqual(
+            HttpStatusCode.OK,
+            response.StatusCode,
+            await response.Content.ReadAsStringAsync()
+        );
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.AreEqual("PT46M", body.GetProperty("duration").GetString());
+        Assert.AreEqual(providerMode, maps.Mode);
+        Assert.AreEqual(includeGeometry ? providerMode : null, maps.RouteMode);
+        if (includeGeometry)
+        {
+            Assert.AreEqual(
+                "MultiLineString",
+                body.GetProperty("geometry").GetProperty("type").GetString()
+            );
+            Assert.AreEqual(
+                2.3,
+                body.GetProperty("geometry").GetProperty("coordinates")[0][0][0].GetDouble()
+            );
+        }
+        Assert.IsEmpty(await factory.Database.GetTransportationAsync(user.Id, trip.Id));
+    }
+
+    private sealed class TransportMaps : AzureMapsStub
+    {
+        public string? Mode { get; private set; }
+        public string? RouteMode { get; private set; }
+
+        public override Task<ActivityRoutePath?> RouteAsync(
+            GeographyPoint from,
+            GeographyPoint to,
+            DateTimeOffset departure,
+            string mode,
+            CancellationToken cancellationToken
+        )
+        {
+            RouteMode = mode;
+            return Task.FromResult<ActivityRoutePath?>(
+                new(
+                    "MultiLineString",
+                    [
+                        [
+                            [from.Longitude, from.Latitude],
+                            [to.Longitude, to.Latitude],
+                        ],
+                    ]
+                )
+            );
+        }
+
+        public override Task<MapRouteEstimate?> EstimateRouteAsync(
+            GeographyPoint from,
+            GeographyPoint to,
+            DateTimeOffset departure,
+            string mode,
+            PlanningProviderBudget budget,
+            CancellationToken cancellationToken
+        )
+        {
+            Mode = mode;
+            return Task.FromResult<MapRouteEstimate?>(
+                new(TimeSpan.FromSeconds(45 * 60 + 10), DateTimeOffset.UtcNow, null)
+            );
+        }
     }
 }

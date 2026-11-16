@@ -62,12 +62,14 @@ public sealed class AzureMapsClientTests
     }
 
     [TestMethod]
-    public async Task RoutingEstimatesReturnTypedDurationsAndProviderExpiry()
+    [DataRow(901)]
+    [DataRow(172800)]
+    public async Task RoutingEstimatesReturnTypedDurationsAndProviderExpiry(int seconds)
     {
         using var handler = new Handler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                """{"properties":{"matrix":[{"statusCode":200,"durationInSeconds":901}]}}"""
+                $"{{\"properties\":{{\"matrix\":[{{\"statusCode\":200,\"durationInSeconds\":{seconds}}}]}}}}"
             ),
             Headers =
             {
@@ -86,7 +88,7 @@ public sealed class AzureMapsClientTests
             default
         );
         Assert.IsNotNull(result);
-        Assert.AreEqual(TimeSpan.FromSeconds(901), result.Duration);
+        Assert.AreEqual(TimeSpan.FromSeconds(seconds), result.Duration);
         Assert.IsTrue(result.ExpiresAt >= result.RetrievedAt.AddMinutes(15));
         StringAssert.Contains(handler.Uri!.AbsolutePath, "/route/matrix");
         Assert.IsTrue(budget.Exhausted);

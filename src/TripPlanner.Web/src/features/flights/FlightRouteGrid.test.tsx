@@ -10,6 +10,7 @@ import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import FlightRouteGrid from "./FlightRouteGrid";
+import { FlightMapPreviewContext } from "./FlightMapPreviewContext";
 import { legKey } from "./flightFormatting";
 import type { FareLeg, FareSearchResult } from "../../api/operationsApi";
 
@@ -810,4 +811,50 @@ test("restored chosen flights remain connected when no current search graph is a
     />,
   );
   expect(connectionCount(container)).toBe(0);
+});
+
+test("hover and keyboard focus preview an alternative's entire itinerary without changing the chosen flight", () => {
+  const preview = { onHover: vi.fn(), onFocus: vi.fn() };
+  const connecting = {
+    ...alternative,
+    segments: [
+      ...leg("JFK", "IAD", "Connection one").segments,
+      ...leg("IAD", "BOS", "Connection two").segments,
+    ],
+  };
+  const found = structuredClone(connected);
+  found.response.flights = found.response.flights!.map((flight) =>
+    flight.leg.carrier === alternative.carrier
+      ? { ...flight, leg: connecting }
+      : flight,
+  );
+  found.response.itineraries = found.response.itineraries.map((itinerary) => ({
+    ...itinerary,
+    legs: itinerary.legs?.map((flight) =>
+      flight.carrier === alternative.carrier ? connecting : flight,
+    ),
+  }));
+  render(
+    <FlightMapPreviewContext.Provider value={preview}>
+      <Grid found={found} />
+    </FlightMapPreviewContext.Provider>,
+  );
+  const middle = screen.getByRole("group", { name: /Middle$/ });
+  fireEvent.click(
+    within(middle).getByRole("button", { name: /^Choose flight/ }),
+  );
+  const card = screen.getByRole("group", { name: /Alternative$/ });
+  fireEvent.mouseEnter(card);
+  expect(preview.onHover).toHaveBeenLastCalledWith(connecting);
+  expect(card).not.toHaveClass("is-active");
+  expect(middle).toHaveClass("is-chosen");
+  fireEvent.mouseLeave(card);
+  expect(preview.onHover).toHaveBeenLastCalledWith(undefined);
+  fireEvent.focus(within(card).getByRole("button", { name: /^Choose flight/ }));
+  expect(preview.onFocus).toHaveBeenLastCalledWith(connecting);
+  fireEvent.blur(card, { relatedTarget: document.body });
+  expect(preview.onFocus).toHaveBeenLastCalledWith(undefined);
+  fireEvent.keyDown(card, { key: "Escape" });
+  expect(preview.onHover).toHaveBeenLastCalledWith(undefined);
+  expect(middle).toHaveClass("is-chosen");
 });

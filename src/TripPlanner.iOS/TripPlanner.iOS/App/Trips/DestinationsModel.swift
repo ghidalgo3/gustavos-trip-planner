@@ -15,6 +15,7 @@ final class DestinationsModel {
         var destinations: [Destination]
         let flights: [SavedTripFlight]
         let home: Destination?
+        var transportation: [TransportationResource] = []
     }
 
     enum Change {
@@ -150,7 +151,7 @@ final class DestinationsModel {
                 cityID: cityID, stayID: stayID, cityVersion: cityVersion, stayVersion: stayVersion
             )
         }
-        return Itinerary(destinations: destinations, flights: document.selectedFlights, home: document.home)
+        return Itinerary(destinations: destinations, flights: document.selectedFlights, home: document.home, transportation: document.transportation)
     }
 
     @MainActor

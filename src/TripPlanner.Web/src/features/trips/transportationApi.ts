@@ -1,4 +1,5 @@
 import type { Point } from "../activities/activitiesApi";
+import type { ActivityRoutePreview } from "../activities/activityRouteApi";
 import { planningRequest } from "../activities/activityPlanApi";
 
 export type TransportationReference = {
@@ -39,6 +40,10 @@ export type Transportation = {
   etag: string;
   version: number;
   routeStale: boolean;
+  originStayId?: string | null;
+  destinationStayId?: string | null;
+  departureAt?: string | null;
+  arrivalAt?: string | null;
 };
 
 export function transportationRequest(value: Transportation) {
@@ -52,6 +57,10 @@ export function transportationRequest(value: Transportation) {
     departureTime: value.departureTime,
     timeZone: value.timeZone,
     duration: value.duration,
+    originStayId: value.originStayId,
+    destinationStayId: value.destinationStayId,
+    departureAt: value.departureAt,
+    arrivalAt: value.arrivalAt,
   };
 }
 
@@ -83,3 +92,23 @@ export const deleteTransportation = (tripId: string, value: Transportation) =>
     `/trips/${encodeURIComponent(tripId)}/transportation/${value.id}`,
     { method: "DELETE", etag: `"${value.etag}"` },
   );
+
+export const estimateTransportation = (
+  tripId: string,
+  from: Point,
+  to: Point,
+  mode: "car" | "walk",
+) =>
+  planningRequest<{
+    duration: string;
+    geometry: ActivityRoutePreview["geometry"];
+  }>(`/trips/${encodeURIComponent(tripId)}/transportation/estimate`, {
+    method: "POST",
+    body: {
+      from,
+      to,
+      mode,
+      departureAt: new Date().toISOString(),
+      includeGeometry: true,
+    },
+  });

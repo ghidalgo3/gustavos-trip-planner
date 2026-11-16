@@ -11,6 +11,22 @@ public sealed partial class InMemoryPlannerDb
     private readonly Dictionary<Guid, Hotel> _hotels = [];
     private Airport[] _airports = new AirportCatalog().All;
 
+    private void RemoveVisitTransportation(Guid stayId)
+    {
+        foreach (
+            var id in _transportation
+                .Where(t =>
+                    t.Value.Value.OriginStayId == stayId
+                    || t.Value.Value.DestinationStayId == stayId
+                )
+                .Select(t => t.Key)
+                .ToArray()
+        )
+        {
+            _transportation.Remove(id);
+        }
+    }
+
     public Task<IReadOnlyList<Airport>> RefreshAirportsAsync(
         Airport[] airports,
         CancellationToken cancellationToken = default

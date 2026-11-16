@@ -324,35 +324,14 @@ export default function PlanningRun({
       {pollError && !readOnly && currentIssues.length === 0 && (
         <Text>{pollError} Checking again shortly.</Text>
       )}
-      {operation && currentIssues.length === 0 && (
-        <>
-          <Text role="status">
-            {readOnly
-              ? "Last saved search status"
-              : active
-                ? "Searching flights"
-                : operation.status === "Failed"
-                  ? "Search finished with errors"
-                  : "Search complete"}
-            {` · ${operation.progress.completedItems} of ${operation.progress.items} searches completed`}
-            {operation.progress.failedItems > 0 &&
-              ` · ${operation.progress.failedItems} failed`}
-          </Text>
-          {active && !readOnly && (
-            <ProgressBar
-              aria-label="Flight search progress"
-              max={operation.progress.items || 1}
-              value={
-                operation.progress.completedItems +
-                operation.progress.failedItems
-              }
-            />
-          )}
-          <Text size={200}>
-            Search started {new Date(operation.createdAt).toLocaleString()}.
-            Changes to your trip apply to your next search.
-          </Text>
-        </>
+      {operation && active && !readOnly && currentIssues.length === 0 && (
+        <ProgressBar
+          aria-label="Flight search progress"
+          max={operation.progress.items || 1}
+          value={
+            operation.progress.completedItems + operation.progress.failedItems
+          }
+        />
       )}
       {hasUnsavedChanges && currentResults.length > 0 && (
         <Text>Save planning details to refresh these flight options.</Text>

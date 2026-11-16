@@ -71,7 +71,11 @@ public sealed record TransportationRequest(
     [property: TimeZoneId, StringLength(100)] string? TimeZone = null,
     [property: DurationRange(0, 525600), JsonConverter(typeof(IsoDurationConverter))]
         TimeSpan? Duration = null,
-    bool RouteReviewed = false
+    bool RouteReviewed = false,
+    Guid? OriginStayId = null,
+    Guid? DestinationStayId = null,
+    [property: SupportedTimestamp] DateTimeOffset? DepartureAt = null,
+    [property: SupportedTimestamp] DateTimeOffset? ArrivalAt = null
 )
 {
     public Transportation ToModel(Guid id, long version, bool stale) =>
@@ -111,7 +115,11 @@ public sealed record TransportationRequest(
                 ))
                 .ToArray(),
             version,
-            stale
+            stale,
+            OriginStayId,
+            DestinationStayId,
+            DepartureAt,
+            ArrivalAt
         );
 }
 
@@ -120,4 +128,17 @@ public sealed record HotelRequest(
     [property: Required] GeoJsonPoint Geometry,
     [property: StringLength(2000)] string? Address = null,
     [property: TimeZoneId, StringLength(100)] string? TimeZone = null
+);
+
+public sealed record TransportationEstimateRequest(
+    [property: Required] GeoJsonPoint From,
+    [property: Required] GeoJsonPoint To,
+    [property: Required, AllowedValues("car", "walk")] string Mode,
+    [property: JsonRequired, SupportedTimestamp] DateTimeOffset DepartureAt,
+    bool IncludeGeometry = false
+);
+
+public sealed record TransportationEstimateResponse(
+    [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan Duration,
+    ActivityRoutePath? Geometry = null
 );

@@ -701,9 +701,9 @@ test("saves constraints, starts asynchronously, and retrieves the fare cache", a
   vi.mocked(startFlightSearch).mockResolvedValue(operation);
   vi.mocked(getOperations).mockResolvedValue([operation]);
   fireEvent.click(screen.getByRole("button", { name: "Find flights" }));
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "0 of 2 searches completed",
-  );
+  expect(
+    await screen.findByRole("progressbar", { name: "Flight search progress" }),
+  ).toHaveAttribute("aria-valuenow", "0");
   expect(save).toHaveBeenCalledOnce();
   expect(startFlightSearch).toHaveBeenCalledWith("trip", expect.any(String));
   expect(
@@ -718,7 +718,9 @@ test("saves constraints, starts asynchronously, and retrieves the fare cache", a
   ]);
   await waitFor(
     () =>
-      expect(screen.getByRole("status")).toHaveTextContent("Search complete"),
+      expect(
+        screen.queryByRole("progressbar", { name: "Flight search progress" }),
+      ).not.toBeInTheDocument(),
     { timeout: 4500 },
   );
   expect(getFlightSearchResults).toHaveBeenCalledWith(
@@ -757,12 +759,13 @@ test("reopening a trip discovers its latest operation from the generic list", as
     },
   ]);
   const view = show([party], [partySettings]);
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "Search complete",
-  );
   expect(
     await screen.findByRole("heading", { name: "Flight options" }),
   ).toBeVisible();
+  expect(
+    screen.queryByText(/Search complete|Last saved search status/),
+  ).toBeNull();
+  expect(screen.queryByText(/Search started/)).toBeNull();
   expect(startFlightSearch).not.toHaveBeenCalled();
   expect(getOperations).toHaveBeenCalledWith(expect.any(AbortSignal), {
     type: "flightSearch",

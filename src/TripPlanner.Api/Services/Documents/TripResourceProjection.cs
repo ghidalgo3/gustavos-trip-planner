@@ -693,6 +693,17 @@ public sealed class TripResourceProjection(
         foreach (var connection in data.Transportation.OrderBy(c => c.Id))
         {
             var duration = connection.Duration;
+            if (connection.DepartureAt is { } departureAt)
+            {
+                Schedule(
+                    connection.Id.ToString("D"),
+                    "transportation",
+                    departureAt,
+                    connection.ArrivalAt is { } arrivalAt ? arrivalAt - departureAt : duration,
+                    connection.TimeZone
+                );
+                continue;
+            }
             if (
                 connection.DepartureDate is { } date
                 && connection.DepartureTime is { } time

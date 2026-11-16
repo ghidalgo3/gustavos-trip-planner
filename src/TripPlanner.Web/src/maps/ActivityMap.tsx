@@ -18,7 +18,7 @@ import {
 import { mapsClient } from "./mapsClient";
 import type { MapControl, MapHandle } from "./IMapsClient";
 import PersistentMapSurface from "./PersistentMapSurface";
-import { DestinationFlight } from "./destinationFlight";
+import { DestinationFlight, destinationCamera } from "./destinationFlight";
 import type {
   Activity,
   Point,
@@ -31,6 +31,15 @@ export type PlaceSearch = {
   results: { label: string; longitude?: number; latitude?: number }[];
   onSelect: (index: number) => void;
 };
+
+export type MapLandmark = {
+  id: string;
+  label: string;
+  pin: string;
+  geometry: Point;
+};
+
+const noLandmarks: MapLandmark[] = [];
 
 export default function ActivityMap({
   center,
@@ -50,6 +59,7 @@ export default function ActivityMap({
   routeLoading,
   routeError,
   onClearRoute,
+  landmarks = noLandmarks,
 }: {
   stayLocation?: StayLocation | null;
   stayLocations?: StayLocation[];
@@ -68,6 +78,7 @@ export default function ActivityMap({
   routeLoading?: boolean;
   routeError?: string;
   onClearRoute?: () => void;
+  landmarks?: MapLandmark[];
 }) {
   const activities = useMemo(
     () =>
@@ -133,8 +144,11 @@ export default function ActivityMap({
       ...activities.flatMap((activity) =>
         activity.geometry ? [activity.geometry.coordinates] : [],
       ),
+      ...(!placeSearch || activities.length === 0
+        ? landmarks.map((landmark) => landmark.geometry.coordinates)
+        : []),
     ],
-    [longitude, latitude, stayLocations, activities, placeSearch],
+    [longitude, latitude, stayLocations, activities, placeSearch, landmarks],
   );
   const positions = JSON.stringify({ points, zoom });
   const fitActivities = useCallback(
@@ -183,7 +197,8 @@ export default function ActivityMap({
     if (
       framedMap.current?.instance !== instance &&
       stayLocations.length === 0 &&
-      locatedCount === 0
+      locatedCount === 0 &&
+      landmarks.length === 0
     ) {
       framedMap.current = { instance, positions, destination: destinationKey };
       return;
@@ -213,6 +228,7 @@ export default function ActivityMap({
     points,
     reducedMotion,
     zoom,
+    landmarks,
   ]);
 
   useEffect(() => {
@@ -369,6 +385,20 @@ export default function ActivityMap({
     const instance = map.current;
     if (!instance || !control || !ready) return;
     const descriptions: MapMarkerDescription[] = [];
+    for (const landmark of landmarks) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "activity-map-marker activity-map-landmark";
+      button.textContent = landmark.pin;
+      button.title = landmark.label;
+      button.setAttribute("aria-label", landmark.label);
+      button.onclick = () => callbacks.current.onSelect(landmark.id);
+      descriptions.push({
+        key: `landmark:${landmark.id}`,
+        position: landmark.geometry.coordinates,
+        button,
+      });
+    }
     for (const [index, activity] of activities.entries()) {
       if (!activity.geometry) continue;
       const button = document.createElement("button");
@@ -437,6 +467,7 @@ export default function ActivityMap({
     savedStayLocations,
     placeSearch,
     reducedMotion,
+    landmarks,
   ]);
 
   const restoreMap = useEffectEvent(() => fitActivities());
@@ -459,15 +490,28 @@ export default function ActivityMap({
     });
     instance.layers.add(layer);
     const points = route.geometry.coordinates.flat();
+    // Padding switches Azure to bounds fitting; the flight camera already
+    // accounts for padding, so bounds-only options must stay in the other branch.
     instance.setCamera({
-      bounds: [
-        Math.min(...points.map((p) => p[0])),
-        Math.min(...points.map((p) => p[1])),
-        Math.max(...points.map((p) => p[0])),
-        Math.max(...points.map((p) => p[1])),
-      ],
-      padding: 64,
-      maxZoom: 16,
+      ...(route.mode === "flight"
+        ? destinationCamera(
+            points,
+            {
+              width: element.current?.clientWidth ?? 0,
+              height: element.current?.clientHeight ?? 0,
+            },
+            14,
+          )
+        : {
+            bounds: [
+              Math.min(...points.map((p) => p[0])),
+              Math.min(...points.map((p) => p[1])),
+              Math.max(...points.map((p) => p[0])),
+              Math.max(...points.map((p) => p[1])),
+            ],
+            padding: 64,
+            maxZoom: 16,
+          }),
       type: reducedMotion ? "jump" : "ease",
       duration: reducedMotion ? 0 : 650,
     });
@@ -511,12 +555,14 @@ export default function ActivityMap({
               <p role="alert">{routeError}</p>
             ) : route ? (
               <p>
-                {route.mode === "walking"
-                  ? "Walking"
-                  : route.mode === "taxi"
-                    ? "Taxi / rideshare"
-                    : "Driving"}{" "}
-                route
+                {route.mode === "flight"
+                  ? "Illustrative flight path"
+                  : route.mode === "walking"
+                    ? "Walking"
+                    : route.mode === "taxi"
+                      ? "Taxi / rideshare"
+                      : "Driving"}
+                {route.mode === "flight" ? "" : " route"}
               </p>
             ) : null}
           </div>

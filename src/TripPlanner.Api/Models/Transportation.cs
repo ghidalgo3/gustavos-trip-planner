@@ -40,7 +40,11 @@ public sealed record Transportation(
     [property: JsonConverter(typeof(IsoDurationConverter))] TimeSpan? Duration,
     TransportationFeature[] Features,
     long Version = 0,
-    bool RouteStale = false
+    bool RouteStale = false,
+    Guid? OriginStayId = null,
+    Guid? DestinationStayId = null,
+    DateTimeOffset? DepartureAt = null,
+    DateTimeOffset? ArrivalAt = null
 )
 {
     public string Type => "FeatureCollection";

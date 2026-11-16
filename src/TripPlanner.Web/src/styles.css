@@ -2029,42 +2029,6 @@ main {
   background: var(--colorBrandBackground2);
 }
 
-.overview-flight-spacer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  padding: 8px 16px;
-  min-height: 44px;
-  box-sizing: border-box;
-  border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 12px;
-  color: var(--colorNeutralForeground2);
-  background: var(--colorNeutralBackground2);
-}
-.overview-flight-spacer[data-selected="false"] {
-  border-style: dashed;
-}
-.overview-flight-spacer > svg {
-  flex-shrink: 0;
-}
-.overview-flight-warning {
-  color: var(--colorPaletteMarigoldForeground1);
-}
-.overview-flight-selected {
-  color: var(--colorPaletteGreenForeground1);
-}
-.overview-flight-route {
-  flex: 1 1 140px;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.overview-flight-spacer a {
-  color: var(--colorBrandForegroundLink);
-  font-weight: 600;
-  padding: 8px 0;
-}
-
 .trip-calendar-day[aria-pressed="true"] {
   background: var(--colorBrandBackground2);
   border: 1px solid var(--colorBrandStroke2);

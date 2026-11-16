@@ -8,6 +8,7 @@ import {
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import ActivityMap from "./ActivityMap";
+import { greatCircle } from "./greatCircle";
 import type { Activity } from "../features/activities/activitiesApi";
 import { mapsClient } from "./mapsClient";
 
@@ -741,3 +742,168 @@ test("draws the selected street path, frames it, and replaces or clears it witho
     screen.queryByRole("region", { name: "Selected travel route" }),
   ).not.toBeInTheDocument();
 });
+
+test("transport landmarks frame both destinations and remain visible while numbered search pins select stations", async () => {
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
+    token: "sas",
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2030-01-01T02:00:00Z",
+  });
+  const landmarks = [
+    {
+      id: "from",
+      label: "Paris",
+      pin: "A",
+      geometry: {
+        type: "Point" as const,
+        coordinates: [2.35, 48.86] as [number, number],
+      },
+    },
+    {
+      id: "to",
+      label: "Lyon",
+      pin: "B",
+      geometry: {
+        type: "Point" as const,
+        coordinates: [4.83, 45.76] as [number, number],
+      },
+    },
+  ];
+  const onSelect = vi.fn();
+  const props = {
+    center: landmarks[0].geometry,
+    activities: [],
+    landmarks,
+    onSelect: vi.fn(),
+  };
+  const { rerender } = render(<ActivityMap {...props} />);
+  await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
+  act(() => events.get("ready")?.({}));
+  await waitFor(() => expect(markers).toHaveLength(2));
+  expect(markers.map((marker) => marker.getAttribute("aria-label"))).toEqual([
+    "Paris",
+    "Lyon",
+  ]);
+  expect(setCamera).toHaveBeenLastCalledWith(
+    expect.objectContaining({ bounds: [2.35, 45.76, 4.83, 48.86] }),
+  );
+  rerender(
+    <ActivityMap
+      {...props}
+      placeSearch={{
+        results: [{ label: "Gare de Lyon", longitude: 2.37, latitude: 48.84 }],
+        onSelect,
+      }}
+    />,
+  );
+  const station = markers.find(
+    (marker) => marker.getAttribute("aria-label") === "Select Gare de Lyon",
+  )!;
+  expect(station.textContent).toBe("1");
+  fireEvent.click(station);
+  expect(onSelect).toHaveBeenCalledWith(0);
+  expect(
+    markers.filter((marker) =>
+      ["Paris", "Lyon"].includes(marker.getAttribute("aria-label")!),
+    ),
+  ).toHaveLength(2);
+});
+
+test.each([
+  {
+    name: "Pacific dateline crossing",
+    hops: [
+      [140.39, 35.77],
+      [-122.31, 47.45],
+    ],
+    width: 800,
+    height: 400,
+  },
+  {
+    name: "transatlantic connection in a shallow drawer map",
+    hops: [
+      [-84.4277, 33.6407],
+      [-73.778, 40.641],
+      [-0.4543, 51.47],
+    ],
+    width: 1056,
+    height: 260,
+  },
+  {
+    name: "short flight on mobile",
+    hops: [
+      [-0.4543, 51.47],
+      [4.7639, 52.3086],
+    ],
+    width: 366,
+    height: 200,
+  },
+])(
+  "flight arcs tightly frame every hop: $name",
+  async ({ hops, width, height }) => {
+    vi.mocked(mapsClient.getToken).mockResolvedValue({
+      token: "sas",
+      endpoint: "https://atlas.microsoft.com",
+      expiresAt: "2030-01-01T02:00:00Z",
+    });
+    const airports = hops as [number, number][];
+    const origin = airports[0];
+    const route = {
+      mode: "flight",
+      geometry: {
+        type: "MultiLineString" as const,
+        coordinates: airports
+          .slice(1)
+          .flatMap((to, index) => greatCircle(airports[index], to)),
+      },
+    };
+    const props = {
+      center: { type: "Point" as const, coordinates: origin },
+      activities: [],
+      onSelect: vi.fn(),
+    };
+    const { rerender } = render(
+      <ActivityMap {...props} route={route} routeLabel="NRT → SEA" />,
+    );
+    Object.defineProperties(screen.getByRole("img", { name: "Activity map" }), {
+      clientWidth: { value: width, configurable: true },
+      clientHeight: { value: height, configurable: true },
+    });
+    await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
+    act(() => events.get("ready")?.({}));
+    await waitFor(() => expect(layerAdd).toHaveBeenCalledOnce());
+    expect(routeData).toHaveBeenCalledWith(
+      expect.objectContaining({ geometry: route.geometry }),
+    );
+    const frame = setCamera.mock.calls.at(-1)![0];
+    // Azure dispatches to bounds fitting if padding or offset is present, even
+    // with center/zoom. Without explicit bounds that means the whole world.
+    expect(frame).not.toHaveProperty("bounds");
+    expect(frame).not.toHaveProperty("padding");
+    expect(frame).not.toHaveProperty("offset");
+    expect(frame.zoom).toBeGreaterThan(1);
+    const mercatorY = (latitude: number) =>
+      (1 - Math.asinh(Math.tan((latitude * Math.PI) / 180)) / Math.PI) / 2;
+    const scale = 512 * 2 ** frame.zoom;
+    const offsets = route.geometry.coordinates
+      .flat()
+      .map(([longitude, latitude]) => [
+        Math.abs((((longitude - frame.center[0] + 540) % 360) - 180) / 360) *
+          scale,
+        Math.abs(mercatorY(latitude) - mercatorY(frame.center[1])) * scale,
+      ]);
+    const horizontal = Math.max(...offsets.map(([x]) => x));
+    const vertical = Math.max(...offsets.map(([, y]) => y));
+    expect(horizontal).toBeLessThanOrEqual(width / 2 - 48 + 0.01);
+    expect(vertical).toBeLessThanOrEqual(height / 2 - 48 + 0.01);
+    // At least one dimension reaches the padded edge: no unnecessary zoom-out.
+    expect(
+      Math.max(horizontal / (width / 2 - 48), vertical / (height / 2 - 48)),
+    ).toBeCloseTo(1, 6);
+    expect(screen.getByText("Illustrative flight path")).toBeVisible();
+    expect(screen.queryByText("Driving route")).not.toBeInTheDocument();
+    rerender(<ActivityMap {...props} />);
+    expect(layerRemove).toHaveBeenCalledOnce();
+    expect(sourceRemove).toHaveBeenCalledOnce();
+  },
+);

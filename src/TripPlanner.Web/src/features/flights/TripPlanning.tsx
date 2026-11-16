@@ -16,7 +16,7 @@ export default function TripPlanning({
   onBack,
   readOnly = false,
 }: {
-  trip: Trip;
+  trip: Pick<Trip, "id">;
   onBack: () => void;
   readOnly?: boolean;
 }) {

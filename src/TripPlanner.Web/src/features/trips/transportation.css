@@ -1,0 +1,133 @@
+.overview-transport {
+  min-width: 0;
+}
+.overview-transport-card {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-height: 88px;
+  padding: 20px;
+  box-sizing: border-box;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 12px;
+  background: var(--colorNeutralBackground2);
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.overview-transport[data-selected="false"] .overview-transport-card {
+  border-style: dashed;
+}
+.overview-transport-card:hover {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorNeutralBackground2Hover);
+}
+.overview-transport-card:focus-visible {
+  outline: 2px solid var(--colorBrandStroke1);
+  outline-offset: 2px;
+}
+.overview-transport-card:disabled {
+  cursor: default;
+}
+.transport-card-title {
+  font-weight: 600;
+  font-size: 16px;
+}
+.transport-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.transport-mode-label {
+  color: var(--colorNeutralForeground2);
+}
+.transport-mode-label[data-unfinished="true"],
+.transport-flight-numbers {
+  color: var(--colorBrandForegroundLink);
+  font-weight: 600;
+}
+.transport-card-skeleton {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  min-height: 88px;
+}
+.transport-card-error {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.transport-drawer {
+  width: min(1120px, 100vw) !important;
+  max-width: 100vw;
+}
+.transport-drawer-body {
+  display: grid;
+  grid-template-rows: auto minmax(220px, 34dvh) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden !important;
+  padding-bottom: 0;
+  min-height: 0;
+}
+.transport-dismiss {
+  min-width: 44px !important;
+  min-height: 44px;
+}
+.transport-map {
+  position: relative;
+  min-height: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.transport-map .activity-map,
+.transport-map .activity-map-shell,
+.transport-map-skeleton {
+  height: 100%;
+  min-height: 0;
+}
+.transport-map-error {
+  position: absolute;
+  inset: auto 8px 8px;
+  padding: 8px;
+  background: var(--colorNeutralBackground1);
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.transport-editor {
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 24px;
+}
+.train-form,
+.station-picker {
+  display: grid;
+  gap: 12px;
+}
+.train-form {
+  margin-block: 12px;
+}
+.transport-drawer input {
+  font-size: 16px !important;
+}
+.transport-drawer .fui-SearchBox__dismiss {
+  min-width: 48px;
+  min-height: 44px;
+}
+.transport-drawer .station-picker .fui-SearchBox {
+  min-height: 48px;
+}
+.activity-map-landmark {
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+}
+@media (max-width: 600px) {
+  .transport-drawer-body {
+    padding-inline: 12px;
+    grid-template-rows: auto minmax(200px, 30dvh) minmax(0, 1fr);
+  }
+}

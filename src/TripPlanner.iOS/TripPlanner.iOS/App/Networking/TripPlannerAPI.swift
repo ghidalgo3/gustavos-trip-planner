@@ -300,6 +300,11 @@ final class TripPlannerAPI: TripPlannerServing {
         return result
     }
 
+    func estimateTransportation(tripID: UUID, from: TransportationFeature.Geometry, to: TransportationFeature.Geometry, mode: String) async throws -> TransportationEstimate {
+        try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation/estimate", method: "POST",
+                       body: TransportationEstimateWrite(from: from, to: to, mode: mode, departureAt: Date.now.ISO8601Format()))
+    }
+
     func transportation(tripID: UUID) async throws -> [TransportationResource] {
         try await send(path: "/trips/\(tripID.uuidString.lowercased())/transportation")
     }

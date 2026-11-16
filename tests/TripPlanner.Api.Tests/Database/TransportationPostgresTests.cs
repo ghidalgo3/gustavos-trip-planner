@@ -11,6 +11,65 @@ namespace TripPlanner.Api.Tests.Database;
 public sealed class TransportationPostgresTests
 {
     [TestMethod]
+    public async Task VisitAssociationIsUniqueTripScopedAndRemovedWithTheVisit()
+    {
+        await TripReadPostgresTests.WithDatabase(
+            async (_, db) =>
+            {
+                var user = await db.GetOrCreateUserAsync(
+                    new("google", "visit-transport@example.com", "Traveler")
+                );
+                var trip = await db.CreateTripAsync(user.Id, "Rail journey", "");
+                var place = await db.SaveDestinationPlaceAsync(
+                    user.Id,
+                    new(trip.Id, "paris-fr", "Paris", "FR", "Europe/Paris", 2.3, 48.8)
+                );
+                var visit = (
+                    await db.AddDestinationVisitAsync(
+                        user.Id,
+                        new(trip.Id, place.CityId, Guid.NewGuid(), 0, null, null)
+                    )
+                )!;
+                var request = TransportationFixture.Journey() with
+                {
+                    Mode = "train",
+                    DestinationStayId = visit.StayId,
+                };
+                var value = request.ToModel(Guid.NewGuid(), 0, false);
+                var saved = (await db.SaveTransportationAsync(user.Id, trip.Id, value, null))!;
+                Assert.AreEqual(visit.StayId, saved.DestinationStayId);
+                await Assert.ThrowsAsync<PostgresException>(async () =>
+                {
+                    await db.SaveTransportationAsync(
+                        user.Id,
+                        trip.Id,
+                        value with
+                        {
+                            Id = Guid.NewGuid(),
+                        },
+                        null
+                    );
+                });
+                var other = await db.CreateTripAsync(user.Id, "Other trip", "");
+                await Assert.ThrowsAsync<PostgresException>(async () =>
+                {
+                    await db.SaveTransportationAsync(
+                        user.Id,
+                        other.Id,
+                        value with
+                        {
+                            Id = Guid.NewGuid(),
+                        },
+                        null
+                    );
+                });
+                await db.DeleteDestinationVisitAsync(user.Id, trip.Id, place.CityId, visit.StayId);
+                Assert.IsEmpty(await db.GetTransportationAsync(user.Id, trip.Id));
+            }
+        );
+    }
+
+    [TestMethod]
     [DataRow("activity")]
     [DataRow("hotel")]
     [DataRow("home")]

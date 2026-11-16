@@ -1,3 +1,5 @@
+import DestinationTransport from "./DestinationTransport";
+import type { TransportStop } from "./destinationTransportModel";
 import {
   useExplicitResourceRefresh,
   useTripResourceVersion,
@@ -14,12 +16,9 @@ import {
   ArrowRight20Regular,
   Location24Regular,
   Delete20Regular,
-  Airplane20Regular,
   BuildingPeople24Regular,
   Calendar24Regular,
   ChevronRight20Regular,
-  Warning20Filled,
-  CheckmarkCircle20Filled,
 } from "@fluentui/react-icons";
 import { Link } from "react-router";
 import type { Trip } from "../../api/api";
@@ -70,7 +69,6 @@ export default function TripOverview({
   homeCity?: string | null;
 }) {
   const documentVersion = useTripResourceVersion(`/trips/${trip.id}`);
-  const [flightRetry, setFlightRetry] = useState(0);
   const [flightData, setFlightData] = useState<{
     flights?: SelectedFlight[];
     choices?: FlightChoiceProgress[];
@@ -233,7 +231,7 @@ export default function TripOverview({
         if (!controller.signal.aborted) setFlightData({ error: true });
       });
     return () => controller.abort();
-  }, [trip.id, destinations?.features, flightRetry, documentVersion]);
+  }, [trip.id, destinations?.features, documentVersion]);
 
   function destinationAdded(destination: Destination) {
     setDestinations((current) => {
@@ -327,51 +325,27 @@ export default function TripOverview({
           : a.stay.order - b.stay.order;
   });
 
-  function flightSpacer(from: FlightStop, to: FlightStop) {
+  function transportSpacer(
+    from: TransportStop & FlightStop,
+    to: TransportStop & FlightStop,
+  ) {
     const matches = matchingFlightLegs(from, to, legs, airportCities);
-    const selected = matches.length > 0;
     return (
-      <li
-        className="overview-flight-spacer"
-        data-selected={selected}
-        aria-label={`Flights from ${from.city ?? "Home"} to ${to.city ?? "Home"}`}
-      >
-        {selected ? (
-          <CheckmarkCircle20Filled
-            className="overview-flight-selected"
-            role="img"
-            aria-label="Flight selected"
-          />
-        ) : flightData?.flights ? (
-          <Warning20Filled
-            className="overview-flight-warning"
-            role="img"
-            aria-label="Flight not selected"
-          />
-        ) : null}
-        <Airplane20Regular aria-hidden="true" />
-        <span className="overview-flight-route">
-          {from.city ?? "Home"} → {to.city ?? "Home"}
-        </span>
-        {flightData?.error ? (
-          <Button
-            appearance="subtle"
-            onClick={() => setFlightRetry((value) => value + 1)}
-          >
-            Retry flights
-          </Button>
-        ) : !flightData?.flights ? (
-          <ContentSkeleton label="Loading flights" layout="text" />
-        ) : (
-          <Link to={`/trips/${encodeURIComponent(trip.id)}/flights`}>
-            {matches.length
-              ? matches.map(flightNumbers).join(" · ")
-              : readOnly
-                ? "View Flights"
-                : "Plan Flights"}
-          </Link>
-        )}
-      </li>
+      <DestinationTransport
+        key={`${from.stayId ?? "home"}:${to.stayId ?? "home"}`}
+        tripId={trip.id}
+        from={{
+          ...from,
+          date: from.departureDate ?? from.arrivalDate ?? to.arrivalDate,
+        }}
+        to={{
+          ...to,
+          date: to.arrivalDate ?? to.departureDate ?? from.departureDate,
+        }}
+        readOnly={readOnly}
+        homeUserId={trip.ownerUserId}
+        flights={matches.map(flightNumbers).join(" · ")}
+      />
     );
   }
 
@@ -429,7 +403,7 @@ export default function TripOverview({
         <ol className="overview-destinations" aria-label="Trip destinations">
           {visits.map(({ destination, stay }, index) => (
             <Fragment key={stay.id}>
-              {flightSpacer(
+              {transportSpacer(
                 index === 0
                   ? { city: homeCity ?? null }
                   : visitStop(visits[index - 1]),
@@ -577,7 +551,7 @@ export default function TripOverview({
                 </div>
               </li>
               {index === visits.length - 1 &&
-                flightSpacer(visitStop({ destination, stay }), {
+                transportSpacer(visitStop({ destination, stay }), {
                   city: homeCity ?? null,
                 })}
             </Fragment>
@@ -668,9 +642,12 @@ function visitStop({
 }: {
   destination: Destination;
   stay: Stay;
-}): FlightStop {
+}): FlightStop & TransportStop {
   return {
     city: destination.properties.name,
+    stayId: stay.id,
+    destination,
+    date: stay.departureDate ?? stay.arrivalDate,
     arrivalDate: stay.arrivalDate,
     departureDate: stay.departureDate,
     arrivalFlexibilityDays: Number(

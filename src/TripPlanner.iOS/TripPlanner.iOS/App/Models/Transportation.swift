@@ -40,6 +40,10 @@ struct TransportationWrite: Encodable, Equatable {
     var timeZone: String?
     var duration: String?
     var routeReviewed = false
+    var originStayId: UUID? = nil
+    var destinationStayId: UUID? = nil
+    var departureAt: String? = nil
+    var arrivalAt: String? = nil
 }
 
 struct TransportationResource: Decodable, Equatable, Identifiable {
@@ -56,11 +60,28 @@ struct TransportationResource: Decodable, Equatable, Identifiable {
     let version: Int
     let etag: String
     let routeStale: Bool
+    var originStayId: UUID? = nil
+    var destinationStayId: UUID? = nil
+    var departureAt: String? = nil
+    var arrivalAt: String? = nil
+
+    var displayDuration: String? {
+        guard let duration else { return nil }
+        let expression = try? NSRegularExpression(pattern: "^P(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+(?:\\.\\d+)?)S)?)?$")
+        guard let match = expression?.firstMatch(in: duration, range: NSRange(duration.startIndex..., in: duration)) else { return duration }
+        func number(_ index: Int) -> Double {
+            guard let range = Range(match.range(at: index), in: duration) else { return 0 }
+            return Double(duration[range]) ?? 0
+        }
+        return Duration.seconds(number(1) * 86400 + number(2) * 3600 + number(3) * 60 + number(4))
+            .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
 
     var draft: TransportationWrite {
         TransportationWrite(name: name, notes: notes, features: features, mode: mode,
                             departureDate: departureDate, departureTime: departureTime,
-                            timeZone: timeZone, duration: duration)
+                            timeZone: timeZone, duration: duration, originStayId: originStayId,
+                            destinationStayId: destinationStayId, departureAt: departureAt, arrivalAt: arrivalAt)
     }
 }
 
@@ -96,6 +117,7 @@ struct AirportResource: Decodable, Equatable, Identifiable {
 
 @MainActor
 protocol TransportationServing {
+    func estimateTransportation(tripID: UUID, from: TransportationFeature.Geometry, to: TransportationFeature.Geometry, mode: String) async throws -> TransportationEstimate
     func airports(query: String) async throws -> [AirportResource]
     func transportation(tripID: UUID) async throws -> [TransportationResource]
     func transportation(tripID: UUID, id: UUID) async throws -> TransportationResource
@@ -109,7 +131,22 @@ protocol TransportationServing {
     func deleteHotel(tripID: UUID, value: HotelResource) async throws
 }
 
+struct TransportationEstimate: Decodable {
+    let duration: String
+    var geometry: TransportationFeature.Geometry? = nil
+}
+
+struct TransportationEstimateWrite: Encodable {
+    let from: TransportationFeature.Geometry
+    let to: TransportationFeature.Geometry
+    let mode: String
+    let departureAt: String
+    var includeGeometry = false
+}
+
 extension TransportationServing {
+    func estimateTransportation(tripID: UUID, from: TransportationFeature.Geometry, to: TransportationFeature.Geometry, mode: String) async throws -> TransportationEstimate { throw APIError.invalidResponse }
+
     func airports(query: String) async throws -> [AirportResource] { throw APIError.invalidResponse }
     func transportation(tripID: UUID) async throws -> [TransportationResource] { throw APIError.invalidResponse }
     func transportation(tripID: UUID, id: UUID) async throws -> TransportationResource { throw APIError.invalidResponse }

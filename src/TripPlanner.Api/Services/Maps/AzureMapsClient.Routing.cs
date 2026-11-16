@@ -198,7 +198,7 @@ public sealed partial class AzureMapsClient
         double seconds = cell.TryGetProperty("durationTrafficInSeconds", out var traffic)
             ? traffic.GetDouble()
             : cell.GetProperty("durationInSeconds").GetDouble();
-        if (!double.IsFinite(seconds) || seconds is < 0 or > 86400)
+        if (!double.IsFinite(seconds) || seconds is < 0 or > 31_536_000)
         {
             return null;
         }
