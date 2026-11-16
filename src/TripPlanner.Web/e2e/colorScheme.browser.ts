@@ -107,10 +107,7 @@ for (const width of [390, 1280]) {
             name: "Planned activities: 1",
             exact: true,
           });
-          await expect(filter).toHaveCSS(
-            "background-color",
-            "rgb(0, 111, 230)",
-          );
+          await expect(filter).toHaveCSS("background-color", "rgb(5, 37, 5)");
           await filter.click();
           await page.mouse.move(0, 0);
           await expect(filter).toHaveCSS("background-color", "rgb(33, 45, 59)");

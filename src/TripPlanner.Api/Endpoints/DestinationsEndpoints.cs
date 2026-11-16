@@ -109,6 +109,10 @@ public static class DestinationsEndpoints
             stayId.ToString("D"),
             point,
             new(name, request.Properties.Address, request.Properties.HotelId)
+            {
+                CheckInTime = request.Properties.CheckInTime,
+                CheckOutTime = request.Properties.CheckOutTime,
+            }
         );
         return await database.SaveStayLocationAsync(
             user!.Id,

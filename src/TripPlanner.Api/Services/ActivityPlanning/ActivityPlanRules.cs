@@ -97,6 +97,53 @@ public static class ActivityPlanRules
         : activity.Properties.State is ActivityState.Yes or ActivityState.No ? ActivityState.Maybe
         : activity.Properties.State;
 
+    public static ActivityPlan InvalidateVisitSchedule(ActivityPlan plan, DestinationVisit visit)
+    {
+        var removedDays = plan.Days.Where(day => day.StayId == visit.StayId).ToArray();
+        var removedIds = removedDays.SelectMany(day => day.ActivityIds).ToHashSet();
+        var removedDates = removedDays.Select(day => day.Date).ToHashSet();
+        var retainedDays = plan.Days.Where(day => day.StayId != visit.StayId).ToArray();
+        var retainedIds = retainedDays.SelectMany(day => day.ActivityIds).ToHashSet();
+        var retainedDates = retainedDays.Select(day => day.Date).ToHashSet();
+        bool AffectedDate(DateOnly date) =>
+            removedDates.Contains(date)
+            || (
+                visit.ArrivalDate is { } start
+                && visit.DepartureDate is { } end
+                && date >= start
+                && date <= end
+            );
+        return plan with
+        {
+            Days = retainedDays,
+            Rules = plan
+                .Rules.Select(rule =>
+                    !retainedIds.Contains(rule.ActivityId)
+                    && (
+                        removedIds.Contains(rule.ActivityId)
+                        || (rule.FixedDate is { } date && AffectedDate(date))
+                    )
+                        ? rule with
+                        {
+                            FixedDate = null,
+                            FixedStart = null,
+                        }
+                        : rule
+                )
+                .ToArray(),
+            TransportOverrides = plan
+                .TransportOverrides.Where(item =>
+                    !AffectedDate(item.Date)
+                    || (
+                        retainedDates.Contains(item.Date)
+                        && (item.FromActivityId is not { } from || !removedIds.Contains(from))
+                        && (item.ToActivityId is not { } to || !removedIds.Contains(to))
+                    )
+                )
+                .ToArray(),
+        };
+    }
+
     public static ActivityPlan Reconcile(
         ActivityPlan plan,
         Activity[] activities,

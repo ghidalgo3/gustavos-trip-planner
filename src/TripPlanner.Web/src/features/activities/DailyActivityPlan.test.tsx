@@ -8,6 +8,11 @@ import {
 } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import DailyActivityPlan from "./DailyActivityPlan";
+import { useTripResourceVersion } from "../../api/tripDocumentStore";
+vi.mock("../../api/tripDocumentStore", async (original) => ({
+  ...(await original<typeof import("../../api/tripDocumentStore")>()),
+  useTripResourceVersion: vi.fn(),
+}));
 import {
   planningRequest,
   previewActivityPlan,
@@ -41,6 +46,7 @@ const props = {
 let response: PlanResponse;
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(useTripResourceVersion).mockReturnValue(0);
   response = structuredClone(calendarResponse);
   vi.mocked(planningRequest).mockImplementation(async (_path, options) => {
     if (options?.method === "PUT")
@@ -60,6 +66,80 @@ const writes = () =>
   vi
     .mocked(planningRequest)
     .mock.calls.filter(([, options]) => options?.method === "PUT");
+
+test("refreshing the trip after a visit edit removes invalidated calendar assignments", async () => {
+  const view = render(<DailyActivityPlan {...props} />);
+  expect(await screen.findByRole("button", { name: "Museum" })).toBeVisible();
+  response.plan.days = [];
+  response.plan.rules = response.plan.rules.map((rule) => ({
+    ...rule,
+    fixedDate: null,
+    fixedStart: null,
+  }));
+  response.context.visits = [
+    {
+      stayId: "visit-0",
+      arrivalDate: "2027-06-20",
+      departureDate: "2027-06-22",
+    },
+  ];
+  response.version++;
+  vi.mocked(useTripResourceVersion).mockReturnValue(1);
+  view.rerender(<DailyActivityPlan {...props} />);
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Calendar day" })).toHaveValue(
+      "visit-0:2027-06-20",
+    ),
+  );
+  expect(screen.queryByRole("button", { name: "Museum" })).toBeNull();
+  expect(
+    screen.getByRole("region", { name: "Unscheduled activities" }),
+  ).toHaveTextContent("Museum");
+  expect(writes()).toHaveLength(0);
+});
+
+test.each([false, true])(
+  "changed visit dates are reachable by default without rewriting the saved plan (read only: %s)",
+  async (readOnly) => {
+    response.context.visits = [
+      {
+        stayId: "visit-0",
+        arrivalDate: "2026-11-23",
+        departureDate: "2026-11-28",
+      },
+    ];
+    render(<DailyActivityPlan {...props} readOnly={readOnly} />);
+    const date = await screen.findByRole("combobox", { name: "Calendar day" });
+    expect(date).toHaveValue("visit-0:2026-11-23");
+    expect(within(date).getAllByRole("option")).toHaveLength(8);
+    fireEvent.change(date, { target: { value: "visit-0:2027-06-10" } });
+    expect(await screen.findByRole("button", { name: "Museum" })).toBeVisible();
+    expect(writes()).toHaveLength(0);
+  },
+);
+
+test("scheduling on a new visit date adds that day while retaining other saved days", async () => {
+  response.context.visits = [
+    {
+      stayId: "visit-0",
+      arrivalDate: "2026-11-23",
+      departureDate: "2026-11-28",
+    },
+  ];
+  render(<DailyActivityPlan {...props} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Schedule Cafe" }));
+  expect(screen.getByLabelText("Event date")).toHaveValue("visit-0:2026-11-23");
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(writes()).toHaveLength(1));
+  const next = (writes()[0][1]!.body as { plan: ActivityPlan }).plan;
+  expect(next.days).toHaveLength(3);
+  expect(
+    next.days.find((day) => day.date === "2026-11-23")?.activityIds,
+  ).toEqual(["activity-2"]);
+  expect(
+    next.days.find((day) => day.date === "2027-06-10")?.activityIds,
+  ).toEqual(["activity-0", "activity-1"]);
+});
 
 test("renders a time grid with timed events and travel, with planning forms behind event taps", async () => {
   render(<DailyActivityPlan {...props} />);

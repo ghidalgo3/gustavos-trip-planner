@@ -1572,7 +1572,8 @@ export default function ActivityPlanning({
                     return (
                       <ToggleButton
                         key={status.value}
-                        className="activity-status-filter"
+                        className="activity-status-filter activity-state-pill"
+                        data-activity-state={status.value}
                         shape="circular"
                         icon={<status.Icon />}
                         checked={!excludedStatuses.has(status.value)}

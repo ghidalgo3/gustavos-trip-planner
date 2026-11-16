@@ -11,8 +11,23 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Changed
+
+- Changing visit dates returns that visit's activities to Unscheduled and clears
+  its date/time anchors and dated travel settings, preserving activity decisions
+  and schedules in other visits. Unchanged or rejected date edits keep schedules.
+- Overview uses equal-width date and stay buttons and full-width travel cards,
+  with dashed outlines and warning icons until transportation is selected.
+  Activity status pills scroll horizontally, and activity filters share the blue,
+  green, and red status colors.
+
 ### Added
 
+- Stays have per-visit check-in and check-out times, defaulting to 4 PM and 11 AM.
+  Change both in Details below the stay drawer's map; the saved times appear as
+  calendar events on arrival and departure days, including offline.
+- Schedule includes flight links and saved transportation details on their travel
+  dates, using destination-local times and remaining accessible offline.
 - Schedule (formerly Plan) centers the calendar between a searchable activity list and the map, with
   resizable side panels. Drag activities onto the calendar, move events between
   times or days, and resize their start/end times to save the schedule directly.
@@ -20,12 +35,17 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Removed
 
+- Removed the Plans dropdown from destination cards; schedules remain available
+  from the activities page.
 - Removed the floating location summary and Show all locations button from maps.
 
 ### Fixed
 
-- Trip breadcrumbs sit beside the trip name when space allows, reducing header
-  height while wrapping on small screens.
+- Schedule includes current visit dates even when an older activity plan uses
+  different dates, so flights remain reachable without moving saved activities.
+- Trip headers show the name, dates, then breadcrumbs at every screen width,
+  with matching loading placeholders and equal spacing above the name and before
+  destination tabs.
 - Activities can be saved without selecting a kind, including after removing all
   existing kinds.
 

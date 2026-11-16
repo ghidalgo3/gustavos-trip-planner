@@ -2,11 +2,65 @@ using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using TripPlanner.Api.Models;
+using TripPlanner.Api.Services.ActivityPlanning;
 
 namespace TripPlanner.Api.Database;
 
 public sealed partial class PostgresPlannerDb
 {
+    private static async Task InvalidateVisitActivityPlanAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        DestinationVisit previous,
+        CancellationToken cancellationToken
+    )
+    {
+        var tripId = previous.TripId;
+        var cityId = previous.CityId;
+        StoredActivityPlan saved;
+        await using (
+            var read = new NpgsqlCommand(
+                "SELECT plan::text,assessment::text,version,input_revision,saved_at FROM activity_plans WHERE trip_id=$1 AND city_id=$2 FOR UPDATE;",
+                connection,
+                transaction
+            )
+        )
+        {
+            read.Parameters.AddWithValue(tripId);
+            read.Parameters.AddWithValue(cityId);
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return;
+            }
+            saved = new(
+                PlanningRead<ActivityPlan>(reader.GetString(0)),
+                PlanningRead<ActivityPlanAssessment>(reader.GetString(1)),
+                reader.GetInt64(2),
+                reader.GetInt64(3),
+                reader.GetFieldValue<DateTimeOffset>(4)
+            );
+        }
+        var plan = ActivityPlanRules.InvalidateVisitSchedule(saved.Plan, previous);
+        if (PlanningJson(plan) == PlanningJson(saved.Plan))
+        {
+            return;
+        }
+        await using var write = new NpgsqlCommand(
+            "UPDATE activity_plans SET plan=$3,assessment=$4,version=$5,input_revision=$6,saved_at=$7 WHERE trip_id=$1 AND city_id=$2;",
+            connection,
+            transaction
+        );
+        write.Parameters.AddWithValue(tripId);
+        write.Parameters.AddWithValue(cityId);
+        write.Parameters.AddWithValue(NpgsqlDbType.Jsonb, PlanningJson(plan));
+        write.Parameters.AddWithValue(NpgsqlDbType.Jsonb, PlanningJson(saved.Assessment));
+        write.Parameters.AddWithValue(saved.Version + 1);
+        write.Parameters.AddWithValue(saved.InputRevision);
+        write.Parameters.AddWithValue(saved.SavedAt);
+        await write.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static string PlanningJson<T>(T value) =>
         JsonSerializer.Serialize(value, JsonSerializerOptions.Web);
 

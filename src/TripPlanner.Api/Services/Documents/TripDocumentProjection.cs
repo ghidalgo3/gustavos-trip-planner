@@ -123,6 +123,10 @@ public static class TripDocumentProjection
             {
                 var visit = Copy(stay!);
                 visit["destinationId"] = Clone(feature["id"]);
+                visit["checkInTime"] = Clone(stay!["stayLocation"]?["properties"]?["checkInTime"]);
+                visit["checkOutTime"] = Clone(
+                    stay!["stayLocation"]?["properties"]?["checkOutTime"]
+                );
                 visit["accommodationPlaceId"] = stay!["stayLocation"] is null
                     ? null
                     : TripResourceProjection.LocalId(

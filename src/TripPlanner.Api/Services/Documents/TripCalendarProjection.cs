@@ -66,6 +66,8 @@ public static class TripCalendarProjection
             item.Remove("arrivalDate");
             item.Remove("departureDate");
             item.Remove("accommodationPlaceId");
+            item.Remove("checkInTime");
+            item.Remove("checkOutTime");
             if (visit["accommodationPlaceId"] is { } accommodation)
             {
                 var place = places.Single(place => Text(place["id"]) == Text(accommodation));
@@ -80,6 +82,8 @@ public static class TripCalendarProjection
                     ["visitId"] = visit["id"]!.DeepClone(),
                     ["etag"] = visit["accommodationEtag"]?.DeepClone(),
                     ["timingSource"] = "visit",
+                    ["checkInTime"] = visit["checkInTime"]?.DeepClone(),
+                    ["checkOutTime"] = visit["checkOutTime"]?.DeepClone(),
                 };
                 Dates(lodging, visit);
                 item.Remove("accommodationEtag");

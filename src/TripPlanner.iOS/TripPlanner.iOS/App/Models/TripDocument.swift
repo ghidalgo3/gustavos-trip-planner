@@ -146,7 +146,9 @@ struct TripDocumentDestinations: Decodable {
                         "arrivalAt": visit["start"].stringValue.map(JSONValue.string) ?? .string(""),
                         "departureAt": visit["end"].stringValue.map(JSONValue.string) ?? .string(""),
                         "stayLocation": hotel.map { p in
-                            .object(["type": .string("Feature"), "id": visit["id"], "geometry": p["location"], "properties": .object(["name": p["name"], "address": p["address"], "hotelId": p["hotelId"]])])
+                            .object(["type": .string("Feature"), "id": visit["id"], "geometry": p["location"], "properties": .object(["name": p["name"], "address": p["address"], "hotelId": p["hotelId"],
+                                "checkInTime": .string(lodging?["checkInTime"].stringValue ?? "16:00:00"),
+                                "checkOutTime": .string(lodging?["checkOutTime"].stringValue ?? "11:00:00")])])
                         } ?? .null
                     ]
                     return .object(value)

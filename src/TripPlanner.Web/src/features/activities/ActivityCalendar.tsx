@@ -1,11 +1,14 @@
 import { Button } from "@fluentui/react-components";
 import { useEffect, useEffectEvent, useId, useRef } from "react";
+import { Link } from "react-router";
 import {
   Add20Regular,
   ChevronLeft20Regular,
   ChevronRight20Regular,
   VehicleCar20Regular,
   PersonWalking20Regular,
+  Airplane20Regular,
+  Bed20Regular,
 } from "@fluentui/react-icons";
 import type { Activity, Destination } from "./activitiesApi";
 import type { ActivityPlan, PlanAssessment, PlanDay } from "./activityPlanApi";
@@ -21,8 +24,12 @@ import {
 import CalendarActivityList from "./CalendarActivityList";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
 import useCalendarDrag from "./useCalendarDrag";
+import type { TripDocument } from "../../api/tripDocument";
+import { scheduledTravelEntries } from "./scheduledTravel";
 
 export default function ActivityCalendar({
+  tripId,
+  itinerary,
   plan,
   day,
   activities,
@@ -36,6 +43,8 @@ export default function ActivityCalendar({
   onDayDetails,
   onTiming,
 }: {
+  tripId: string;
+  itinerary?: TripDocument["itinerary"];
   plan: ActivityPlan;
   day?: PlanDay;
   activities: Activity[];
@@ -53,8 +62,24 @@ export default function ActivityCalendar({
   const index = days.findIndex(
     (item) => day && calendarDayKey(item) === calendarDayKey(day),
   );
+  const tripTravel = day
+    ? scheduledTravelEntries(itinerary?.items ?? [], day, plan.timeZone)
+    : [];
   const entries = day
-    ? calendarEntries(plan, day, activities, assessment, destination)
+    ? [
+        ...calendarEntries(
+          plan,
+          day,
+          activities,
+          assessment,
+          destination,
+        ).filter(
+          (entry) =>
+            entry.kind !== "flight" ||
+            !tripTravel.some((item) => item.kind === "flight"),
+        ),
+        ...tripTravel,
+      ].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))
     : [];
   const timed = new Set(
     plan.days
@@ -80,7 +105,7 @@ export default function ActivityCalendar({
     onNavigate: onDay,
   });
   const scrollToEvents = useEffectEvent(() => {
-    const first = entries.find((entry) => entry.kind === "activity");
+    const first = entries.find((entry) => entry.kind !== "break");
     if (scroll.current) {
       scroll.current.scrollTop = Math.max(
         0,
@@ -234,6 +259,34 @@ export default function ActivityCalendar({
                         const label = entry.travel
                           ? `${entry.title} from ${entry.travel.label.replace(" → ", " to ")}`
                           : entry.title;
+                        const content = (
+                          <>
+                            <strong>
+                              {entry.kind === "lodging" && <Bed20Regular />}
+                              {entry.kind === "flight" && <Airplane20Regular />}
+                              {entry.kind === "transportation" && (
+                                <VehicleCar20Regular />
+                              )}
+                              {entry.kind === "travel" &&
+                                (entry.travel?.mode === "walking" ? (
+                                  <PersonWalking20Regular />
+                                ) : (
+                                  <VehicleCar20Regular />
+                                ))}
+                              {entry.title}
+                            </strong>
+                            <span>
+                              {entry.kind === "travel"
+                                ? entry.detail
+                                : entry.start === entry.end
+                                  ? calendarClock(entry.start)
+                                  : `${calendarClock(Math.max(0, entry.start))}–${entry.end === 1440 ? "24:00" : calendarClock(entry.end)}${entry.end > 1440 ? " (+1 day)" : ""}`}
+                            </span>
+                            {entry.kind !== "travel" && entry.detail && (
+                              <small>{entry.detail}</small>
+                            )}
+                          </>
+                        );
                         return (
                           <div
                             key={entry.id}
@@ -260,40 +313,34 @@ export default function ActivityCalendar({
                                 onEntry(entry);
                             }}
                           >
-                            <button
-                              type="button"
-                              className="calendar-event-content"
-                              data-draggable={!!entry.activityId && !readOnly}
-                              aria-label={label}
-                              disabled={busy}
-                              onClick={() => onEntry(entry)}
-                              onPointerDown={(event) =>
-                                entry.activityId &&
-                                drag.begin(event, {
-                                  activityId: entry.activityId,
-                                  start: entry.start,
-                                  end: entry.end,
-                                })
-                              }
-                            >
-                              <strong>
-                                {entry.kind === "travel" &&
-                                  (entry.travel?.mode === "walking" ? (
-                                    <PersonWalking20Regular />
-                                  ) : (
-                                    <VehicleCar20Regular />
-                                  ))}
-                                {entry.title}
-                              </strong>
-                              <span>
-                                {entry.kind === "travel"
-                                  ? entry.detail
-                                  : `${calendarClock(Math.max(0, entry.start))}–${calendarClock(entry.end)}${entry.end >= 1440 ? " (+1 day)" : ""}`}
-                              </span>
-                              {entry.kind !== "travel" && entry.detail && (
-                                <small>{entry.detail}</small>
-                              )}
-                            </button>
+                            {entry.kind === "flight" ? (
+                              <Link
+                                className="calendar-event-content calendar-travel-link"
+                                aria-label={label}
+                                to={`/trips/${encodeURIComponent(tripId)}/flights`}
+                              >
+                                {content}
+                              </Link>
+                            ) : (
+                              <button
+                                type="button"
+                                className={`calendar-event-content${entry.kind === "transportation" ? " calendar-transportation-link" : ""}`}
+                                data-draggable={!!entry.activityId && !readOnly}
+                                aria-label={label}
+                                disabled={busy}
+                                onClick={() => onEntry(entry)}
+                                onPointerDown={(event) =>
+                                  entry.activityId &&
+                                  drag.begin(event, {
+                                    activityId: entry.activityId,
+                                    start: entry.start,
+                                    end: entry.end,
+                                  })
+                                }
+                              >
+                                {content}
+                              </button>
+                            )}
                             {entry.activityId && !readOnly && (
                               <>
                                 {(["start", "end"] as const).map((edge) => (
@@ -325,7 +372,7 @@ export default function ActivityCalendar({
                           </div>
                         );
                       })}
-                    {!entries.some((item) => item.kind === "activity") && (
+                    {entries.length === 0 && (
                       <div className="calendar-empty-day">
                         No events scheduled
                       </div>

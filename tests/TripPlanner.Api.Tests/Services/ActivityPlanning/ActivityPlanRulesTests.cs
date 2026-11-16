@@ -8,6 +8,54 @@ namespace TripPlanner.Api.Tests.Services.ActivityPlanning;
 public sealed class ActivityPlanRulesTests
 {
     [TestMethod]
+    public void VisitDateInvalidationPreservesOtherVisitOnSharedDayAndClearsUnassignedDateAnchors()
+    {
+        var context = Context(TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+        var first = context.Visits[0];
+        var repeat = first with { StayId = Guid.NewGuid() };
+        var affected = context.Activities[0].Id;
+        var retained = context.Activities[1].Id;
+        var unassigned = Guid.NewGuid();
+        var plan = Plan(context) with
+        {
+            Days =
+            [
+                new(first.StayId, Date, [affected]),
+                new(repeat.StayId, Date, [retained]) { Name = "Keep" },
+            ],
+            Rules =
+            [
+                new(affected)
+                {
+                    FixedDate = Date,
+                    FixedStart = new(9, 0),
+                    MustDo = true,
+                },
+                new(retained) { FixedDate = Date, FixedStart = new(11, 0) },
+                new(unassigned) { FixedDate = Date, FixedStart = new(12, 0) },
+            ],
+            TransportOverrides =
+            [
+                new(Date, null, affected, "walking", TimeSpan.Zero),
+                new(Date, null, retained, "walking", TimeSpan.Zero),
+            ],
+        };
+        var invalidated = ActivityPlanRules.InvalidateVisitSchedule(plan, first);
+        Assert.HasCount(1, invalidated.Days);
+        Assert.AreEqual(plan.Days[1], invalidated.Days[0]);
+        Assert.IsNull(invalidated.Rules[0].FixedDate);
+        Assert.IsNull(invalidated.Rules[0].FixedStart);
+        Assert.IsTrue(invalidated.Rules[0].MustDo);
+        Assert.AreEqual(plan.Rules[1], invalidated.Rules[1]);
+        Assert.IsNull(invalidated.Rules[2].FixedDate);
+        Assert.IsNull(invalidated.Rules[2].FixedStart);
+        CollectionAssert.AreEqual(
+            new[] { plan.TransportOverrides[1] },
+            invalidated.TransportOverrides
+        );
+    }
+
+    [TestMethod]
     [DataRow(null, "Europe/Paris")]
     [DataRow("", "Europe/Paris")]
     [DataRow("   ", "Europe/Paris")]

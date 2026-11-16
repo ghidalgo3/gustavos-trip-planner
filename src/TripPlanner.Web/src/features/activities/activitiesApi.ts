@@ -22,6 +22,8 @@ export type StayLocation = {
     name: string;
     address?: string | null;
     hotelId?: string | null;
+    checkInTime: string;
+    checkOutTime: string;
   };
 };
 export type Destination = {
@@ -306,7 +308,7 @@ export async function saveStayLocation(
   cityId: string,
   stayId: string,
   feature: StayLocation | null,
-): Promise<void> {
+): Promise<StayLocation | null> {
   const response = await tripFetch(
     `${apiBaseUrl}/trips/${encodeURIComponent(tripId)}/destinations/${encodeURIComponent(cityId)}/stays/${encodeURIComponent(stayId)}/location`,
     {
@@ -321,6 +323,7 @@ export async function saveStayLocation(
     },
   );
   if (!response.ok) await readTripError(response, "saving Stay location");
+  return feature ? ((await response.json()) as StayLocation) : null;
 }
 
 export type StayPlaceResult = {

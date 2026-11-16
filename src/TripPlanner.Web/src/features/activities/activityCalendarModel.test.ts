@@ -5,14 +5,143 @@ import {
   calendarLayout,
   calendarGestureTiming,
   localMinutes,
+  calendarDays,
+  withCalendarDay,
   type CalendarEntry,
 } from "./activityCalendarModel";
 import {
   calendarActivities,
   calendarPlan,
   calendarAssessment,
+  calendarDestination,
 } from "../../test/activityCalendarFixture";
 import { activityRule } from "./activityPlanApi";
+
+test.each([
+  ["2027-06-10", "Check-in · Hotel", 960],
+  ["2027-06-12", "Check-out · Hotel", 660],
+  ["2027-06-11", null, null],
+])(
+  "stay appointments appear on their own boundary day: %s",
+  (date, title, time) => {
+    const destination = structuredClone(calendarDestination);
+    destination.properties.stays = [
+      {
+        id: "visit-0",
+        order: 0,
+        arrivalDate: "2027-06-10",
+        departureDate: "2027-06-12",
+        arrivalAt: "",
+        departureAt: "",
+        stayLocation: {
+          type: "Feature",
+          id: "visit-0",
+          geometry: destination.geometry,
+          properties: {
+            name: "Hotel",
+            checkInTime: "16:00:00",
+            checkOutTime: "11:00:00",
+          },
+        },
+      },
+    ];
+    const entries = calendarEntries(
+      calendarPlan,
+      { ...calendarPlan.days[0], date: date!, activityIds: [] },
+      [],
+      undefined,
+      destination,
+    ).filter((entry) => entry.kind === "lodging");
+    if (title === null) expect(entries).toEqual([]);
+    else expect(entries).toMatchObject([{ title, start: time, end: time }]);
+  },
+);
+
+test("repeat visits to one hotel retain their own overridden stay times", () => {
+  const destination = structuredClone(calendarDestination);
+  destination.properties.stays = [0, 1].map((index) => ({
+    id: `visit-${index}`,
+    order: index,
+    arrivalDate: "2027-06-10",
+    departureDate: "2027-06-12",
+    arrivalAt: "",
+    departureAt: "",
+    stayLocation: {
+      type: "Feature",
+      id: `visit-${index}`,
+      geometry: destination.geometry,
+      properties: {
+        name: "Hotel",
+        hotelId: "same-hotel",
+        checkInTime: index ? "18:30:00" : "16:00:00",
+        checkOutTime: "11:00:00",
+      },
+    },
+  }));
+  const entries = calendarEntries(
+    calendarPlan,
+    { ...calendarPlan.days[0], stayId: "visit-1", activityIds: [] },
+    [],
+    undefined,
+    destination,
+  ).filter((entry) => entry.kind === "lodging");
+  expect(entries).toMatchObject([{ start: 1110, end: 1110 }]);
+  const removed = {
+    ...destination,
+    properties: { ...destination.properties, stays: [] },
+  };
+  expect(
+    calendarEntries(
+      calendarPlan,
+      { ...calendarPlan.days[0], activityIds: [] },
+      [],
+      undefined,
+      removed,
+    ),
+  ).toEqual([]);
+});
+
+test("changed visit dates add calendar days without moving the older saved schedule", () => {
+  const plan = structuredClone(calendarPlan);
+  const original = structuredClone(plan);
+  const days = calendarDays(plan, [
+    {
+      stayId: "visit-0",
+      arrivalDate: "2026-11-23",
+      departureDate: "2026-11-28",
+    },
+  ]);
+  expect(days.filter((day) => day.date.startsWith("2026"))).toHaveLength(6);
+  expect(days.filter((day) => day.date.startsWith("2027"))).toEqual(plan.days);
+  expect(plan).toEqual(original);
+  const added = days.find((day) => day.date === "2026-11-23")!;
+  expect(added.activityIds).toEqual([]);
+  const updated = withCalendarDay(plan, added);
+  expect(updated.days).toContainEqual(added);
+  expect(updated.days.filter((day) => day.date.startsWith("2027"))).toEqual(
+    plan.days,
+  );
+  expect(withCalendarDay(updated, added)).toBe(updated);
+});
+
+test("visit days retain saved names and distinguish visits sharing a date", () => {
+  const plan = structuredClone(calendarPlan);
+  plan.days[0].name = "Arrival day";
+  const days = calendarDays(plan, [
+    {
+      stayId: "visit-0",
+      arrivalDate: "2027-06-10",
+      departureDate: "2027-06-10",
+    },
+    {
+      stayId: "visit-1",
+      arrivalDate: "2027-06-10",
+      departureDate: "2027-06-10",
+    },
+  ]);
+  expect(days.filter((day) => day.date === "2027-06-10")).toHaveLength(2);
+  expect(days.find((day) => day.stayId === "visit-0")).toEqual(plan.days[0]);
+});
 
 test.each([
   ["move", 579, 585, 675],

@@ -146,9 +146,44 @@ function withHotelSelectionFields(value: unknown): unknown {
       ...(result.properties as object),
       address: null,
       hotelId: null,
+      checkInTime: "16:00:00",
+      checkOutTime: "11:00:00",
     };
   return result;
 }
+
+test("stay overrides are hydrated from the visit's lodging item", () => {
+  const document = structuredClone(after);
+  const lodging = document.itinerary.items.find(
+    (item: Record<string, unknown>) => item.kind === "lodging",
+  );
+  lodging.checkInTime = "18:30:00";
+  lodging.checkOutTime = "10:15:00";
+  const visit = document.itinerary.items.find(
+    (item: Record<string, unknown>) => item.id === lodging.visitId,
+  );
+  const view = hydrateTripDocument(validateTripDocument(document, document.id));
+  expect(
+    view.resources[
+      `/trips/${document.id}/destinations/${visit.destinationId}/stays/${visit.id}/location`
+    ].data,
+  ).toMatchObject({
+    properties: { checkInTime: "18:30:00", checkOutTime: "10:15:00" },
+  });
+});
+
+test.each(["4PM", "18:30", "25:00:00", "18:30:01", 42])(
+  "portable stay times reject invalid clocks: %s",
+  (clock) => {
+    const document = structuredClone(after);
+    document.itinerary.items.find(
+      (item: Record<string, unknown>) => item.kind === "lodging",
+    ).checkInTime = clock;
+    expect(() => validateTripDocument(document, document.id)).toThrow(
+      "Invalid stay times",
+    );
+  },
+);
 
 test.each(
   Object.entries(before.resources).filter(

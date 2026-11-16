@@ -168,7 +168,9 @@
   border-left-color: var(--colorNeutralStroke1);
 }
 .calendar-event-break,
-.calendar-event-flight {
+.calendar-event-flight,
+.calendar-event-transportation,
+.calendar-event-lodging {
   background: var(--colorNeutralBackground2);
   border-left-color: var(--colorNeutralStroke1);
 }
@@ -498,6 +500,34 @@
 }
 .calendar-event-content:hover {
   background: var(--colorBrandBackground2Hover);
+}
+.calendar-event-content.calendar-travel-link {
+  height: 100%;
+  max-height: none;
+  cursor: pointer;
+  touch-action: pan-y;
+  text-decoration: none;
+}
+.calendar-event-content.calendar-travel-link:hover {
+  background: inherit;
+}
+.calendar-travel-link strong,
+.calendar-transportation-link strong {
+  color: var(--colorBrandForegroundLink);
+  text-decoration: underline;
+}
+.calendar-travel-link:focus-visible {
+  outline: 2px solid var(--colorStrokeFocus2);
+  outline-offset: -3px;
+}
+.calendar-transportation-details {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.calendar-transportation-details ol {
+  display: grid;
+  gap: 12px;
+  padding-left: 20px;
 }
 .schedule-activity[data-draggable="false"],
 .calendar-event-content[data-draggable="false"],

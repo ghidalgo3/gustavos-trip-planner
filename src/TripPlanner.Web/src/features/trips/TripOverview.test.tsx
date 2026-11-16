@@ -189,7 +189,7 @@ test.each([false, true])(
 );
 
 test.each([false, true])(
-  "overview includes collapsible visit plans (read only: %s)",
+  "overview omits the Plans dropdown (read only: %s)",
   async (readOnly) => {
     vi.mocked(getDestinations).mockResolvedValue({
       type: "FeatureCollection",
@@ -211,16 +211,9 @@ test.each([false, true])(
       route: [],
     });
     show(readOnly);
-    const plans = await screen.findByRole("button", {
-      name: "Plans for Paris, visit 1",
-    });
-    expect(plans).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(plans);
-    expect(await screen.findByText("Arrive")).toBeVisible();
-    expect(screen.getByText("Leave")).toBeVisible();
-    expect(
-      screen.getAllByRole("list", { name: /^Activities on / }),
-    ).toHaveLength(3);
+    expect(await screen.findByRole("link", { name: "Paris" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Plans for/ })).toBeNull();
+    expect(screen.queryByText("Plans", { exact: true })).toBeNull();
   },
 );
 
@@ -956,6 +949,23 @@ test.each([
         name: selectedIndex === 1 ? "AA 101" : "AA 100",
       }),
     ).toHaveAttribute("href", "/trips/trip/flights");
+    for (const [index, route] of [
+      "New York to Paris",
+      "Paris to New York",
+    ].entries()) {
+      const card = screen.getByRole("listitem", {
+        name: `Flights from ${route}`,
+      });
+      const selected = selectedIndex < 0 || selectedIndex === index;
+      expect(card).toHaveAttribute("data-selected", String(selected));
+      expect(
+        within(card).queryByRole("img", { name: "Flight not selected" }) !==
+          null,
+      ).toBe(!selected);
+      expect(
+        within(card).queryByRole("img", { name: "Flight selected" }) !== null,
+      ).toBe(selected);
+    }
     if (selectedIndex < 0) {
       expect(screen.getByRole("link", { name: "AA 101" })).toBeVisible();
       expect(
@@ -992,7 +1002,7 @@ test.each([false, true])(
           type: "Point" as const,
           coordinates: [2.35 + index * 0.1, 48.86] as [number, number],
         },
-        properties: { name },
+        properties: { name, checkInTime: "16:00:00", checkOutTime: "11:00:00" },
       },
     }));
     vi.mocked(getDestinations).mockResolvedValue({
@@ -1054,7 +1064,11 @@ test.each([null, "Hotel Paris"])(
                       type: "Feature",
                       id: "hotel",
                       geometry: { type: "Point", coordinates: [2.35, 48.86] },
-                      properties: { name: stayName },
+                      properties: {
+                        name: stayName,
+                        checkInTime: "16:00:00",
+                        checkOutTime: "11:00:00",
+                      },
                     }
                   : null,
               },

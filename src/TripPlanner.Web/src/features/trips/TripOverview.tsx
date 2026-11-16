@@ -4,11 +4,11 @@ import {
 } from "../../api/tripDocumentStore";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import CityIcon from "../../shared/components/CityIcon";
-import { activityStatus } from "../activities/activityStatus";
+import { activityStatuses } from "../activities/activityStatus";
 import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { Fragment, useEffect, useState } from "react";
-import { Button, Badge, Text, Title3 } from "@fluentui/react-components";
+import { Button, Text, Title3 } from "@fluentui/react-components";
 import {
   Add24Regular,
   ArrowRight20Regular,
@@ -16,6 +16,10 @@ import {
   Delete20Regular,
   Airplane20Regular,
   BuildingPeople24Regular,
+  Calendar24Regular,
+  ChevronRight20Regular,
+  Warning20Filled,
+  CheckmarkCircle20Filled,
 } from "@fluentui/react-icons";
 import { Link } from "react-router";
 import type { Trip } from "../../api/api";
@@ -26,7 +30,6 @@ import {
   type Destination,
   type DestinationCollection,
   type Stay,
-  type Activity,
 } from "../activities/activitiesApi";
 import {
   getSelectedFlights,
@@ -45,7 +48,6 @@ import AddDestinationDrawer from "./AddDestinationDrawer";
 import StayLocationDrawer from "./StayLocationDrawer";
 import DeleteDestinationDialog from "./DeleteDestinationDialog";
 import DestinationPlanningProgress from "./DestinationPlanningProgress";
-import VisitPlans from "./VisitPlans";
 import {
   activityPlanPath,
   planningRequest,
@@ -85,7 +87,6 @@ export default function TripOverview({
       string,
       {
         counts?: Record<string, number>;
-        activities?: Activity[];
         error?: boolean;
       }
     >
@@ -170,7 +171,7 @@ export default function TripOverview({
         for (const activity of activities.features)
           counts[activity.properties.state] =
             (counts[activity.properties.state] ?? 0) + 1;
-        return { counts, activities: activities.features };
+        return { counts };
       }),
     ).then((results) => {
       if (!controller.signal.aborted)
@@ -328,11 +329,26 @@ export default function TripOverview({
 
   function flightSpacer(from: FlightStop, to: FlightStop) {
     const matches = matchingFlightLegs(from, to, legs, airportCities);
+    const selected = matches.length > 0;
     return (
       <li
         className="overview-flight-spacer"
+        data-selected={selected}
         aria-label={`Flights from ${from.city ?? "Home"} to ${to.city ?? "Home"}`}
       >
+        {selected ? (
+          <CheckmarkCircle20Filled
+            className="overview-flight-selected"
+            role="img"
+            aria-label="Flight selected"
+          />
+        ) : flightData?.flights ? (
+          <Warning20Filled
+            className="overview-flight-warning"
+            role="img"
+            aria-label="Flight not selected"
+          />
+        ) : null}
         <Airplane20Regular aria-hidden="true" />
         <span className="overview-flight-route">
           {from.city ?? "Home"} → {to.city ?? "Home"}
@@ -445,22 +461,26 @@ export default function TripOverview({
                       }}
                     />
                   )}
-                  {readOnly ? (
-                    <Text>{visitDates(stay)}</Text>
-                  ) : (
-                    <Button
-                      className="overview-destination-dates"
-                      appearance="outline"
-                      aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
-                      onClick={() => {
-                        setEditingVisit({ destination, stay });
-                        setShowDateDrawer(true);
-                      }}
-                    >
-                      {visitDates(stay)}
-                    </Button>
-                  )}
                 </div>
+                {readOnly ? (
+                  <Text>{visitDates(stay)}</Text>
+                ) : (
+                  <Button
+                    className="overview-destination-dates"
+                    appearance="outline"
+                    icon={<Calendar24Regular />}
+                    aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
+                    onClick={() => {
+                      setEditingVisit({ destination, stay });
+                      setShowDateDrawer(true);
+                    }}
+                  >
+                    <span className="overview-visit-button-label">
+                      {visitDates(stay)}
+                    </span>
+                    <ChevronRight20Regular aria-hidden="true" />
+                  </Button>
+                )}
                 {readOnly && stay.stayLocation && (
                   <Text className="overview-stay-name">
                     {stay.stayLocation.properties.name}
@@ -468,12 +488,16 @@ export default function TripOverview({
                 )}
                 {!readOnly && (
                   <Button
-                    appearance="subtle"
+                    className="overview-destination-stay"
+                    appearance="outline"
                     icon={<BuildingPeople24Regular />}
                     aria-label={`${stay.stayLocation?.properties.name ?? "Choose stay"} in ${destination.properties.name}`}
                     onClick={() => setStayVisit({ destination, stay })}
                   >
-                    {stay.stayLocation?.properties.name ?? "Choose stay"}
+                    <span className="overview-visit-button-label">
+                      {stay.stayLocation?.properties.name ?? "Choose stay"}
+                    </span>
+                    <ChevronRight20Regular aria-hidden="true" />
                   </Button>
                 )}
                 {planningSummaries[destination.id] && (
@@ -499,31 +523,28 @@ export default function TripOverview({
                         className="overview-activity-tags"
                         aria-label={`${destination.properties.name} activities by state`}
                       >
-                        {Object.entries(
-                          activitySummaries[destination.id].counts!,
-                        )
-                          .sort(([a], [b]) => a.localeCompare(b))
-                          .map(([state, count]) => {
-                            const status = activityStatus(state);
+                        {activityStatuses
+                          .filter(
+                            (status) =>
+                              activitySummaries[destination.id].counts![
+                                status.value
+                              ] > 0,
+                          )
+                          .map((status) => {
+                            const count =
+                              activitySummaries[destination.id].counts![
+                                status.value
+                              ];
                             return (
                               <Link
-                                key={state}
+                                key={status.value}
+                                className="activity-state-pill"
+                                data-activity-state={status.value}
                                 to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
                                 aria-label={`${count} ${status.label} activities in ${destination.properties.name}`}
                               >
-                                <Badge
-                                  appearance="tint"
-                                  icon={<status.Icon />}
-                                  color={
-                                    state === "Yes"
-                                      ? "success"
-                                      : state === "No"
-                                        ? "danger"
-                                        : "informative"
-                                  }
-                                >
-                                  {status.label} · {count}
-                                </Badge>
+                                <status.Icon aria-hidden="true" />
+                                {status.label} {count}
                               </Link>
                             );
                           })}
@@ -554,14 +575,6 @@ export default function TripOverview({
                     />
                   )}
                 </div>
-                <VisitPlans
-                  stay={stay}
-                  name={destination.properties.name}
-                  response={planningSummaries[destination.id]}
-                  activities={activitySummaries[destination.id]?.activities}
-                  activityError={activitySummaries[destination.id]?.error}
-                  onRetry={() => setSummaryRetry((value) => value + 1)}
-                />
               </li>
               {index === visits.length - 1 &&
                 flightSpacer(visitStop({ destination, stay }), {

@@ -37,18 +37,16 @@ export function DestinationOverviewSkeleton() {
                 <SkeletonItem size={32} style={{ width: "45%" }} />
                 <SkeletonItem size={40} style={{ width: 44 }} />
               </div>
-              <SkeletonItem size={40} style={{ width: "min(100%, 300px)" }} />
-              <SkeletonItem size={40} style={{ width: "min(100%, 240px)" }} />
-              <div className="skeleton-row skeleton-badges">
+              <SkeletonItem size={40} style={{ width: "100%" }} />
+              <SkeletonItem size={40} style={{ width: "100%" }} />
+              <div className="overview-activity-tags">
                 <SkeletonItem
                   shape="rectangle"
-                  size={24}
-                  style={{ width: 96 }}
+                  style={{ width: 148, height: 44, flexShrink: 0 }}
                 />
                 <SkeletonItem
                   shape="rectangle"
-                  size={24}
-                  style={{ width: 104 }}
+                  style={{ width: 132, height: 44, flexShrink: 0 }}
                 />
               </div>
             </div>
@@ -73,23 +71,24 @@ export function TripPageSkeleton({
           <div className="trip-page-heading">
             <div className="trip-page-heading-main">
               <SkeletonItem size={32} style={{ width: "min(100%, 360px)" }} />
-              <div className="skeleton-row skeleton-trip-breadcrumbs">
-                <SkeletonItem size={20} style={{ width: 48 }} />
-                <SkeletonItem size={20} style={{ width: 12 }} />
-                <SkeletonItem size={20} style={{ width: 80 }} />
-                {!overview && (
-                  <>
-                    <SkeletonItem size={20} style={{ width: 12 }} />
-                    <SkeletonItem size={20} style={{ width: 80 }} />
-                  </>
-                )}
-              </div>
             </div>
             {overview && (
               <SkeletonItem style={{ width: 88, height: 44, flexShrink: 0 }} />
             )}
           </div>
           <SkeletonItem size={20} style={{ width: "min(85%, 300px)" }} />
+
+          <div className="skeleton-row skeleton-trip-breadcrumbs">
+            <SkeletonItem size={20} style={{ width: 48 }} />
+            <SkeletonItem size={20} style={{ width: 12 }} />
+            <SkeletonItem size={20} style={{ width: 80 }} />
+            {!overview && (
+              <>
+                <SkeletonItem size={20} style={{ width: 12 }} />
+                <SkeletonItem size={20} style={{ width: 80 }} />
+              </>
+            )}
+          </div>
         </div>
       </ContentSkeleton>
       <div className="trip-page-body">

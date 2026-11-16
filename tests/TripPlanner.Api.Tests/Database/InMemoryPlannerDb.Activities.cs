@@ -197,7 +197,39 @@ public sealed partial class InMemoryPlannerDb
                 ArrivalDate = input.ArrivalDate,
                 DepartureDate = input.DepartureDate,
             };
+            if (
+                visit.ArrivalDate == saved.ArrivalDate
+                && visit.DepartureDate == saved.DepartureDate
+            )
+            {
+                return Task.FromResult<DestinationVisit?>(visit);
+            }
             _destinationVisits[stayId] = saved;
+            if (
+                visit.ArrivalDate != saved.ArrivalDate
+                || visit.DepartureDate != saved.DepartureDate
+            )
+            {
+                if (_activityPlans.TryGetValue((tripId, cityId), out var currentPlan))
+                {
+                    var invalidated =
+                        TripPlanner.Api.Services.ActivityPlanning.ActivityPlanRules.InvalidateVisitSchedule(
+                            currentPlan.Plan,
+                            visit
+                        );
+                    if (
+                        System.Text.Json.JsonSerializer.Serialize(invalidated)
+                        != System.Text.Json.JsonSerializer.Serialize(currentPlan.Plan)
+                    )
+                    {
+                        _activityPlans[(tripId, cityId)] = currentPlan with
+                        {
+                            Plan = invalidated,
+                            Version = currentPlan.Version + 1,
+                        };
+                    }
+                }
+            }
             var place = _destinationPlaces[(tripId, cityId)];
             _destinationPlaces[(tripId, cityId)] = place with
             {

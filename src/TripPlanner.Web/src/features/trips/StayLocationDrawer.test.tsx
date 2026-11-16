@@ -71,7 +71,11 @@ const savedDestination: Destination = {
           type: "Feature",
           id: "stay",
           geometry: { type: "Point", coordinates: [139.71, 35.71] },
-          properties: { name: "Existing Hotel" },
+          properties: {
+            name: "Existing Hotel",
+            checkInTime: "16:00:00",
+            checkOutTime: "11:00:00",
+          },
         },
       },
     ],
@@ -111,7 +115,15 @@ test.each(["list", "map"])(
   "searches Maps only after Search and saves an accommodation from the %s",
   async (source) => {
     vi.mocked(searchStayPlaces).mockResolvedValue(matches);
-    vi.mocked(saveStayLocation).mockResolvedValue(undefined);
+    vi.mocked(saveStayLocation).mockImplementation(
+      async (_trip, _city, _visit, feature) =>
+        feature
+          ? {
+              ...feature,
+              properties: { ...feature.properties, hotelId: "hotel" },
+            }
+          : null,
+    );
     const { onSaved } = showDrawer();
     fireEvent.change(screen.getByRole("searchbox", { name: "Stay location" }), {
       target: { value: "Hotel Mets" },
@@ -137,7 +149,12 @@ test.each(["list", "map"])(
         "visit",
         expect.objectContaining({
           geometry: matches[0].geometry,
-          properties: { name: "Hotel Mets Shibuya", address: "Shibuya, Tokyo" },
+          properties: {
+            name: "Hotel Mets Shibuya",
+            address: "Shibuya, Tokyo",
+            checkInTime: "16:00:00",
+            checkOutTime: "11:00:00",
+          },
         }),
       ),
     );
@@ -201,4 +218,64 @@ test("a failed accommodation save preserves the confirmed hotel", async () => {
     screen.getByRole("img", { name: "Stay map preview" }),
   ).toHaveTextContent("Existing Hotel");
   expect(onSaved).not.toHaveBeenCalled();
+});
+
+test("Details defaults to 4 PM check-in and 11 AM check-out and saves both clocks with the same hotel", async () => {
+  vi.mocked(saveStayLocation).mockImplementation(
+    async (_trip, _city, _visit, feature) => feature,
+  );
+  const current = structuredClone(savedDestination);
+  current.properties.stays[0].stayLocation!.properties.hotelId =
+    "existing-hotel";
+  const { onSaved } = showDrawer(current);
+  fireEvent.click(screen.getByText("Details", { exact: true }));
+  const checkIn = screen.getByLabelText("Check-in");
+  const checkOut = screen.getByLabelText("Check-out");
+  expect(checkIn).toHaveValue("16:00");
+  expect(checkOut).toHaveValue("11:00");
+  fireEvent.change(checkIn, { target: { value: "15:30" } });
+  fireEvent.change(checkOut, { target: { value: "10:15" } });
+  expect(saveStayLocation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save times" }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+  expect(saveStayLocation).toHaveBeenCalledWith(
+    "trip",
+    "tokyo-jp",
+    "visit",
+    expect.objectContaining({
+      properties: {
+        name: "Existing Hotel",
+        hotelId: "existing-hotel",
+        checkInTime: "15:30:00",
+        checkOutTime: "10:15:00",
+      },
+    }),
+  );
+  expect(screen.getByRole("button", { name: "Save times" })).toBeDisabled();
+});
+
+test("a failed time save retains the draft and confirmed hotel and can be retried", async () => {
+  vi.mocked(saveStayLocation)
+    .mockRejectedValueOnce(new Error("Stay could not be saved"))
+    .mockImplementation(async (_trip, _city, _visit, feature) => feature);
+  showDrawer(savedDestination);
+  fireEvent.click(screen.getByText("Details", { exact: true }));
+  fireEvent.change(screen.getByLabelText("Check-in"), {
+    target: { value: "17:30" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save times" }));
+  const retry = await screen.findByRole("button", {
+    name: "Retry stay details",
+  });
+  expect(screen.getByLabelText("Check-in")).toHaveValue("17:30");
+  expect(
+    screen.getByRole("img", { name: "Stay map preview" }),
+  ).toHaveTextContent("Existing Hotel");
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Retry stay details" }),
+    ).toBeNull(),
+  );
+  expect(saveStayLocation).toHaveBeenCalledTimes(2);
 });

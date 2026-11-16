@@ -1,5 +1,147 @@
 import { test, expect } from "@playwright/test";
 import fixtures from "./fixtures.json" with { type: "json" };
+import { calendarActivities } from "../src/test/activityCalendarFixture";
+
+for (const width of [320, 390, 1280]) {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test.describe(`overview layout at ${width}px in ${colorScheme}`, () => {
+      test.use({
+        viewport: { width, height: 844 },
+        colorScheme,
+        serviceWorkers: "block",
+      });
+
+      test("aligns controls and flight cards and shares scrollable status colors", async ({
+        page,
+        request,
+      }, testInfo) => {
+        await request.post("/__test/session", {
+          data: { authenticated: true },
+        });
+        const prefix = `/trips/${fixtures.trip.id}`;
+        await page.route(`**${prefix}/document`, async (route) => {
+          const response = await route.fetch();
+          const document = await response.json();
+          calendarActivities.forEach((activity, index) => {
+            document.itinerary.items.push({
+              ...activity.properties,
+              state: ["Maybe", "Yes", "No"][index],
+              id: activity.id,
+              kind: "activity",
+              type: "task",
+              busy: false,
+              destinationId: fixtures.destination.id,
+              estimatedDuration: activity.properties.duration,
+            });
+          });
+          await route.fulfill({ json: document });
+        });
+        await page.goto(prefix);
+        const card = page.locator(".overview-destination").first();
+        const dates = card.getByRole("button", { name: /^Edit dates:/ });
+        const stay = card.getByRole("button", { name: /Choose stay/ });
+        await expect(dates).toBeVisible();
+        const datesBox = (await dates.boundingBox())!;
+        const stayBox = (await stay.boundingBox())!;
+        expect(datesBox.x).toBe(stayBox.x);
+        expect(datesBox.width).toBe(stayBox.width);
+        expect(datesBox.width).toBeGreaterThan(datesBox.height);
+        expect(stayBox.height).toBeGreaterThanOrEqual(44);
+        const cardBox = (await card.boundingBox())!;
+        const flights = page.locator(".overview-flight-spacer");
+        await expect(flights.first()).toHaveAttribute("data-selected", "true");
+        await expect(flights.last()).toHaveAttribute("data-selected", "false");
+        for (const flight of await flights.all()) {
+          const flightBox = (await flight.boundingBox())!;
+          expect(flightBox.x).toBe(cardBox.x);
+          expect(flightBox.width).toBe(cardBox.width);
+        }
+        await expect(flights.first()).toHaveCSS("border-top-style", "solid");
+        await expect(
+          flights.first().getByRole("img", { name: "Flight not selected" }),
+        ).toHaveCount(0);
+        await expect(flights.last()).toHaveCSS("border-top-style", "dashed");
+        await expect(
+          flights.last().getByRole("img", { name: "Flight not selected" }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole("button", { name: /^Plans for/ }),
+        ).toHaveCount(0);
+        await expect(page.locator(".trip-navigation")).toHaveCount(0);
+
+        const pills = card.locator(".overview-activity-tags");
+        await expect(pills.getByRole("link")).toHaveCount(3);
+        const layout = await pills.evaluate((element) => ({
+          tops: [...element.children].map(
+            (child) => child.getBoundingClientRect().top,
+          ),
+          overflows: element.scrollWidth > element.clientWidth,
+        }));
+        expect(new Set(layout.tops).size).toBe(1);
+        if (width < 600) {
+          expect(layout.overflows).toBe(true);
+          await pills.hover();
+          await page.mouse.wheel(600, 0);
+          await expect
+            .poll(() => pills.evaluate((element) => element.scrollLeft))
+            .toBeGreaterThan(0);
+        }
+        await page.mouse.move(0, 0);
+        await pills.evaluate((element) => {
+          element.scrollLeft = 0;
+        });
+        const colors = await pills.getByRole("link").evaluateAll((elements) =>
+          elements.map((element) => ({
+            foreground: getComputedStyle(element).color,
+            background: getComputedStyle(element).backgroundColor,
+            border: getComputedStyle(element).borderTopColor,
+          })),
+        );
+        const channels = colors.map(({ foreground }) =>
+          foreground.match(/\d+/g)!.map(Number),
+        );
+        expect(channels[0][2]).toBeGreaterThan(channels[0][0]);
+        expect(channels[1][1]).toBeGreaterThan(channels[1][0]);
+        expect(channels[1][1]).toBeGreaterThan(channels[1][2]);
+        expect(channels[2][0]).toBeGreaterThan(channels[2][1]);
+        expect(channels[2][0]).toBeGreaterThan(channels[2][2]);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        await page.screenshot({
+          path: testInfo.outputPath("overview-layout.png"),
+          fullPage: true,
+        });
+
+        await page.goto(`${prefix}/activities`);
+        const filters = page.getByRole("group", {
+          name: "Filter activities by status",
+        });
+        await expect(filters.getByRole("button")).toHaveCount(3);
+        for (const [index, filter] of (
+          await filters.getByRole("button").all()
+        ).entries()) {
+          await expect(filter).toHaveAttribute("aria-pressed", "true");
+          await expect(filter).toHaveCSS("color", colors[index].foreground);
+          await expect(filter).toHaveCSS(
+            "background-color",
+            colors[index].background,
+          );
+          await expect(filter).toHaveCSS(
+            "border-top-color",
+            colors[index].border,
+          );
+        }
+        await page.screenshot({
+          path: testInfo.outputPath("activity-status-colors.png"),
+          fullPage: true,
+        });
+      });
+    });
+  }
+}
 
 for (const width of [320, 390, 1280]) {
   test.describe(`trip overview at ${width}px`, () => {
@@ -15,6 +157,12 @@ for (const width of [320, 390, 1280]) {
           data: { authenticated: true },
         });
         const overviewPath = `/trips/${fixtures.trip.id}`;
+        await page.route(`**${overviewPath}/document`, async (route) => {
+          const response = await route.fetch();
+          const document = await response.json();
+          document.name = "Amsterdam Trip VERY LONG TRIP NAME LMAOOOOOOOOOOOOO";
+          await route.fulfill({ json: document });
+        });
         await page.goto(overviewPath);
         const share = page.getByRole("button", { name: "Share", exact: true });
         await expect(share).toBeVisible();
@@ -55,20 +203,26 @@ for (const width of [320, 390, 1280]) {
           await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText(
             name,
           );
-          if (width >= 1280) {
-            const title = (await page
-              .getByRole("heading", { level: 1 })
-              .boundingBox())!;
-            const navigation = (await breadcrumb.boundingBox())!;
-            expect(navigation.x).toBeGreaterThanOrEqual(title.x + title.width);
-            expect(
-              Math.abs(
-                navigation.y +
-                  navigation.height / 2 -
-                  title.y -
-                  title.height / 2,
-              ),
-            ).toBeLessThanOrEqual(1);
+          const title = (await page
+            .getByRole("heading", { level: 1 })
+            .boundingBox())!;
+          const dates = (await page
+            .locator(".trip-page-header .trip-date-summary")
+            .boundingBox())!;
+          const navigation = (await breadcrumb.boundingBox())!;
+          expect(dates.y).toBeGreaterThanOrEqual(title.y + title.height);
+          expect(navigation.y).toBeGreaterThanOrEqual(dates.y + dates.height);
+          if (section === "activities") {
+            const destination = page
+              .getByRole("tablist", { name: "Destinations", exact: true })
+              .getByRole("tab")
+              .first();
+            await expect(destination).toBeVisible();
+            const tab = (await destination.boundingBox())!;
+            const topbar = (await page.locator(".topbar").boundingBox())!;
+            const above = title.y - topbar.y - topbar.height;
+            const below = tab.y - navigation.y - navigation.height;
+            expect({ above, below }).toEqual({ above: 16, below: 16 });
           }
           expect(
             await page.evaluate(
@@ -123,7 +277,6 @@ for (const width of [320, 390, 1280]) {
         card.getByRole("button", { name: /^Delete destination:/ }),
         card.getByRole("button", { name: /^Edit dates:/ }),
         card.getByRole("button", { name: /Choose stay/ }),
-        card.getByRole("button", { name: /^Plans for/ }),
         card.getByRole("link", { name: /^Plan activities in/ }),
       ]) {
         const controlBackground = await control.evaluate(
@@ -156,10 +309,9 @@ for (const width of [320, 390, 1280]) {
           .toBe(background);
       }
 
-      const plans = card.getByRole("button", { name: /^Plans for/ });
-      await plans.click();
-      await expect(plans).toHaveAttribute("aria-expanded", "true");
-      await expect(page).toHaveURL(new RegExp(`${overviewPath}$`));
+      await expect(
+        card.getByRole("button", { name: /^Plans for/ }),
+      ).toHaveCount(0);
 
       const dates = card.getByRole("button", { name: /^Edit dates:/ });
       await dates.click();

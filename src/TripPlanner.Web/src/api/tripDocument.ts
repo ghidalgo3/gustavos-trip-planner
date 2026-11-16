@@ -186,6 +186,18 @@ export function validateTripDocument(
     }
     if (ids.has(text(item.id)))
       throw new Error("Duplicate trip calendar item.");
+    if (
+      item.kind === "lodging" &&
+      [item.checkInTime, item.checkOutTime].some(
+        (time) =>
+          time != null &&
+          (typeof time !== "string" ||
+            !/^(?:[01]\d|2[0-3]):[0-5]\d:00(?:\.0{1,7})?$/.test(time)),
+      )
+    )
+      throw new Error(
+        "Invalid stay times. Use ISO local times with whole-minute precision.",
+      );
     ids.add(text(item.id));
   }
   const fail = () => {
@@ -420,6 +432,8 @@ export function hydrateTripDocument(document: TripDocument): TripView {
                     name: stay.name,
                     address: stay.address ?? null,
                     hotelId: stay.hotelId ?? null,
+                    checkInTime: lodging?.checkInTime ?? "16:00:00",
+                    checkOutTime: lodging?.checkOutTime ?? "11:00:00",
                   },
                 }
               : null,

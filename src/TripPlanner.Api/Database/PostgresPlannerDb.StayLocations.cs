@@ -61,9 +61,10 @@ public sealed partial class PostgresPlannerDb
                 ), chosen AS (
                     SELECT id FROM created UNION ALL SELECT id FROM hotels WHERE id=$6 AND trip_id=$1 AND $7=true
                 )
-                INSERT INTO destination_stay_locations (trip_id,city_id,stay_id,hotel_id)
-                SELECT e.trip_id,e.city_id,e.stay_id,c.id FROM eligible e CROSS JOIN chosen c
-                ON CONFLICT(trip_id,city_id,stay_id) DO UPDATE SET hotel_id=EXCLUDED.hotel_id
+                INSERT INTO destination_stay_locations (trip_id,city_id,stay_id,hotel_id,check_in_time,check_out_time)
+                SELECT e.trip_id,e.city_id,e.stay_id,c.id,$8,$9 FROM eligible e CROSS JOIN chosen c
+                ON CONFLICT(trip_id,city_id,stay_id) DO UPDATE SET hotel_id=EXCLUDED.hotel_id,
+                    check_in_time=EXCLUDED.check_in_time,check_out_time=EXCLUDED.check_out_time
                 RETURNING true;
                 """
         );
@@ -79,6 +80,8 @@ public sealed partial class PostgresPlannerDb
             );
             command.Parameters.AddWithValue(feature.Properties.HotelId ?? Guid.NewGuid());
             command.Parameters.AddWithValue(feature.Properties.HotelId is not null);
+            command.Parameters.AddWithValue(NpgsqlDbType.Time, feature.Properties.CheckInTime);
+            command.Parameters.AddWithValue(NpgsqlDbType.Time, feature.Properties.CheckOutTime);
         }
 
         return await command.ExecuteScalarAsync(cancellationToken) is true;

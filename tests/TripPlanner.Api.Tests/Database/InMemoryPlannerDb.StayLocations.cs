@@ -79,7 +79,12 @@ public sealed partial class InMemoryPlannerDb
                 _hotels[hotel.Id] = hotel;
                 _stayLocations[(tripId, cityId, stayId)] = feature with
                 {
-                    Properties = new(hotel.Name, hotel.Address, hotel.Id),
+                    Properties = feature.Properties with
+                    {
+                        Name = hotel.Name,
+                        Address = hotel.Address,
+                        HotelId = hotel.Id,
+                    },
                 };
             }
 

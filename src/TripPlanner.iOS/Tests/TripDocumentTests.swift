@@ -41,6 +41,31 @@ struct TripDocumentTests {
         #expect(!portable.selectedFlights.isEmpty)
     }
 
+    @Test func stayTimeOverridesSurviveDocumentHydration() throws {
+        var value = try #require(JSONSerialization.jsonObject(with: fixture("after")) as? [String: Any])
+        var itinerary = try #require(value["itinerary"] as? [String: Any])
+        var items = try #require(itinerary["items"] as? [[String: Any]])
+        let index = try #require(items.firstIndex { $0["kind"] as? String == "lodging" })
+        items[index]["checkInTime"] = "18:30:00"
+        items[index]["checkOutTime"] = "10:15:00"
+        let visitID = try #require(items[index]["visitId"] as? String)
+        let visit = try #require(items.first { $0["id"] as? String == visitID })
+        let city = try #require(visit["destinationId"] as? String)
+        itinerary["items"] = items
+        value["itinerary"] = itinerary
+        let document = try JSONDecoder().decode(TripDocumentDestinations.self, from: JSONSerialization.data(withJSONObject: value))
+        let tripID = try #require(value["id"] as? String)
+        let destination = try #require(document.resources?["/trips/\(tripID)/destinations/\(city)"]?.data)
+        let body = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(destination)) as? [String: Any])
+        let properties = try #require(body["properties"] as? [String: Any])
+        let stays = try #require(properties["stays"] as? [[String: Any]])
+        let stay = try #require(stays.first { $0["id"] as? String == visitID })
+        let location = try #require(stay["stayLocation"] as? [String: Any])
+        let clocks = try #require(location["properties"] as? [String: Any])
+        #expect(clocks["checkInTime"] as? String == "18:30:00")
+        #expect(clocks["checkOutTime"] as? String == "10:15:00")
+    }
+
 }
 
 @MainActor

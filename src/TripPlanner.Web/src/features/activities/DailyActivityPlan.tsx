@@ -11,6 +11,7 @@ import { Dismiss24Regular } from "@fluentui/react-icons";
 import {
   useExplicitResourceRefresh,
   useTripDocumentState,
+  useTripResourceVersion,
 } from "../../api/tripDocumentStore";
 import { mapsClient } from "../../maps/mapsClient";
 import {
@@ -33,8 +34,10 @@ import {
   calendarClock,
   calendarDateLabel,
   calendarDayKey,
+  calendarDays,
   calendarEntries,
   clockMinutes,
+  withCalendarDay,
   type CalendarEntry,
   type CalendarTiming,
 } from "./activityCalendarModel";
@@ -120,7 +123,9 @@ export default function DailyActivityPlan({
   onPlanChange?: () => void;
 }) {
   const path = activityPlanPath(tripId, destinationId);
-  const offline = useTripDocumentState().offline || navigator.onLine === false;
+  const resourceVersion = useTripResourceVersion(path);
+  const documentState = useTripDocumentState();
+  const offline = documentState.offline || navigator.onLine === false;
   const readOnly = providedReadOnly || offline;
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [dayKey, setDayKey] = useState("");
@@ -139,14 +144,38 @@ export default function DailyActivityPlan({
   const routeRequest = useRef<AbortController | undefined>(undefined);
   const savedRequest = useRef<AbortController | undefined>(undefined);
   const plan = resource?.data.plan;
+  const visits =
+    resource?.data.context.visits ??
+    destination?.properties.stays.map((stay) => ({
+      stayId: stay.id,
+      arrivalDate: stay.arrivalDate,
+      departureDate: stay.departureDate,
+    })) ??
+    [];
+  const days = plan ? calendarDays(plan, visits) : [];
   const day =
-    plan?.days.find((item) => calendarDayKey(item) === dayKey) ?? plan?.days[0];
+    days.find((item) => calendarDayKey(item) === dayKey) ??
+    days.find((item) =>
+      visits.some(
+        (visit) =>
+          visit.stayId === item.stayId &&
+          item.date === (visit.arrivalDate ?? visit.departureDate),
+      ),
+    ) ??
+    days[0];
   const invalidateRoute = useEffectEvent(() => onPlanChange?.());
   useEffect(() => {
     invalidateRoute();
   }, [resource?.etag]);
   useEffect(() => {
     active.current = true;
+    return () => {
+      active.current = false;
+      routeRequest.current?.abort();
+      savedRequest.current?.abort();
+    };
+  }, [path]);
+  useEffect(() => {
     const abort = new AbortController();
     void planningRequest<PlanResponse>(path, { signal: abort.signal }).then(
       (value) => {
@@ -157,12 +186,9 @@ export default function DailyActivityPlan({
       },
     );
     return () => {
-      active.current = false;
       abort.abort();
-      routeRequest.current?.abort();
-      savedRequest.current?.abort();
     };
-  }, [path]);
+  }, [path, resourceVersion]);
   useEffect(() => {
     if (readOnly) {
       routeRequest.current?.abort();
@@ -239,13 +265,13 @@ export default function DailyActivityPlan({
     targetKey = day && calendarDayKey(day),
   ) {
     if (!plan || !day || readOnly || operation.current) return;
-    const target = plan.days.find((item) => calendarDayKey(item) === targetKey);
+    const target = days.find((item) => calendarDayKey(item) === targetKey);
     if (!target) return;
     setTimingError(undefined);
     setError("");
     try {
       const next = applyEventTiming(
-        plan,
+        withCalendarDay(plan, target),
         timing.activityId,
         target,
         calendarClock(timing.start),
@@ -386,12 +412,12 @@ export default function DailyActivityPlan({
     if (!plan || !editor || readOnly || calculating) return;
     try {
       if (editor.kind === "event") {
-        const target = plan.days.find(
+        const target = days.find(
           (item) => calendarDayKey(item) === editor.dayKey,
         );
         if (!target) throw new Error("Choose a day in this visit.");
         const next = applyEventTiming(
-          plan,
+          withCalendarDay(plan, target),
           editor.id,
           target,
           editor.start,
@@ -482,7 +508,13 @@ export default function DailyActivityPlan({
         </p>
       )}
       <ActivityCalendar
-        plan={plan}
+        tripId={tripId}
+        itinerary={
+          documentState.tripId === tripId
+            ? documentState.document?.document.itinerary
+            : undefined
+        }
+        plan={{ ...plan, days }}
         day={day}
         activities={activities}
         assessment={resource.data.assessment}
@@ -556,7 +588,7 @@ export default function DailyActivityPlan({
                     updateEvent({ dayKey: event.target.value })
                   }
                 >
-                  {plan.days.map((item) => (
+                  {days.map((item) => (
                     <option
                       key={calendarDayKey(item)}
                       value={calendarDayKey(item)}
@@ -691,7 +723,7 @@ export default function DailyActivityPlan({
                   await persist(
                     {
                       ...plan,
-                      days: plan.days.map((item) =>
+                      days: withCalendarDay(plan, value).days.map((item) =>
                         calendarDayKey(item) === calendarDayKey(value)
                           ? { ...item, name }
                           : item,
@@ -708,11 +740,55 @@ export default function DailyActivityPlan({
             </>
           )}
           {editor?.kind === "info" && (
-            <p>
-              {calendarClock(editor.entry.start)}–
-              {calendarClock(editor.entry.end)}
-              {editor.entry.detail && ` · ${editor.entry.detail}`}
-            </p>
+            <>
+              <p>
+                {calendarClock(editor.entry.start)}
+                {editor.entry.end !== editor.entry.start &&
+                  `–${calendarClock(editor.entry.end)}`}
+                {editor.entry.detail && ` · ${editor.entry.detail}`}
+              </p>
+              {editor.entry.transportation && (
+                <div className="calendar-transportation-details">
+                  {editor.entry.transportation.mode && (
+                    <p>{editor.entry.transportation.mode}</p>
+                  )}
+                  {editor.entry.transportation.notes && (
+                    <p>{editor.entry.transportation.notes}</p>
+                  )}
+                  <ol>
+                    {editor.entry.transportation.features
+                      .filter(
+                        (feature) =>
+                          feature.id === "from" ||
+                          feature.id === "to" ||
+                          feature.properties.instructions,
+                      )
+                      .sort((a, b) =>
+                        a.id === "from" || b.id === "to"
+                          ? -1
+                          : b.id === "from" || a.id === "to"
+                            ? 1
+                            : (a.properties.sequence ?? 0) -
+                              (b.properties.sequence ?? 0),
+                      )
+                      .map((feature) => (
+                        <li key={feature.id}>
+                          {[
+                            feature.properties.name,
+                            feature.properties.line,
+                            feature.properties.instructions,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </li>
+                      ))}
+                  </ol>
+                  {editor.entry.transportation.routeStale && (
+                    <p role="status">Route needs review</p>
+                  )}
+                </div>
+              )}
+            </>
           )}
           {editorError && (
             <div role="alert" className="calendar-editor-error">

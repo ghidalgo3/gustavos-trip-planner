@@ -27,7 +27,12 @@ public sealed partial class InMemoryPlannerDb
             ? feature with
             {
                 Geometry = h.Geometry,
-                Properties = new(h.Name, h.Address, h.Id),
+                Properties = feature.Properties with
+                {
+                    Name = h.Name,
+                    Address = h.Address,
+                    HotelId = h.Id,
+                },
             }
             : feature;
 

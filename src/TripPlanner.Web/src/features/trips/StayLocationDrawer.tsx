@@ -5,6 +5,7 @@ import {
   DrawerHeader,
   DrawerHeaderTitle,
   Field,
+  Input,
   OverlayDrawer,
   SearchBox,
   Text,
@@ -49,9 +50,18 @@ export default function StayLocationDrawer({
   const [savedStay, setSavedStay] = useState<StayLocation | null>(
     existing ?? null,
   );
+  const [checkInTime, setCheckInTime] = useState(
+    (existing?.properties.checkInTime ?? "16:00:00").slice(0, 5),
+  );
+  const [checkOutTime, setCheckOutTime] = useState(
+    (existing?.properties.checkOutTime ?? "11:00:00").slice(0, 5),
+  );
+  const [detailsError, setDetailsError] = useState("");
+  const saving = useRef(false);
   const [failedSelection, setFailedSelection] = useState<{
     location: StayLocation | null;
     index: string;
+    details?: boolean;
   }>();
   const [results, setResults] = useState<StayPlaceResult[]>([]);
   const places = useMemo(
@@ -115,24 +125,52 @@ export default function StayLocationDrawer({
         type: "Feature",
         id: "stay",
         geometry: match.geometry,
-        properties: { name: match.name.slice(0, 200), address: match.address },
+        properties: {
+          name: match.name.slice(0, 200),
+          address: match.address,
+          checkInTime: savedStay?.properties.checkInTime ?? "16:00:00",
+          checkOutTime: savedStay?.properties.checkOutTime ?? "11:00:00",
+        },
       },
       String(index),
     );
   }
 
-  async function save(location: StayLocation | null, index = "") {
-    if (busy || researching) return;
+  async function save(
+    location: StayLocation | null,
+    index = "",
+    details = false,
+  ) {
+    if (saving.current || researching) return;
+    saving.current = true;
     setBusy(true);
     setFailedSelection(undefined);
+    setDetailsError("");
     try {
-      await saveStayLocation(tripId, destination.id, visit.id, location);
-      setSavedStay(location);
-      setSelectedStay(location);
+      const canonical = await saveStayLocation(
+        tripId,
+        destination.id,
+        visit.id,
+        location,
+      );
+      setSavedStay(canonical);
+      setSelectedStay(canonical);
       setSelectedIndex(index);
-      await onSaved();
+      if (!canonical) {
+        setCheckInTime("16:00");
+        setCheckOutTime("11:00");
+      }
+      if (details && canonical) {
+        setCheckInTime(canonical.properties.checkInTime.slice(0, 5));
+        setCheckOutTime(canonical.properties.checkOutTime.slice(0, 5));
+      }
+      try {
+        await onSaved();
+      } catch {
+        notify("Stay saved. Could not refresh the trip.", "error");
+      }
     } catch (reason) {
-      setFailedSelection({ location, index });
+      setFailedSelection({ location, index, details });
       notify(
         reason instanceof Error
           ? reason.message
@@ -140,9 +178,40 @@ export default function StayLocationDrawer({
         "error",
       );
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
+
+  function saveDetails() {
+    if (!savedStay) return;
+    if (
+      ![checkInTime, checkOutTime].every((time) =>
+        /^([01]\d|2[0-3]):[0-5]\d$/.test(time),
+      )
+    ) {
+      setDetailsError("Choose valid check-in and check-out times.");
+      return;
+    }
+    void save(
+      {
+        ...savedStay,
+        properties: {
+          ...savedStay.properties,
+          checkInTime: `${checkInTime}:00`,
+          checkOutTime: `${checkOutTime}:00`,
+        },
+      },
+      selectedIndex,
+      true,
+    );
+  }
+
+  const timesChanged =
+    checkInTime !==
+      (savedStay?.properties.checkInTime ?? "16:00:00").slice(0, 5) ||
+    checkOutTime !==
+      (savedStay?.properties.checkOutTime ?? "11:00:00").slice(0, 5);
 
   return (
     <>
@@ -268,6 +337,36 @@ export default function StayLocationDrawer({
               }
             />
           </section>
+          {savedStay && (
+            <details className="stay-details">
+              <summary>Details</summary>
+              <fieldset disabled={busy || researching}>
+                <legend className="visually-hidden">Stay times</legend>
+                <Field label="Check-in">
+                  <Input
+                    type="time"
+                    value={checkInTime}
+                    onChange={(_, data) => setCheckInTime(data.value)}
+                  />
+                </Field>
+                <Field label="Check-out">
+                  <Input
+                    type="time"
+                    value={checkOutTime}
+                    onChange={(_, data) => setCheckOutTime(data.value)}
+                  />
+                </Field>
+                {detailsError && <Text role="alert">{detailsError}</Text>}
+                <Button
+                  appearance={timesChanged ? "primary" : "secondary"}
+                  disabled={!timesChanged}
+                  onClick={saveDetails}
+                >
+                  Save times
+                </Button>
+              </fieldset>
+            </details>
+          )}
         </DrawerBody>
         <DrawerFooter className="activity-drawer-footer">
           {savedStay && (
@@ -286,10 +385,14 @@ export default function StayLocationDrawer({
             <Button
               disabled={busy}
               onClick={() =>
-                void save(failedSelection.location, failedSelection.index)
+                failedSelection.details
+                  ? saveDetails()
+                  : void save(failedSelection.location, failedSelection.index)
               }
             >
-              Retry stay selection
+              {failedSelection.details
+                ? "Retry stay details"
+                : "Retry stay selection"}
             </Button>
           )}
         </DrawerFooter>

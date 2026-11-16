@@ -7,6 +7,7 @@ import {
   type PlanDay,
 } from "./activityPlanApi";
 import type { ActivityRouteStep } from "./activityRouteApi";
+import type { Transportation } from "../trips/transportationApi";
 import {
   durationFromMinutes,
   durationMinutes,
@@ -15,6 +16,56 @@ import { localClockInstant } from "../../shared/time/timeZones";
 
 export const calendarDayKey = (day: Pick<PlanDay, "stayId" | "date">) =>
   `${day.stayId}:${day.date}`;
+
+export type CalendarVisit = {
+  stayId: string;
+  arrivalDate: string | null;
+  departureDate: string | null;
+};
+
+// Visit dates can change independently of a saved activity plan. Keep both visible
+// without moving or rewriting activities on the old dates.
+export function calendarDays(
+  plan: ActivityPlan,
+  visits: CalendarVisit[],
+): PlanDay[] {
+  const days = new Map(plan.days.map((day) => [calendarDayKey(day), day]));
+  for (const visit of visits) {
+    const start = visit.arrivalDate ?? visit.departureDate;
+    const end = visit.departureDate ?? visit.arrivalDate;
+    if (!start || !end) continue;
+    for (let date = start, count = 0; date <= end && count < 366; count++) {
+      const day: PlanDay = {
+        stayId: visit.stayId,
+        date,
+        activityIds: [],
+        settings: null,
+        availableFrom: null,
+        availableUntil: null,
+        availabilityConfirmed: false,
+      };
+      if (!days.has(calendarDayKey(day))) days.set(calendarDayKey(day), day);
+      date = new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+    }
+  }
+  return [...days.values()].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.stayId.localeCompare(b.stayId),
+  );
+}
+
+export function withCalendarDay(
+  plan: ActivityPlan,
+  day: PlanDay,
+): ActivityPlan {
+  return plan.days.some((item) => calendarDayKey(item) === calendarDayKey(day))
+    ? plan
+    : {
+        ...plan,
+        days: [...plan.days, day].sort((a, b) => a.date.localeCompare(b.date)),
+      };
+}
 export const calendarDateLabel = (date: string) =>
   new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
     weekday: "long",
@@ -37,13 +88,15 @@ export function localMinutes(value: string, date: string) {
 
 export type CalendarEntry = {
   id: string;
-  kind: "activity" | "travel" | "break" | "flight";
+  kind:
+    "activity" | "travel" | "break" | "flight" | "transportation" | "lodging";
   title: string;
   start: number;
   end: number;
   detail?: string;
   activityId?: string;
   travel?: ActivityRouteStep;
+  transportation?: Transportation;
   estimated?: boolean;
 };
 
@@ -84,6 +137,27 @@ export function calendarEntries(
     (item) => calendarDayKey(item) === calendarDayKey(day),
   );
   const entries: CalendarEntry[] = [];
+  const stay = destination?.properties.stays.find(
+    (stay) => stay.id === day.stayId,
+  );
+  if (stay?.stayLocation) {
+    const properties = stay.stayLocation.properties;
+    const appointments: [string, string | null, string][] = [
+      ["Check-in", stay.arrivalDate, properties.checkInTime ?? "16:00:00"],
+      ["Check-out", stay.departureDate, properties.checkOutTime ?? "11:00:00"],
+    ];
+    for (const [action, date, time] of appointments) {
+      if (date !== day.date) continue;
+      const minute = clockMinutes(time);
+      entries.push({
+        id: `stay:${stay.id}:${action}`,
+        kind: "lodging",
+        title: `${action} · ${properties.name}`,
+        start: minute,
+        end: minute,
+      });
+    }
+  }
   const title = (id: string | null) =>
     id === null
       ? "Stay"

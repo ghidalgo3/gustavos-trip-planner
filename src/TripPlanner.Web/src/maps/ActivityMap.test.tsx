@@ -308,7 +308,11 @@ test("map bubbles match list positions even when an activity has no location", a
         type: "Feature",
         id: "stay",
         geometry: { type: "Point", coordinates: [2.34, 48.85] },
-        properties: { name: "Paris Hotel" },
+        properties: {
+          name: "Paris Hotel",
+          checkInTime: "16:00:00",
+          checkOutTime: "11:00:00",
+        },
       }}
       onSelect={onSelect}
     />,
@@ -372,7 +376,11 @@ test("place search replaces activity and stay bubbles with numbered selectable r
         type: "Point" as const,
         coordinates: [2.34, 48.85] as [number, number],
       },
-      properties: { name: "Hotel" },
+      properties: {
+        name: "Hotel",
+        checkInTime: "16:00:00",
+        checkOutTime: "11:00:00",
+      },
     },
     onSelect: vi.fn(),
   };
@@ -578,7 +586,11 @@ test("stay preview animates to street level without recreating its map", async (
       type: "Point" as const,
       coordinates: [139.7, 35.7] as [number, number],
     },
-    properties: { name: "Tokyo Hotel" },
+    properties: {
+      name: "Tokyo Hotel",
+      checkInTime: "16:00:00",
+      checkOutTime: "11:00:00",
+    },
   };
   rerender(
     <ActivityMap
@@ -620,13 +632,21 @@ test("repeat visits render separate accommodation pins and preserve their select
           type: "Feature",
           id: "first",
           geometry: { type: "Point", coordinates: [2.34, 48.85] },
-          properties: { name: "First hotel" },
+          properties: {
+            name: "First hotel",
+            checkInTime: "16:00:00",
+            checkOutTime: "11:00:00",
+          },
         },
         {
           type: "Feature",
           id: "second",
           geometry: { type: "Point", coordinates: [2.4, 48.9] },
-          properties: { name: "Second hotel" },
+          properties: {
+            name: "Second hotel",
+            checkInTime: "16:00:00",
+            checkOutTime: "11:00:00",
+          },
         },
       ]}
     />,

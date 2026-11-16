@@ -159,6 +159,7 @@ public static class McpInstructions
             """;
 
         public const string ReplaceVisitStayLocation = """
+            Include properties.checkInTime and checkOutTime as ISO local times (HH:mm:ss), defaulting to 16:00:00 and 11:00:00. Overrides belong to this visit, even when another visit uses the same hotel.
             Save the complete accommodation Point Feature for exactly one visit after the user chooses a location.
             Use stayId from list_destinations properties.stays[].id.
             Does not affect other visits, dates or activity selection.
@@ -235,6 +236,7 @@ public static class McpInstructions
 
         public const string UpdateVisit = """
             Replace a destination visit's complete arrival/departure date range.
+            Changing either date unschedules that visit's activities and clears its date/time anchors and day-specific travel overrides. Activity decisions and other visits remain unchanged.
             Visits may share an arrival/departure day but cannot overlap inside another visit, including repeat visits.
             Get destination and stay IDs from list_destinations.
             """;

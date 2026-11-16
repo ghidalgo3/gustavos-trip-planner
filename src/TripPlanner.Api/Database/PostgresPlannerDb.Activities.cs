@@ -355,6 +355,40 @@ public sealed partial class PostgresPlannerDb
         {
             return null;
         }
+        bool datesChanged;
+        DateOnly? previousArrival;
+        DateOnly? previousDeparture;
+        DestinationVisit original;
+        await using (
+            var previous = new NpgsqlCommand(
+                "SELECT arrival_date,departure_date,visit_order FROM destination_stays WHERE trip_id=$1 AND city_id=$2 AND stay_id=$3;",
+                connection,
+                transaction
+            )
+        )
+        {
+            previous.Parameters.AddWithValue(tripId);
+            previous.Parameters.AddWithValue(cityId);
+            previous.Parameters.AddWithValue(stayId);
+            await using var current = await previous.ExecuteReaderAsync(cancellationToken);
+            await current.ReadAsync(cancellationToken);
+            previousArrival = current.IsDBNull(0) ? null : current.GetFieldValue<DateOnly>(0);
+            previousDeparture = current.IsDBNull(1) ? null : current.GetFieldValue<DateOnly>(1);
+            datesChanged =
+                previousArrival != input.ArrivalDate || previousDeparture != input.DepartureDate;
+            original = new(
+                tripId,
+                cityId,
+                stayId,
+                current.GetInt32(2),
+                previousArrival,
+                previousDeparture
+            );
+        }
+        if (!datesChanged)
+        {
+            return original;
+        }
         await using var command = new NpgsqlCommand(
             """
             WITH owner AS (UPDATE trips SET updated_at=updated_at WHERE id=$1 AND can_plan_trip(id, $2) RETURNING id),
@@ -393,6 +427,15 @@ public sealed partial class PostgresPlannerDb
             )
             : null;
         await reader.CloseAsync();
+        if (saved is not null && datesChanged)
+        {
+            await InvalidateVisitActivityPlanAsync(
+                connection,
+                transaction,
+                original,
+                cancellationToken
+            );
+        }
         if (transaction is not null)
         {
             await transaction.CommitAsync(cancellationToken);

@@ -125,7 +125,6 @@ export default function TripPlanningPage({
         <div className="trip-page-heading">
           <div className="trip-page-heading-main">
             <Title1 as="h1">{trip.name}</Title1>
-            <TripBreadcrumbs trip={trip} section={activeSection} />
           </div>
           {activeSection === "overview" && (
             <Button
@@ -148,6 +147,7 @@ export default function TripPlanningPage({
             <Text size={200}>Shared with you · View only</Text>
           )}
         </div>
+        <TripBreadcrumbs trip={trip} section={activeSection} />
       </header>
       <div className="trip-page-body">
         <div className="planning-page trip-page-content">

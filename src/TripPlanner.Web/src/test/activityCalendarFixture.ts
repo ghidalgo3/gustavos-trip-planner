@@ -129,6 +129,11 @@ export const calendarResponse: PlanResponse = {
   savedAssessment: calendarAssessment,
   assessment: calendarAssessment,
   context: {
+    visits: calendarPlan.days.map((day) => ({
+      stayId: day.stayId,
+      arrivalDate: day.date,
+      departureDate: day.date,
+    })),
     destinationName: "Paris",
     tripInstructions: "",
     destinationInstructions: "",

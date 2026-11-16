@@ -208,7 +208,15 @@ for (const width of [320, 390, 1280]) {
           `**${prefix}/destinations/*/stays/*/location`,
           async (route) => {
             saves.push(route.request().postDataJSON());
-            await route.fulfill({ status: 204 });
+            await route.fulfill({
+              json: {
+                ...route.request().postDataJSON(),
+                properties: {
+                  ...route.request().postDataJSON().properties,
+                  hotelId: "11111111-1111-4111-8111-111111111111",
+                },
+              },
+            });
           },
         );
         await pin.click();
