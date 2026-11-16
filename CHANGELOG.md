@@ -11,6 +11,14 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Fixed
+
+- Station search results align to the start of their buttons, and search clear
+  icons stay vertically centered within their tap targets.
+- Train-station searches use passenger-rail categories near the destination
+  instead of generic place searches, excluding petrol stations and airports.
+  Searches preserve the provider's station names and relevance order.
+
 ## 2026.11.16.1
 
 ### Added

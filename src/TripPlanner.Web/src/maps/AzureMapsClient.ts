@@ -25,6 +25,16 @@ type MapsFeature = {
 
 type MapsFeatureCollection = { features?: MapsFeature[] };
 
+// Azure's category filter does not expand the parent into passenger-rail
+// subcategories. Include international, national, suburban, and metro stations.
+const railwayCategories = new Set([7380, 7380002, 7380003, 7380004, 7380005]);
+function stationName(query: string): string {
+  return query
+    .replace(/\b(?:train|railway|railroad|stations?)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const usStates: Record<string, string> = {
   alabama: "AL",
   alaska: "AK",
@@ -278,16 +288,22 @@ export function createAzureMapsClient(): MapsClient {
     signal?: AbortSignal,
     center?: [number, number],
     countryCode?: string,
-    options: { typeahead?: boolean } = {},
+    options: { typeahead?: boolean; category?: "railwayStation" } = {},
   ): Promise<PlaceSuggestion[]> {
+    const railway = options.category === "railwayStation";
     const parameters = new URLSearchParams({
       "api-version": "1.0",
-      query,
-      limit: "6",
-      // Search venues and addresses without returning city/region centroids.
-      idxSet: "POI,PAD,Addr",
-      maxFuzzyLevel: "2",
+      query: railway ? stationName(query) || query.trim() : query,
+      limit: railway ? "10" : "6",
     });
+    if (railway) {
+      parameters.set("categorySet", [...railwayCategories].join(","));
+      parameters.set("language", "en-US");
+    } else {
+      // Search venues and addresses without returning city/region centroids.
+      parameters.set("idxSet", "POI,PAD,Addr");
+      parameters.set("maxFuzzyLevel", "2");
+    }
     if (options.typeahead) parameters.set("typeahead", "true");
     if (center) {
       parameters.set("lon", String(center[0]));
@@ -298,15 +314,33 @@ export function createAzureMapsClient(): MapsClient {
     const result = await mapsRequest<{
       results?: {
         id?: string;
-        poi?: { name?: string };
+        poi?: {
+          name?: string;
+          categorySet?: { id?: number }[];
+          classifications?: { code?: string }[];
+        };
         address?: { freeformAddress?: string; countryCode?: string };
         position?: { lon?: number; lat?: number };
       }[];
-    }>("search/fuzzy/json", parameters, signal);
+    }>(railway ? "search/poi/json" : "search/fuzzy/json", parameters, signal);
     return (result.results ?? []).flatMap((place, index) => {
       const longitude = place.position?.lon;
       const latitude = place.position?.lat;
       const name = place.poi?.name;
+      if (
+        railway &&
+        (!name ||
+          !(
+            place.poi?.categorySet?.some(
+              (category) =>
+                category.id !== undefined && railwayCategories.has(category.id),
+            ) ||
+            place.poi?.classifications?.some(
+              (category) => category.code === "RAILWAY_STATION",
+            )
+          ))
+      )
+        return [];
       if (
         longitude === undefined ||
         latitude === undefined ||

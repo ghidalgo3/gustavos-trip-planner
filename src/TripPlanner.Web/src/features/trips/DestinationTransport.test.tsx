@@ -335,6 +335,13 @@ test.each(["list", "map"])(
     const result = await screen.findByRole("button", {
       name: /^1\. Paris Gare de Lyon/,
     });
+    expect(mapsClient.searchPlaces).toHaveBeenCalledWith(
+      "Gare de Lyon",
+      expect.any(AbortSignal),
+      stop.destination!.geometry.coordinates,
+      "FR",
+      { category: "railwayStation" },
+    );
     expect(result).toHaveClass("place-search-result-button");
     const pin = screen.getByRole("button", {
       name: "Map result 1. Paris Gare de Lyon",

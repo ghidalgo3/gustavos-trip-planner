@@ -1357,12 +1357,13 @@ main {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.place-search-result-row > .place-search-result-button {
+.fui-Button.place-search-result-button {
   width: 100%;
   min-height: 44px;
   justify-content: flex-start;
   align-items: flex-start;
   gap: 8px;
+  text-align: start;
 }
 .place-search-result-button[aria-pressed="true"] {
   border-color: var(--colorBrandStroke1);

@@ -5,7 +5,10 @@ including the legs from and to home. Tap a transportation card on the web overvi
 to open a map drawer with Flight, Train, Car, and Walking choices. Flight embeds the
 existing flight planner; hovering or focusing a flight previews great-circle arcs
 through its layovers and marks the airports. Car and Walking draw and save Azure Maps routes and duration
-estimates. Train searches show matching numbered list results and map pins.
+estimates. Train searches filter Azure Maps to passenger-rail station categories,
+including suburban and metro stations, near the destination. Results retain the
+provider's names and relevance order. Matching numbered list results and map pins
+share the same selection.
 Select both stations and save departure and arrival times
 together. Times use explicit time zones and are stored as offset timestamps.
 Transportation retains optional GeoJSON route geometry, sequenced steps, and

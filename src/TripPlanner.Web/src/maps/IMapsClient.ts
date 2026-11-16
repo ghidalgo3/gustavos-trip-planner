@@ -68,7 +68,7 @@ export interface MapsClient {
     signal?: AbortSignal,
     center?: [number, number],
     countryCode?: string,
-    options?: { typeahead?: boolean },
+    options?: { typeahead?: boolean; category?: "railwayStation" },
   ): Promise<PlaceSuggestion[]>;
   loadControl(): Promise<MapControl>;
 }

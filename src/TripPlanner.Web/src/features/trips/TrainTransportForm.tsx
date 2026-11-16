@@ -6,7 +6,7 @@ import {
   SearchBox,
   Text,
 } from "@fluentui/react-components";
-import { searchStayPlaces } from "../activities/activitiesApi";
+import type { StayPlaceResult } from "../activities/activitiesApi";
 import { mapsClient } from "../../maps/mapsClient";
 import PlaceSearchResultButton from "../../shared/components/PlaceSearchResultButton";
 import SearchResultsSkeleton from "../../shared/components/SearchResultsSkeleton";
@@ -190,17 +190,12 @@ function StationPicker({
 }) {
   const [query, setQuery] = useState(value?.properties.name ?? "");
   const [searched, setSearched] = useState(false);
-  const [results, setResults] = useState<
-    Awaited<ReturnType<typeof searchStayPlaces>>
-  >([]);
+  const [results, setResults] = useState<StayPlaceResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
-  function selectResult(
-    matches: Awaited<ReturnType<typeof searchStayPlaces>>,
-    index: number,
-  ) {
+  function selectResult(matches: StayPlaceResult[], index: number) {
     const place = matches[index];
     if (!place?.geometry || disabled) return;
     onSelect({
@@ -212,7 +207,7 @@ function StationPicker({
     setSearched(false);
     onMapSearch(undefined);
   }
-  function publish(matches: Awaited<ReturnType<typeof searchStayPlaces>>) {
+  function publish(matches: StayPlaceResult[]) {
     onMapSearch({
       id,
       results: matches.map((place, index) => ({
@@ -228,46 +223,55 @@ function StationPicker({
   }
   async function search() {
     controller.current?.abort();
-    controller.current = new AbortController();
+    const request = new AbortController();
+    controller.current = request;
     setBusy(true);
     setError("");
     setResults([]);
     setSearched(false);
     publish([]);
     try {
-      const matches = stop.destination
-        ? await searchStayPlaces(
-            stop.destination,
-            `${query} train station`,
-            controller.current.signal,
-          )
-        : (
-            await mapsClient.searchPlaces(
-              `${query} train station ${stop.city ?? ""}`,
-              controller.current.signal,
-            )
-          ).map((place) => ({
-            name: place.name ?? place.label,
-            address: place.address ?? place.label,
-            geometry:
-              place.longitude != null && place.latitude != null
-                ? {
-                    type: "Point" as const,
-                    coordinates: [place.longitude, place.latitude] as [
-                      number,
-                      number,
-                    ],
-                  }
-                : null,
-          }));
-      if (controller.current.signal.aborted) return;
+      let center = stop.destination?.geometry.coordinates;
+      let countryCode = stop.destination?.properties.countryCode;
+      if (!center && stop.city) {
+        const city = (
+          await mapsClient.searchCities(stop.city, request.signal)
+        )[0];
+        if (!city) throw new Error(`Could not locate ${stop.city}.`);
+        const location = await mapsClient.geocodeCity(city, request.signal);
+        center = [location.longitude, location.latitude];
+        countryCode = city.countryCode;
+      }
+      const matches = (
+        await mapsClient.searchPlaces(
+          query.trim(),
+          request.signal,
+          center,
+          countryCode,
+          { category: "railwayStation" },
+        )
+      ).map((place) => ({
+        name: place.name ?? place.label,
+        address: place.address ?? place.label,
+        geometry:
+          place.longitude != null && place.latitude != null
+            ? {
+                type: "Point" as const,
+                coordinates: [place.longitude, place.latitude] as [
+                  number,
+                  number,
+                ],
+              }
+            : null,
+      }));
+      if (request.signal.aborted) return;
       setResults(matches);
       publish(matches);
       setSearched(true);
     } catch (e) {
-      if (!controller.current.signal.aborted) setError((e as Error).message);
+      if (!request.signal.aborted) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (!request.signal.aborted) setBusy(false);
     }
   }
   return (
