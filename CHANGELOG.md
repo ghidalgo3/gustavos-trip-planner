@@ -11,6 +11,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+## 2026.11.17.1
+
 ### Changed
 
 - MCP activity saves require structured location verification with precision
