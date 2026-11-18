@@ -142,7 +142,41 @@ public sealed record ActivityProperties(
     public ActivityResearchEvidence? CostEvidence { get; init; }
 
     public ActivityLocationSuggestion? LocationSuggestion { get; init; }
+
+    [Description(McpInstructions.Fields.LocationVerification)]
+    public ActivityLocationVerification? LocationVerification { get; init; }
 }
+
+[JsonConverter(typeof(StringEnumConverter<ActivityLocationPrecision>))]
+public enum ActivityLocationPrecision
+{
+    VerifiedEntrance,
+    VerifiedVenue,
+    RepresentativeArea,
+    Unresolved,
+    Nonphysical,
+}
+
+public sealed record ActivityLocationVerification(
+    [property: JsonRequired, EnumDataType(typeof(ActivityLocationPrecision))]
+        ActivityLocationPrecision Precision,
+    [property: StringLength(2000), Description(McpInstructions.Fields.LocationVerificationMethod)]
+        string? Method,
+    [property:
+        StringLength(2000),
+        Description(
+            "Remaining uncertainty, or the specific reason an Unresolved entry lacks a reliable location."
+        )
+    ]
+        string? Uncertainty,
+    [property:
+        Required,
+        MaxLength(20),
+        UniqueItems,
+        Description(McpInstructions.Fields.LocationVerificationSources)
+    ]
+        IReadOnlyList<string> SourceUrls
+);
 
 public sealed record ActivityResearchEvidence(
     [property: Required, StringLength(2000)] string Notes,

@@ -277,13 +277,18 @@ public sealed class TravelAgentMcpTests
                 "Preserve every unrelated field, including Maybe, Yes or No state, selection and scheduling",
                 "current Feature and ETag",
                 "current destination contextVersion",
-                "verify that both properties.address and geometry.coordinates persisted correctly",
+                "Verify that both properties.address and geometry.coordinates persisted correctly",
                 "Document which independent sources were attempted and the specific reason",
                 "lack of a government coordinate record",
                 "Never stop at a failed geocoding response, silently skip independent research",
                 "An approximate area point does not fulfill the reliable GPS requirement",
                 "coordinate resolution remains incomplete",
                 "Do not repeatedly submit identical unsuccessful requests",
+                "without asking for separate authorization",
+                "properties.locationVerification",
+                "Collect activity IDs before writing",
+                "data.nextSkip until it is null",
+                "verify its selection and scheduling with get_activity_plan",
             }
         )
         {

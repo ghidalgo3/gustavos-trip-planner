@@ -43,6 +43,32 @@ public static class ActivityEndpoints
         ICurrentUser currentUser
     )
     {
+        var (items, error) = await ReadActivities(
+            tripId,
+            destinationCity,
+            context,
+            database,
+            service,
+            currentUser
+        );
+        return error
+            ?? GeoJson(
+                new GeoJsonCollection<ActivityProperties>(
+                    "FeatureCollection",
+                    items!.Select(a => a.ToFeature()).ToArray()
+                )
+            );
+    }
+
+    internal static async Task<(IReadOnlyList<Activity>? Items, IResult? Error)> ReadActivities(
+        Guid tripId,
+        string destinationCity,
+        HttpContext context,
+        IPlannerDb database,
+        DestinationService service,
+        ICurrentUser currentUser
+    )
+    {
         var (trip, user, error) = await AuthorizeAsync(
             tripId,
             false,
@@ -52,7 +78,7 @@ public static class ActivityEndpoints
         );
         if (error is not null)
         {
-            return error;
+            return (null, error);
         }
 
         var (_, resolveError) = await ResolveAsync(
@@ -73,7 +99,7 @@ public static class ActivityEndpoints
                 is null
         )
         {
-            return resolveError;
+            return (null, resolveError);
         }
 
         var items = await database.GetActivitiesAsync(
@@ -82,12 +108,7 @@ public static class ActivityEndpoints
             destinationCity,
             context.RequestAborted
         );
-        return GeoJson(
-            new GeoJsonCollection<ActivityProperties>(
-                "FeatureCollection",
-                items.Select(a => a.ToFeature()).ToArray()
-            )
-        );
+        return (items, null);
     }
 
     internal static async Task<IResult> GetActivity(
@@ -470,7 +491,56 @@ public static class ActivityEndpoints
             return Results.BadRequest(new { title = "Location must be a valid GeoJSON Point." });
         }
 
-        return null;
+        return ValidateLocation(input);
+    }
+
+    private static IResult? ValidateLocation(ActivityInput input)
+    {
+        var properties = input.Properties;
+        if (properties.LocationVerification is not { } verification)
+        {
+            return null;
+        }
+
+        bool hasAddress = !string.IsNullOrWhiteSpace(properties.Address);
+        bool hasPoint = input.Geometry is not null;
+        var urls = verification.SourceUrls;
+        if (
+            urls is null
+            || urls.Count > 20
+            || urls.Any(url => !properties.Links.Any(link => link.Url == url))
+        )
+        {
+            return Results.BadRequest(
+                new { title = "Include each location source URL in properties.links." }
+            );
+        }
+
+        bool hasEvidence = urls.Count > 0 && !string.IsNullOrWhiteSpace(verification.Method);
+        // An area may have no postal address. A venue always needs both fields.
+        string? problem = verification.Precision switch
+        {
+            ActivityLocationPrecision.VerifiedEntrance
+            or ActivityLocationPrecision.VerifiedVenue when hasAddress && hasPoint && hasEvidence =>
+                null,
+            ActivityLocationPrecision.VerifiedEntrance or ActivityLocationPrecision.VerifiedVenue =>
+                "A verified venue or entrance requires an address, a Point, a verification method, and source URLs.",
+            ActivityLocationPrecision.RepresentativeArea when hasPoint && hasEvidence => null,
+            ActivityLocationPrecision.RepresentativeArea =>
+                "A representative area requires a Point, a verification method, and source URLs.",
+            ActivityLocationPrecision.Unresolved
+                when !hasPoint
+                    && hasEvidence
+                    && !string.IsNullOrWhiteSpace(verification.Uncertainty) => null,
+            ActivityLocationPrecision.Unresolved =>
+                "An unresolved location requires null geometry, attempted source URLs, a research method, and the specific uncertainty.",
+            ActivityLocationPrecision.Nonphysical
+                when !hasPoint && !hasAddress && urls.Count == 0 => null,
+            ActivityLocationPrecision.Nonphysical =>
+                "Nonphysical activities cannot have a physical address, Point, or geographic sources.",
+            _ => "Supply a supported location precision.",
+        };
+        return problem is null ? null : Results.BadRequest(new { title = problem });
     }
 
     private static string ETag(DateTimeOffset value) => $"\"{value.UtcTicks}\"";

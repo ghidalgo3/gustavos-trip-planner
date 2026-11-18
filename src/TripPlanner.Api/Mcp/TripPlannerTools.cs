@@ -29,6 +29,8 @@ public sealed class TripPlannerTools(
     IAzureMapsClient maps
 )
 {
+    private const double MaximumGeocodingDistanceKm = 100;
+
     [McpServerTool(
         Name = "get_trip_document",
         ReadOnly = true,
@@ -359,19 +361,39 @@ public sealed class TripPlannerTools(
     [Description(McpInstructions.Tools.ListActivities)]
     public Task<CallToolResult> ListActivities(
         Guid tripId,
-        [Required, StringLength(200)] string destinationId
+        [Required, StringLength(200)] string destinationId,
+        [Range(1, 100)] int top = 25,
+        [Range(0, int.MaxValue)] int skip = 0
     ) =>
         Execute(
             false,
-            context =>
-                ActivityEndpoints.GetActivities(
+            async context =>
+            {
+                var (items, error) = await ActivityEndpoints.ReadActivities(
                     tripId,
                     destinationId,
                     context,
                     database,
                     destinations,
                     currentUser
-                )
+                );
+                if (error is not null)
+                {
+                    return error;
+                }
+
+                var features = items!.Skip(skip).Take(top).Select(a => a.ToFeature()).ToArray();
+                int end = skip + features.Length;
+                return Results.Ok(
+                    new
+                    {
+                        type = "FeatureCollection",
+                        features,
+                        total = items!.Count,
+                        nextSkip = end < items.Count ? (int?)end : null,
+                    }
+                );
+            }
         );
 
     [McpServerTool(Name = "get_activity", ReadOnly = true, OpenWorld = false)]
@@ -449,21 +471,28 @@ public sealed class TripPlannerTools(
                             GeographyPoint.Create(destination.Latitude, destination.Longitude)
                         )
                     );
-                    var match = candidates
-                        is [
-                            {
-                                Confidence: AddressMatchConfidence.High,
-                                Ambiguous: false,
-                                PostalCodeMismatch: false
-                            } precise,
-                        ]
-                        ? precise
-                        : null;
+                    var match =
+                        candidates
+                            is [
+                                {
+                                    Confidence: AddressMatchConfidence.High,
+                                    Ambiguous: false,
+                                    PostalCodeMismatch: false
+                                } precise,
+                            ]
+                        && DestinationService.DistanceKm(destination, precise.Geometry)
+                            <= MaximumGeocodingDistanceKm
+                            ? precise
+                            : null;
                     return Results.Ok(
                         new
                         {
                             geometry = match?.Geometry,
                             formattedAddress = match?.FormattedAddress,
+                            provider = match is null ? null : "Azure Maps",
+                            nextStep = match is null
+                                ? McpInstructions.Messages.IndependentGeographicResearch
+                                : null,
                         }
                     );
                 }
@@ -506,8 +535,9 @@ public sealed class TripPlannerTools(
     ) =>
         Execute(
             true,
-            context =>
-                ActivityEndpoints.CreateActivity(
+            async context =>
+                RequireLocationVerification(request)
+                ?? await ActivityEndpoints.CreateActivity(
                     tripId,
                     destinationId,
                     request,
@@ -544,8 +574,9 @@ public sealed class TripPlannerTools(
     ) =>
         Execute(
             true,
-            context =>
-                ActivityEndpoints.ReplaceActivity(
+            async context =>
+                RequireLocationVerification(request)
+                ?? await ActivityEndpoints.ReplaceActivity(
                     tripId,
                     destinationId,
                     activityId,
@@ -558,6 +589,13 @@ public sealed class TripPlannerTools(
             contextVersion,
             etag
         );
+
+    private static IResult? RequireLocationVerification(ActivityInput request) =>
+        request.Properties?.LocationVerification is null
+            ? Results.BadRequest(
+                new { title = McpInstructions.Messages.LocationVerificationRequired }
+            )
+            : null;
 
     [McpServerTool(
         Name = "delete_activity",

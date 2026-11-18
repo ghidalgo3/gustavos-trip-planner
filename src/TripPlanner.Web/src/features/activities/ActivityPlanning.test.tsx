@@ -1722,3 +1722,50 @@ test("offline activity details show description, notes, kinds, address and ticke
     screen.queryByRole("button", { name: "Edit activity: Louvre" }),
   ).not.toBeInTheDocument();
 });
+
+test.each(["Address", "Activity name"])(
+  "saving a manual edit handles location verification when %s changes",
+  async (field) => {
+    const url = "https://museum.example/visit";
+    const locationVerification = {
+      precision: "VerifiedVenue" as const,
+      method: "Museum visitor map",
+      uncertainty: null,
+      sourceUrls: [url],
+    };
+    const verified = {
+      ...activity,
+      properties: {
+        ...activity.properties,
+        address: "1 museum street",
+        links: [{ url }],
+        locationVerification,
+      },
+    };
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [verified],
+    });
+    vi.mocked(getActivity).mockResolvedValue({
+      activity: verified,
+      etag: '"v1"',
+    });
+    show();
+    click(await screen.findByRole("button", { name: "Louvre" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    change(within(drawer).getByLabelText(field), {
+      target: {
+        value: field === "Address" ? "2 museum street" : "Louvre visit",
+      },
+    });
+    click(within(drawer).getByRole("button", { name: "Save activity" }));
+    await waitFor(() => expect(saveActivity).toHaveBeenCalled());
+    expect(vi.mocked(saveActivity).mock.calls[0][2].properties).toMatchObject({
+      links: [{ url }],
+      locationVerification: field === "Address" ? null : locationVerification,
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  },
+);

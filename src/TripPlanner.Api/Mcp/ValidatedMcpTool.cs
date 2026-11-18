@@ -274,6 +274,22 @@ public sealed class ValidatedMcpTool(McpServerTool inner, MethodInfo method)
         // callback. Apply their declared contracts from the containing type too.
         if (node["properties"] is JsonObject properties)
         {
+            if (
+                context.TypeInfo.Type == typeof(ActivityProperties)
+                && properties["locationVerification"] is JsonObject verification
+            )
+            {
+                var required = node["required"] as JsonArray;
+                if (required is null)
+                {
+                    required = [];
+                    node["required"] = required;
+                }
+                required.Add("locationVerification");
+                verification["type"] = "object";
+                verification.Remove("default");
+            }
+
             foreach (var property in context.TypeInfo.Properties)
             {
                 var declared = property.AttributeProvider?.GetCustomAttributes(true) ?? [];

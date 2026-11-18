@@ -8,7 +8,7 @@ public static class McpInstructions
     // Keep the essential workflow in the first 512 characters.
     public const string ServerInstructions = """
         Use your own model and browsing tools; TripPlanner never calls an LLM.
-        Before recommending activities or planning days, call get_planning_context for the trip.
+        Before recommending, creating, updating, auditing or importing activities, or planning days, call get_planning_context for the trip.
         Reuse saved destinations, visit dates, activities and preferences; ask only for missing information.
         Follow the returned versioned planning guidance.
         Give each day a coherent theme based on interests, a place or an anchor activity.
@@ -49,10 +49,10 @@ public static class McpInstructions
 
     public static class Planning
     {
-        public const string Version = "2026-11-13.3";
+        public const string Version = "2026-11-17.1";
 
         public const string Instructions = $"""
-            Before recommending activities or planning days, call get_planning_context for the trip.
+            Before recommending, creating, updating, auditing or importing activities, or planning days, call get_planning_context for the trip.
             Reuse its destinations, visit dates, existing activities and preferences; ask only for missing information.
             Give each day a coherent theme based on related interests, a geographic area or an anchor activity, while respecting the user's pace, travel time and explicit requests.
             Themes guide recommendations; they are not saved scheduling constraints.
@@ -88,7 +88,9 @@ public static class McpInstructions
     public static class LocationResolution
     {
         public const string Instructions = """
-            Geographic location resolution:
+            Geographic location resolution for every creation, update, audit or agent-driven import:
+            Use the connected host's web search and page-reading tools, such as ChatGPT Search or the hosted web_search tool in the eval runner.
+            If those tools are unavailable, report which entries are blocked and leave their unverified locations untouched.
             1. Determine whether the activity has a meaningful physical destination.
             Every activity representing a specific, identifiable physical venue (restaurant, museum, shop, attraction or landmark) MUST have a saved verified address and reliable GPS coordinates, or explicit documentation of why independent geographic research could not establish a sufficiently reliable point.
             For parks, neighborhoods, shopping streets and waterfronts, use a representative point, preferably a recognized entrance or landmark.
@@ -96,17 +98,19 @@ public static class McpInstructions
             Nonphysical online, digital or administrative activities may have null geometry.
             Never assign arbitrary coordinates.
             2. Before geocoding, research the venue's physical address on the web.
-            Prioritize the official venue website, then government tourism and official geographic databases, then OpenStreetMap/Wikidata and established geographic databases, then reputable mapping services, directories and corroborating sources.
+            Prioritize the official venue website, then NAVITIME, MapFan, Yahoo! Maps Japan and other regional geographic services where relevant, then OpenStreetMap and Wikidata, then Google Maps and established business directories, followed by other credible sources.
             Verify the correct establishment, branch and city.
             Whenever an address is identified, you MUST persist it in properties.address regardless of geocoding success; description, placeName and source links alone are insufficient.
             Preserve the most complete verified address, including street number, building, locality, postal code and country when available.
             Never replace a more precise verified address with an abbreviated geocoder address.
-            3. Submit the researched address to geocode_address.
+            3. Use independently verified published coordinates directly, or submit the researched address to geocode_address for a candidate point.
             Check the returned formattedAddress against the intended venue and verified address, and reject obvious geographic inconsistencies.
+            Check where the candidate point lands against a venue map or mapped street address so that a point at another branch or building triggers fallback even within the same city.
             Use the returned Point only for a sufficiently reliable match.
             Null results, provider failures, ambiguous results and coordinates inconsistent with the researched address require independent coordinate research; a geocoding API failure is not evidence that a physical location cannot be resolved.
             Do not repeatedly submit identical unsuccessful requests.
             4. Mandatory fallback: when geocode_address returns null, an error, an ambiguous result or coordinates inconsistent with the researched address, you MUST perform an independent web-based coordinate search before declaring the location unresolved.
+            Begin fallback immediately within the same workflow, without asking for separate authorization.
             Search using the venue's official name, Japanese/local-language name where applicable, full street address, and terms such as GPS coordinates, latitude longitude, 緯度 経度 and 地図.
             Consult relevant alternative geographic sources: official venue websites and location maps; Google Maps, NAVITIME, MapFan and Yahoo! Maps Japan; OpenStreetMap and Wikidata; government geographic databases and tourism websites; and other reputable mapping directories.
             Extract latitude and longitude directly from published geographic coordinates, map metadata, structured data or documented map links.
@@ -117,8 +121,10 @@ public static class McpInstructions
             Compare independent sources when available, corroborate with a second independent source when possible, and investigate discrepancies.
             No source category is universally authoritative: an official entrance map may be more useful than a government parcel centroid.
             Prefer independently published venue coordinates over estimates from general geographic knowledge.
-            5. Classify the point: Verified entrance identifies a specific entrance for precise navigation; Verified venue identifies the establishment or building for routing; Representative area identifies an appropriate point within a larger destination; Approximate is inferred from incomplete evidence and is for preliminary planning only; Unresolved means insufficient evidence for a meaningful point, so leave geometry null.
-            Explicitly label approximate coordinates and remaining uncertainty; never present them as a verified venue or invent coordinate precision.
+            5. Set properties.locationVerification.precision: VerifiedEntrance (Verified entrance), VerifiedVenue (Verified venue), RepresentativeArea (Representative area), Unresolved or Nonphysical.
+            Approximate or questionable points are candidates for research, not verified venue points.
+            Use Unresolved with null geometry when a venue lacks a verified address or a reliable point; save any verified address even then.
+            Use Nonphysical with null geometry, null address and an empty sourceUrls array for exempt tasks.
             An approximate area point does not fulfill the reliable GPS requirement for a specific, identifiable venue.
             If browsing is unavailable, disclose the limitation rather than claiming research or verification.
             6. Persist the complete Feature using create_activity or update_activity.
@@ -126,15 +132,30 @@ public static class McpInstructions
             Preserve every unrelated field, including Maybe, Yes or No state, selection and scheduling; location resolution must not change these.
             Save the researched address in properties.address even when coordinates remain unresolved.
             Put reliably supported coordinates in geometry as a GeoJSON Point in [longitude, latitude] order.
-            Save coordinate source URLs in properties.links and record resolution method, precision classification, verification status and remaining uncertainty in properties.description, preserving existing description content.
+            Save coordinate source URLs in properties.links and record resolution method, precision classification, verification status and remaining uncertainty in properties.locationVerification.
+            Set method to how you verified the address and point, naming Azure Maps if you used its candidate, and set sourceUrls to the relevant published URLs also present in properties.links.
+            For Unresolved, include attempted source URLs in sourceUrls and links, and explain the specific obstacle in uncertainty.
+            If relevant searches yielded no venue pages, record the search URLs and the queries that were tried.
+            Preserve the user-facing description.
             Reread on 409/412 before retrying.
-            Then call get_activity and verify that both properties.address and geometry.coordinates persisted correctly in [longitude, latitude] order; do not report completion if they differ from the verified values.
+            After every write, call get_activity using the created or updated ID.
+            Verify that both properties.address and geometry.coordinates persisted correctly in [longitude, latitude] order and match the researched branch, that locationVerification and links persisted, and that unrelated fields and state match the intended Feature.
+            If the activity was scheduled, verify its selection and scheduling with get_activity_plan.
+            A successful write by itself is insufficient to count a location as complete.
             7. Only declare a location Unresolved after exhausting reasonable independent geographic alternatives.
             Document which independent sources were attempted and the specific reason no reliable coordinates could be established (ambiguous venue, unspecified branch, insufficient address or conflicting coordinates).
             A failed API lookup, lack of a government coordinate record or inability to obtain coordinates from one mapping provider is never sufficient justification.
             Never stop at a failed geocoding response, silently skip independent research, substitute arbitrary coordinates or report a venue as unresolvable solely because geocode_address returned null.
-            Complete only when a reliable point and verified address are saved with coordinate provenance and precision classification and confirmed by get_activity, or the exhausted independent research and specific reason are explicitly documented as Unresolved.
+            Mark a venue Complete only when both its verified address and reliable point have been saved with evidence and confirmed by get_activity.
             If only an address is resolved, save it and report that coordinate resolution remains incomplete.
+            8. For an audit, inventory every requested destination with list_activities and follow data.nextSkip until it is null.
+            Collect activity IDs before writing and reconcile distinct counts against data.total; re-list if the inventory changes during paging.
+            Check for missing addresses, missing or questionable coordinates, incorrect branches and missing evidence, including existing points with unknown precision.
+            Process every eligible activity, including Maybe, Yes and No, and continue through failures or unresolved entries.
+            Respect rate limits, honor Retry-After when available and retry transient reads or research with bounded backoff.
+            After an ambiguous write, verify persistence before retrying so a create is not duplicated. If a create returned no ID, check the destination's activity pages for the intended Feature first.
+            Track every activity ID as complete, unresolved or exempt and include reasons for unresolved entries.
+            If any activity could not be processed or reread, identify it and report the audit as incomplete.
             """;
     }
 
@@ -242,16 +263,18 @@ public static class McpInstructions
             """;
 
         public const string ListActivities = """
-            List activities for a destination.
+            List activities for a destination as a FeatureCollection in stable creation order.
+            top defaults to 25 and accepts up to 100. Start at skip=0, then use data.nextSkip until it is null; data.total is the full destination count.
+            For geographic audits, inventory all pages before writes and run the workflow in get_planning_context for every activity.
             Use get_activity to obtain an ETag before replacing or deleting an activity.
             """;
 
         public const string GetActivity =
-            "Read an activity's complete Feature and ETag for a later update or delete.";
+            "Read the complete Feature and ETag before an update or delete and after every location write to verify persistence.";
 
         public const string GeocodeAddress = """
             Geocode a researched street address for an existing destination in a visible trip.
-            Returns data.geometry as a GeoJSON Point and data.formattedAddress for a single precise match, or null fields if no precise match is available.
+            Returns data.geometry as a GeoJSON Point, data.formattedAddress, and data.provider for a single high-confidence candidate near the destination. Null geometry triggers the independent research in data.nextStep.
             This service is not an authoritative or exhaustive source of coordinates and does not save anything.
             Before geocoding, research the physical address using reliable web sources.
             You MUST save any researched address in properties.address regardless of geocoding success.
@@ -270,10 +293,10 @@ public static class McpInstructions
         public const string CreateActivity = """
             Create an undated activity idea with its complete GeoJSON Feature: what to do, optional free-form kinds, place, duration and supported details.
             Always include a researched physical address in properties.address, even when geometry remains unresolved, plus website/source links and ticketRequirement.
-            Follow the mandatory geographic workflow in get_planning_context: try geocode_address, then independently search the web on null, failed, ambiguous or geographically inconsistent results before declaring Unresolved.
-            Save independently verified coordinates directly in request.geometry without requiring geocode_address validation, with coordinate source URLs in properties.links and precision classification in properties.description.
-            Explicitly label approximate points; leave geometry null for nonphysical or unresolved destinations.
-            Read back with get_activity to verify address and geometry.
+            Follow the mandatory geographic workflow in get_planning_context before creating or importing. Use independently verified coordinates directly or try geocode_address and automatically search the web on null, failed, ambiguous or geographically inconsistent results.
+            Save independently verified coordinates directly in request.geometry without requiring geocode_address validation, with source URLs in properties.links and required precision, method and provenance in properties.locationVerification.
+            Leave geometry null for Nonphysical or Unresolved entries and record attempted sources and the reason for Unresolved entries.
+            Read back with get_activity to verify the address, point, evidence and unrelated fields.
             Keep itinerary dates, start times and day numbers out of its name and description.
             To fulfill a requested date/time, create the idea first, then read get_activity_plan and use replace_activity_plan to place its returned ID and set fixedDate/fixedStart restrictions.
             Yes state alone does not schedule it.
@@ -291,7 +314,8 @@ public static class McpInstructions
             Follow the mandatory geographic workflow in get_planning_context: independently search the web after null, failed, ambiguous or geographically inconsistent geocoding results before declaring Unresolved.
             Save independently verified coordinates directly without requiring geocode_address validation.
             Always persist a researched address in properties.address even if geometry remains unresolved; retain a previously verified, more precise address.
-            Save coordinate source URLs in properties.links and precision classification in properties.description, then read back with get_activity to verify properties.address and geometry.coordinates.
+            Save source URLs in properties.links and the required research outcome in properties.locationVerification.
+            Read back with get_activity to verify address, coordinates, sources and preservation of unrelated fields and state. Verify existing scheduling using get_activity_plan.
             Supply ETag from get_activity and contextVersion from list_destinations.
             A 412 or 409 means read again before retrying.
             """;
@@ -444,6 +468,18 @@ public static class McpInstructions
 
     public static class Fields
     {
+        public const string LocationVerification =
+            "Geographic research outcome. Required for MCP activity writes.";
+
+        public const string LocationVerificationMethod =
+            "How the address and point were verified, or how research was attempted.";
+
+        public const string LocationVerificationUncertainty =
+            "Remaining uncertainty, or the specific reason an Unresolved entry lacks a reliable location.";
+
+        public const string LocationVerificationSources =
+            "Evidence or attempted source URLs. Include these URLs in properties.links.";
+
         public const string PlanningDestination =
             "Destination ID from list_destinations (preferred), or the exact saved destination name, case-insensitively. Use an ID for ambiguous names.";
 
@@ -580,6 +616,12 @@ public static class McpInstructions
         public const string Reconnect = "Reconnect TripPlanner to grant the required permission.";
 
         public const string RequiredParameter = "This parameter is required.";
+
+        public const string LocationVerificationRequired =
+            "Supply properties.locationVerification after following the geographic workflow in get_planning_context.";
+
+        public const string IndependentGeographicResearch =
+            "Use the host's web search to find independent coordinates now. Follow get_planning_context and verify the exact branch before saving.";
 
         public const string GeocodingUnavailable = """
             Address geocoding is temporarily unavailable.

@@ -13,6 +13,11 @@ namespace TripPlanner.Api.Tests.Mcp;
 [TestClass]
 public sealed class AgentOwnedResearchTests
 {
+    private const string AmigoAddress =
+        "GY Tsukiji Building 1F, 2-10-10 Tsukiji, Chuo-ku, Tokyo 104-0045, Japan";
+    private const string NavitimeAmigo = "https://www.navitime.co.jp/poi?spot=02022-10023806";
+    private const string OfficialAmigo = "https://www.koisans.co.jp/amigo/";
+
     [TestMethod]
     public async Task CatalogExposesStorageAndSchedulingWithoutServerLlmResearchOrFlags()
     {
@@ -104,11 +109,18 @@ public sealed class AgentOwnedResearchTests
                 tool.GetProperty("description").GetString()!,
                 "without requiring geocode_address validation"
             );
-            var addressDescription = tool.GetProperty("inputSchema")
+            var activityProperties = tool.GetProperty("inputSchema")
                 .GetProperty("properties")
                 .GetProperty("request")
                 .GetProperty("properties")
-                .GetProperty("properties")
+                .GetProperty("properties");
+            Assert.IsTrue(
+                activityProperties
+                    .GetProperty("required")
+                    .EnumerateArray()
+                    .Any(field => field.GetString() == "locationVerification")
+            );
+            var addressDescription = activityProperties
                 .GetProperty("properties")
                 .GetProperty("address")
                 .GetProperty("description")
@@ -127,13 +139,14 @@ public sealed class AgentOwnedResearchTests
     [DataRow("medium", false, false)]
     [DataRow("ambiguous", false, false)]
     [DataRow("multiple", false, false)]
+    [DataRow("multiple", false, true)]
     public async Task AgentCanGeocodeAndSaveItsResearchedActivityInJapan(
         string outcome,
         bool hasPoint,
         bool independentPoint
     )
     {
-        const string address = "2-24-12 Shibuya, Shibuya-ku, Tokyo 150-0002, Japan";
+        const string address = AmigoAddress;
         var maps = new Geocoder(outcome);
         var document = JsonSerializer.Deserialize<TripDocument>(
             File.ReadAllText(Endpoints.TripDocumentEndpointTests.RepositoryFile("docs/after.json")),
@@ -152,7 +165,7 @@ public sealed class AgentOwnedResearchTests
         var providerGeometry = data.GetProperty("geometry");
         var geometry = independentPoint
             ? JsonSerializer.SerializeToElement(
-                new { type = "Point", coordinates = new[] { 139.7021, 35.6581 } }
+                new { type = "Point", coordinates = new[] { 139.772896, 35.668858 } }
             )
             : providerGeometry;
         Assert.AreEqual(hasPoint, providerGeometry.ValueKind == JsonValueKind.Object);
@@ -160,6 +173,13 @@ public sealed class AgentOwnedResearchTests
             hasPoint ? address : null,
             data.GetProperty("formattedAddress").GetString()
         );
+        if (!hasPoint)
+        {
+            StringAssert.Contains(
+                data.GetProperty("nextStep").GetString()!,
+                "independent coordinates now"
+            );
+        }
         Assert.AreEqual(1, maps.Calls);
         Assert.AreEqual(address, maps.Address);
         Assert.AreEqual(place.CountryCode, maps.CountryCode);
@@ -172,7 +192,7 @@ public sealed class AgentOwnedResearchTests
             session.TripId,
             place.CityId
         );
-        Assert.IsFalse(before.Any(a => a.Properties.Name == "Agent-researched vegan lunch"));
+        Assert.IsFalse(before.Any(a => a.Properties.Name == "Amigo Tokyo Tsukiji"));
 
         var result = await McpEndpointTests.Result(
             await McpEndpointTests.Rpc(
@@ -193,20 +213,34 @@ public sealed class AgentOwnedResearchTests
                             geometry,
                             properties = new
                             {
-                                name = "Agent-researched vegan lunch",
+                                name = "Amigo Tokyo Tsukiji",
                                 description = "Research supplied by the caller's agent.",
                                 duration = "PT1H",
                                 cost = (object?)null,
                                 state = "Maybe",
-                                kinds = new[] { "Food", "Vegan dining", "郷土料理" },
+                                kinds = new[] { "Food", "Cheesecake", "洋菓子" },
                                 address,
                                 ticketRequirement = "Unknown",
+                                locationVerification = new
+                                {
+                                    precision = hasPoint || independentPoint
+                                        ? "VerifiedVenue"
+                                        : "Unresolved",
+                                    method = hasPoint
+                                        ? "Azure Maps candidate matched against the NAVITIME Tsukiji listing"
+                                        : "Independent research of the Japanese branch name and street address",
+                                    uncertainty = hasPoint || independentPoint
+                                        ? null
+                                        : "Only the branch address was available in the consulted records.",
+                                    sourceUrls = new[] { NavitimeAmigo, OfficialAmigo },
+                                },
                                 links = new[]
                                 {
+                                    new { url = NavitimeAmigo, label = "NAVITIME Tsukiji branch" },
                                     new
                                     {
-                                        url = "https://venue.example/menu",
-                                        label = "Menu researched by the agent",
+                                        url = OfficialAmigo,
+                                        label = "Official branch directory",
                                     },
                                 },
                             },
@@ -224,15 +258,18 @@ public sealed class AgentOwnedResearchTests
             session.TripId,
             "tokyo-jp"
         );
-        var saved = activities.Single(a => a.Properties.Name == "Agent-researched vegan lunch");
+        var saved = activities.Single(a => a.Properties.Name == "Amigo Tokyo Tsukiji");
         CollectionAssert.AreEqual(
-            new[] { "Food", "Vegan dining", "郷土料理" },
+            new[] { "Food", "Cheesecake", "洋菓子" },
             saved.Properties.Kinds.ToArray()
         );
-        Assert.AreEqual("https://venue.example/menu", saved.Properties.Links.Single().Url);
+        CollectionAssert.AreEqual(
+            new[] { NavitimeAmigo, OfficialAmigo },
+            saved.Properties.Links.Select(link => link.Url).ToArray()
+        );
         Assert.AreEqual(address, saved.Properties.Address);
         Assert.AreEqual(
-            independentPoint ? GeographyPoint.Create(35.6581, 139.7021)
+            independentPoint ? GeographyPoint.Create(35.668858, 139.772896)
                 : hasPoint ? Geocoder.Point.Position
                 : null,
             saved.Geometry?.Position
@@ -258,6 +295,23 @@ public sealed class AgentOwnedResearchTests
         Assert.IsTrue(
             JsonElement.DeepEquals(geometry, readBack.GetProperty("data").GetProperty("geometry"))
         );
+        var verification = readBack
+            .GetProperty("data")
+            .GetProperty("properties")
+            .GetProperty("locationVerification");
+        Assert.AreEqual(
+            hasPoint || independentPoint ? "VerifiedVenue" : "Unresolved",
+            verification.GetProperty("precision").GetString()
+        );
+        CollectionAssert.AreEqual(
+            new[] { NavitimeAmigo, OfficialAmigo },
+            verification
+                .GetProperty("sourceUrls")
+                .EnumerateArray()
+                .Select(url => url.GetString())
+                .ToArray()
+        );
+        Assert.AreEqual(1, maps.Calls);
     }
 
     [TestMethod]
@@ -389,19 +443,6 @@ public sealed class AgentOwnedResearchTests
                 geocode.GetProperty("structuredContent").GetProperty("status").GetInt32()
             );
         }
-        else if (outcome == "incorrect")
-        {
-            // A high-confidence provider match in Tokyo cannot locate this Paris venue.
-            Assert.AreEqual(
-                139.702,
-                geocode
-                    .GetProperty("structuredContent")
-                    .GetProperty("data")
-                    .GetProperty("geometry")
-                    .GetProperty("coordinates")[0]
-                    .GetDouble()
-            );
-        }
         else
         {
             Assert.AreEqual(
@@ -421,16 +462,23 @@ public sealed class AgentOwnedResearchTests
             .EnumerateArray()
             .Single(f => f.GetProperty("id").GetString() == place.CityId);
         var request = JsonNode.Parse(before.GetProperty("data").GetRawText())!;
-        var provenance = resolved
-            ? "Verified venue; independently published coordinates from the venue map; no remaining uncertainty."
-            : "Unresolved; independent venue map and mapping directory research exhausted: their published points identify different buildings and neither identifies the intended branch; coordinate resolution remains incomplete.";
         request["geometry"] = resolved
             ? JsonSerializer.SerializeToNode(
                 new { type = "Point", coordinates = new[] { 2.3364, 48.8606 } }
             )
             : null;
         request["properties"]!["address"] = address;
-        request["properties"]!["description"] = properties.Description + " " + provenance;
+        request["properties"]!["locationVerification"] = JsonSerializer.SerializeToNode(
+            new
+            {
+                precision = resolved ? "VerifiedVenue" : "Unresolved",
+                method = "Compared the official venue map against the mapping directory.",
+                uncertainty = resolved
+                    ? null
+                    : "The published points identify different buildings and neither identifies the intended branch.",
+                sourceUrls = new[] { "https://venue.example/map", "https://maps.example/venue" },
+            }
+        );
         request["properties"]!["links"]!
             .AsArray()
             .Add(
@@ -493,6 +541,161 @@ public sealed class AgentOwnedResearchTests
             )
         );
         Assert.AreEqual(1, maps.Calls);
+    }
+
+    [TestMethod]
+    [DataRow(null, true, true, false)]
+    [DataRow("VerifiedVenue", true, false, false)]
+    [DataRow("VerifiedVenue", false, true, false)]
+    [DataRow("VerifiedVenue", true, true, false)]
+    [DataRow("Unresolved", true, true, false)]
+    [DataRow("RepresentativeArea", false, true, true)]
+    [DataRow("Nonphysical", false, false, true)]
+    [DataRow("Nonphysical", false, true, false)]
+    public async Task ActivityWriteRequiresConsistentLocationEvidence(
+        string? precision,
+        bool address,
+        bool point,
+        bool accepted
+    )
+    {
+        await using var session = await Verification.McpEvalServer.CreateSession("save_activity");
+        var place = await session.Factory.Database.GetDestinationPlaceAsync(
+            session.UserId,
+            session.TripId,
+            session.DestinationCity
+        );
+        const string source = "https://park.example/entrances";
+        bool nonphysical = precision == "Nonphysical";
+        var result = await McpEndpointTests.Result(
+            await McpEndpointTests.Rpc(
+                session.Agent,
+                "tools/call",
+                new
+                {
+                    name = "create_activity",
+                    arguments = new
+                    {
+                        tripId = session.TripId,
+                        destinationId = place!.CityId,
+                        contextVersion = place.ContextVersion,
+                        request = new
+                        {
+                            type = "Feature",
+                            geometry = point
+                                ? new { type = "Point", coordinates = new[] { 2.3364, 48.8606 } }
+                                : null,
+                            properties = new
+                            {
+                                name = nonphysical
+                                    ? "Check passport renewal status online"
+                                    : "Explore the park",
+                                description = "Keep the activity description.",
+                                state = "Maybe",
+                                kinds = Array.Empty<string>(),
+                                address = address ? "12 Example Street, Paris 75001, France" : null,
+                                links = (precision == "VerifiedVenue" && address && point)
+                                || nonphysical
+                                    ? []
+                                    : new[] { new { url = source } },
+                                locationVerification = precision is null
+                                    ? null
+                                    : new
+                                    {
+                                        precision,
+                                        method = nonphysical
+                                            ? null
+                                            : "Park entrance published by the park operator.",
+                                        uncertainty = precision == "Unresolved"
+                                            ? "Branch could not be confirmed."
+                                            : null,
+                                        sourceUrls = nonphysical ? [] : new[] { source },
+                                    },
+                            },
+                        },
+                    },
+                }
+            )
+        );
+        var output = result.GetProperty("structuredContent");
+        Assert.AreEqual(
+            accepted ? 201 : 400,
+            output.GetProperty("status").GetInt32(),
+            result.ToString()
+        );
+        if (accepted)
+        {
+            var read = await Call(
+                session.Agent,
+                "get_activity",
+                new
+                {
+                    tripId = session.TripId,
+                    destinationId = place.CityId,
+                    activityId = output.GetProperty("resultId").GetString(),
+                }
+            );
+            Assert.IsTrue(
+                JsonElement.DeepEquals(output.GetProperty("data"), read.GetProperty("data"))
+            );
+        }
+    }
+
+    [TestMethod]
+    public async Task DestinationAuditCanEnumerateEveryActivityAcrossPages()
+    {
+        await using var session = await Verification.McpEvalServer.CreateSession("save_activity");
+        var database = session.Factory.Database;
+        var place = (
+            await database.GetDestinationPlaceAsync(
+                session.UserId,
+                session.TripId,
+                session.DestinationCity
+            )
+        )!;
+        var original = (
+            await database.GetActivitiesAsync(session.UserId, session.TripId, place.CityId)
+        ).Single();
+        var expected = new List<Guid> { original.Id };
+        for (int i = 0; i < 104; i++)
+        {
+            var item = original with
+            {
+                Id = Guid.NewGuid(),
+                CreatedAt = original.CreatedAt.AddSeconds(i + 1),
+                Properties = original.Properties with { Name = $"Audit venue {i}" },
+            };
+            Assert.IsNotNull(
+                await database.SaveActivityAsync(session.UserId, item, place.ContextVersion, null)
+            );
+            expected.Add(item.Id);
+        }
+
+        var seen = new List<Guid>();
+        int? skip = 0;
+        do
+        {
+            var page = (
+                await Call(
+                    session.Agent,
+                    "list_activities",
+                    new
+                    {
+                        tripId = session.TripId,
+                        destinationId = place.CityId,
+                        top = 100,
+                        skip,
+                    }
+                )
+            ).GetProperty("data");
+            Assert.AreEqual(105, page.GetProperty("total").GetInt32());
+            var features = page.GetProperty("features");
+            Assert.AreEqual(skip == 0 ? 100 : 5, features.GetArrayLength());
+            seen.AddRange(features.EnumerateArray().Select(f => f.GetProperty("id").GetGuid()));
+            var next = page.GetProperty("nextSkip");
+            skip = next.ValueKind == JsonValueKind.Null ? null : next.GetInt32();
+        } while (skip is not null);
+        CollectionAssert.AreEqual(expected, seen);
     }
 
     private static async Task<JsonElement> Call(HttpClient agent, string name, object arguments)
@@ -603,7 +806,7 @@ public sealed class AgentOwnedResearchTests
     {
         public static readonly GeoJsonPoint Point = new(
             "Point",
-            GeographyPoint.Create(35.658, 139.702)
+            GeographyPoint.Create(35.668858, 139.772896)
         );
         public int Calls { get; private set; }
         public string? Address { get; private set; }
@@ -638,7 +841,9 @@ public sealed class AgentOwnedResearchTests
                         match,
                         match with
                         {
-                            Geometry = new("Point", GeographyPoint.Create(35.659, 139.703)),
+                            FormattedAddress =
+                                "Sogo Yokohama, 2-18-1 Takashima, Nishi-ku, Yokohama, Japan",
+                            Geometry = new("Point", GeographyPoint.Create(35.4655, 139.6238)),
                         },
                     ],
                     "failure" => throw new HttpRequestException("provider internals"),

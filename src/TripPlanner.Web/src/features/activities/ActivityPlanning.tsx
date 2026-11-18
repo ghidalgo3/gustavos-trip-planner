@@ -377,6 +377,16 @@ export default function ActivityPlanning({
                 ...current.value.properties,
                 ...("duration" in changes ? { durationEvidence: null } : {}),
                 ...("cost" in changes ? { costEvidence: null } : {}),
+                ...("address" in changes &&
+                changes.address !== current.value.properties.address
+                  ? { locationVerification: null }
+                  : {}),
+                ...(changes.links &&
+                current.value.properties.locationVerification?.sourceUrls.some(
+                  (url) => !changes.links?.some((link) => link.url === url),
+                )
+                  ? { locationVerification: null }
+                  : {}),
                 ...changes,
               },
             },
@@ -435,6 +445,7 @@ export default function ActivityPlanning({
         properties: {
           ...editor.value.properties,
           locationSuggestion: null,
+          locationVerification: null,
           links: links.some((link) => link.url === suggestion.source.url)
             ? links
             : [...links, suggestion.source],
@@ -642,6 +653,7 @@ export default function ActivityPlanning({
       placeName: place.label.slice(0, 200),
       address: place.address ?? null,
       locationSuggestion: null,
+      locationVerification: null,
       links: [place.source, place.locationSource].reduce(
         (current, source) =>
           source &&

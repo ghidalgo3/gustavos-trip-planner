@@ -11,6 +11,13 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Changed
+
+- MCP activity saves require structured location verification with precision
+  and sources. Geographic audits page through every activity and verify each
+  location save by reading it back. Unusable geocoder results prompt independent
+  web research, with an explicit unresolved outcome when evidence runs out.
+
 ## 2026.11.16.2
 
 ### Fixed

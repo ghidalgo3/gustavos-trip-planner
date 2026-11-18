@@ -1318,45 +1318,41 @@ and destination preferences, and versioned guidance.
 It requires read or write scope and trip visibility. It excludes other travelers' raw
 private profiles. No new REST route is needed for this aggregate MCP read.
 
-After researching a venue's street address, agents can call the read-only
-`geocode_address(tripId, destinationId, address)` tool. TripPlanner uses the saved
-destination's country and coordinates to guide the lookup. A single precise
-match returns a GeoJSON Point in `data.geometry` and a `data.formattedAddress`
-to check against the source. Agents can pass that Point as `request.geometry`
-to `create_activity` or `update_activity`. The tool returns null fields when it
-cannot identify a precise match; this is a provider limitation, not evidence that
-the venue cannot be located. Null, failed, ambiguous or geographically inconsistent
-results require an independent web-based coordinate search before declaring the
-location unresolved. Search the venue's official and local-language names and full
-address with terms such as GPS coordinates, latitude longitude, 緯度 経度 and 地図.
-Consult relevant official venue maps, Google Maps, NAVITIME, MapFan, Yahoo! Maps
-Japan, OpenStreetMap, Wikidata, government/tourism sources and reputable directories.
-Extract coordinates from published points, map metadata, structured data or
-documented map links; a viewport center alone does not identify a venue. Check the
-establishment, branch, building or entrance and corroborate with a second independent
-source when possible. Independently verified coordinates can be saved directly;
-they do not require validation by `geocode_address`. Government records are useful
-but are not required, and a failure at one provider is never sufficient to stop.
+For activity creation, edits, audits, and agent-driven imports, use a host with
+web search and page reading enabled. The OpenAI eval host exposes `web_search`
+by default. Research the exact branch and its complete postal address first.
+Prefer the official venue, then regional sources such as NAVITIME, MapFan and
+Yahoo! Maps Japan, followed by OpenStreetMap, Wikidata and reputable maps or
+directories. Use local-language names when relevant.
 
-The versioned planning guidance describes the full location workflow. Physical
-venues need a meaningful point; areas use a representative entrance or landmark,
-and nonphysical activities may have null geometry. Agents always save a researched
-address in `properties.address`, even when coordinates remain unresolved, preserving
-a more complete verified address over an abbreviated geocoder result. Coordinate
-provenance uses the existing `properties.links` for source URLs and
-`properties.description` for resolution method, precision classification
-(Verified entrance, Verified venue, Representative area, Approximate, Unresolved),
-verification status and uncertainty. Approximate points are labeled for preliminary
-planning and do not fulfill a specific venue's reliable GPS requirement. Every
-identifiable physical venue must have a saved verified address and reliable GPS
-point, or an explicit Unresolved record after reasonable independent alternatives
-are exhausted, listing attempted sources and the specific reason no reliable point
-could be established. Unresolved locations retain null geometry. Agents preserve
-existing fields, state and scheduling, use the current activity ETag and destination
-contextVersion, and read back with `get_activity` to verify both address and GeoJSON
-Point coordinates in `[longitude, latitude]` order. Address resolution and coordinate
-resolution are separate outcomes; exhausted research is reported without repeatedly
-submitting identical unsuccessful geocoding requests.
+`geocode_address(tripId, destinationId, address)` returns a single
+high-confidence candidate near the destination, including its GeoJSON point,
+formatted address and provider. Check the candidate against the researched
+address and branch. If the candidate is missing, ambiguous, inconsistent, or
+the geocoder fails, immediately search the web for independent coordinates.
+Examine published venue points, structured metadata or venue-specific map links,
+and corroborate the intended location with a second source when possible.
+Independently verified coordinates can be saved directly.
+
+Every MCP activity create or update requires `properties.locationVerification`.
+`VerifiedVenue` and `VerifiedEntrance` require a verified `properties.address`,
+a GeoJSON Point in `[longitude, latitude]` order, a verification method and
+source URLs present in `properties.links`. Use `RepresentativeArea` for a
+sourced entrance or landmark that represents an area, and `Nonphysical` for
+activities with no physical location. `Unresolved` uses null geometry, keeps
+any verified address, and records attempted sources and the specific uncertainty.
+Keep the description and other activity fields intact. If the host lacks web
+research, report any entries that could not be verified.
+
+For an audit, call `list_activities` for each requested destination. The MCP tool
+returns `features`, `total`, and `nextSkip`, with 25 entries per page by default
+and a maximum of 100. Collect all pages before processing them. Review existing
+points with questionable precision as well as missing addresses and points.
+Use the current activity ETag and destination contextVersion for edits and
+call `get_activity` after each write to confirm the saved location, evidence
+and unrelated fields. Check existing scheduling with `get_activity_plan`.
+Report completed, unresolved and exempt activities and disclose any entries
+that could not be processed or verified.
 
 `plan_destination(tripId, destinationCity)` is also available through MCP `prompts/list`
 and `prompts/get` for clients that support user-selected prompt templates. The first

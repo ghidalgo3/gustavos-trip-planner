@@ -196,6 +196,7 @@ struct TripDocumentActivity: Equatable {
     let destinationID: String
     let kinds: [String]
     let address: String?
+    let locationVerification: LocationVerification?
     let ticketRequirement: TicketRequirement
     let state: PlanningState
     let description: String
@@ -220,10 +221,32 @@ struct TripDocumentActivity: Equatable {
         self.destinationID = destinationID
         self.kinds = kinds
         address = value["address"].stringValue
+        locationVerification = LocationVerification(value["locationVerification"])
         ticketRequirement = ticket
         self.state = state
         description = value["description"].stringValue ?? ""
         notes = value["notes"].stringValue ?? ""
         links = value["links"]
+    }
+
+    struct LocationVerification: Equatable {
+        enum Precision: String {
+            case VerifiedEntrance, VerifiedVenue, RepresentativeArea, Unresolved, Nonphysical
+        }
+
+        let precision: Precision
+        let method: String?
+        let uncertainty: String?
+        let sourceURLs: [String]
+
+        init?(_ value: JSONValue) {
+            guard let precision = value["precision"].stringValue.flatMap(Precision.init(rawValue:)) else {
+                return nil
+            }
+            self.precision = precision
+            method = value["method"].stringValue
+            uncertainty = value["uncertainty"].stringValue
+            sourceURLs = value["sourceUrls"].arrayValue.compactMap(\.stringValue)
+        }
     }
 }

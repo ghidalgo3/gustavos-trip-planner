@@ -229,7 +229,7 @@ public sealed class DestinationService(IPlannerDb database, IAzureMapsClient map
         return $"{builder.ToString().Trim('-')}-{country.ToLowerInvariant()}";
     }
 
-    private static double DistanceKm(DestinationPlace place, GeoJsonPoint point)
+    internal static double DistanceKm(DestinationPlace place, GeoJsonPoint point)
     {
         double firstLatitude = place.Latitude * Math.PI / 180;
         double secondLatitude = point.Position.Latitude * Math.PI / 180;

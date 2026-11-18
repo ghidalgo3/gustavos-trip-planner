@@ -65,6 +65,18 @@ export type ActivityResearchEvidence = {
   researchedAt: string;
 };
 
+export type ActivityLocationVerification = {
+  precision:
+    | "VerifiedEntrance"
+    | "VerifiedVenue"
+    | "RepresentativeArea"
+    | "Unresolved"
+    | "Nonphysical";
+  method: string | null;
+  uncertainty: string | null;
+  sourceUrls: string[];
+};
+
 export type ActivityProperties = {
   kinds: string[];
   address: string | null;
@@ -72,6 +84,7 @@ export type ActivityProperties = {
   durationEvidence?: ActivityResearchEvidence | null;
   costEvidence?: ActivityResearchEvidence | null;
   locationSuggestion?: ActivityLocationSuggestion | null;
+  locationVerification?: ActivityLocationVerification | null;
   links?: ActivityLink[];
   name: string;
   duration: string | null;

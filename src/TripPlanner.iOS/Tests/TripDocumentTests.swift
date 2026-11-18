@@ -82,10 +82,32 @@ struct TripDocumentActivityTests {
         let activity = try TripDocumentActivity(value)
         #expect(activity.kinds == kinds)
         #expect(activity.address == "1 museum street")
+        #expect(activity.locationVerification == nil)
         #expect(activity.ticketRequirement == .Unknown)
         #expect(activity.state.rawValue == state)
         #expect(activity.description == "Paintings")
         #expect(activity.notes == "Book morning entry.\nMeet at the entrance.")
+    }
+
+    @Test
+    func readsLocationVerificationFromThePortableDocument() throws {
+        let source = "https://museum.example/visit"
+        let value: JSONValue = .object([
+            "id": .string(UUID().uuidString), "name": .string("Museum"),
+            "destinationId": .string("paris-fr"), "kinds": .array([]),
+            "address": .string("1 museum street"), "ticketRequirement": .string("Unknown"),
+            "state": .string("Maybe"),
+            "locationVerification": .object([
+                "precision": .string("VerifiedEntrance"), "method": .string("Museum entrance map"),
+                "uncertainty": .string("Door number unavailable"), "sourceUrls": .array([.string(source)])
+            ])
+        ])
+        let activity = try TripDocumentActivity(value)
+        let verification = try #require(activity.locationVerification)
+        #expect(verification.precision == .VerifiedEntrance)
+        #expect(verification.method == "Museum entrance map")
+        #expect(verification.uncertainty == "Door number unavailable")
+        #expect(verification.sourceURLs == [source])
     }
 
     @Test(arguments: [JSONValue.null, .string("Art"), .array([.null]), .array([.number(123)]), .array([.string("")]), .array([.string(" \t\n")]), .array([.string(String(repeating: "k", count: 201))]), .array([.string("Art"), .string("Art")])])

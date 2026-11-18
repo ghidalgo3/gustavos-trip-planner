@@ -28,10 +28,11 @@ const groups = [
   ],
   [
     "activities",
-    "Read, add, update or delete activity ideas and their metadata.",
+    "Read, audit, geocode, add, update or delete activity ideas and their metadata.",
     [
       "list_activities",
       "get_activity",
+      "geocode_address",
       "create_activity",
       "update_activity",
       "delete_activity",
