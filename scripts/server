@@ -8,10 +8,13 @@ INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
 usage() {
   cat <<'USAGE'
 Usage: scripts/server [DOCKER_COMPOSE_UP_OPTIONS]
+       scripts/server --cloud {database|api|web}
 
 Load local authentication credentials and the Ignav API key from the deployed Azure Key Vault, issue
 a 23-hour Azure Maps development SAS, then start the API and web development
 containers with Docker Compose.
+
+In cloud mode start PostgreSQL first, then run API and Vite in separate shells.
 
 Examples:
   scripts/server
@@ -32,6 +35,32 @@ fi
 
 REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
+
+if [[ "${1:-}" == --cloud ]]; then
+  [[ $# -eq 2 ]] || die "specify one cloud service: database, api, or web"
+  source scripts/lib/cloud.zsh
+  activate_cloud_environment
+  case "$2" in
+    database) cloud_compose up -d --build --wait database ;;
+    api)
+      export ASPNETCORE_ENVIRONMENT=Development DOTNET_USE_POLLING_FILE_WATCHER=1
+      export ConnectionStrings__TripPlanner="${ConnectionStrings__TripPlanner:-Host=127.0.0.1;Port=5432;Database=tripplanner;Username=tripplanner;Password=tripplanner}"
+      export Mcp__Enabled="${Mcp__Enabled:-false}"
+      export Mcp__Issuer="${Mcp__Issuer:-http://localhost:5173/}"
+      export ActivityPlanning__PublicBaseUrl="${ActivityPlanning__PublicBaseUrl:-http://localhost:5173/}"
+      exec dotnet watch --non-interactive --no-hot-reload \
+        --project src/TripPlanner.Api/TripPlanner.Api.csproj \
+        run --no-launch-profile --urls http://0.0.0.0:8080
+      ;;
+    web)
+      export VITE_API_PROXY_TARGET="${VITE_API_PROXY_TARGET:-http://127.0.0.1:8080}"
+      cd src/TripPlanner.Web
+      exec corepack pnpm dev
+      ;;
+    *) die "unknown cloud service: $2" ;;
+  esac
+  exit 0
+fi
 
 for command_name in az docker; do
   command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"

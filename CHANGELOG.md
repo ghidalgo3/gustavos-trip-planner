@@ -11,6 +11,10 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Added
+
+- Add a cloud mode to the setup, dependency installation, and development server scripts.
+
 ## 2026.11.17.1
 
 ### Changed

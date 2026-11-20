@@ -2,14 +2,16 @@
 set -euo pipefail
 
 CHECK_ONLY=false
+CLOUD=false
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/setup [--check]
+Usage: scripts/setup [--cloud] [--check]
 
-Install and configure the macOS development and release toolchain.
+Install the macOS toolchain or prepare the Linux x64 cloud toolchain.
 
 Options:
+  --cloud   Use the cloud machine's Docker, Node.js and Corepack, and install .NET
   --check   Report tool availability without installing or changing anything
   -h        Show this help
 USAGE
@@ -20,18 +22,39 @@ log() { printf '\n==> %s\n' "$*"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --cloud) CLOUD=true; shift ;;
     --check) CHECK_ONLY=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "unknown argument: $1" ;;
   esac
 done
 
-[[ "$(uname -s)" == "Darwin" ]] || die "this setup script currently supports macOS only"
-command -v brew >/dev/null 2>&1 || die \
-  "Homebrew is required. Install it from https://brew.sh, then rerun this script."
-
 REPO_ROOT="${0:A:h:h}"
 cd "$REPO_ROOT"
+
+if [[ "$CLOUD" == true ]]; then
+  [[ "$(uname -s)-$(uname -m)" == Linux-x86_64 ]] || die "cloud setup requires Linux x64"
+  for command_name in docker node corepack curl sha512sum tar; do
+    command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required"
+  done
+  docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
+  docker compose version
+  node --version
+  source scripts/lib/cloud.zsh
+  activate_cloud_environment
+  if [[ "$CHECK_ONLY" == false ]]; then
+    # The Linux runtime uses this profile directory for named mutexes.
+    mkdir -p ~/.dotnet "$XDG_DATA_HOME"
+    install_cloud_dotnet
+  fi
+  [[ -x "$DOTNET_ROOT/dotnet" ]] || die "run scripts/setup --cloud to install .NET"
+  "$DOTNET_ROOT/dotnet" --version
+  exit 0
+fi
+
+[[ "$(uname -s)" == "Darwin" ]] || die "use scripts/setup --cloud on the Linux cloud machine"
+command -v brew >/dev/null 2>&1 || die \
+  "Homebrew is required. Install it from https://brew.sh, then rerun this script."
 
 report_tools() {
   local missing=false

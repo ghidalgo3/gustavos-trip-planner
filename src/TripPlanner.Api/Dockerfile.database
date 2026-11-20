@@ -1,4 +1,14 @@
-FROM postgis/postgis:18-3.6
+FROM debian:sid-slim AS cloud-packages
+RUN apt-get update && cd /tmp && apt-get download postgresql-18-cron
+
+FROM postgis/postgis:18-3.6 AS base
+
+FROM base AS cloud
+COPY --from=cloud-packages /tmp/postgresql-18-cron_*.deb /tmp/pg-cron.deb
+# Debian's pg_cron package conflicts with the PGDG image's optional LLVM JIT.
+RUN dpkg --remove postgresql-18-jit && dpkg -i /tmp/pg-cron.deb && rm /tmp/pg-cron.deb
+
+FROM base AS local
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-18-cron \

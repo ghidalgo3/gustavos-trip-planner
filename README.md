@@ -363,6 +363,20 @@ Frontend tests use at most two Vitest workers to avoid CPU contention and interm
 
 Running `docker compose up` directly still starts the application, but local sign-in remains disabled because no provider credentials are supplied.
 
+### Codex cloud development
+
+On the Linux x64 cloud machine, use the same repository entry points with `--cloud`:
+
+```bash
+scripts/setup --cloud
+scripts/install --cloud
+scripts/server --cloud database
+```
+
+Then run `scripts/server --cloud api` and `scripts/server --cloud web` in separate shells. The cloud profile uses the machine's Node.js, Corepack and Docker, installs a checksum-verified .NET 10 SDK, and runs the API and Vite directly. PostgreSQL still runs in Docker with PostGIS and pg_cron. The database image uses Debian's signed pg_cron package and omits the optional LLVM JIT package.
+
+Cloud startup works without Azure credentials. Live sign-in, maps and fare searches require the relevant provider settings. Set `Mcp__Enabled=true` only after configuring application authentication. To run the test commands above in a cloud zsh session, first run `source scripts/lib/cloud.zsh && activate_cloud_environment` from the repository root. To stop the cloud database while keeping its volume, run `docker compose -f compose.yaml -f compose.cloud.yaml stop database` from that directory.
+
 ## Database
 
 The API requires `ConnectionStrings:TripPlanner`. Docker Compose supplies a local PostgreSQL connection string with development-only password authentication. In Azure, `buildout` provisions an Azure Database for PostgreSQL Flexible Server with password authentication disabled and assigns the App Service managed identity as its Microsoft Entra administrator. `release` supplies a passwordless TLS connection string and enables managed-identity token acquisition. Npgsql periodically refreshes the database access token through `Azure.Identity`.
@@ -641,10 +655,12 @@ never receives it. No live fare searches are performed by the automated tests.
   Processing is at least once: a crash after a paid call but before its database commit
   can require repeating that call. No PostgreSQL transaction is held during HTTP calls.
 
-To include PostgreSQL queue tests, set `TRIPPLANNER_TEST_POSTGRES` to a local test
-administrator connection string when running `dotnet test`. They create an isolated
-`planner_test_*` database, apply migrations, exercise concurrent claims and cache/lease
-expiry, then remove only that database. In-memory tests use `InMemoryPlannerDb`.
+To include PostgreSQL tests, set `TRIPPLANNER_TEST_POSTGRES` to a connection string
+for a dedicated local test database. Include `Search Path=gustavo_planner,public`
+and use a role that can create databases and install PostGIS. Some tests write to
+the configured database. The queue tests create a separate `planner_test_*`
+database, exercise concurrent claims and cache/lease expiry, and remove it
+afterward. In-memory tests use `InMemoryPlannerDb`.
 
 ## Authentication
 

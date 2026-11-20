@@ -1,0 +1,5 @@
+services:
+  database:
+    image: gustavos-trip-planner-database:cloud
+    build:
+      target: cloud
