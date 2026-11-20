@@ -4,7 +4,7 @@
   font-family: "Segoe UI", system-ui, sans-serif;
   color-scheme: light dark;
   color: #242424;
-  background: #f6f8fb;
+  background: #eaf5f1;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -12,7 +12,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f5f7fc;
-    background: #080f1b;
+    background: #0b2525;
   }
 }
 
@@ -108,8 +108,8 @@ input[type="search"] {
 
 .app-theme {
   min-height: 100vh;
-  --app-page-background: #f8fafc;
-  --app-topbar-background: rgb(255 255 255 / 82%);
+  --app-page-background: #eaf5f1;
+  --app-topbar-background: rgb(247 253 250 / 82%);
 }
 .app-theme[data-color-scheme="dark"] {
   --app-page-background: var(--colorNeutralBackground5);

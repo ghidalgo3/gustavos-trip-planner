@@ -26,7 +26,7 @@ export const darkTheme: Theme = {
   colorNeutralBackground3Pressed: "#1b2939",
   colorNeutralBackground3Selected: "#304863",
   colorNeutralBackground4: "#111b28",
-  colorNeutralBackground5: "#080f1b",
+  colorNeutralBackground5: "#0b2525",
   colorNeutralBackground6: "#293646",
   colorNeutralBackgroundDisabled: "#101925",
   colorNeutralBackgroundDisabled2: "#172331",
