@@ -13,6 +13,9 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Fixed
 
+- Authenticate Azure test deployments through a GitHub environment restricted
+  to `main`, so PR previews can start alongside CI.
+
 - Reload Azure test slot authentication during deployment so the Trip Planner sign-in page becomes available.
 
 ### Changed

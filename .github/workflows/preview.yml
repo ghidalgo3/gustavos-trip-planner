@@ -30,6 +30,7 @@ jobs:
       && (github.event_name != 'pull_request_target'
           || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
+    environment: azure-preview
     permissions:
       actions: read
       contents: read
@@ -152,6 +153,7 @@ jobs:
           || needs.select.outputs.action == 'announce'
           || needs.select.outputs.tested_run != '' || needs.build.result == 'success')
     runs-on: ubuntu-24.04
+    environment: azure-preview
     timeout-minutes: 40
     outputs:
       deployed: ${{ steps.update.outputs.deployed }}
