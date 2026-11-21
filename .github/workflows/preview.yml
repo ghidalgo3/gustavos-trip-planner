@@ -68,8 +68,19 @@ jobs:
               echo 'This PR revision is no longer current.'
               exit 1
             fi
+            status_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [[ "$(jq -er .base.sha <<< "$pr")" != "$GITHUB_SHA" ]]; then
+              gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$current_sha" \
+                -f state=error -f context='Azure PR preview' \
+                -f description='Update the PR branch from main before deploying a preview' \
+                -f target_url="$status_url" >/dev/null
+              echo 'GitHub returned an outdated merge snapshot. Update the PR branch from main.'
+              exit 1
+            fi
             if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
               merge_sha="$(jq -er '.merge_commit_sha | select(type == "string" and test("^[a-f0-9]{40}$"))' <<< "$pr")"
+              merge_parents="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$merge_sha")"
+              jq -e --arg base "$GITHUB_SHA" --arg head "$current_sha"                 '.parents[0].sha == $base and .parents[1].sha == $head' <<< "$merge_parents" >/dev/null
               echo "merge_sha=$merge_sha" >> "$GITHUB_OUTPUT"
               if [[ -n "$TESTED_RUN" ]]; then
                 [[ "$TESTED_RUN" =~ ^[0-9]+$ ]]
@@ -89,7 +100,7 @@ jobs:
             gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$current_sha" \
               -f state=pending -f context='Azure PR preview' \
               -f description='Building and deploying the Azure preview' \
-              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+              -f target_url="$status_url" >/dev/null
             echo "sha=$current_sha" >> "$GITHUB_OUTPUT"
           fi
           echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
@@ -133,12 +144,13 @@ jobs:
           path: ${{ runner.temp }}/release
           github-token: ${{ github.token }}
           run-id: ${{ needs.select.outputs.tested_run || github.event.workflow_run.id || github.run_id }}
-      - name: Verify the reused image matches the PR
-        if: needs.select.outputs.tested_run != ''
+      - name: Verify the image matches the PR
+        if: needs.select.outputs.sha != ''
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ needs.select.outputs.sha }}
           MERGE_SHA: ${{ needs.select.outputs.merge_sha }}
+          TESTED_RUN: ${{ needs.select.outputs.tested_run }}
           RELEASE_STATE_DIR: ${{ runner.temp }}/release
         run: |
           revision="$(cat "$RELEASE_STATE_DIR/revision.sha")"
@@ -146,6 +158,11 @@ jobs:
           ref_path="repos/$GITHUB_REPOSITORY/git"
           previous="$(gh api "$ref_path/commits/$revision")"
           jq -e --arg sha "$PR_HEAD" '.parents[1].sha == $sha' <<< "$previous" >/dev/null
+          if [[ -z "$TESTED_RUN" ]]; then
+            jq -e --arg base "$GITHUB_SHA" '.parents[0].sha == $base' <<< "$previous" >/dev/null ||
+              { echo 'The image was built against an older main. Update the PR branch and rebuild.'; exit 1; }
+            exit 0
+          fi
           previous_tree="$(jq -er .tree.sha <<< "$previous")"
           current_tree="$(gh api "$ref_path/commits/$MERGE_SHA" --jq .tree.sha)"
           tested_source() {
