@@ -5,7 +5,7 @@ param serverSku string = 'Standard_B1ms'
 param deployPrincipalId string
 param deployPrincipalName string
 
-var suffix = uniqueString(resourceGroup().id)
+var suffix = uniqueString(resourceGroup().id, 'preview-db')
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: 'psql-trippreview-${suffix}'

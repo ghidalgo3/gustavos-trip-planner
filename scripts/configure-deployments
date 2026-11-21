@@ -8,20 +8,18 @@ infra_deployment="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
 repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 : "${repo:?Cannot determine GitHub repository}"
 [[ "$preview_group" != "$resource_group" ]] || { print -ru2 -- 'Use a separate preview resource group.'; exit 1; }
-if (( $# )) && [[ "$1" != --preview-only || $# != 1 ]]; then
-  print -ru2 -- 'Usage: scripts/configure-deployments [--preview-only]'
+mode="${1:-}"
+if (( $# > 1 )) || [[ -n "$mode" && "$mode" != --production-only && "$mode" != --preview-only ]]; then
+  print -ru2 -- 'Usage: scripts/configure-deployments [--production-only | --preview-only]'
   exit 2
 fi
-preview_only="${1:-}"
 
-if [[ -z "$preview_only" ]]; then
+if [[ "$mode" != --preview-only ]]; then
   GITHUB_REPOSITORY="$repo" scripts/protect-main
 fi
 
 tenant_id="$(az account show --query tenantId -o tsv)"
 subscription_id="$(az account show --query id -o tsv)"
-viewer_id="${PREVIEW_VIEWER_OBJECT_ID:-$(az ad signed-in-user show --query id -o tsv)}"
-[[ "$viewer_id" =~ '^[0-9a-fA-F-]{36}$' ]] || { print -ru2 -- 'A preview viewer Entra object ID is required.'; exit 1; }
 
 infra="$(az deployment group show -g "$resource_group" -n "$infra_deployment" --query properties.outputs -o json)"
 web_app="$(jq -er '.webAppName.value' <<< "$infra")"
@@ -38,9 +36,6 @@ production_registry_id="$prod_rg_id/providers/Microsoft.ContainerRegistry/regist
 prod_db_id="$prod_rg_id/providers/Microsoft.DBforPostgreSQL/flexibleServers/$production_server"
 slot_id="$site_id/slots/preview"
 
-print -r -- "Preparing the Azure preview resource group."
-az group create -n "$preview_group" -l "$location" -o none
-
 make_pipeline_identity() {
   local identity_name="$1"
   az identity create -g "$resource_group" -n "$identity_name" -l "$location" -o none
@@ -55,6 +50,30 @@ grant_role() {
   az role assignment create --assignee-object-id "$principal" --assignee-principal-type ServicePrincipal \
     --scope "$scope" --role "$role" -o none
 }
+
+gh variable set AZURE_TENANT_ID -R "$repo" --body "$tenant_id"
+gh variable set AZURE_SUBSCRIPTION_ID -R "$repo" --body "$subscription_id"
+
+if [[ "$mode" != --preview-only ]]; then
+  print -r -- "Configuring production deployment."
+  production_identity="$(make_pipeline_identity "$web_app-production-ci")"
+  production_principal="$(jq -er '.principalId' <<< "$production_identity")"
+  production_client="$(jq -er '.clientId' <<< "$production_identity")"
+  grant_role "$production_principal" 'AcrPush' "$production_registry_id"
+  grant_role "$production_principal" 'Website Contributor' "$site_id"
+  production_config="$(jq -cn --arg siteId "$site_id" --arg registryName "$production_registry" \
+    --arg registryHost "$production_host" --arg resourceGroup "$resource_group" '$ARGS.named')"
+  gh variable set AZURE_PRODUCTION_CONFIG -R "$repo" --body "$production_config"
+  gh variable set AZURE_PRODUCTION_CLIENT_ID -R "$repo" --body "$production_client"
+fi
+
+[[ "$mode" != --production-only ]] || exit 0
+
+viewer_id="${PREVIEW_VIEWER_OBJECT_ID:-$(az ad signed-in-user show --query id -o tsv)}"
+[[ "$viewer_id" =~ '^[0-9a-fA-F-]{36}$' ]] || { print -ru2 -- 'A preview viewer Entra object ID is required.'; exit 1; }
+
+print -r -- "Preparing the Azure preview resource group."
+az group create -n "$preview_group" -l "$location" -o none
 
 preview_identity_name="$web_app-preview-ci"
 preview_identity="$(make_pipeline_identity "$preview_identity_name")"
@@ -175,21 +194,7 @@ preview_config="$(jq -cn --arg slotId "$slot_id" --arg registryName "$production
   --arg productionResourceGroup "$resource_group" --arg databaseUser "$preview_identity_name" \
   --arg slotUser "$web_app-preview" --arg slotPrincipalId "$slot_principal" \
   '$ARGS.named')"
-gh variable set AZURE_TENANT_ID -R "$repo" --body "$tenant_id"
-gh variable set AZURE_SUBSCRIPTION_ID -R "$repo" --body "$subscription_id"
 gh variable set AZURE_PREVIEW_CONFIG -R "$repo" --body "$preview_config"
 gh variable set AZURE_PREVIEW_CLIENT_ID -R "$repo" --body "$preview_client"
-
-if [[ -z "$preview_only" ]]; then
-  production_identity="$(make_pipeline_identity "$web_app-production-ci")"
-  production_principal="$(jq -er '.principalId' <<< "$production_identity")"
-  production_client="$(jq -er '.clientId' <<< "$production_identity")"
-  grant_role "$production_principal" 'AcrPush' "$production_registry_id"
-  grant_role "$production_principal" 'Website Contributor' "$site_id"
-  production_config="$(jq -cn --arg siteId "$site_id" --arg registryName "$production_registry" \
-    --arg registryHost "$production_host" --arg resourceGroup "$resource_group" '$ARGS.named')"
-  gh variable set AZURE_PRODUCTION_CONFIG -R "$repo" --body "$production_config"
-  gh variable set AZURE_PRODUCTION_CLIENT_ID -R "$repo" --body "$production_client"
-fi
 
 print -r -- "Preview slot: $slot_url"

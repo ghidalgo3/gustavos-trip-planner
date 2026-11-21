@@ -1218,8 +1218,7 @@ capacity for the default PostgreSQL size and region. The setup creates separate
 Azure deployment identities that GitHub authenticates through OIDC. The signed-in user's Entra object ID is allowed to
 open the preview. Set `PREVIEW_VIEWER_OBJECT_ID` to configure a different viewer
 and sign in with that account at the preview URL. Use
-`scripts/configure-deployments --preview-only` to set up the preview while
-production branch protection is unavailable.
+`--production-only` or `--preview-only` to configure one deployment independently.
 
 A pull request from a branch in this repository builds its proposed merge with
 `main` and deploys to the single shared slot. The deployment summary in Actions
