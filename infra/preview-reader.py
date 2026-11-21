@@ -39,8 +39,11 @@ with psycopg.connect(dbname="tripplanner") as connection:
         SELECT c.relname
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'gustavo_planner'
-          AND ((c.relkind IN ('r', 'p', 'm') AND NOT has_table_privilege(%s, c.oid, 'SELECT'))
-            OR (c.relkind = 'S' AND NOT has_sequence_privilege(%s, c.oid, 'SELECT')))
+          AND CASE
+            WHEN c.relkind IN ('r', 'p', 'm') THEN NOT has_table_privilege(%s, c.oid, 'SELECT')
+            WHEN c.relkind = 'S' THEN NOT has_sequence_privilege(%s, c.oid, 'SELECT')
+            ELSE false
+          END
         """,
         (reader, reader),
     ).fetchall()

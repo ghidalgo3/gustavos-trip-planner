@@ -27,8 +27,9 @@ fi
 [[ "${EVENT_ACTION:-}" != closed ]] || exit 0
 [[ "$(jq -r '.head.repo.full_name' <<< "$pr")" == "$GITHUB_REPOSITORY" ]] || exit 0
 if [[ -n "${PR_NUMBER:-}" ]]; then
-  revision="${DEPLOYMENT_REVISION:?Missing PR revision}"
-  [[ "$revision" == "$(jq -r '.head.sha' <<< "$pr")" ]] || exit 0
+  pr_head="${DEPLOYMENT_REVISION:?Missing PR head}"
+  [[ "$pr_head" == "$(jq -r '.head.sha' <<< "$pr")" ]] || exit 0
+  revision="$(< "$RELEASE_STATE_DIR/revision.sha")"
 else
   revision="$previous_revision"
 fi
@@ -52,9 +53,15 @@ case "$previous_database" in
   *) die 'unexpected previous preview database' ;;
 esac
 
-image_ref="$registry_host/tripplanner-api:pr-$pr_number-$revision"
 previous_web="$(web_request get "$slot_id" /config/web --query '{properties: {linuxFxVersion: properties.linuxFxVersion}}' -o json)"
-[[ -z "${PR_NUMBER:-}" ]] || publish_image "$registry_name" "$image_ref"
+preview_image_prefix="$registry_host/tripplanner-api:pr-$pr_number-"
+if [[ -n "${PR_NUMBER:-}" ]]; then
+  image_ref="$preview_image_prefix$revision-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+  publish_image "$registry_name" "$image_ref"
+else
+  image_ref="$(jq -er '.properties.linuxFxVersion | ltrimstr("DOCKER|")' <<< "$previous_web")"
+  [[ "$image_ref" == "$preview_image_prefix"* ]] || die 'unexpected deployed preview image'
+fi
 
 # Keep the dump on the runner, with no GitHub artifact or output containing its contents.
 umask 077
@@ -170,7 +177,7 @@ pg pg_restore --dbname="$database" --role="$owner_role" --single-transaction \
 # A newer push or a closed PR can arrive during the database copy.
 pr="$(pr_details)"
 [[ "$(jq -r '.state' <<< "$pr")" == open ]] || exit 0
-if [[ -n "${PR_NUMBER:-}" && "$revision" != "$(jq -r '.head.sha' <<< "$pr")" ]]; then
+if [[ -n "${PR_NUMBER:-}" && "$pr_head" != "$(jq -r '.head.sha' <<< "$pr")" ]]; then
   exit 0
 fi
 

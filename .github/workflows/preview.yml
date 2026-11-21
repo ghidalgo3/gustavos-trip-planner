@@ -65,7 +65,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && needs.select.outputs.sha != ''
     uses: ./.github/workflows/build-image.yml
     with:
-      ref: ${{ needs.select.outputs.sha }}
+      ref: refs/pull/${{ needs.select.outputs.pr }}/merge
+      pr_head: ${{ needs.select.outputs.sha }}
 
   preview:
     needs: [select, build]

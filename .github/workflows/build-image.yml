@@ -6,6 +6,9 @@ on:
       ref:
         required: true
         type: string
+      pr_head:
+        description: Expected second parent of a pull request merge commit.
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +21,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -32,11 +36,18 @@ jobs:
           npm install --global corepack
       - name: Test and build
         env:
-          DEPLOYMENT_REVISION: ${{ inputs.ref }}
+          PR_HEAD: ${{ inputs.pr_head }}
           RELEASE_STATE_DIR: ${{ runner.temp }}/release
           IMAGE_NAME: tripplanner-api
         run: |
           mkdir -p "$RELEASE_STATE_DIR"
+          if [[ -n "$PR_HEAD" && "$(git rev-parse HEAD^2)" != "$PR_HEAD" ]]; then
+            echo "The pull request changed before checkout."
+            exit 1
+          fi
+          DEPLOYMENT_REVISION="$(git rev-parse HEAD)"
+          export DEPLOYMENT_REVISION
+          echo "$DEPLOYMENT_REVISION" > "$RELEASE_STATE_DIR/revision.sha"
           dotnet tool restore
           dotnet csharpier check .
           (
@@ -56,5 +67,6 @@ jobs:
           path: |
             ${{ runner.temp }}/release/image.tar.gz
             ${{ runner.temp }}/release/index.sha256
+            ${{ runner.temp }}/release/revision.sha
           if-no-files-found: error
           retention-days: 1

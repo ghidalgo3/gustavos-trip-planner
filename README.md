@@ -1219,8 +1219,8 @@ and sign in with that account at the preview URL. Use
 `scripts/configure-deployments --preview-only` to set up the preview while
 production branch protection is unavailable.
 
-A pull request from a branch in this repository builds the proposed commit and
-deploys to the single shared slot. The deployment summary in Actions shows the
+A pull request from a branch in this repository builds its proposed merge with
+`main` and deploys to the single shared slot. The deployment summary in Actions shows the
 preview URL and commit. A successful deployment replaces the previous preview.
 Closing the pull request stops the slot if it is the one being previewed. Fork
 pull requests are excluded because preview code can read the copied trip data.
