@@ -210,5 +210,5 @@ switching=false
 printf '[Sign in to preview PR #%s](%s)\n\nCommit `%s`\n' \
   "$pr_number" "$login_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  print -r -- 'deployed=true' >> "$GITHUB_OUTPUT"
+  printf 'deployed=true\nlogin_url=%s\n' "$login_url" >> "$GITHUB_OUTPUT"
 fi
