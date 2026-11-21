@@ -1,6 +1,6 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
-using System.Text.RegularExpressions;
 
 namespace TripPlanner.Api.Hosting;
 
@@ -82,9 +82,10 @@ public static partial class SpaHosting
     ) =>
         new()
         {
-            FileProvider = previewRoot is not null && bundledFiles is not null
-                ? new CompositeFileProvider(new PreviewFiles(previewRoot), bundledFiles)
-                : bundledFiles,
+            FileProvider =
+                previewRoot is not null && bundledFiles is not null
+                    ? new CompositeFileProvider(new PreviewFiles(previewRoot), bundledFiles)
+                    : bundledFiles,
             OnPrepareResponse = context =>
             {
                 string path = context.Context.Request.Path.Value ?? "";
