@@ -14,12 +14,78 @@ pr_number="${PR_NUMBER:-$previous_pr}"
 [[ -n "$pr_number" ]] || exit 0
 [[ "$pr_number" =~ '^[0-9]+$' ]] || die 'invalid PR number'
 
+login_url="$slot_url/.auth/login/aad?post_login_redirect_uri=%2F"
+unauthenticated_access=false
+
+verify_test_auth_policy() {
+  web_request get "$slot_id" /config/authsettingsV2/list --query properties -o json |
+    jq -e '.platform.enabled and .globalValidation.requireAuthentication
+      and (.identityProviders.azureActiveDirectory.validation.defaultAuthorizationPolicy.allowedPrincipals.identities | length > 0)
+      and .globalValidation.excludedPaths == ["/health"]' >/dev/null ||
+    die 'the slot must require Entra authentication before attaching copied data'
+}
+
+verify_test_sign_in() {
+  # App Service starts the authentication sidecar after the application responds.
+  # Treat an unauthenticated success response as a failed check.
+  local auth_ready=false auth_status=000 auth_response auth_redirect attempt
+  print -r -- 'Waiting for Microsoft Entra sign-in on the test environment.'
+  for attempt in {1..18}; do
+    if auth_response="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code} %{redirect_url}' "$slot_url/")"; then
+      auth_status="${auth_response%% *}"
+      auth_redirect="${auth_response#* }"
+      case "$auth_status" in
+        2*)
+          unauthenticated_access=true
+          die 'test environment served a successful response without Entra authentication'
+          ;;
+        401|403)
+          auth_redirect="$(curl -sS --max-time 10 -o /dev/null -w '%{redirect_url}' "$login_url")" || auth_redirect=''
+          ;;
+      esac
+      if [[ "$auth_redirect" == "$slot_url/.auth/login/aad"* ||
+            "$auth_redirect" == https://login.microsoftonline.com/* ]]; then
+        auth_ready=true
+        break
+      fi
+    fi
+    sleep 10
+  done
+  [[ "$auth_ready" == true ]] || die "test environment sign-in did not become ready (HTTP $auth_status)"
+}
+
+report_test_ready() {
+  printf '[Sign in to the test environment for PR #%s](%s)\n\nCommit `%s`\n' \
+    "$pr_number" "$login_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf 'deployed=true\nlogin_url=%s\n' "$login_url" >> "$GITHUB_OUTPUT"
+  fi
+}
+
 pr_details() { gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number"; }
 pr="$(pr_details)"
+if [[ "${EVENT_ACTION:-}" == announce ]]; then
+  [[ "$pr_number" == "$previous_pr" ]] || die "PR #$pr_number is not running in the test environment"
+  pr_head="${DEPLOYMENT_REVISION:?Missing PR head}"
+  jq -e --arg sha "$pr_head" '.state == "open" and .head.sha == $sha' <<< "$pr" >/dev/null ||
+    die "PR #$pr_number changed before the announcement"
+  revision="$previous_revision"
+  [[ "$revision" =~ '^[a-f0-9]{40}$' && -n "$previous_database" ]] ||
+    die 'the test environment has no recorded deployment'
+  gh api "repos/$GITHUB_REPOSITORY/git/commits/$revision" |
+    jq -e --arg sha "$pr_head" '.parents[1].sha == $sha' >/dev/null ||
+    die "the test environment is running an older commit for PR #$pr_number"
+  verify_test_auth_policy
+  verify_revision "$slot_url" "$revision" || die 'the test environment is not healthy'
+  verify_test_sign_in
+  report_test_ready
+  exit 0
+fi
+
 if [[ "$(jq -r '.state' <<< "$pr")" == closed ]]; then
   if [[ "$pr_number" == "$previous_pr" ]]; then
     web_request post "$slot_id" /stop -o none
-    print -r -- "Stopped the shared preview for PR #$pr_number."
+    print -r -- "Stopped the shared test environment for PR #$pr_number."
   fi
   exit 0
 fi
@@ -33,7 +99,7 @@ if [[ -n "${PR_NUMBER:-}" ]]; then
 else
   revision="$previous_revision"
 fi
-[[ "$revision" =~ '^[a-f0-9]{40}$' ]] || die 'invalid preview revision'
+[[ "$revision" =~ '^[a-f0-9]{40}$' ]] || die 'invalid test environment revision'
 
 registry_name="$(config registryName)"
 registry_host="$(config registryHost)"
@@ -46,7 +112,7 @@ owner_role=tripplanner_preview_owner
 case "$previous_database" in
   ""|tripplanner_preview_b) database=tripplanner_preview_a ;;
   tripplanner_preview_a) database=tripplanner_preview_b ;;
-  *) die 'unexpected previous preview database' ;;
+  *) die 'unexpected previous test database' ;;
 esac
 
 previous_web="$(web_request get "$slot_id" /config/web --query '{properties: {linuxFxVersion: properties.linuxFxVersion}}' -o json)"
@@ -56,7 +122,7 @@ if [[ -n "${PR_NUMBER:-}" ]]; then
   publish_image "$registry_name" "$image_ref" "$resource_group"
 else
   image_ref="$(jq -er '.properties.linuxFxVersion | ltrimstr("DOCKER|")' <<< "$previous_web")"
-  [[ "$image_ref" == "$preview_image_prefix"* ]] || die 'unexpected deployed preview image'
+  [[ "$image_ref" == "$preview_image_prefix"* ]] || die 'unexpected deployed test environment image'
 fi
 
 # Keep the dump on the runner, with no GitHub artifact or output containing its contents.
@@ -66,13 +132,12 @@ firewall_rule="github-preview-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 firewall_uri="/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$resource_group/providers/Microsoft.DBforPostgreSQL/flexibleServers/$database_server/firewallRules/$firewall_rule?api-version=2024-08-01"
 firewall_open=false
 switching=false
-unauthenticated_access=false
 
 cleanup() {
   local result=$?
   trap - EXIT
   if [[ "$switching" == true ]]; then
-    print -ru2 -- 'Restoring the previous preview configuration.'
+    print -ru2 -- 'Restoring the previous test environment configuration.'
     web_request post "$slot_id" /stop -o none || result=1
     web_request put "$slot_id" /config/appsettings --body "$settings" -o none || result=1
     if [[ -n "$previous_revision" && "$unauthenticated_access" == false ]]; then
@@ -163,11 +228,7 @@ next_settings="$(jq -c --arg database "$database" --arg connection "$connection"
     DEPLOYED_PR: $pr, DEPLOYED_REVISION: $revision})}' <<< "$settings")"
 
 # Stop first so the previous image can never migrate the incoming database.
-web_request get "$slot_id" /config/authsettingsV2/list --query properties -o json |
-  jq -e '.platform.enabled and .globalValidation.requireAuthentication
-    and (.identityProviders.azureActiveDirectory.validation.defaultAuthorizationPolicy.allowedPrincipals.identities | length > 0)
-    and .globalValidation.excludedPaths == ["/health"]' >/dev/null ||
-  die 'the slot must require Entra authentication before attaching copied data'
+verify_test_auth_policy
 
 switching=true
 web_request post "$slot_id" /stop -o none
@@ -175,40 +236,8 @@ web_request put "$slot_id" /config/appsettings --body "$next_settings" -o none
 web_request patch "$slot_id" /config/web --body "$(jq -cn --arg image "$image_ref" \
   '{properties: {linuxFxVersion: ("DOCKER|" + $image), acrUseManagedIdentityCreds: true}}')" -o none
 web_request post "$slot_id" /start -o none
-verify_revision "$slot_url" "$revision" || die "preview failed startup or migrations for $revision"
+verify_revision "$slot_url" "$revision" || die "test environment failed startup or migrations for $revision"
 
-# App Service starts the authentication sidecar after the application responds.
-# Keep the slot closed if it actually serves an unauthenticated response.
-login_url="$slot_url/.auth/login/aad?post_login_redirect_uri=%2F"
-auth_ready=false
-auth_status=000
-print -r -- 'Waiting for Microsoft Entra sign-in on the preview.'
-for attempt in {1..18}; do
-  if auth_response="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code} %{redirect_url}' "$slot_url/")"; then
-    auth_status="${auth_response%% *}"
-    auth_redirect="${auth_response#* }"
-    case "$auth_status" in
-      2*)
-        unauthenticated_access=true
-        die 'preview served a successful response without Entra authentication'
-        ;;
-      401|403)
-        auth_redirect="$(curl -sS --max-time 10 -o /dev/null -w '%{redirect_url}' "$login_url")" || auth_redirect=''
-        ;;
-    esac
-    if [[ "$auth_redirect" == "$slot_url/.auth/login/aad"* ||
-          "$auth_redirect" == https://login.microsoftonline.com/* ]]; then
-      auth_ready=true
-      break
-    fi
-  fi
-  sleep 10
-done
-[[ "$auth_ready" == true ]] || die "preview sign-in did not become ready (HTTP $auth_status)"
-
+verify_test_sign_in
 switching=false
-printf '[Sign in to preview PR #%s](%s)\n\nCommit `%s`\n' \
-  "$pr_number" "$login_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  printf 'deployed=true\nlogin_url=%s\n' "$login_url" >> "$GITHUB_OUTPUT"
-fi
+report_test_ready
