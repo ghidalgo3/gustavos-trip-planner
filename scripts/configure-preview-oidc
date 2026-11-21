@@ -1,0 +1,56 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+environment=azure-preview
+environment_path="repos/$repo/environments/$environment"
+preview_config="$(gh api "repos/$repo/actions/variables/AZURE_PREVIEW_CONFIG" --jq .value)"
+resource_group="$(jq -er '.resourceGroup' <<< "$preview_config")"
+identity="$(jq -er '.databaseUser' <<< "$preview_config")"
+expected_client="$(gh api "repos/$repo/actions/variables/AZURE_PREVIEW_CLIENT_ID" --jq .value)"
+client="$(az identity show -g "$resource_group" -n "$identity" --query clientId -o tsv)"
+[[ "$client" == "$expected_client" && -n "$client" ]] || {
+  print -ru2 -- 'The configured preview client does not match the Azure managed identity.'
+  exit 1
+}
+
+issuer=https://token.actions.githubusercontent.com
+audience=api://AzureADTokenExchange
+main_ref_suffix=':ref:refs/heads/main'
+main_subject="$(az identity federated-credential show -g "$resource_group" \
+  --identity-name "$identity" --name github-main -o json |
+  jq -er --arg issuer "$issuer" --arg audience "$audience" --arg suffix "$main_ref_suffix" '
+    select(.issuer == $issuer and (.audiences | index($audience) != null))
+    | .subject | select(startswith("repo:") and endswith($suffix))
+  ')" || {
+  print -ru2 -- 'Could not determine the repository OIDC subject from the existing github-main credential.'
+  exit 1
+}
+environment_subject="${main_subject%$main_ref_suffix}:environment:$environment"
+
+gh api --method PUT "$environment_path" --input - >/dev/null <<'JSON'
+{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+JSON
+
+read_policies() {
+  gh api --paginate "$environment_path/deployment-branch-policies" |
+    jq -sc '[.[].branch_policies[] | {name, type}]'
+}
+
+policies="$(read_policies)"
+if [[ "$policies" == '[]' ]]; then
+  gh api --method POST "$environment_path/deployment-branch-policies" \
+    -f name=main -f type=branch >/dev/null
+fi
+
+policies="$(read_policies)"
+[[ "$policies" == '[{"name":"main","type":"branch"}]' ]] || {
+  print -ru2 -- 'The azure-preview environment must have exactly one deployment policy, for the main branch.'
+  exit 1
+}
+
+az identity federated-credential create -g "$resource_group" --identity-name "$identity" \
+  --name github-preview-environment --issuer "$issuer" --subject "$environment_subject" \
+  --audiences "$audience" -o none
+
+print -r -- 'Configured the main-only azure-preview environment and its Azure federated credential.'

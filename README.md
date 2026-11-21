@@ -1219,6 +1219,14 @@ production sign-in page, with separate Google and Microsoft OAuth registrations.
 Only approved reviewer accounts can sign in. Use `--production-only` or
 `--preview-only` to configure one deployment independently.
 
+For an existing installation, run `scripts/configure-preview-oidc` before
+merging the workflow change that uses the `azure-preview` GitHub environment.
+The script requires GitHub repository admin access and Azure permission to
+manage federated credentials on the preview identity. It allows only the
+`main` branch to use the environment and adds the matching Azure credential.
+Automatic previews can then start alongside CI, and manual and scheduled runs
+use the same environment.
+
 Register `https://<test-slot-host>/.auth/callback/google` and
 `https://<test-slot-host>/.auth/callback/microsoft` with the respective test clients.
 Store their credentials as `test-google-client-id`, `test-google-client-secret`,
