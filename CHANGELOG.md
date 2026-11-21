@@ -13,9 +13,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
-- Post the Azure preview sign-in link on the pull request when the preview is ready.
-
-- Add GitHub Actions deployment for merged pull requests and a shared Azure preview slot backed by a daily refresh of copied PostgreSQL trip data.
+- Post the Azure test environment sign-in link on the pull request when it is ready, including on demand for a deployment that is already running.
+- Add GitHub Actions deployment for merged pull requests and a shared Azure test environment backed by a daily refresh of copied PostgreSQL trip data.
 - Add a cloud mode to the setup, dependency installation, and development server scripts.
 
 ## 2026.11.17.1
