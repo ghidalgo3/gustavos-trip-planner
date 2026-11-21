@@ -213,13 +213,16 @@ test.each([
   ["Car", "car"],
   ["Walking", "walk"],
 ])(
-  "%s estimates and immediately saves a complete resource",
+  "%s estimates and saves a complete resource after pressing Save",
   async (label, mode) => {
     show();
     fireEvent.click(
       await screen.findByRole("button", { name: /Choose transportation/ }),
     );
     fireEvent.click(screen.getByRole("tab", { name: label }));
+    expect(estimateTransportation).not.toHaveBeenCalled();
+    expect(saveTransportation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saveTransportation).toHaveBeenCalled());
     expect(estimateTransportation).toHaveBeenCalledWith(
       "trip",
@@ -256,7 +259,33 @@ test.each([
     );
   },
 );
-test("a failed automatic save retains the confirmed transport and permits retry", async () => {
+test.each(["flight", "train"])(
+  "browsing other tabs and closing the drawer preserves saved %s transportation",
+  async (mode) => {
+    vi.mocked(listTransportation).mockResolvedValue({
+      data: [{ ...value, mode }],
+      etag: "",
+    });
+    show();
+    const card = await screen.findByRole("button", { name: /Paris → Lyon/ });
+    fireEvent.click(card);
+    fireEvent.click(screen.getByRole("tab", { name: "Car" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Walking" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close transportation" }),
+    );
+    expect(saveTransportation).not.toHaveBeenCalled();
+    expect(estimateTransportation).not.toHaveBeenCalled();
+    const label = mode === "flight" ? "Flight" : "Train";
+    expect(card).toHaveTextContent(label);
+    fireEvent.click(card);
+    expect(screen.getByRole("tab", { name: label })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  },
+);
+test("a failed save retains the confirmed transport and permits retry", async () => {
   vi.mocked(listTransportation).mockResolvedValue({ data: [value], etag: "" });
   vi.mocked(saveTransportation).mockRejectedValueOnce(
     new Error("Please retry"),
@@ -264,9 +293,11 @@ test("a failed automatic save retains the confirmed transport and permits retry"
   show();
   fireEvent.click(await screen.findByRole("button", { name: /Paris → Lyon/ }));
   fireEvent.click(screen.getByRole("tab", { name: "Car" }));
+  const save = screen.getByRole("button", { name: "Save" });
+  fireEvent.click(save);
   expect(await screen.findByText("Please retry")).toBeVisible();
   expect(screen.getByText("Gare de Lyon → Part Dieu")).toBeVisible();
-  fireEvent.click(screen.getByRole("tab", { name: "Car" }));
+  fireEvent.click(save);
   await waitFor(() => expect(saveTransportation).toHaveBeenCalledTimes(2));
 });
 test.each([false, true])(
@@ -388,6 +419,8 @@ test("flight search stays inside the transportation drawer after selecting fligh
   expect(
     await screen.findByRole("region", { name: "Flight planning" }),
   ).toBeVisible();
+  expect(saveTransportation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(saveTransportation).toHaveBeenCalledWith(
       "trip",

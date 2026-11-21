@@ -4,6 +4,7 @@ import { FlightMapPreviewContext } from "../flights/FlightMapPreviewContext";
 import {
   Button,
   DrawerBody,
+  DrawerFooter,
   DrawerHeader,
   DrawerHeaderTitle,
   OverlayDrawer,
@@ -158,7 +159,7 @@ export default function DestinationTransport({
     setBusy(true);
     setError("");
     try {
-      const previous = open ? editBase : value;
+      const previous = editBase;
       const sameMode = previous?.mode === mode;
       let features =
         train?.features ??
@@ -386,9 +387,6 @@ export default function DestinationTransport({
                 setHoveredFlight(undefined);
                 setFocusedFlight(undefined);
                 setStationSearch(undefined);
-                if (selectedMode !== "train" && !readOnly) {
-                  void save(selectedMode);
-                }
               }}
             >
               {Object.entries(modes).map(([key, label]) => (
@@ -461,6 +459,17 @@ export default function DestinationTransport({
               )}
             </div>
           </DrawerBody>
+          {draftMode && draftMode !== "train" && (
+            <DrawerFooter>
+              <Button
+                appearance="primary"
+                disabled={readOnly || busy || !loaded}
+                onClick={() => void save(draftMode)}
+              >
+                Save
+              </Button>
+            </DrawerFooter>
+          )}
         </OverlayDrawer>
       )}
     </li>
