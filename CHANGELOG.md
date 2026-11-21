@@ -13,6 +13,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Fixed
 
+- Keep saved transportation when browsing mode tabs. Use Save to apply a change.
+
 - Authenticate Azure test deployments through a GitHub environment restricted
   to `main`, so PR previews can start alongside CI.
 
