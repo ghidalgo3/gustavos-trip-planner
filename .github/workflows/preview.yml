@@ -124,6 +124,13 @@ jobs:
           client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Install zsh
+        if: github.event_name == 'pull_request_target' && steps.select.outputs.sha != ''
+        run: |
+          if ! command -v zsh >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y zsh
+          fi
       - name: Check whether the running backend can serve the new web assets
         if: github.event_name == 'pull_request_target' && steps.select.outputs.sha != ''
         id: web
@@ -215,6 +222,12 @@ jobs:
           client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Install zsh
+        run: |
+          if ! command -v zsh >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y zsh
+          fi
       - name: Prepare the test environment
         id: update
         env:
@@ -231,7 +244,6 @@ jobs:
           if [[ -n "$PREVIEW_BACKEND" ]]; then
             zsh scripts/deployment/preview-assets.zsh publish
           else
-            sudo apt-get install -y zsh
             zsh scripts/deployment/preview.zsh
           fi
 
