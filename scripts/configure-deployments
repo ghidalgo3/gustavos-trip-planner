@@ -3,11 +3,9 @@ set -euo pipefail
 
 cd "${0:A:h:h}"
 resource_group="${RESOURCE_GROUP:-rg-tripplanner-dev}"
-preview_group="${PREVIEW_RESOURCE_GROUP:-$resource_group-preview}"
 infra_deployment="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
 repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 : "${repo:?Cannot determine GitHub repository}"
-[[ "$preview_group" != "$resource_group" ]] || { print -ru2 -- 'Use a separate preview resource group.'; exit 1; }
 mode="${1:-}"
 if (( $# > 1 )) || [[ -n "$mode" && "$mode" != --production-only && "$mode" != --preview-only ]]; then
   print -ru2 -- 'Usage: scripts/configure-deployments [--production-only | --preview-only]'
@@ -72,35 +70,20 @@ fi
 viewer_id="${PREVIEW_VIEWER_OBJECT_ID:-$(az ad signed-in-user show --query id -o tsv)}"
 [[ "$viewer_id" =~ '^[0-9a-fA-F-]{36}$' ]] || { print -ru2 -- 'A preview viewer Entra object ID is required.'; exit 1; }
 
-print -r -- "Preparing the Azure preview resource group."
-az group create -n "$preview_group" -l "$location" -o none
-
 preview_identity_name="$web_app-preview-ci"
 preview_identity="$(make_pipeline_identity "$preview_identity_name")"
 preview_principal="$(jq -er '.principalId' <<< "$preview_identity")"
 preview_client="$(jq -er '.clientId' <<< "$preview_identity")"
 
-current_preview="$(az postgres flexible-server list -g "$preview_group" \
-  --query '[?tags.workload==`tripplanner-preview`] | [0].{location:location, sku:sku.name}' -o json)"
-database_sku="${PREVIEW_DATABASE_SKU:-$(jq -r '.sku // "Standard_B1ms"' <<< "$current_preview")}"
-database_location="${PREVIEW_DATABASE_LOCATION:-$(jq -r --arg location "$location" '.location // $location' <<< "$current_preview")}"
-print -r -- "Provisioning preview PostgreSQL in $database_location with $database_sku."
-preview="$(az deployment group create -g "$preview_group" -n tripplanner-preview \
-  --template-file infra/preview.bicep --parameters deployPrincipalId="$preview_principal" \
-    deployPrincipalName="$preview_identity_name" serverSku="$database_sku" \
-    location="$database_location" --query properties.outputs -o json)"
-preview_server="$(jq -er '.postgresName.value' <<< "$preview")"
-preview_db_id="$(jq -er '.postgresId.value' <<< "$preview")"
 grant_role "$preview_principal" 'AcrPush' "$production_registry_id"
 
-# Allow only temporary network exceptions to the database servers. The source
+# Allow only temporary network exceptions to the shared database server. The source
 # PostgreSQL login has separate SQL-level read access.
 firewall_role="$web_app PostgreSQL firewall"
 firewall_role_id="$(az role definition list --name "$firewall_role" --query '[0].name' -o tsv)"
 if [[ -z "$firewall_role_id" ]]; then
   firewall_role_id="$(az role definition create --role-definition "$(jq -cn \
-    --arg name "$firewall_role" --arg source "$prod_rg_id" \
-    --arg target "/subscriptions/$subscription_id/resourceGroups/$preview_group" '{
+    --arg name "$firewall_role" --arg source "$prod_rg_id" '{
       Name: $name,
       Description: "Manages PostgreSQL firewall rules for preview copies.",
       Actions: [
@@ -109,17 +92,10 @@ if [[ -z "$firewall_role_id" ]]; then
         "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules/write",
         "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules/delete"
       ],
-      AssignableScopes: [$source, $target]
+      AssignableScopes: [$source]
     }')" --query name -o tsv)"
 fi
 grant_role "$preview_principal" "$firewall_role_id" "$prod_db_id"
-grant_role "$preview_principal" "$firewall_role_id" "$preview_db_id"
-
-print -r -- "Granting read access for production database copies."
-az deployment group create -g "$resource_group" -n tripplanner-preview-reader \
-  --template-file infra/preview-reader.bicep --parameters postgresServerName="$production_server" \
-    postgresAdminIdentityName="$postgres_admin" productionRole="$web_app" \
-    readerName="$preview_identity_name" readerPrincipalId="$preview_principal" -o none
 
 print -r -- "Configuring the authenticated preview slot."
 tier="$(az appservice plan show --ids "$plan_id" --query sku.tier -o tsv)"
@@ -136,6 +112,13 @@ slot_host="$(az webapp show -g "$resource_group" -n "$web_app" --slot preview --
 slot_url="https://$slot_host"
 grant_role "$slot_principal" 'AcrPull' "$production_registry_id"
 grant_role "$preview_principal" 'Website Contributor' "$slot_id"
+
+print -r -- "Configuring preview database roles and template on the existing PostgreSQL server."
+az deployment group create -g "$resource_group" -n tripplanner-preview-reader \
+  --template-file infra/preview-reader.bicep --parameters postgresServerName="$production_server" \
+    postgresAdminIdentityName="$postgres_admin" productionRole="$web_app" \
+    readerName="$preview_identity_name" readerPrincipalId="$preview_principal" \
+    slotName="$web_app-preview" slotPrincipalId="$slot_principal" -o none
 
 auth_name="$web_app-preview-entra"
 auth_app="$(az ad app list --filter "displayName eq '$auth_name'" --query '[0].appId' -o tsv)"
@@ -189,10 +172,9 @@ az rest --method put --uri "$sticky_id" --body "$(jq -c '
 ' <<< "$sticky_settings")" -o none
 
 preview_config="$(jq -cn --arg slotId "$slot_id" --arg registryName "$production_registry" \
-  --arg registryHost "$production_host" --arg previewServer "$preview_server" \
-  --arg previewResourceGroup "$preview_group" --arg productionServer "$production_server" \
-  --arg productionResourceGroup "$resource_group" --arg databaseUser "$preview_identity_name" \
-  --arg slotUser "$web_app-preview" --arg slotPrincipalId "$slot_principal" \
+  --arg registryHost "$production_host" --arg databaseServer "$production_server" \
+  --arg resourceGroup "$resource_group" --arg databaseUser "$preview_identity_name" \
+  --arg slotUser "$web_app-preview" \
   '$ARGS.named')"
 gh variable set AZURE_PREVIEW_CONFIG -R "$repo" --body "$preview_config"
 gh variable set AZURE_PREVIEW_CLIENT_ID -R "$repo" --body "$preview_client"

@@ -37,16 +37,12 @@ fi
 
 registry_name="$(config registryName)"
 registry_host="$(config registryHost)"
-preview_server="$(config previewServer)"
-preview_group="$(config previewResourceGroup)"
-production_server="$(config productionServer)"
-production_group="$(config productionResourceGroup)"
+database_server="$(config databaseServer)"
+resource_group="$(config resourceGroup)"
 database_user="$(config databaseUser)"
 slot_user="$(config slotUser)"
-slot_principal="$(config slotPrincipalId)"
 owner_role=tripplanner_preview_owner
 
-[[ "$preview_server" != "$production_server" ]] || die 'preview and production use the same server'
 case "$previous_database" in
   ""|tripplanner_preview_b) database=tripplanner_preview_a ;;
   tripplanner_preview_a) database=tripplanner_preview_b ;;
@@ -67,8 +63,7 @@ fi
 umask 077
 work_dir="$(mktemp -d)"
 firewall_rule="github-preview-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-production_firewall=false
-preview_firewall=false
+firewall_open=false
 switching=false
 unauthenticated_access=false
 
@@ -87,12 +82,8 @@ cleanup() {
       fi
     fi
   fi
-  if [[ "$preview_firewall" == true ]]; then
-    az postgres flexible-server firewall-rule delete -g "$preview_group" -n "$preview_server" \
-      --rule-name "$firewall_rule" --yes --only-show-errors -o none || result=1
-  fi
-  if [[ "$production_firewall" == true ]]; then
-    az postgres flexible-server firewall-rule delete -g "$production_group" -n "$production_server" \
+  if [[ "$firewall_open" == true ]]; then
+    az postgres flexible-server firewall-rule delete -g "$resource_group" -n "$database_server" \
       --rule-name "$firewall_rule" --yes --only-show-errors -o none || result=1
   fi
   rm -rf -- "$work_dir"
@@ -104,19 +95,13 @@ trap 'exit 143' TERM
 
 runner_ip="$(curl -4fsS --retry 3 --max-time 10 https://api.ipify.org)"
 [[ "$runner_ip" =~ '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' ]] || die 'could not resolve runner IPv4'
-open_firewall() {
-  az postgres flexible-server firewall-rule create -g "$1" -n "$2" \
-    --rule-name "$firewall_rule" --start-ip-address "$runner_ip" --end-ip-address "$runner_ip" \
-    --only-show-errors -o none
-}
-
 docker pull postgres:18
-production_firewall=true
-open_firewall "$production_group" "$production_server"
-preview_firewall=true
-open_firewall "$preview_group" "$preview_server"
+firewall_open=true
+az postgres flexible-server firewall-rule create -g "$resource_group" -n "$database_server" \
+  --rule-name "$firewall_rule" --start-ip-address "$runner_ip" --end-ip-address "$runner_ip" \
+  --only-show-errors -o none
 
-PGHOST="$production_server.postgres.database.azure.com"
+PGHOST="$database_server.postgres.database.azure.com"
 export PGHOST PGUSER="$database_user" PGSSLMODE=verify-full PGSSLROOTCERT=system
 PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 export PGPASSWORD
@@ -146,31 +131,13 @@ pg pg_dump --dbname=tripplanner --format=custom --schema=gustavo_planner \
   --exclude-table-data='gustavo_planner.activity_calendar_subscriptions' \
   --file=/backup/tripplanner.dump
 
-az postgres flexible-server firewall-rule delete -g "$production_group" -n "$production_server" \
-  --rule-name "$firewall_rule" --yes --only-show-errors -o none
-production_firewall=false
-
-PGHOST="$preview_server.postgres.database.azure.com"
-PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
-print -r -- "::add-mask::$PGPASSWORD"
-wait_for_database
-
-pg psql -X -v ON_ERROR_STOP=1 -q -d postgres \
-  -v slot_user="$slot_user" -v slot_principal="$slot_principal" -v owner_role="$owner_role" \
-  -v database="$database" <<'SQL'
-SELECT pgaadauth_create_principal_with_oid(:'slot_user', :'slot_principal', 'service', false, false)
-WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'slot_user');
-SELECT format('CREATE ROLE %I NOLOGIN', :'owner_role')
-WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'owner_role') \gexec
-GRANT :"owner_role" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE;
-GRANT :"owner_role" TO :"slot_user" WITH INHERIT TRUE, SET TRUE;
+pg psql -X -v ON_ERROR_STOP=1 -q -d postgres -v owner_role="$owner_role" -v database="$database" <<'SQL'
 DROP DATABASE IF EXISTS :"database" WITH (FORCE);
-CREATE DATABASE :"database" TEMPLATE template0;
+CREATE DATABASE :"database" TEMPLATE tripplanner_preview_template;
 REVOKE CONNECT, TEMPORARY ON DATABASE :"database" FROM PUBLIC;
 GRANT CONNECT, CREATE, TEMPORARY ON DATABASE :"database" TO :"owner_role";
 SQL
 
-pg psql -Xq -v ON_ERROR_STOP=1 -d "$database" -c 'CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;'
 pg pg_restore --dbname="$database" --role="$owner_role" --single-transaction \
   --no-owner --no-privileges /backup/tripplanner.dump
 

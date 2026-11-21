@@ -6,6 +6,8 @@ param postgresAdminIdentityName string
 param productionRole string
 param readerName string
 param readerPrincipalId string
+param slotName string
+param slotPrincipalId string
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' existing = {
   name: postgresServerName
@@ -28,7 +30,7 @@ resource grantReader 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
     timeout: 'PT15M'
     cleanupPreference: 'OnSuccess'
     retentionInterval: 'PT1H'
-    forceUpdateTag: 'preview-reader-v1'
+    forceUpdateTag: 'shared-preview-databases-v1'
     environmentVariables: [
       { name: 'ADMIN_CLIENT_ID', value: admin.properties.clientId }
       { name: 'PGUSER', value: admin.name }
@@ -36,6 +38,8 @@ resource grantReader 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       { name: 'PRODUCTION_ROLE', value: productionRole }
       { name: 'READER_NAME', value: readerName }
       { name: 'READER_PRINCIPAL_ID', value: readerPrincipalId }
+      { name: 'SLOT_NAME', value: slotName }
+      { name: 'SLOT_PRINCIPAL_ID', value: slotPrincipalId }
     ]
     scriptContent: replace('''
       set -euo pipefail

@@ -4,20 +4,53 @@ import psycopg
 from psycopg import sql
 
 reader = os.environ["READER_NAME"]
-principal = os.environ["READER_PRINCIPAL_ID"]
+slot = os.environ["SLOT_NAME"]
 production_role = sql.Identifier(os.environ["PRODUCTION_ROLE"])
+owner = "tripplanner_preview_owner"
+template = "tripplanner_preview_template"
 
-with psycopg.connect(dbname="postgres") as connection:
-    existing = connection.execute(
-        "SELECT 1 FROM pg_roles WHERE rolname = %s", (reader,)
+
+with psycopg.connect(dbname="postgres", autocommit=True) as connection:
+    for name, oid in ((reader, os.environ["READER_PRINCIPAL_ID"]),
+                      (slot, os.environ["SLOT_PRINCIPAL_ID"])):
+        if connection.execute("SELECT FROM pg_roles WHERE rolname = %s", (name,)).fetchone() is None:
+            connection.execute(
+                "SELECT pgaadauth_create_principal_with_oid(%s, %s, 'service', false, false)",
+                (name, oid),
+            )
+    connection.execute(sql.SQL("ALTER ROLE {} CREATEDB").format(sql.Identifier(reader)))
+    if connection.execute("SELECT FROM pg_roles WHERE rolname = %s", (owner,)).fetchone() is None:
+        connection.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(owner)))
+    for name in (reader, slot):
+        connection.execute(sql.SQL("GRANT {} TO {} WITH INHERIT TRUE, SET TRUE").format(
+            sql.Identifier(owner), sql.Identifier(name)
+        ))
+
+    allow_connections = connection.execute(
+        "SELECT datallowconn FROM pg_database WHERE datname = %s", (template,)
     ).fetchone()
-    if existing is None:
-        connection.execute(
-            "SELECT pgaadauth_create_principal_with_oid(%s, %s, 'service', false, false)",
-            (reader, principal),
-        )
+    if allow_connections is None:
+        connection.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(sql.Identifier(template)))
+        connection.execute(sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(sql.Identifier(template)))
+    if allow_connections is None or allow_connections[0]:
+        with psycopg.connect(dbname=template) as template_connection:
+            template_connection.execute("CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public")
+        connection.execute(sql.SQL("ALTER DATABASE {} WITH IS_TEMPLATE TRUE ALLOW_CONNECTIONS FALSE").format(
+            sql.Identifier(template)
+        ))
 
 with psycopg.connect(dbname="tripplanner") as connection:
+    slot_can_modify_production = connection.execute(
+        """
+        SELECT has_schema_privilege(%s, 'gustavo_planner', 'USAGE,CREATE')
+            OR has_schema_privilege(%s, 'public', 'CREATE')
+            OR has_database_privilege(%s, current_database(), 'CREATE')
+        """,
+        (slot, slot, slot),
+    ).fetchone()[0]
+    if slot_can_modify_production:
+        raise RuntimeError("The preview slot role has access to production objects.")
+
     for statement in (
         "GRANT CONNECT ON DATABASE tripplanner TO {reader}",
         "GRANT USAGE ON SCHEMA gustavo_planner TO {reader}",

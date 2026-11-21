@@ -1210,11 +1210,9 @@ required approving reviewer, so a sole maintainer can merge through a PR. GitHub
 requires Pro or equivalent branch protection support for private repositories.
 `scripts/protect-main` applies the ruleset independently.
 
-The setup configures a Standard or higher App Service plan, the `preview` slot,
-and a separate resource group with a Burstable PostgreSQL server. Preview images
-use the existing container registry under the `tripplanner-preview` repository.
-Set `PREVIEW_DATABASE_SKU` or `PREVIEW_DATABASE_LOCATION` if Azure has limited
-capacity for the default PostgreSQL size and region. The setup creates separate
+The setup configures a Standard or higher App Service plan and the `preview`
+slot. Preview uses the existing PostgreSQL server and container registry, with
+its own databases and images under `tripplanner-preview`. The setup creates separate
 Azure deployment identities that GitHub authenticates through OIDC. The signed-in user's Entra object ID is allowed to
 open the preview. Set `PREVIEW_VIEWER_OBJECT_ID` to configure a different viewer
 and sign in with that account at the preview URL. Use
@@ -1232,7 +1230,7 @@ workers and MCP, so integrations requiring those services will be unavailable.
 
 Each deployment takes a fresh logical snapshot of the production
 `gustavo_planner` schema, including trip data and migration history, with a
-read-only database identity. The job creates a new database on the preview
+read-only database identity. The job creates a fresh preview database on the existing
 PostgreSQL server and the slot runs pending migrations there. A failed migration
 or startup restores the previous preview when available. The slot is never
 swapped into production. The copy is refreshed daily at 07:17 UTC while a preview
