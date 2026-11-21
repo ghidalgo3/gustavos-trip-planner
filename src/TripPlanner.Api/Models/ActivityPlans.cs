@@ -24,15 +24,15 @@ public sealed record DailyPlanningSettings
 
     [DurationRange(0, 1440)]
     [JsonConverter(typeof(IsoDurationConverter))]
-    public TimeSpan BreakfastDuration { get; init; } = TimeSpan.FromMinutes(30);
+    public TimeSpan BreakfastDuration { get; init; } = TimeSpan.Zero;
 
     [DurationRange(0, 1440)]
     [JsonConverter(typeof(IsoDurationConverter))]
-    public TimeSpan LunchDuration { get; init; } = TimeSpan.FromMinutes(45);
+    public TimeSpan LunchDuration { get; init; } = TimeSpan.Zero;
 
     [DurationRange(0, 1440)]
     [JsonConverter(typeof(IsoDurationConverter))]
-    public TimeSpan DinnerDuration { get; init; } = TimeSpan.FromMinutes(45);
+    public TimeSpan DinnerDuration { get; init; } = TimeSpan.Zero;
 
     [DurationRange(0, 1440)]
     [JsonConverter(typeof(IsoDurationConverter))]

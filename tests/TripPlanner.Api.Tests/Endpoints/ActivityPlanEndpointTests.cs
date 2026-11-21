@@ -450,9 +450,11 @@ public sealed class ActivityPlanEndpointTests
         string path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
         var read = await client.GetAsync(path);
         var initial = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+        Assert.IsEmpty(initial.Assessment.Days.Single().Breaks);
         var positions = new ActivityMealPositions(0, 1, 1);
         var draft = initial.Plan with
         {
+            Settings = initial.Plan.Settings with { BreakfastDuration = TimeSpan.FromMinutes(30) },
             Days =
             [
                 initial.Plan.Days[0] with

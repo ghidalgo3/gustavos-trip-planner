@@ -224,11 +224,14 @@ public sealed class ActivityPlanOptimizerTests
     public async Task SelectedFlights_ConstrainGeneratedSchedulesWithoutManualConfirmation()
     {
         var context = WithFlights(Context(TimeSpan.FromHours(1)));
-        var result = await Schedule(context, Plan(context));
+        var plan = Plan(context) with { Settings = ActivityPlanRules.Initial(context).Settings };
+        var result = await Schedule(context, plan);
         Assert.IsNotEmpty(result.Alternatives);
         foreach (var alternative in result.Alternatives)
         {
             var day = alternative.Assessment.Days.Single();
+            Assert.IsEmpty(day.Breaks);
+            Assert.AreEqual(TimeSpan.Zero, day.MealDuration);
             Assert.IsTrue(
                 day.Entries.Single().Start >= day.FlightAvailability!.AvailableFromInstant
             );
