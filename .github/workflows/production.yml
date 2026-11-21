@@ -1,0 +1,75 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: production-deploy
+  queue: max
+
+jobs:
+  authorize:
+    if: github.ref == 'refs/heads/main' && vars.AZURE_PRODUCTION_CLIENT_ID != ''
+    runs-on: ubuntu-24.04
+    outputs:
+      eligible: ${{ steps.check.outputs.eligible }}
+    steps:
+      - id: check
+        name: Verify the branch is protected and the commit came from a merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/rules/branches/main" \
+            --jq 'any(.[]; .type == "pull_request")' | grep -qx true
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" |
+            jq -er --arg sha "$GITHUB_SHA" \
+              'any(.[][]; .base.ref == "main" and .merged_at != null and .merge_commit_sha == $sha)' |
+            grep -qx true
+          echo 'eligible=true' >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: authorize
+    if: needs.authorize.outputs.eligible == 'true'
+    uses: ./.github/workflows/build-image.yml
+    with:
+      ref: ${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: deployment-image
+          path: ${{ runner.temp }}/release
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_PRODUCTION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Publish and verify production
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_REVISION: ${{ github.sha }}
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+          DEPLOYMENT_CONFIG: ${{ vars.AZURE_PRODUCTION_CONFIG }}
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" == "$GITHUB_SHA" ]]; then
+            sudo apt-get install -y zsh
+            zsh scripts/deployment/production.zsh
+          else
+            echo 'A newer commit is on main. Skipping this deployment.'
+          fi

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
@@ -22,6 +23,44 @@ namespace TripPlanner.Api.Tests.Authentication;
 [TestClass]
 public class AuthenticationTests
 {
+    [TestMethod]
+    [DataRow("aad", true)]
+    [DataRow("google", false)]
+    [DataRow("", false)]
+    public async Task PreviewOnlyAcceptsAnEntraAppServicePrincipal(string provider, bool expected)
+    {
+        await using var factory = new TestApplicationFactory { UseAppServiceAuthentication = true };
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/user");
+        string header =
+            provider.Length == 0
+                ? "invalid-base64"
+                : Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        {
+                          "auth_typ": "{{provider}}",
+                          "claims": [
+                            {"typ": "preferred_username", "val": "preview@example.com"},
+                            {"typ": "name", "val": "Preview User"}
+                          ]
+                        }
+                        """
+                    )
+                );
+        request.Headers.Add("X-MS-CLIENT-PRINCIPAL", header);
+
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var user = await response.Content.ReadFromJsonAsync<UserResponse>();
+        Assert.IsNotNull(user);
+        Assert.AreEqual(expected, user.IsAuthenticated);
+        if (expected)
+        {
+            Assert.AreEqual("preview@example.com", user.Email);
+        }
+    }
+
     [TestMethod]
     [DataRow("google")]
     [DataRow("aad")]

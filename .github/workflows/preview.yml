@@ -1,0 +1,112 @@
+name: Deploy PR preview
+
+on:
+  workflow_run:
+    workflows: [Build PR image]
+    types: [completed]
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Open PR number to deploy. Leave blank to refresh the active preview.
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  select:
+    if: >-
+      github.ref == 'refs/heads/main' && vars.AZURE_PREVIEW_CLIENT_ID != ''
+      && (github.event_name != 'workflow_run'
+          || (github.event.workflow_run.event == 'pull_request'
+              && github.event.workflow_run.head_repository.full_name == github.repository
+              && github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-24.04
+    outputs:
+      pr: ${{ steps.select.outputs.pr }}
+      sha: ${{ steps.select.outputs.sha }}
+      action: ${{ steps.select.outputs.action }}
+    steps:
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pull_request }}
+          PR_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha || github.event.workflow_run.head_sha }}
+        run: |
+          if [[ -z "$PR_NUMBER" && "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            PR_NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/commits/$PR_SHA/pulls" |
+              jq -r --arg repo "$GITHUB_REPOSITORY" --arg sha "$PR_SHA" \
+                '[.[] | select(.base.ref == "main" and .head.repo.full_name == $repo and .head.sha == $sha)] | if length == 1 then .[0].number else empty end')"
+            [[ -n "$PR_NUMBER" ]] || exit 1
+          fi
+          if [[ -z "$PR_NUMBER" ]]; then
+            exit 0
+          fi
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e --arg repo "$GITHUB_REPOSITORY" '.base.ref == "main" and .head.repo.full_name == $repo' <<< "$pr" >/dev/null
+          if [[ "$(jq -r .state <<< "$pr")" == closed ]]; then
+            echo 'action=closed' >> "$GITHUB_OUTPUT"
+          else
+            current_sha="$(jq -er .head.sha <<< "$pr")"
+            if [[ -n "$PR_SHA" && "$PR_SHA" != "$current_sha" ]]; then
+              echo 'This PR revision is no longer current.'
+              exit 1
+            fi
+            echo "sha=$current_sha" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: select
+    if: github.event_name == 'workflow_dispatch' && needs.select.outputs.sha != ''
+    uses: ./.github/workflows/build-image.yml
+    with:
+      ref: refs/pull/${{ needs.select.outputs.pr }}/merge
+      pr_head: ${{ needs.select.outputs.sha }}
+
+  preview:
+    needs: [select, build]
+    if: >-
+      !cancelled() && needs.select.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || needs.select.outputs.sha == '' || needs.build.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      id-token: write
+    concurrency:
+      group: preview-slot
+      queue: max
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        if: needs.select.outputs.sha != ''
+        with:
+          name: deployment-image
+          path: ${{ runner.temp }}/release
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Update preview slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.select.outputs.pr }}
+          DEPLOYMENT_REVISION: ${{ needs.select.outputs.sha }}
+          EVENT_ACTION: ${{ needs.select.outputs.action }}
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+          DEPLOYMENT_CONFIG: ${{ vars.AZURE_PREVIEW_CONFIG }}
+        run: |
+          sudo apt-get install -y zsh
+          zsh scripts/deployment/preview.zsh

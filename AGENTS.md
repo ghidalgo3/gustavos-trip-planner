@@ -10,7 +10,7 @@ This repository contains a small trip-planning web application and its Azure inf
 - `infra/main.bicep` and `main.bicepparam`: long-lived Azure resources.
 - `infra/release.bicep` and `release.bicepparam`: App Service container and authentication configuration applied during a release.
 - `compose.yaml`: local Vite HMR and `dotnet watch` environment.
-- `scripts/setup`, `scripts/install`, `scripts/format`, `scripts/buildout`, `scripts/secrets`, `scripts/server`, `scripts/release`: zsh scripts for machine setup, project dependency installation, formatting, infrastructure deployment, Key Vault credential management, local development, and application deployment. There is intentionally no GitHub CI/CD.
+- `scripts/setup`, `scripts/install`, `scripts/format`, `scripts/buildout`, `scripts/secrets`, `scripts/server`, `scripts/release`: zsh scripts for machine setup, project dependency installation, formatting, infrastructure deployment, Key Vault credential management, local development, and application deployment. GitHub Actions deploys protected `main` to production and trusted pull requests to the Azure `preview` slot. See the README for provisioning and recovery.
 
 ## Common Commands
 

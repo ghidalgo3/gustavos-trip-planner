@@ -11,6 +11,7 @@ using OpenIddict.Validation.AspNetCore;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
+using AuthenticationSchemeOptions = Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions;
 
 namespace TripPlanner.Api.Authentication;
 
@@ -41,6 +42,18 @@ public static class AuthenticationServiceExtensions
                 .Configuration.GetSection(AuthenticationOptions.SectionName)
                 .Get<AuthenticationOptions>()
             ?? new();
+
+        if (options.UseAppServiceAuthentication)
+        {
+            builder
+                .Services.AddAuthentication(AppServiceAuthenticationHandler.SchemeName)
+                .AddScheme<AuthenticationSchemeOptions, AppServiceAuthenticationHandler>(
+                    AppServiceAuthenticationHandler.SchemeName,
+                    configureOptions: null
+                );
+            // The App Service front end owns /.auth/login and /.auth/logout.
+            return false;
+        }
 
         if (options.HasAnyProviderSetting && !options.IsEnabled)
         {

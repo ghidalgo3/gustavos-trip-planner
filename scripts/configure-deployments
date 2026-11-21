@@ -1,0 +1,182 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+cd "${0:A:h:h}"
+resource_group="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+infra_deployment="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
+repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+: "${repo:?Cannot determine GitHub repository}"
+mode="${1:-}"
+if (( $# > 1 )) || [[ -n "$mode" && "$mode" != --production-only && "$mode" != --preview-only ]]; then
+  print -ru2 -- 'Usage: scripts/configure-deployments [--production-only | --preview-only]'
+  exit 2
+fi
+
+if [[ "$mode" != --preview-only ]]; then
+  GITHUB_REPOSITORY="$repo" scripts/protect-main
+fi
+
+tenant_id="$(az account show --query tenantId -o tsv)"
+subscription_id="$(az account show --query id -o tsv)"
+
+infra="$(az deployment group show -g "$resource_group" -n "$infra_deployment" --query properties.outputs -o json)"
+web_app="$(jq -er '.webAppName.value' <<< "$infra")"
+production_registry="$(jq -er '.acrName.value' <<< "$infra")"
+production_host="$(jq -er '.acrLoginServer.value' <<< "$infra")"
+production_server="$(jq -er '.postgresServerName.value' <<< "$infra")"
+postgres_admin="$(jq -er '.postgresAdminIdentityName.value // empty' <<< "$infra")" || postgres_admin="${web_app/-api-/-postgres-admin-}"
+site="$(az webapp show -g "$resource_group" -n "$web_app" -o json)"
+site_id="$(jq -er '.id' <<< "$site")"
+plan_id="$(jq -er '.appServicePlanId // .serverFarmId' <<< "$site")"
+location="$(az appservice plan show --ids "$plan_id" --query location -o tsv)"
+prod_rg_id="/subscriptions/$subscription_id/resourceGroups/$resource_group"
+production_registry_id="$prod_rg_id/providers/Microsoft.ContainerRegistry/registries/$production_registry"
+prod_db_id="$prod_rg_id/providers/Microsoft.DBforPostgreSQL/flexibleServers/$production_server"
+slot_id="$site_id/slots/preview"
+
+make_pipeline_identity() {
+  local identity_name="$1"
+  az identity create -g "$resource_group" -n "$identity_name" -l "$location" -o none
+  az identity federated-credential create -g "$resource_group" --identity-name "$identity_name" \
+    --name github-main --issuer https://token.actions.githubusercontent.com \
+    --subject "repo:$repo:ref:refs/heads/main" --audiences api://AzureADTokenExchange -o none
+  az identity show -g "$resource_group" -n "$identity_name" -o json
+}
+
+grant_role() {
+  local principal="$1" role="$2" scope="$3"
+  az role assignment create --assignee-object-id "$principal" --assignee-principal-type ServicePrincipal \
+    --scope "$scope" --role "$role" -o none
+}
+
+gh variable set AZURE_TENANT_ID -R "$repo" --body "$tenant_id"
+gh variable set AZURE_SUBSCRIPTION_ID -R "$repo" --body "$subscription_id"
+
+if [[ "$mode" != --preview-only ]]; then
+  print -r -- "Configuring production deployment."
+  production_identity="$(make_pipeline_identity "$web_app-production-ci")"
+  production_principal="$(jq -er '.principalId' <<< "$production_identity")"
+  production_client="$(jq -er '.clientId' <<< "$production_identity")"
+  grant_role "$production_principal" 'AcrPush' "$production_registry_id"
+  grant_role "$production_principal" 'Website Contributor' "$site_id"
+  production_config="$(jq -cn --arg siteId "$site_id" --arg registryName "$production_registry" \
+    --arg registryHost "$production_host" --arg resourceGroup "$resource_group" '$ARGS.named')"
+  gh variable set AZURE_PRODUCTION_CONFIG -R "$repo" --body "$production_config"
+  gh variable set AZURE_PRODUCTION_CLIENT_ID -R "$repo" --body "$production_client"
+fi
+
+[[ "$mode" != --production-only ]] || exit 0
+
+viewer_id="${PREVIEW_VIEWER_OBJECT_ID:-$(az ad signed-in-user show --query id -o tsv)}"
+[[ "$viewer_id" =~ '^[0-9a-fA-F-]{36}$' ]] || { print -ru2 -- 'A preview viewer Entra object ID is required.'; exit 1; }
+
+preview_identity_name="$web_app-preview-ci"
+preview_identity="$(make_pipeline_identity "$preview_identity_name")"
+preview_principal="$(jq -er '.principalId' <<< "$preview_identity")"
+preview_client="$(jq -er '.clientId' <<< "$preview_identity")"
+
+grant_role "$preview_principal" 'AcrPush' "$production_registry_id"
+
+# Allow only temporary network exceptions to the shared database server. The source
+# PostgreSQL login has separate SQL-level read access.
+firewall_role="$web_app PostgreSQL firewall"
+firewall_role_id="$(az role definition list --name "$firewall_role" --query '[0].name' -o tsv)"
+if [[ -z "$firewall_role_id" ]]; then
+  firewall_role_id="$(az role definition create --role-definition "$(jq -cn \
+    --arg name "$firewall_role" --arg source "$prod_rg_id" '{
+      Name: $name,
+      Description: "Manages PostgreSQL firewall rules for preview copies.",
+      Actions: [
+        "Microsoft.DBforPostgreSQL/flexibleServers/read",
+        "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules/read",
+        "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules/write",
+        "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules/delete"
+      ],
+      AssignableScopes: [$source]
+    }')" --query name -o tsv)"
+fi
+grant_role "$preview_principal" "$firewall_role_id" "$prod_db_id"
+
+print -r -- "Configuring the authenticated preview slot."
+tier="$(az appservice plan show --ids "$plan_id" --query sku.tier -o tsv)"
+case "$tier" in
+  Free|Shared|Basic) az appservice plan update --ids "$plan_id" --sku S1 -o none ;;
+esac
+if [[ -z "$(az webapp deployment slot list -g "$resource_group" -n "$web_app" --query "[?ends_with(id, '/slots/preview')].id | [0]" -o tsv)" ]]; then
+  az webapp deployment slot create -g "$resource_group" -n "$web_app" --slot preview -o none
+  az webapp stop -g "$resource_group" -n "$web_app" --slot preview -o none
+fi
+
+slot_principal="$(az webapp identity assign -g "$resource_group" -n "$web_app" --slot preview --query principalId -o tsv)"
+slot_host="$(az webapp show -g "$resource_group" -n "$web_app" --slot preview --query defaultHostName -o tsv)"
+slot_url="https://$slot_host"
+grant_role "$slot_principal" 'AcrPull' "$production_registry_id"
+grant_role "$preview_principal" 'Website Contributor' "$slot_id"
+
+print -r -- "Configuring preview database roles and template on the existing PostgreSQL server."
+az deployment group create -g "$resource_group" -n tripplanner-preview-reader \
+  --template-file infra/preview-reader.bicep --parameters postgresServerName="$production_server" \
+    postgresAdminIdentityName="$postgres_admin" productionRole="$web_app" \
+    readerName="$preview_identity_name" readerPrincipalId="$preview_principal" \
+    slotName="$web_app-preview" slotPrincipalId="$slot_principal" -o none
+
+auth_name="$web_app-preview-entra"
+auth_app="$(az ad app list --filter "displayName eq '$auth_name'" --query '[0].appId' -o tsv)"
+if [[ -z "$auth_app" ]]; then
+  auth_app="$(az ad app create --display-name "$auth_name" --sign-in-audience AzureADMyOrg \
+    --enable-id-token-issuance true --query appId -o tsv)"
+fi
+az ad app update --id "$auth_app" --enable-id-token-issuance true \
+  --web-redirect-uris "$slot_url/.auth/login/aad/callback"
+if [[ -z "$(az ad sp list --filter "appId eq '$auth_app'" --query '[0].id' -o tsv)" ]]; then
+  az ad sp create --id "$auth_app" -o none
+fi
+
+az rest --method patch --uri "$slot_id?api-version=2023-12-01" --body '{"properties":{"httpsOnly":true}}' -o none
+az rest --method put --uri "$slot_id/config/authsettingsV2?api-version=2023-12-01" --body "$(jq -cn \
+  --arg app "$auth_app" --arg tenant "$tenant_id" --arg viewer "$viewer_id" '{
+    properties: {
+      platform: {enabled: true},
+      globalValidation: {
+        requireAuthentication: true,
+        unauthenticatedClientAction: "RedirectToLoginPage",
+        redirectToProvider: "azureactivedirectory",
+        excludedPaths: ["/health"]
+      },
+      identityProviders: {azureActiveDirectory: {
+        enabled: true,
+        registration: {clientId: $app, openIdIssuer: ("https://login.microsoftonline.com/" + $tenant + "/v2.0")},
+        login: {loginParameters: ["scope=openid profile email"]},
+        validation: {defaultAuthorizationPolicy: {allowedPrincipals: {identities: [$viewer]}}}
+      }},
+      login: {tokenStore: {enabled: false}},
+      httpSettings: {requireHttps: true}
+    }
+  }')" -o none
+
+az webapp config appsettings set -g "$resource_group" -n "$web_app" --slot preview \
+  --slot-settings \
+    WEBSITES_PORT=8080 WEBSITES_ENABLE_APP_SERVICE_STORAGE=false ASPNETCORE_ENVIRONMENT=Production \
+    "DOCKER_REGISTRY_SERVER_URL=https://$production_host" "ClientOrigins__0=$slot_url" \
+    Authentication__UseAppServiceAuthentication=true Database__UseAzureManagedIdentity=true \
+    Planning__WorkerEnabled=false Mcp__Enabled=false "ActivityPlanning__PublicBaseUrl=$slot_url/" \
+  -o none
+
+# Preserve existing production slot configuration names when marking preview
+# connection metadata as sticky. No slot swaps are used by either workflow.
+sticky_id="$site_id/config/slotConfigNames?api-version=2023-12-01"
+sticky_settings="$(az rest --method get --uri "$sticky_id" -o json)"
+az rest --method put --uri "$sticky_id" --body "$(jq -c '
+  {properties: (.properties | .appSettingNames = ((.appSettingNames // []) +
+    ["ConnectionStrings__TripPlanner", "PREVIEW_DATABASE", "DEPLOYED_PR", "DEPLOYED_REVISION"] | unique))}
+' <<< "$sticky_settings")" -o none
+
+preview_config="$(jq -cn --arg slotId "$slot_id" --arg registryName "$production_registry" \
+  --arg registryHost "$production_host" --arg databaseServer "$production_server" \
+  --arg resourceGroup "$resource_group" --arg databaseUser "$preview_identity_name" \
+  --arg slotUser "$web_app-preview" \
+  '$ARGS.named')"
+gh variable set AZURE_PREVIEW_CONFIG -R "$repo" --body "$preview_config"
+gh variable set AZURE_PREVIEW_CLIENT_ID -R "$repo" --body "$preview_client"
+
+print -r -- "Preview slot: $slot_url"

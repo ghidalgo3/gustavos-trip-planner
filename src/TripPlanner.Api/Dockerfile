@@ -29,7 +29,8 @@ COPY src/TripPlanner.Web/dist ./wwwroot
 
 # App Service routes to the port named by the WEBSITES_PORT app setting; keep the
 # three in sync (here, infra/main.bicep, and the deploy script's health check).
-ENV ASPNETCORE_HTTP_PORTS=8080
+ARG DEPLOYMENT_REVISION
+ENV ASPNETCORE_HTTP_PORTS=8080 DEPLOYMENT_REVISION=${DEPLOYMENT_REVISION}
 EXPOSE 8080
 
 # APP_UID is a non-root user supplied by the aspnet base image.
