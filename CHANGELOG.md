@@ -11,6 +11,10 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Fixed
+
+- Reload Azure test slot authentication during deployment so the Trip Planner sign-in page becomes available.
+
 ### Changed
 
 - Use Trip Planner's production sign-in page in the Azure test environment, with separate OAuth clients and access limited to approved reviewers.

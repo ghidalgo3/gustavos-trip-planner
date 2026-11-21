@@ -1228,6 +1228,8 @@ reviewer's Gmail address, `TEST_MICROSOFT_REVIEWER_OBJECT_ID` set to their
 personal Microsoft account object ID, or both. The slot can read only those
 four test secrets from the vault. During deployments an App Service access
 guard stays enabled until the candidate reports that reviewer access is active.
+The workflow then stops the slot, switches to Trip Planner sign-in, and
+verifies the app after restarting it.
 An existing test deployment switches to the app's sign-in page on the first
 successful PR deployment using the updated workflow.
 

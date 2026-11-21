@@ -4,6 +4,7 @@ This repository contains a small trip-planning web application and its Azure inf
 
 ## Pull Requests
 
+- Before every push to a PR branch, including the initial push for a new PR, run `git fetch origin main` followed by `git merge origin/main` on that branch. Resolve any merge conflicts before pushing. The test deployment workflow requires a PR merge snapshot built against the current `main`.
 - Humans review and merge pull requests. Agents must leave pull requests open for human review and completion.
 - Agents must never merge a pull request, enable auto-merge, or enqueue a pull request for automatic merge. This applies to every pull request, including workflow and documentation changes.
 
