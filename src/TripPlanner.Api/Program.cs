@@ -106,6 +106,20 @@ if (app.Environment.IsDevelopment())
 
 // No UseHttpsRedirection: the container serves HTTP and App Service terminates TLS.
 app.UseForwardedHeaders();
+string? deploymentRevision = Environment.GetEnvironmentVariable("DEPLOYMENT_REVISION");
+if (!string.IsNullOrWhiteSpace(deploymentRevision))
+{
+    app.Use(
+        async (context, next) =>
+        {
+            if (context.Request.Path == "/health")
+            {
+                context.Response.Headers["X-Trip-Planner-Revision"] = deploymentRevision;
+            }
+            await next();
+        }
+    );
+}
 app.Use(
     async (context, next) =>
     {

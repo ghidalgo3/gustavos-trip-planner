@@ -23,7 +23,9 @@ public sealed class DatabaseMigrator(NpgsqlDataSource dataSource, ILogger<Databa
             DO $$
             BEGIN
                 IF EXISTS (
-                    SELECT 1 FROM pg_roles WHERE rolname = 'gustavo_planner_contributor'
+                    SELECT 1 FROM pg_roles
+                    WHERE rolname = 'gustavo_planner_contributor'
+                        AND has_database_privilege(oid, current_database(), 'CREATE')
                 ) THEN
                     ALTER SCHEMA gustavo_planner OWNER TO gustavo_planner_contributor;
                 END IF;
@@ -101,7 +103,9 @@ public sealed class DatabaseMigrator(NpgsqlDataSource dataSource, ILogger<Databa
             DO $$
             BEGIN
                 IF EXISTS (
-                    SELECT 1 FROM pg_roles WHERE rolname = 'gustavo_planner_contributor'
+                    SELECT 1 FROM pg_roles
+                    WHERE rolname = 'gustavo_planner_contributor'
+                        AND has_database_privilege(oid, current_database(), 'CREATE')
                 ) THEN
                     GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
                         ON ALL TABLES IN SCHEMA gustavo_planner

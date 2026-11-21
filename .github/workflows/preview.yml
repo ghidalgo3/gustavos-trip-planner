@@ -1,0 +1,204 @@
+name: Deploy PR preview
+
+on:
+  workflow_run:
+    workflows: [Build and test PR]
+    types: [completed]
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Open PR number to deploy. Leave blank to refresh the active preview.
+        type: string
+      tested_run:
+        description: Optional preview run ID to reuse a tested image for the same PR and application source.
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  select:
+    if: >-
+      github.ref == 'refs/heads/main' && vars.AZURE_PREVIEW_CLIENT_ID != ''
+      && (github.event_name != 'workflow_run'
+          || (github.event.workflow_run.event == 'pull_request'
+              && github.event.workflow_run.head_repository.full_name == github.repository
+              && github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    outputs:
+      pr: ${{ steps.select.outputs.pr }}
+      sha: ${{ steps.select.outputs.sha }}
+      merge_sha: ${{ steps.select.outputs.merge_sha }}
+      tested_run: ${{ steps.select.outputs.tested_run }}
+      action: ${{ steps.select.outputs.action }}
+    steps:
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pull_request }}
+          PR_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha || github.event.workflow_run.head_sha }}
+          TESTED_RUN: ${{ inputs.tested_run }}
+        run: |
+          if [[ -z "$PR_NUMBER" && "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            PR_NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/commits/$PR_SHA/pulls" |
+              jq -r --arg repo "$GITHUB_REPOSITORY" --arg sha "$PR_SHA" \
+                '[.[] | select(.base.ref == "main" and .head.repo.full_name == $repo and .head.sha == $sha)] | if length == 1 then .[0].number else empty end')"
+            [[ -n "$PR_NUMBER" ]] || exit 1
+          fi
+          if [[ -z "$PR_NUMBER" ]]; then
+            [[ -z "$TESTED_RUN" ]] || { echo 'Select a pull request to reuse its image.'; exit 1; }
+            exit 0
+          fi
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e --arg repo "$GITHUB_REPOSITORY" '.base.ref == "main" and .head.repo.full_name == $repo' <<< "$pr" >/dev/null
+          if [[ "$(jq -r .state <<< "$pr")" == closed ]]; then
+            echo 'action=closed' >> "$GITHUB_OUTPUT"
+          else
+            current_sha="$(jq -er .head.sha <<< "$pr")"
+            if [[ -n "$PR_SHA" && "$PR_SHA" != "$current_sha" ]]; then
+              echo 'This PR revision is no longer current.'
+              exit 1
+            fi
+            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+              merge_sha="$(jq -er '.merge_commit_sha | select(type == "string" and test("^[a-f0-9]{40}$"))' <<< "$pr")"
+              echo "merge_sha=$merge_sha" >> "$GITHUB_OUTPUT"
+              if [[ -n "$TESTED_RUN" ]]; then
+                [[ "$TESTED_RUN" =~ ^[0-9]+$ ]]
+                run_path="repos/$GITHUB_REPOSITORY/actions/runs/$TESTED_RUN"
+                gh api "$run_path" | jq -e --arg repo "$GITHUB_REPOSITORY" '
+                  .head_repository.full_name == $repo and .head_branch == "main"
+                  and .event == "workflow_dispatch" and .path == ".github/workflows/preview.yml"
+                  and .status == "completed"
+                ' >/dev/null
+                gh api "$run_path/jobs" | jq -e '
+                  [.jobs[] | select(.name | startswith("build / "))] |
+                  length > 0 and all(.[]; .conclusion == "success")
+                ' >/dev/null
+                echo "tested_run=$TESTED_RUN" >> "$GITHUB_OUTPUT"
+              fi
+            fi
+            gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$current_sha" \
+              -f state=pending -f context='Azure PR preview' \
+              -f description='Building and deploying the Azure preview' \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+            echo "sha=$current_sha" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: select
+    if: >-
+      github.event_name == 'workflow_dispatch' && needs.select.outputs.sha != ''
+      && needs.select.outputs.tested_run == ''
+    uses: ./.github/workflows/build-image.yml
+    with:
+      ref: ${{ needs.select.outputs.merge_sha }}
+      pr_head: ${{ needs.select.outputs.sha }}
+
+  preview:
+    needs: [select, build]
+    if: >-
+      !cancelled() && needs.select.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || needs.select.outputs.sha == ''
+          || needs.select.outputs.tested_run != '' || needs.build.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      deployed: ${{ steps.update.outputs.deployed }}
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      id-token: write
+    concurrency:
+      group: preview-slot
+      queue: max
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        if: needs.select.outputs.sha != ''
+        with:
+          name: deployment-image
+          path: ${{ runner.temp }}/release
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.select.outputs.tested_run || github.event.workflow_run.id || github.run_id }}
+      - name: Verify the reused image matches the PR
+        if: needs.select.outputs.tested_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD: ${{ needs.select.outputs.sha }}
+          MERGE_SHA: ${{ needs.select.outputs.merge_sha }}
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+        run: |
+          revision="$(cat "$RELEASE_STATE_DIR/revision.sha")"
+          [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
+          ref_path="repos/$GITHUB_REPOSITORY/git"
+          previous="$(gh api "$ref_path/commits/$revision")"
+          jq -e --arg sha "$PR_HEAD" '.parents[1].sha == $sha' <<< "$previous" >/dev/null
+          previous_tree="$(jq -er .tree.sha <<< "$previous")"
+          current_tree="$(gh api "$ref_path/commits/$MERGE_SHA" --jq .tree.sha)"
+          tested_source() {
+            gh api "$ref_path/trees/$1?recursive=1" | jq -cer '
+              select(.truncated == false) |
+              [.tree[] | select(.path == "src" or .path == "docs/schemas" or .path == "tests"
+                or .path == "scripts/release-tasks" or .path == ".dockerignore"
+                or .path == "GustavoTripPlanner.sln" or .path == ".config/dotnet-tools.json")
+                | {path, sha}] | sort_by(.path) | select(length == 7)
+            '
+          }
+          previous_source="$(tested_source "$previous_tree")"
+          current_source="$(tested_source "$current_tree")"
+          [[ "$previous_source" == "$current_source" ]]
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Update preview slot
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.select.outputs.pr }}
+          DEPLOYMENT_REVISION: ${{ needs.select.outputs.sha }}
+          EVENT_ACTION: ${{ needs.select.outputs.action }}
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+          DEPLOYMENT_CONFIG: ${{ vars.AZURE_PREVIEW_CONFIG }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          sudo apt-get install -y zsh
+          zsh scripts/deployment/preview.zsh
+
+  status:
+    needs: [select, preview]
+    if: always() && needs.select.outputs.sha != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Report preview status on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_SHA: ${{ needs.select.outputs.sha }}
+          PREVIEW_RESULT: ${{ needs.preview.result }}
+          PREVIEW_DEPLOYED: ${{ needs.preview.outputs.deployed }}
+        run: |
+          case "$PREVIEW_RESULT:$PREVIEW_DEPLOYED" in
+            success:true) state=success; description='The Azure preview is ready' ;;
+            success:*) state=error; description='This preview revision was superseded' ;;
+            cancelled:*) state=error; description='The Azure preview was cancelled' ;;
+            *) state=failure; description='The Azure preview did not deploy' ;;
+          esac
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$PR_SHA" \
+            -f state="$state" -f context='Azure PR preview' -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null

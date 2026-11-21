@@ -4,6 +4,8 @@ public sealed class AuthenticationOptions
 {
     public const string SectionName = "Authentication";
 
+    public bool UseAppServiceAuthentication { get; init; }
+
     public OAuthProviderOptions Google { get; init; } = new();
 
     public OAuthProviderOptions Microsoft { get; init; } = new();

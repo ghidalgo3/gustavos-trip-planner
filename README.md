@@ -1193,7 +1193,54 @@ under **Unreleased**.
 
 Authentication credentials live only in the provisioned Key Vault. A release requires all four Google and Microsoft credentials plus the Ignav API key and rejects an incomplete set. Run the scripts with `--help` for their options.
 
-There is no GitHub Actions CI/CD configuration. Releases are intentional local operations performed using your current Azure CLI login. Azure CLI manages the subscription, resources, configuration, registry, and deployment.
+### GitHub deployments
+
+After provisioning, GitHub Actions verifies that each production deployment came from
+a merged pull request on protected `main`. It builds and tests the API and web app,
+publishes `tripplanner-api:release` and verifies the running commit, website, and
+MCP authentication. Production configuration and Key Vault credentials stay in
+Azure. Apply production configuration changes through the existing release
+process. The Actions deployment leaves Git release tags and changelog rollover to
+the manual release process. Avoid running both deployment paths at the same time.
+
+Run `scripts/configure-deployments` once as a GitHub repository administrator and
+with an Azure CLI login that can create resources, role assignments, and Entra app
+registrations. It enables a PR-only ruleset on `main` with no bypass actors and no
+required approving reviewer, so a sole maintainer can merge through a PR. GitHub
+requires Pro or equivalent branch protection support for private repositories.
+`scripts/protect-main` applies the ruleset independently.
+
+The setup configures a Standard or higher App Service plan and the `preview`
+slot. Preview uses the existing PostgreSQL server and container registry, with
+its own databases and images under `tripplanner-preview`. The setup creates separate
+Azure deployment identities that GitHub authenticates through OIDC. The signed-in user's Entra object ID is allowed to
+open the preview. Set `PREVIEW_VIEWER_OBJECT_ID` to configure a different viewer
+and sign in with that account at the preview URL. Use
+`--production-only` or `--preview-only` to configure one deployment independently.
+
+A pull request from a branch in this repository builds its proposed merge with
+`main` and deploys to the single shared slot. API tests and web checks plus image
+packaging run in parallel. The **Azure PR preview** status links to the deployment
+summary with the preview URL and commit. A successful deployment replaces the previous preview.
+Closing the pull request stops the slot if it is the one being previewed. Fork
+pull requests are excluded because preview code can read the copied trip data.
+Keep repository write access limited to trusted contributors.
+Preview excludes production provider credentials, MCP sign-in records, and
+calendar subscription tokens. The preview also disables background planning
+workers and MCP, so integrations requiring those services will be unavailable.
+
+Each deployment takes a fresh logical snapshot of the production
+`gustavo_planner` schema, including trip data and migration history, with a
+read-only database identity. The job creates a fresh preview database on the existing
+PostgreSQL server and the slot runs pending migrations there. A failed migration
+or startup restores the previous preview when available. The slot is never
+swapped into production. The copy is refreshed daily at 07:17 UTC while a preview
+is active. To discard preview edits or recover immediately, open **Actions →
+Deploy PR preview → Run workflow** on `main`. An empty PR number refreshes the
+active preview. Enter an open PR number to rebuild it from its latest commit. To retry an Azure
+deployment after a workflow repair, supply the previous tested preview run ID.
+The workflow reuses the image only if the PR head and tested application sources
+still match.
 
 ## API routes
 
