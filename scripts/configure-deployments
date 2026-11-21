@@ -198,4 +198,6 @@ preview_config="$(jq -cn --arg slotId "$slot_id" --arg registryName "$production
 gh variable set AZURE_PREVIEW_CONFIG -R "$repo" --body "$preview_config"
 gh variable set AZURE_PREVIEW_CLIENT_ID -R "$repo" --body "$preview_client"
 
+GITHUB_REPOSITORY="$repo" scripts/configure-preview-oidc
+
 print -r -- "Preview slot: $slot_url"
