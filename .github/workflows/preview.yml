@@ -153,9 +153,8 @@ jobs:
               select(.truncated == false) |
               [.tree[] | select(.path == "src" or .path == "docs/schemas" or .path == "tests"
                 or .path == "scripts/release-tasks" or .path == ".dockerignore"
-                or .path == "GustavoTripPlanner.sln" or .path == ".config/dotnet-tools.json"
-                or .path == ".github/workflows/build-image.yml")
-                | {path, sha}] | sort_by(.path) | select(length == 8)
+                or .path == "GustavoTripPlanner.sln" or .path == ".config/dotnet-tools.json")
+                | {path, sha}] | sort_by(.path) | select(length == 7)
             '
           }
           previous_source="$(tested_source "$previous_tree")"
