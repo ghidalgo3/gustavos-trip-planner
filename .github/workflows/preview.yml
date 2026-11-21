@@ -1,9 +1,9 @@
 name: Deploy PR test environment
 
 on:
-  workflow_run:
-    workflows: [Build and test PR]
-    types: [completed]
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
   schedule:
     - cron: '17 7 * * *'
   workflow_dispatch:
@@ -27,40 +27,34 @@ jobs:
   select:
     if: >-
       github.ref == 'refs/heads/main' && vars.AZURE_PREVIEW_CLIENT_ID != ''
-      && (github.event_name != 'workflow_run'
-          || (github.event.workflow_run.event == 'pull_request'
-              && github.event.workflow_run.head_repository.full_name == github.repository
-              && github.event.workflow_run.conclusion == 'success'))
+      && (github.event_name != 'pull_request_target'
+          || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: read
       pull-requests: read
       statuses: write
+      id-token: write
     outputs:
       pr: ${{ steps.select.outputs.pr }}
       sha: ${{ steps.select.outputs.sha }}
       merge_sha: ${{ steps.select.outputs.merge_sha }}
       tested_run: ${{ steps.select.outputs.tested_run }}
       action: ${{ steps.select.outputs.action }}
+      backend: ${{ steps.web.outputs.backend }}
     steps:
       - id: select
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pull_request }}
-          PR_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha || github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
           TESTED_RUN: ${{ inputs.tested_run }}
           ANNOUNCE_ONLY: ${{ inputs.announce_only }}
         run: |
           if [[ "$ANNOUNCE_ONLY" == true ]]; then
             [[ "$PR_NUMBER" =~ ^[0-9]+$ && -z "$TESTED_RUN" ]] ||
               { echo 'Specify the open PR to announce without a tested run ID.'; exit 1; }
-          fi
-          if [[ -z "$PR_NUMBER" && "$GITHUB_EVENT_NAME" == workflow_run ]]; then
-            PR_NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/commits/$PR_SHA/pulls" |
-              jq -r --arg repo "$GITHUB_REPOSITORY" --arg sha "$PR_SHA" \
-                '[.[] | select(.base.ref == "main" and .head.repo.full_name == $repo and .head.sha == $sha)] | if length == 1 then .[0].number else empty end')"
-            [[ -n "$PR_NUMBER" ]] || exit 1
           fi
           if [[ -z "$PR_NUMBER" ]]; then
             [[ -z "$TESTED_RUN" ]] || { echo 'Select a pull request to reuse its image.'; exit 1; }
@@ -91,7 +85,7 @@ jobs:
               echo 'GitHub returned an outdated merge snapshot. Update the PR branch from main.'
               exit 1
             fi
-            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || "$GITHUB_EVENT_NAME" == pull_request_target ]]; then
               merge_sha="$(jq -er '.merge_commit_sha | select(type == "string" and test("^[a-f0-9]{40}$"))' <<< "$pr")"
               merge_parents="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$merge_sha")"
               jq -e --arg base "$GITHUB_SHA" --arg head "$current_sha"                 '.parents[0].sha == $base and .parents[1].sha == $head' <<< "$merge_parents" >/dev/null
@@ -119,13 +113,34 @@ jobs:
           fi
           echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/checkout@v6
+        if: github.event_name == 'pull_request_target' && steps.select.outputs.sha != ''
+        with:
+          persist-credentials: false
+      - uses: azure/login@v2
+        if: github.event_name == 'pull_request_target' && steps.select.outputs.sha != ''
+        with:
+          client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Check whether the running backend can serve the new web assets
+        if: github.event_name == 'pull_request_target' && steps.select.outputs.sha != ''
+        id: web
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.select.outputs.pr }}
+          MERGE_SHA: ${{ steps.select.outputs.merge_sha }}
+          DEPLOYMENT_CONFIG: ${{ vars.AZURE_PREVIEW_CONFIG }}
+        run: zsh scripts/deployment/preview-assets.zsh select
+
   build:
     needs: select
     if: >-
-      github.event_name == 'workflow_dispatch' && needs.select.outputs.sha != ''
+      needs.select.outputs.sha != ''
       && needs.select.outputs.tested_run == '' && needs.select.outputs.action != 'announce'
     uses: ./.github/workflows/build-image.yml
     with:
+      mode: ${{ needs.select.outputs.backend != '' && 'web' || (github.event_name == 'pull_request_target' && 'image' || 'tested-image') }}
       ref: ${{ needs.select.outputs.merge_sha }}
       pr_head: ${{ needs.select.outputs.sha }}
 
@@ -133,7 +148,7 @@ jobs:
     needs: [select, build]
     if: >-
       !cancelled() && needs.select.result == 'success'
-      && (github.event_name != 'workflow_dispatch' || needs.select.outputs.sha == ''
+      && (needs.select.outputs.sha == ''
           || needs.select.outputs.action == 'announce'
           || needs.select.outputs.tested_run != '' || needs.build.result == 'success')
     runs-on: ubuntu-24.04
@@ -156,10 +171,10 @@ jobs:
       - uses: actions/download-artifact@v8
         if: needs.select.outputs.sha != '' && needs.select.outputs.action != 'announce'
         with:
-          name: deployment-image
+          name: ${{ needs.select.outputs.backend != '' && 'preview-web' || 'deployment-image' }}
           path: ${{ runner.temp }}/release
           github-token: ${{ github.token }}
-          run-id: ${{ needs.select.outputs.tested_run || github.event.workflow_run.id || github.run_id }}
+          run-id: ${{ needs.select.outputs.tested_run || github.run_id }}
       - name: Verify the image matches the PR
         if: needs.select.outputs.sha != '' && needs.select.outputs.action != 'announce'
         env:
@@ -206,11 +221,17 @@ jobs:
           DEPLOYMENT_REVISION: ${{ needs.select.outputs.sha }}
           EVENT_ACTION: ${{ needs.select.outputs.action }}
           RELEASE_STATE_DIR: ${{ runner.temp }}/release
+          PREVIEW_BACKEND: ${{ needs.select.outputs.backend }}
+          MERGE_SHA: ${{ needs.select.outputs.merge_sha }}
           DEPLOYMENT_CONFIG: ${{ vars.AZURE_PREVIEW_CONFIG }}
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
-          sudo apt-get install -y zsh
-          zsh scripts/deployment/preview.zsh
+          if [[ -n "$PREVIEW_BACKEND" ]]; then
+            zsh scripts/deployment/preview-assets.zsh publish
+          else
+            sudo apt-get install -y zsh
+            zsh scripts/deployment/preview.zsh
+          fi
 
   status:
     needs: [select, preview]

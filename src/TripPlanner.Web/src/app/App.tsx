@@ -146,6 +146,9 @@ export default function App() {
           <Location24Regular aria-hidden="true" />
           <Text weight="semibold" size={400}>
             Trip Planner
+            {window.location.hostname.endsWith(
+              "-preview.azurewebsites.net",
+            ) && <span aria-label="Test environment"> 🏗️</span>}
           </Text>
         </Link>
         {user?.isAuthenticated && (

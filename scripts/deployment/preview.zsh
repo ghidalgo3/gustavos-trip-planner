@@ -98,9 +98,12 @@ if [[ "${EVENT_ACTION:-}" == announce ]]; then
   revision="$previous_revision"
   [[ "$revision" =~ '^[a-f0-9]{40}$' && -n "$previous_database" ]] ||
     die 'the test environment has no recorded deployment'
-  gh api "repos/$GITHUB_REPOSITORY/git/commits/$revision" |
-    jq -e --arg sha "$pr_head" '.parents[1].sha == $sha' >/dev/null ||
-    die "the test environment is running an older commit for PR #$pr_number"
+  if ! curl -fsS --max-time 10 "$slot_url/?preview=$pr_head" |
+    grep -Fx "<!-- tripplanner-preview-head:$pr_head -->" >/dev/null; then
+    gh api "repos/$GITHUB_REPOSITORY/git/commits/$revision" |
+      jq -e --arg sha "$pr_head" '.parents[1].sha == $sha' >/dev/null ||
+      die "the test environment is running an older commit for PR #$pr_number"
+  fi
   if [[ "$app_sign_in" == true ]]; then
     verify_revision "$slot_url" "$revision" "$reviewer_header" || die 'the test environment reviewer guard is not ready'
     verify_app_sign_in
