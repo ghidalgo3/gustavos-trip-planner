@@ -1211,17 +1211,19 @@ requires Pro or equivalent branch protection support for private repositories.
 `scripts/protect-main` applies the ruleset independently.
 
 The setup configures a Standard or higher App Service plan, the `preview` slot,
-and a separate resource group with a Basic container registry and Burstable
-PostgreSQL server. It creates separate Azure deployment identities that GitHub
-authenticates through OIDC. The signed-in user's Entra object ID is allowed to
+and a separate resource group with a Burstable PostgreSQL server. Preview images
+use the existing container registry under the `tripplanner-preview` repository.
+Set `PREVIEW_DATABASE_SKU` or `PREVIEW_DATABASE_LOCATION` if Azure has limited
+capacity for the default PostgreSQL size and region. The setup creates separate
+Azure deployment identities that GitHub authenticates through OIDC. The signed-in user's Entra object ID is allowed to
 open the preview. Set `PREVIEW_VIEWER_OBJECT_ID` to configure a different viewer
 and sign in with that account at the preview URL. Use
 `scripts/configure-deployments --preview-only` to set up the preview while
 production branch protection is unavailable.
 
 A pull request from a branch in this repository builds its proposed merge with
-`main` and deploys to the single shared slot. The deployment summary in Actions shows the
-preview URL and commit. A successful deployment replaces the previous preview.
+`main` and deploys to the single shared slot. The deployment summary in Actions
+shows the preview URL and commit. A successful deployment replaces the previous preview.
 Closing the pull request stops the slot if it is the one being previewed. Fork
 pull requests are excluded because preview code can read the copied trip data.
 Keep repository write access limited to trusted contributors.

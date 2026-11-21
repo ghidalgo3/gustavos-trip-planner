@@ -54,7 +54,7 @@ case "$previous_database" in
 esac
 
 previous_web="$(web_request get "$slot_id" /config/web --query '{properties: {linuxFxVersion: properties.linuxFxVersion}}' -o json)"
-preview_image_prefix="$registry_host/tripplanner-api:pr-$pr_number-"
+preview_image_prefix="$registry_host/tripplanner-preview:pr-$pr_number-"
 if [[ -n "${PR_NUMBER:-}" ]]; then
   image_ref="$preview_image_prefix$revision-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
   publish_image "$registry_name" "$image_ref"

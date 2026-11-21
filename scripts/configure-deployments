@@ -34,6 +34,7 @@ site_id="$(jq -er '.id' <<< "$site")"
 plan_id="$(jq -er '.appServicePlanId // .serverFarmId' <<< "$site")"
 location="$(az appservice plan show --ids "$plan_id" --query location -o tsv)"
 prod_rg_id="/subscriptions/$subscription_id/resourceGroups/$resource_group"
+production_registry_id="$prod_rg_id/providers/Microsoft.ContainerRegistry/registries/$production_registry"
 prod_db_id="$prod_rg_id/providers/Microsoft.DBforPostgreSQL/flexibleServers/$production_server"
 slot_id="$site_id/slots/preview"
 
@@ -60,16 +61,18 @@ preview_identity="$(make_pipeline_identity "$preview_identity_name")"
 preview_principal="$(jq -er '.principalId' <<< "$preview_identity")"
 preview_client="$(jq -er '.clientId' <<< "$preview_identity")"
 
-print -r -- "Provisioning the preview PostgreSQL server and container registry."
+current_preview="$(az postgres flexible-server list -g "$preview_group" \
+  --query '[?tags.workload==`tripplanner-preview`] | [0].{location:location, sku:sku.name}' -o json)"
+database_sku="${PREVIEW_DATABASE_SKU:-$(jq -r '.sku // "Standard_B1ms"' <<< "$current_preview")}"
+database_location="${PREVIEW_DATABASE_LOCATION:-$(jq -r --arg location "$location" '.location // $location' <<< "$current_preview")}"
+print -r -- "Provisioning preview PostgreSQL in $database_location with $database_sku."
 preview="$(az deployment group create -g "$preview_group" -n tripplanner-preview \
   --template-file infra/preview.bicep --parameters deployPrincipalId="$preview_principal" \
-    deployPrincipalName="$preview_identity_name" --query properties.outputs -o json)"
-preview_registry="$(jq -er '.registryName.value' <<< "$preview")"
-preview_host="$(jq -er '.registryHost.value' <<< "$preview")"
-preview_registry_id="$(jq -er '.registryId.value' <<< "$preview")"
+    deployPrincipalName="$preview_identity_name" serverSku="$database_sku" \
+    location="$database_location" --query properties.outputs -o json)"
 preview_server="$(jq -er '.postgresName.value' <<< "$preview")"
 preview_db_id="$(jq -er '.postgresId.value' <<< "$preview")"
-grant_role "$preview_principal" 'AcrPush' "$preview_registry_id"
+grant_role "$preview_principal" 'AcrPush' "$production_registry_id"
 
 # Allow only temporary network exceptions to the database servers. The source
 # PostgreSQL login has separate SQL-level read access.
@@ -112,7 +115,7 @@ fi
 slot_principal="$(az webapp identity assign -g "$resource_group" -n "$web_app" --slot preview --query principalId -o tsv)"
 slot_host="$(az webapp show -g "$resource_group" -n "$web_app" --slot preview --query defaultHostName -o tsv)"
 slot_url="https://$slot_host"
-grant_role "$slot_principal" 'AcrPull' "$preview_registry_id"
+grant_role "$slot_principal" 'AcrPull' "$production_registry_id"
 grant_role "$preview_principal" 'Website Contributor' "$slot_id"
 
 auth_name="$web_app-preview-entra"
@@ -152,7 +155,7 @@ az rest --method put --uri "$slot_id/config/authsettingsV2?api-version=2023-12-0
 az webapp config appsettings set -g "$resource_group" -n "$web_app" --slot preview \
   --slot-settings \
     WEBSITES_PORT=8080 WEBSITES_ENABLE_APP_SERVICE_STORAGE=false ASPNETCORE_ENVIRONMENT=Production \
-    "DOCKER_REGISTRY_SERVER_URL=https://$preview_host" "ClientOrigins__0=$slot_url" \
+    "DOCKER_REGISTRY_SERVER_URL=https://$production_host" "ClientOrigins__0=$slot_url" \
     Authentication__UseAppServiceAuthentication=true Database__UseAzureManagedIdentity=true \
     Planning__WorkerEnabled=false Mcp__Enabled=false "ActivityPlanning__PublicBaseUrl=$slot_url/" \
   -o none
@@ -166,8 +169,8 @@ az rest --method put --uri "$sticky_id" --body "$(jq -c '
     ["ConnectionStrings__TripPlanner", "PREVIEW_DATABASE", "DEPLOYED_PR", "DEPLOYED_REVISION"] | unique))}
 ' <<< "$sticky_settings")" -o none
 
-preview_config="$(jq -cn --arg slotId "$slot_id" --arg registryName "$preview_registry" \
-  --arg registryHost "$preview_host" --arg previewServer "$preview_server" \
+preview_config="$(jq -cn --arg slotId "$slot_id" --arg registryName "$production_registry" \
+  --arg registryHost "$production_host" --arg previewServer "$preview_server" \
   --arg previewResourceGroup "$preview_group" --arg productionServer "$production_server" \
   --arg productionResourceGroup "$resource_group" --arg databaseUser "$preview_identity_name" \
   --arg slotUser "$web_app-preview" --arg slotPrincipalId "$slot_principal" \
@@ -181,8 +184,7 @@ if [[ -z "$preview_only" ]]; then
   production_identity="$(make_pipeline_identity "$web_app-production-ci")"
   production_principal="$(jq -er '.principalId' <<< "$production_identity")"
   production_client="$(jq -er '.clientId' <<< "$production_identity")"
-  grant_role "$production_principal" 'AcrPush' \
-    "$prod_rg_id/providers/Microsoft.ContainerRegistry/registries/$production_registry"
+  grant_role "$production_principal" 'AcrPush' "$production_registry_id"
   grant_role "$production_principal" 'Website Contributor' "$site_id"
   production_config="$(jq -cn --arg siteId "$site_id" --arg registryName "$production_registry" \
     --arg registryHost "$production_host" --arg resourceGroup "$resource_group" '$ARGS.named')"

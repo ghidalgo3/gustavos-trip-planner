@@ -1,24 +1,17 @@
 targetScope = 'resourceGroup'
 
 param location string = resourceGroup().location
+param serverSku string = 'Standard_B1ms'
 param deployPrincipalId string
 param deployPrincipalName string
 
 var suffix = uniqueString(resourceGroup().id)
 
-resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: 'acrtrippreview${suffix}'
-  location: location
-  sku: { name: 'Basic' }
-  tags: { workload: 'tripplanner-preview' }
-  properties: { adminUserEnabled: false }
-}
-
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: 'psql-trippreview-${suffix}'
   location: location
   sku: {
-    name: 'Standard_B1ms'
+    name: serverSku
     tier: 'Burstable'
   }
   tags: { workload: 'tripplanner-preview' }
@@ -59,8 +52,5 @@ module postgresAdmin 'postgres-entra-admin.bicep' = {
   }
 }
 
-output registryId string = registry.id
-output registryName string = registry.name
-output registryHost string = registry.properties.loginServer
 output postgresId string = postgres.id
 output postgresName string = postgres.name
