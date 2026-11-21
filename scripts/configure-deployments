@@ -68,6 +68,7 @@ if [[ "$mode" != --preview-only ]]; then
   production_principal="$(jq -er '.principalId' <<< "$production_identity")"
   production_client="$(jq -er '.clientId' <<< "$production_identity")"
   grant_role "$production_principal" 'AcrPush' "$production_registry_id"
+  grant_role "$production_principal" 'Reader' "$production_registry_id"
   grant_role "$production_principal" 'Website Contributor' "$site_id"
   production_config="$(jq -cn --arg siteId "$site_id" --arg registryName "$production_registry" \
     --arg registryHost "$production_host" --arg resourceGroup "$resource_group" '$ARGS.named')"
@@ -86,6 +87,7 @@ preview_principal="$(jq -er '.principalId' <<< "$preview_identity")"
 preview_client="$(jq -er '.clientId' <<< "$preview_identity")"
 
 grant_role "$preview_principal" 'AcrPush' "$production_registry_id"
+grant_role "$preview_principal" 'Reader' "$production_registry_id"
 
 # Allow only temporary network exceptions to the shared database server. The source
 # PostgreSQL login has separate SQL-level read access.

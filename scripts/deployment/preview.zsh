@@ -100,21 +100,26 @@ firewall_open=true
 az rest --method put --uri "$firewall_uri" --body "$(jq -cn --arg ip "$runner_ip"   '{properties: {startIpAddress: $ip, endIpAddress: $ip}}')" --only-show-errors -o none
 
 PGHOST="$database_server.postgres.database.azure.com"
-export PGHOST PGUSER="$database_user" PGSSLMODE=verify-full PGSSLROOTCERT=system
+export PGHOST PGUSER="$database_user" PGSSLMODE=verify-full PGSSLROOTCERT=/azure-postgres-roots.pem
 PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 export PGPASSWORD
 print -r -- "::add-mask::$PGPASSWORD"
 
+postgres_roots="${0:A:h}/azure-postgres-roots.pem"
 pg() {
   docker run --rm -i -v "$work_dir:/backup" \
+    -v "$postgres_roots:$PGSSLROOTCERT:ro" \
     -e PGHOST -e PGUSER -e PGSSLMODE -e PGSSLROOTCERT -e PGPASSWORD -e PGCONNECT_TIMEOUT=5 \
     postgres:18 "$@"
 }
 wait_for_database() {
+  local result
   for attempt in {1..24}; do
-    if pg psql -XqAt -d postgres -c 'select 1' >/dev/null; then
+    if result="$(pg psql -XqAt -d postgres -c 'select 1' 2>&1)"; then
       return 0
     fi
+    print -ru2 -- "$result"
+    [[ "$result" != *"certificate verify failed"* ]] || die "TLS verification failed for $PGHOST"
     sleep 10
   done
   die "could not connect to $PGHOST"
