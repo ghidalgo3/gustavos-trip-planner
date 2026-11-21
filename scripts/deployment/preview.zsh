@@ -180,3 +180,6 @@ auth_redirect="$(curl -sS --max-time 15 -o /dev/null -w '%{redirect_url}' "$slot
 switching=false
 printf 'Preview for PR #%s at [%s](%s)\n\nCommit `%s`\n' \
   "$pr_number" "$slot_url" "$slot_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  print -r -- 'deployed=true' >> "$GITHUB_OUTPUT"
+fi

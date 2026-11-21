@@ -1219,8 +1219,9 @@ and sign in with that account at the preview URL. Use
 `--production-only` or `--preview-only` to configure one deployment independently.
 
 A pull request from a branch in this repository builds its proposed merge with
-`main` and deploys to the single shared slot. The deployment summary in Actions
-shows the preview URL and commit. A successful deployment replaces the previous preview.
+`main` and deploys to the single shared slot. API tests and web checks plus image
+packaging run in parallel. The **Azure PR preview** status links to the deployment
+summary with the preview URL and commit. A successful deployment replaces the previous preview.
 Closing the pull request stops the slot if it is the one being previewed. Fork
 pull requests are excluded because preview code can read the copied trip data.
 Keep repository write access limited to trusted contributors.
