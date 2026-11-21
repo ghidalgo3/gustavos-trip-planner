@@ -7,10 +7,10 @@ config() { jq -er ".$1 | strings | select(length > 0)" <<< "$DEPLOYMENT_CONFIG";
 die() { print -ru2 -- "error: $*"; exit 1; }
 
 publish_image() {
-  local registry_name="$1" image_ref="$2"
+  local registry_name="$1" image_ref="$2" resource_group="$3"
   docker load --input "$RELEASE_STATE_DIR/image.tar.gz"
   docker tag tripplanner-api:release "$image_ref"
-  az acr login --name "$registry_name" --only-show-errors
+  az acr login --name "$registry_name" --resource-group "$resource_group" --only-show-errors
   docker push "$image_ref"
 }
 

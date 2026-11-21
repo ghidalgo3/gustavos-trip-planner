@@ -53,7 +53,7 @@ previous_web="$(web_request get "$slot_id" /config/web --query '{properties: {li
 preview_image_prefix="$registry_host/tripplanner-preview:pr-$pr_number-"
 if [[ -n "${PR_NUMBER:-}" ]]; then
   image_ref="$preview_image_prefix$revision-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-  publish_image "$registry_name" "$image_ref"
+  publish_image "$registry_name" "$image_ref" "$resource_group"
 else
   image_ref="$(jq -er '.properties.linuxFxVersion | ltrimstr("DOCKER|")' <<< "$previous_web")"
   [[ "$image_ref" == "$preview_image_prefix"* ]] || die 'unexpected deployed preview image'

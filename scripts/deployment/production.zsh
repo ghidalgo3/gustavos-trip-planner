@@ -12,7 +12,7 @@ export WEB_APP_NAME="${site_id:t}"
 export RESOURCE_GROUP="$(config resourceGroup)"
 export WEB_APP_URL="https://$(web_request get "$site_id" "" --query properties.defaultHostName -o tsv)"
 
-publish_image "$registry_name" "$IMAGE_REF"
+publish_image "$registry_name" "$IMAGE_REF" "$RESOURCE_GROUP"
 web_request patch "$site_id" /config/web --body "$(jq -cn --arg image "$IMAGE_REF" \
   '{properties: {linuxFxVersion: ("DOCKER|" + $image), acrUseManagedIdentityCreds: true}}')" -o none
 web_request post "$site_id" /restart -o none

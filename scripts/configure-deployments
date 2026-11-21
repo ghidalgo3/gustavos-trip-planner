@@ -16,6 +16,16 @@ if [[ "$mode" != --preview-only ]]; then
   GITHUB_REPOSITORY="$repo" scripts/protect-main
 fi
 
+oidc_subject="${GITHUB_OIDC_SUBJECT:-}"
+if [[ -z "$oidc_subject" ]]; then
+  subject_prefix="$(gh api "repos/$repo/actions/oidc/customization/sub" |
+    jq -er --arg repo "$repo" 'select(.use_default == true) | (.sub_claim_prefix // ("repo:" + $repo))')" || {
+    print -ru2 -- 'Set GITHUB_OIDC_SUBJECT when using a custom GitHub OIDC template.'
+    exit 1
+  }
+  oidc_subject="$subject_prefix:ref:refs/heads/main"
+fi
+
 tenant_id="$(az account show --query tenantId -o tsv)"
 subscription_id="$(az account show --query id -o tsv)"
 
@@ -39,7 +49,7 @@ make_pipeline_identity() {
   az identity create -g "$resource_group" -n "$identity_name" -l "$location" -o none
   az identity federated-credential create -g "$resource_group" --identity-name "$identity_name" \
     --name github-main --issuer https://token.actions.githubusercontent.com \
-    --subject "repo:$repo:ref:refs/heads/main" --audiences api://AzureADTokenExchange -o none
+    --subject "$oidc_subject" --audiences api://AzureADTokenExchange -o none
   az identity show -g "$resource_group" -n "$identity_name" -o json
 }
 
