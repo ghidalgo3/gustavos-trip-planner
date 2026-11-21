@@ -1237,7 +1237,10 @@ or startup restores the previous preview when available. The slot is never
 swapped into production. The copy is refreshed daily at 07:17 UTC while a preview
 is active. To discard preview edits or recover immediately, open **Actions →
 Deploy PR preview → Run workflow** on `main`. An empty PR number refreshes the
-active preview. Enter an open PR number to rebuild it from its latest commit.
+active preview. Enter an open PR number to rebuild it from its latest commit. To retry an Azure
+deployment after a workflow repair, supply the previous tested preview run ID.
+The workflow reuses the image only if the PR head and tested application sources
+still match.
 
 ## API routes
 
