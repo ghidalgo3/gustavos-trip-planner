@@ -11,6 +11,10 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Changed
+
+- Use Trip Planner's production sign-in page in the Azure test environment, with separate OAuth clients and access limited to approved reviewers.
+
 ### Added
 
 - Post the Azure test environment sign-in link on the pull request when it is ready, including on demand for a deployment that is already running.

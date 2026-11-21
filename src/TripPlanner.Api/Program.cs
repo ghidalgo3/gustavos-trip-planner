@@ -107,6 +107,9 @@ if (app.Environment.IsDevelopment())
 // No UseHttpsRedirection: the container serves HTTP and App Service terminates TLS.
 app.UseForwardedHeaders();
 string? deploymentRevision = Environment.GetEnvironmentVariable("DEPLOYMENT_REVISION");
+bool reviewerAccessEnabled = app
+    .Services.GetRequiredService<IOptions<AuthenticationOptions>>()
+    .Value.ReviewerAccess.Required;
 if (!string.IsNullOrWhiteSpace(deploymentRevision))
 {
     app.Use(
@@ -115,6 +118,10 @@ if (!string.IsNullOrWhiteSpace(deploymentRevision))
             if (context.Request.Path == "/health")
             {
                 context.Response.Headers["X-Trip-Planner-Revision"] = deploymentRevision;
+                if (reviewerAccessEnabled)
+                {
+                    context.Response.Headers["X-Trip-Planner-Reviewer-Auth"] = "enabled";
+                }
             }
             await next();
         }

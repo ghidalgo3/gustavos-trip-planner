@@ -1214,10 +1214,22 @@ The setup configures a Standard or higher App Service plan and a test
 environment in the Azure slot named `preview`. The test environment shares the
 existing PostgreSQL server and container registry. Its databases and images are
 separate from production. GitHub authenticates through separate Azure
-deployment identities using OIDC. The signed-in user's Entra object ID is
-allowed to open the test environment. Set `PREVIEW_VIEWER_OBJECT_ID` to authorize a
-different viewer. Use `--production-only` or `--preview-only` to configure one
-deployment independently.
+deployment identities using OIDC. The test environment uses Trip Planner's
+production sign-in page, with separate Google and Microsoft OAuth registrations.
+Only approved reviewer accounts can sign in. Use `--production-only` or
+`--preview-only` to configure one deployment independently.
+
+Register `https://<test-slot-host>/.auth/callback/google` and
+`https://<test-slot-host>/.auth/callback/microsoft` with the respective test clients.
+Store their credentials as `test-google-client-id`, `test-google-client-secret`,
+`test-microsoft-client-id`, and `test-microsoft-client-secret` in Key Vault. Run
+`zsh scripts/configure-test-sign-in` with `TEST_GOOGLE_REVIEWER_EMAIL` set to the
+reviewer's Gmail address, `TEST_MICROSOFT_REVIEWER_OBJECT_ID` set to their
+personal Microsoft account object ID, or both. The slot can read only those
+four test secrets from the vault. During deployments an App Service access
+guard stays enabled until the candidate reports that reviewer access is active.
+An existing test deployment switches to the app's sign-in page on the first
+successful PR deployment using the updated workflow.
 
 A pull request from a branch in this repository builds its proposed merge with
 `main` and deploys to the single shared slot. API tests and web checks plus image
