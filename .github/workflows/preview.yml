@@ -123,6 +123,7 @@ jobs:
           EVENT_ACTION: ${{ needs.select.outputs.action }}
           RELEASE_STATE_DIR: ${{ runner.temp }}/release
           DEPLOYMENT_CONFIG: ${{ vars.AZURE_PREVIEW_CONFIG }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
           sudo apt-get install -y zsh
           zsh scripts/deployment/preview.zsh
