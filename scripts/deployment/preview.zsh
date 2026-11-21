@@ -15,17 +15,25 @@ pr_number="${PR_NUMBER:-$previous_pr}"
 [[ "$pr_number" =~ '^[0-9]+$' ]] || die 'invalid PR number'
 
 login_url="$slot_url/.auth/login/aad?post_login_redirect_uri=%2F"
-unauthenticated_access=false
+reviewer_header='X-Trip-Planner-Reviewer-Auth: enabled'
+app_sign_in="$(jq -r '.properties.Authentication__ReviewerAccess__Required == "true"' <<< "$settings")"
+previous_auth="$(web_request get "$slot_id" /config/authsettingsV2/list --query '{properties:properties}' -o json)"
+legacy_exposed=false
 
-verify_test_auth_policy() {
-  web_request get "$slot_id" /config/authsettingsV2/list --query properties -o json |
-    jq -e '.platform.enabled and .globalValidation.requireAuthentication
+verify_slot_guard() {
+  jq -e '.properties | .globalValidation.requireAuthentication
+      and .identityProviders.azureActiveDirectory.enabled
       and (.identityProviders.azureActiveDirectory.validation.defaultAuthorizationPolicy.allowedPrincipals.identities | length > 0)
-      and .globalValidation.excludedPaths == ["/health"]' >/dev/null ||
-    die 'the slot must require Entra authentication before attaching copied data'
+      and .globalValidation.excludedPaths == ["/health"]' <<< "$previous_auth" >/dev/null ||
+    die 'the slot is missing the deployment-time access guard'
 }
 
-verify_test_sign_in() {
+set_slot_guard() {
+  web_request put "$slot_id" /config/authsettingsV2 \
+    --body "$(jq -c --argjson enabled "$1" '.properties.platform.enabled = $enabled' <<< "$previous_auth")" -o none
+}
+
+verify_legacy_sign_in() {
   # App Service starts the authentication sidecar after the application responds.
   # Treat an unauthenticated success response as a failed check.
   local auth_ready=false auth_status=000 auth_response auth_redirect attempt
@@ -36,7 +44,7 @@ verify_test_sign_in() {
       auth_redirect="${auth_response#* }"
       case "$auth_status" in
         2*)
-          unauthenticated_access=true
+          legacy_exposed=true
           die 'test environment served a successful response without Entra authentication'
           ;;
         401|403)
@@ -52,6 +60,24 @@ verify_test_sign_in() {
     sleep 10
   done
   [[ "$auth_ready" == true ]] || die "test environment sign-in did not become ready (HTTP $auth_status)"
+}
+
+verify_app_sign_in() {
+  local attempt google microsoft api_status
+  login_url="$slot_url/"
+  for attempt in {1..18}; do
+    google="$(curl -sS --max-time 10 -o /dev/null -w '%{redirect_url}' "$slot_url/.auth/login/google")" || google=''
+    microsoft="$(curl -sS --max-time 10 -o /dev/null -w '%{redirect_url}' "$slot_url/.auth/login/aad")" || microsoft=''
+    api_status="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "$slot_url/trips")" || api_status=''
+    [[ "$api_status" != 2* ]] || die 'the test environment returned trip data without authentication'
+    if [[ "$google" == 'https://accounts.google.com/'* && "$google" == *'%2F.auth%2Fcallback%2Fgoogle'* &&
+          "$microsoft" == 'https://login.microsoftonline.com/'* && "$microsoft" == *'%2F.auth%2Fcallback%2Fmicrosoft'* &&
+          "$api_status" == 401 ]] && curl -fsS --max-time 10 "$login_url" | grep -iF '<div id="root"' >/dev/null; then
+      return 0
+    fi
+    sleep 10
+  done
+  die 'the Trip Planner sign-in page or its OAuth redirects did not become ready'
 }
 
 report_test_ready() {
@@ -75,9 +101,15 @@ if [[ "${EVENT_ACTION:-}" == announce ]]; then
   gh api "repos/$GITHUB_REPOSITORY/git/commits/$revision" |
     jq -e --arg sha "$pr_head" '.parents[1].sha == $sha' >/dev/null ||
     die "the test environment is running an older commit for PR #$pr_number"
-  verify_test_auth_policy
-  verify_revision "$slot_url" "$revision" || die 'the test environment is not healthy'
-  verify_test_sign_in
+  if [[ "$app_sign_in" == true ]]; then
+    verify_revision "$slot_url" "$revision" "$reviewer_header" || die 'the test environment reviewer guard is not ready'
+    verify_app_sign_in
+  else
+    verify_slot_guard
+    jq -e '.properties.platform.enabled' <<< "$previous_auth" >/dev/null || die 'the slot access guard is disabled'
+    verify_revision "$slot_url" "$revision" || die 'the test environment is not healthy'
+    verify_legacy_sign_in
+  fi
   report_test_ready
   exit 0
 fi
@@ -100,6 +132,18 @@ else
   revision="$previous_revision"
 fi
 [[ "$revision" =~ '^[a-f0-9]{40}$' ]] || die 'invalid test environment revision'
+
+verify_slot_guard
+if [[ -n "${PR_NUMBER:-}" ]]; then
+  app_sign_in=true
+fi
+if [[ "$app_sign_in" == true ]]; then
+  jq -e '.properties | [
+    .Authentication__Google__ClientId, .Authentication__Google__ClientSecret,
+    .Authentication__Microsoft__ClientId, .Authentication__Microsoft__ClientSecret
+  ] | all(type == "string" and startswith("@Microsoft.KeyVault("))' <<< "$settings" >/dev/null ||
+    die 'configure the four test OAuth Key Vault references before deploying'
+fi
 
 registry_name="$(config registryName)"
 registry_host="$(config registryHost)"
@@ -139,13 +183,14 @@ cleanup() {
   if [[ "$switching" == true ]]; then
     print -ru2 -- 'Restoring the previous test environment configuration.'
     web_request post "$slot_id" /stop -o none || result=1
-    web_request put "$slot_id" /config/appsettings --body "$settings" -o none || result=1
-    if [[ -n "$previous_revision" && "$unauthenticated_access" == false ]]; then
-      if web_request patch "$slot_id" /config/web --body "$previous_web" -o none; then
+    if web_request put "$slot_id" /config/authsettingsV2 --body "$previous_auth" -o none &&
+       web_request put "$slot_id" /config/appsettings --body "$settings" -o none &&
+       web_request patch "$slot_id" /config/web --body "$previous_web" -o none; then
+      if [[ -n "$previous_revision" && "$legacy_exposed" == false ]]; then
         web_request post "$slot_id" /start -o none || result=1
-      else
-        result=1
       fi
+    else
+      result=1
     fi
   fi
   if [[ "$firewall_open" == true ]]; then
@@ -223,21 +268,28 @@ fi
 
 connection="Host=$PGHOST;Port=5432;Database=$database;Username=$slot_user;SSL Mode=VerifyFull;Options=-c role=$owner_role"
 next_settings="$(jq -c --arg database "$database" --arg connection "$connection" \
-  --arg pr "$pr_number" --arg revision "$revision" \
+  --arg pr "$pr_number" --arg revision "$revision" --arg appSignIn "$app_sign_in" \
   '{properties: (.properties + {PREVIEW_DATABASE: $database, ConnectionStrings__TripPlanner: $connection,
-    DEPLOYED_PR: $pr, DEPLOYED_REVISION: $revision})}' <<< "$settings")"
+    DEPLOYED_PR: $pr, DEPLOYED_REVISION: $revision, WEBSITES_ENABLE_APP_SERVICE_STORAGE: $appSignIn,
+    Authentication__ReviewerAccess__Required: $appSignIn,
+    Authentication__UseAppServiceAuthentication: (if $appSignIn == "true" then "false" else "true" end)})}' <<< "$settings")"
 
 # Stop first so the previous image can never migrate the incoming database.
-verify_test_auth_policy
-
 switching=true
 web_request post "$slot_id" /stop -o none
+set_slot_guard true
 web_request put "$slot_id" /config/appsettings --body "$next_settings" -o none
 web_request patch "$slot_id" /config/web --body "$(jq -cn --arg image "$image_ref" \
   '{properties: {linuxFxVersion: ("DOCKER|" + $image), acrUseManagedIdentityCreds: true}}')" -o none
 web_request post "$slot_id" /start -o none
-verify_revision "$slot_url" "$revision" || die "test environment failed startup or migrations for $revision"
-
-verify_test_sign_in
+if [[ "$app_sign_in" == true ]]; then
+  verify_revision "$slot_url" "$revision" "$reviewer_header" || die "test environment failed startup or reviewer validation for $revision"
+  set_slot_guard false
+  verify_app_sign_in
+  verify_revision "$slot_url" "$revision" "$reviewer_header" || die "the test environment is not serving $revision after the sign-in switch"
+else
+  verify_revision "$slot_url" "$revision" || die "test environment failed startup or migrations for $revision"
+  verify_legacy_sign_in
+fi
 switching=false
 report_test_ready

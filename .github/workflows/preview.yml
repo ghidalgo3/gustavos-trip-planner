@@ -253,11 +253,11 @@ jobs:
 
           marker="<!-- tripplanner-azure-preview:$PR_SHA -->"
           comments_path="$repo_path/issues/$PR_NUMBER/comments"
-          already_posted="$(gh api --paginate --slurp "$comments_path?per_page=100" |
+          comment="$(gh api --paginate --slurp "$comments_path?per_page=100" |
             jq -r --arg marker "$marker" '
-              any(.[][]; .user.login == "github-actions[bot]" and (.body | startswith($marker)))
+              first(.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith($marker)))) // empty
             ')"
-          if [[ "$already_posted" == true ]]; then
+          if [[ -n "$comment" ]] && jq -e --arg url "$LOGIN_URL" '.body | contains("](" + $url + ")")' <<< "$comment" >/dev/null; then
             exit 0
           fi
 
@@ -265,11 +265,15 @@ jobs:
           body="$(cat <<EOF
           $marker
 
-          **Test environment is ready.** [Open the test environment and sign in with Microsoft]($LOGIN_URL).
+          **Test environment is ready.** [Open the test environment and sign in]($LOGIN_URL).
 
           PR commit \`${PR_SHA:0:7}\` · [Workflow run]($run_url)
 
           The shared slot serves the most recently deployed PR.
           EOF
           )"
-          gh api --method POST "$comments_path" -f body="$body" >/dev/null
+          if [[ -n "$comment" ]]; then
+            gh api --method PATCH "$repo_path/issues/comments/$(jq -er .id <<< "$comment")" -f body="$body" >/dev/null
+          else
+            gh api --method POST "$comments_path" -f body="$body" >/dev/null
+          fi

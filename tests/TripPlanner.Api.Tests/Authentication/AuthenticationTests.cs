@@ -24,6 +24,67 @@ namespace TripPlanner.Api.Tests.Authentication;
 public class AuthenticationTests
 {
     [TestMethod]
+    [DataRow("google", "reviewer@gmail.com", "true", true)]
+    [DataRow("google", "reviewer@gmail.com", "false", false)]
+    [DataRow("google", "other@gmail.com", "true", false)]
+    [DataRow("microsoft", "reviewer@example.com", "acc76910-bea4-4afd-b531-96963a510b2f", true)]
+    [DataRow("microsoft", "reviewer@example.com", "72512a36-05cc-48c8-9f63-cfd99e013f66", false)]
+    public async Task ReviewerMode_OnlyAcceptsSessionsFromApprovedProviderAccounts(
+        string provider,
+        string email,
+        string verifiedIdentity,
+        bool approved
+    )
+    {
+        await using var baseFactory = new TestApplicationFactory();
+        await using var factory = baseFactory.WithWebHostBuilder(builder =>
+            builder
+                .UseSetting("Authentication:ReviewerAccess:Required", "true")
+                .UseSetting("Authentication:ReviewerAccess:GoogleEmails:0", "reviewer@gmail.com")
+                .UseSetting(
+                    "Authentication:ReviewerAccess:MicrosoftObjectIds:0",
+                    "acc76910-bea4-4afd-b531-96963a510b2f"
+                )
+                .ConfigureServices(services =>
+                    services.PostConfigure<Microsoft.AspNetCore.Authentication.AuthenticationOptions>(
+                        options =>
+                            options.DefaultAuthenticateScheme =
+                                CookieAuthenticationDefaults.AuthenticationScheme
+                    )
+                )
+        );
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = false }
+        );
+        using var scope = factory.Services.CreateScope();
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        await context.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(
+                new ClaimsIdentity(
+                    [
+                        new Claim("provider", provider),
+                        new Claim(ClaimTypes.Email, email),
+                        new Claim(
+                            provider == "google" ? "tripplanner:verified_google_email" : "oid",
+                            verifiedIdentity
+                        ),
+                    ],
+                    CookieAuthenticationDefaults.AuthenticationScheme
+                )
+            )
+        );
+        var cookie = SetCookieHeaderValue.Parse(context.Response.Headers.SetCookie.Single()!);
+        client.DefaultRequestHeaders.Add("Cookie", $"{cookie.Name}={cookie.Value}");
+
+        var user = await client.GetFromJsonAsync<UserResponse>("/user");
+
+        Assert.IsNotNull(user);
+        Assert.AreEqual(approved, user.IsAuthenticated);
+        Assert.HasCount(approved ? 1 : 0, baseFactory.Database.Users);
+    }
+
+    [TestMethod]
     [DataRow("aad", true)]
     [DataRow("google", false)]
     [DataRow("", false)]

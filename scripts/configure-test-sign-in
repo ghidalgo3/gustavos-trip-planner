@@ -1,0 +1,60 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+cd "${0:A:h:h}"
+resource_group="${RESOURCE_GROUP:-rg-tripplanner-dev}"
+infra_deployment="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
+google_email="${TEST_GOOGLE_REVIEWER_EMAIL:-}"
+microsoft_oid="${TEST_MICROSOFT_REVIEWER_OBJECT_ID:-}"
+
+if [[ -z "$google_email" && -z "$microsoft_oid" ]]; then
+  print -ru2 -- 'Set TEST_GOOGLE_REVIEWER_EMAIL or TEST_MICROSOFT_REVIEWER_OBJECT_ID.'
+  exit 2
+fi
+if [[ -n "$google_email" && "$google_email" != ?*@gmail.com ]]; then
+  print -ru2 -- 'The Google reviewer must use a verified Gmail account.'
+  exit 2
+fi
+if [[ -n "$microsoft_oid" && ! "$microsoft_oid" =~ '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$' ]]; then
+  print -ru2 -- 'Use the personal Microsoft account object ID.'
+  exit 2
+fi
+
+infra="$(az deployment group show -g "$resource_group" -n "$infra_deployment" --query properties.outputs -o json)"
+web_app="$(jq -er '.webAppName.value' <<< "$infra")"
+vault="$(jq -er '.keyVaultName.value' <<< "$infra")"
+vault_id="$(az keyvault show -n "$vault" --query id -o tsv)"
+slot_principal="$(az webapp identity show -g "$resource_group" -n "$web_app" --slot preview --query principalId -o tsv)"
+[[ -n "$slot_principal" ]]
+
+for secret in test-google-client-id test-google-client-secret test-microsoft-client-id test-microsoft-client-secret; do
+  az keyvault secret show --vault-name "$vault" --name "$secret" --query attributes.enabled -o tsv |
+    grep -qx true
+done
+for secret in test-google-client-id test-google-client-secret test-microsoft-client-id test-microsoft-client-secret; do
+  scope="$vault_id/secrets/$secret"
+  existing="$(az role assignment list --scope "$scope" --role 'Key Vault Secrets User' \
+    --query "[?principalId=='$slot_principal'].id | [0]" -o tsv)"
+  if [[ -z "$existing" ]]; then
+    az role assignment create --assignee-object-id "$slot_principal" --assignee-principal-type ServicePrincipal \
+      --role 'Key Vault Secrets User' --scope "$scope" -o none
+  fi
+done
+
+reviewers=()
+if [[ -n "$google_email" ]]; then
+  reviewers+=("Authentication__ReviewerAccess__GoogleEmails__0=$google_email")
+fi
+if [[ -n "$microsoft_oid" ]]; then
+  reviewers+=("Authentication__ReviewerAccess__MicrosoftObjectIds__0=$microsoft_oid")
+fi
+
+az webapp config appsettings set -g "$resource_group" -n "$web_app" --slot preview --slot-settings \
+  "Authentication__Google__ClientId=@Microsoft.KeyVault(VaultName=$vault;SecretName=test-google-client-id)" \
+  "Authentication__Google__ClientSecret=@Microsoft.KeyVault(VaultName=$vault;SecretName=test-google-client-secret)" \
+  "Authentication__Microsoft__ClientId=@Microsoft.KeyVault(VaultName=$vault;SecretName=test-microsoft-client-id)" \
+  "Authentication__Microsoft__ClientSecret=@Microsoft.KeyVault(VaultName=$vault;SecretName=test-microsoft-client-secret)" \
+  "Authentication__DataProtectionKeysPath=/home/test-data-protection-keys" \
+  "${reviewers[@]}" -o none
+
+print -r -- 'Prepared the test OAuth clients and reviewer accounts.'
