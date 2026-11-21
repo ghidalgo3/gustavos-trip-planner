@@ -10,11 +10,16 @@ on:
         description: Expected second parent of a pull request merge commit.
         type: string
 
+      mode:
+        type: string
+        default: tested-image
+
 permissions:
   contents: read
 
 jobs:
   api:
+    if: inputs.mode == 'tested-image' || inputs.mode == 'checks'
     name: API tests
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -46,11 +51,19 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+      - name: Detect whether the base branch still needs the CI image
+        id: legacy
+        if: inputs.mode == 'checks'
+        run: |
+          if ! git cat-file -e HEAD^1:scripts/deployment/preview-assets.zsh; then
+            echo 'image=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Install build tools
+        if: inputs.mode == 'image' || inputs.mode == 'tested-image' || steps.legacy.outputs.image == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y zsh
-          npm install --global corepack
+      - run: npm install --global corepack
       - name: Identify the build commit
         env:
           PR_HEAD: ${{ inputs.pr_head }}
@@ -66,11 +79,32 @@ jobs:
         working-directory: src/TripPlanner.Web
         run: corepack pnpm install --frozen-lockfile
       - name: Check the web client
+        if: inputs.mode == 'tested-image' || inputs.mode == 'checks'
         working-directory: src/TripPlanner.Web
         run: |
           corepack pnpm run lint
           corepack pnpm test
+      - name: Check the web build
+        if: inputs.mode == 'checks' && steps.legacy.outputs.image != 'true'
+        working-directory: src/TripPlanner.Web
+        run: corepack pnpm run build
+      - name: Build preview web assets
+        if: inputs.mode == 'web'
+        working-directory: src/TripPlanner.Web
+        env:
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+        run: |
+          corepack pnpm exec vite build
+          mv dist "$RELEASE_STATE_DIR/web"
+      - uses: actions/upload-artifact@v7
+        if: inputs.mode == 'web'
+        with:
+          name: preview-web
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 1
       - name: Package the deployment image
+        if: inputs.mode == 'image' || inputs.mode == 'tested-image' || steps.legacy.outputs.image == 'true'
         env:
           RELEASE_STATE_DIR: ${{ runner.temp }}/release
           IMAGE_NAME: tripplanner-api
@@ -82,6 +116,7 @@ jobs:
           zsh scripts/release-tasks/build-image.zsh
           docker save tripplanner-api:release | gzip -1 > "$RELEASE_STATE_DIR/image.tar.gz"
       - uses: actions/upload-artifact@v7
+        if: inputs.mode == 'image' || inputs.mode == 'tested-image' || steps.legacy.outputs.image == 'true'
         with:
           name: deployment-image
           path: |

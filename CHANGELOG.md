@@ -17,6 +17,9 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Changed
 
+- Start PR test deployments alongside CI, and publish just the Vite assets when
+  the running test backend can serve them. The test navigation shows a crane.
+
 - Use Trip Planner's production sign-in page in the Azure test environment, with separate OAuth clients and access limited to approved reviewers.
 
 ### Added

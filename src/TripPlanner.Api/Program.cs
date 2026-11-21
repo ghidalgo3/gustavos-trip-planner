@@ -110,6 +110,7 @@ string? deploymentRevision = Environment.GetEnvironmentVariable("DEPLOYMENT_REVI
 bool reviewerAccessEnabled = app
     .Services.GetRequiredService<IOptions<AuthenticationOptions>>()
     .Value.ReviewerAccess.Required;
+string? previewWebRoot = SpaHosting.PreviewWebRoot(deploymentRevision);
 if (!string.IsNullOrWhiteSpace(deploymentRevision))
 {
     app.Use(
@@ -118,6 +119,10 @@ if (!string.IsNullOrWhiteSpace(deploymentRevision))
             if (context.Request.Path == "/health")
             {
                 context.Response.Headers["X-Trip-Planner-Revision"] = deploymentRevision;
+                if (previewWebRoot is not null)
+                {
+                    context.Response.Headers["X-Trip-Planner-Web-Overlay"] = "enabled";
+                }
                 if (reviewerAccessEnabled)
                 {
                     context.Response.Headers["X-Trip-Planner-Reviewer-Auth"] = "enabled";
@@ -138,7 +143,11 @@ app.Use(
 );
 app.UseSpaNavigation();
 app.UseDefaultFiles();
-app.UseStaticFiles(SpaHosting.StaticFiles());
+StaticFileOptions spaFiles = SpaHosting.StaticFiles(
+    app.Environment.WebRootFileProvider,
+    previewWebRoot
+);
+app.UseStaticFiles(spaFiles);
 app.UseCors();
 if (mcpEnabled)
 {
@@ -224,7 +233,7 @@ api.MapActivityPlanEndpoints();
 api.MapActivityRouteEndpoints();
 app.MapActivityCalendarEndpoints(api);
 
-app.MapFallbackToFile("index.html", SpaHosting.StaticFiles());
+app.MapFallbackToFile("index.html", spaFiles);
 app.Run();
 
 public partial class Program;

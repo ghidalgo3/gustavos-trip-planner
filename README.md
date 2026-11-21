@@ -1234,8 +1234,12 @@ An existing test deployment switches to the app's sign-in page on the first
 successful PR deployment using the updated workflow.
 
 A pull request from a branch in this repository builds its proposed merge with
-`main` and deploys to the single shared slot. API tests and web checks plus image
-packaging run in parallel. GitHub Actions posts a PR comment with the sign-in
+`main` and deploys to the single shared slot. The preview workflow runs alongside
+API and web checks. When the slot already serves that PR and its backend matches
+the candidate apart from Vite application source or entry HTML, the workflow
+publishes hashed assets through the slot's SCM endpoint and switches the HTML
+entry point. Otherwise it packages and deploys the container. GitHub Actions
+posts a PR comment with the sign-in
 link the first time a commit is ready. The **Azure test environment** status
 also links to the workflow run. Each successful deployment replaces the
 previous one. Closing the active PR stops the slot. Fork PRs are excluded
@@ -1243,7 +1247,7 @@ because test code can read the copied trip data. The test environment excludes
 production provider credentials, MCP sign-in records, and calendar subscription
 tokens. It also disables background planning workers and MCP.
 
-Each deployment takes a fresh logical snapshot of the production
+Each container deployment takes a fresh logical snapshot of the production
 `gustavo_planner` schema using a read-only database identity. It restores trip
 data and migration history to a separate database on the existing PostgreSQL
 server and runs pending migrations there. A failed migration or startup restores
