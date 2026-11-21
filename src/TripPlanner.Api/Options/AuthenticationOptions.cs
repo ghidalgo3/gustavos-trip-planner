@@ -10,6 +10,8 @@ public sealed class AuthenticationOptions
 
     public OAuthProviderOptions Microsoft { get; init; } = new();
 
+    public ReviewerAccessOptions ReviewerAccess { get; init; } = new();
+
     public string? DataProtectionKeysPath { get; init; }
 
     public bool IsEnabled =>
@@ -23,6 +25,15 @@ public sealed class AuthenticationOptions
         || !string.IsNullOrWhiteSpace(Google.ClientSecret)
         || !string.IsNullOrWhiteSpace(Microsoft.ClientId)
         || !string.IsNullOrWhiteSpace(Microsoft.ClientSecret);
+}
+
+public sealed class ReviewerAccessOptions
+{
+    public bool Required { get; init; }
+
+    public string[] GoogleEmails { get; init; } = [];
+
+    public Guid[] MicrosoftObjectIds { get; init; } = [];
 }
 
 public sealed class OAuthProviderOptions

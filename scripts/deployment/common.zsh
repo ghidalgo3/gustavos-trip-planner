@@ -22,10 +22,11 @@ web_request() {
 }
 
 verify_revision() {
-  local url="$1" revision="$2" response_headers
+  local url="$1" revision="$2" extra_header="${3:-}" response_headers
   for attempt in {1..24}; do
     if response_headers="$(curl -fsS --max-time 15 -D - -o /dev/null "$url/health?revision=$revision")" \
-      && printf '%s\n' "$response_headers" | tr -d '\r' | grep -iFxq "X-Trip-Planner-Revision: $revision"; then
+      && printf '%s\n' "$response_headers" | tr -d '\r' | grep -iFxq "X-Trip-Planner-Revision: $revision" \
+      && { [[ -z "$extra_header" ]] || printf '%s\n' "$response_headers" | tr -d '\r' | grep -iFxq "$extra_header"; }; then
       return 0
     fi
     sleep 10

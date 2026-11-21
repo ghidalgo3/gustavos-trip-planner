@@ -1,7 +1,7 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -11,6 +11,7 @@ using OpenIddict.Validation.AspNetCore;
 using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Mcp;
 using TripPlanner.Api.Options;
+using AuthenticationOptions = TripPlanner.Api.Options.AuthenticationOptions;
 using AuthenticationSchemeOptions = Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions;
 
 namespace TripPlanner.Api.Authentication;
@@ -42,6 +43,10 @@ public static class AuthenticationServiceExtensions
                 .Configuration.GetSection(AuthenticationOptions.SectionName)
                 .Get<AuthenticationOptions>()
             ?? new();
+        ReviewerAccess.Validate(
+            options,
+            builder.Configuration.GetValue<bool>($"{McpOptions.SectionName}:Enabled")
+        );
 
         if (options.UseAppServiceAuthentication)
         {
@@ -101,6 +106,14 @@ public static class AuthenticationServiceExtensions
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
                 };
+                cookie.Events.OnValidatePrincipal = async context =>
+                {
+                    if (!ReviewerAccess.Allows(options.ReviewerAccess, context.Principal))
+                    {
+                        context.RejectPrincipal();
+                        await context.HttpContext.SignOutAsync(context.Scheme.Name);
+                    }
+                };
                 cookie.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
                     ? CookieSecurePolicy.SameAsRequest
                     : CookieSecurePolicy.Always;
@@ -117,7 +130,16 @@ public static class AuthenticationServiceExtensions
                     google.CorrelationCookie.SecurePolicy = builder.Environment.IsDevelopment()
                         ? CookieSecurePolicy.SameAsRequest
                         : CookieSecurePolicy.Always;
-                    google.Events.OnCreatingTicket = AddGoogleProviderClaim;
+                    google.Events.OnCreatingTicket = context =>
+                    {
+                        AddProviderClaim(context.Principal?.Identity, "google");
+                        if (options.ReviewerAccess.Required)
+                        {
+                            ReviewerAccess.AddVerifiedGoogleEmail(context.Principal, context.User);
+                        }
+                        return Task.CompletedTask;
+                    };
+                    google.Events.OnTicketReceived = EnforceReviewerAccess;
                 }
             )
             .AddOpenIdConnect(
@@ -144,10 +166,28 @@ public static class AuthenticationServiceExtensions
                     microsoft.Scope.Add("User.Read");
                     microsoft.TokenValidationParameters.NameClaimType = "name";
                     microsoft.Events.OnTokenValidated = AddMicrosoftProviderClaim;
+                    microsoft.Events.OnTicketReceived = EnforceReviewerAccess;
                 }
             );
 
         return true;
+
+        async Task EnforceReviewerAccess(TicketReceivedContext context)
+        {
+            if (!ReviewerAccess.Allows(options.ReviewerAccess, context.Principal))
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                string message = "This account is not approved for the test environment.";
+                if (ReviewerAccess.GetMicrosoftObjectId(context.Principal) is { } objectId)
+                {
+                    message += $" Your Microsoft account object ID is {objectId}.";
+                }
+                await context.Response.WriteAsync(message, context.HttpContext.RequestAborted);
+            }
+        }
     }
 
     private static async Task<bool> AllowsRestAccessAsync(AuthorizationHandlerContext context)
@@ -191,12 +231,6 @@ public static class AuthenticationServiceExtensions
                 context.User.HasScope(McpServiceExtensions.WriteScope)
                 || read && context.User.HasScope(McpServiceExtensions.ReadScope)
             );
-    }
-
-    private static Task AddGoogleProviderClaim(OAuthCreatingTicketContext context)
-    {
-        AddProviderClaim(context.Principal?.Identity, "google");
-        return Task.CompletedTask;
     }
 
     private static Task AddMicrosoftProviderClaim(TokenValidatedContext context)

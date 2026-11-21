@@ -1210,37 +1210,55 @@ required approving reviewer, so a sole maintainer can merge through a PR. GitHub
 requires Pro or equivalent branch protection support for private repositories.
 `scripts/protect-main` applies the ruleset independently.
 
-The setup configures a Standard or higher App Service plan and the `preview`
-slot. Preview uses the existing PostgreSQL server and container registry, with
-its own databases and images under `tripplanner-preview`. The setup creates separate
-Azure deployment identities that GitHub authenticates through OIDC. The signed-in user's Entra object ID is allowed to
-open the preview. Set `PREVIEW_VIEWER_OBJECT_ID` to configure a different viewer
-and sign in with that account at the preview URL. Use
-`--production-only` or `--preview-only` to configure one deployment independently.
+The setup configures a Standard or higher App Service plan and a test
+environment in the Azure slot named `preview`. The test environment shares the
+existing PostgreSQL server and container registry. Its databases and images are
+separate from production. GitHub authenticates through separate Azure
+deployment identities using OIDC. The test environment uses Trip Planner's
+production sign-in page, with separate Google and Microsoft OAuth registrations.
+Only approved reviewer accounts can sign in. Use `--production-only` or
+`--preview-only` to configure one deployment independently.
+
+Register `https://<test-slot-host>/.auth/callback/google` and
+`https://<test-slot-host>/.auth/callback/microsoft` with the respective test clients.
+Store their credentials as `test-google-client-id`, `test-google-client-secret`,
+`test-microsoft-client-id`, and `test-microsoft-client-secret` in Key Vault. Run
+`zsh scripts/configure-test-sign-in` with `TEST_GOOGLE_REVIEWER_EMAIL` set to the
+reviewer's Gmail address, `TEST_MICROSOFT_REVIEWER_OBJECT_ID` set to their
+personal Microsoft account object ID, or both. The slot can read only those
+four test secrets from the vault. During deployments an App Service access
+guard stays enabled until the candidate reports that reviewer access is active.
+An existing test deployment switches to the app's sign-in page on the first
+successful PR deployment using the updated workflow.
 
 A pull request from a branch in this repository builds its proposed merge with
 `main` and deploys to the single shared slot. API tests and web checks plus image
-packaging run in parallel. The **Azure PR preview** status links to the deployment
-summary with the preview URL and commit. A successful deployment replaces the previous preview.
-Closing the pull request stops the slot if it is the one being previewed. Fork
-pull requests are excluded because preview code can read the copied trip data.
-Keep repository write access limited to trusted contributors.
-Preview excludes production provider credentials, MCP sign-in records, and
-calendar subscription tokens. The preview also disables background planning
-workers and MCP, so integrations requiring those services will be unavailable.
+packaging run in parallel. GitHub Actions posts a PR comment with the sign-in
+link the first time a commit is ready. The **Azure test environment** status
+also links to the workflow run. Each successful deployment replaces the
+previous one. Closing the active PR stops the slot. Fork PRs are excluded
+because test code can read the copied trip data. The test environment excludes
+production provider credentials, MCP sign-in records, and calendar subscription
+tokens. It also disables background planning workers and MCP.
 
 Each deployment takes a fresh logical snapshot of the production
-`gustavo_planner` schema, including trip data and migration history, with a
-read-only database identity. The job creates a fresh preview database on the existing
-PostgreSQL server and the slot runs pending migrations there. A failed migration
-or startup restores the previous preview when available. The slot is never
-swapped into production. The copy is refreshed daily at 07:17 UTC while a preview
-is active. To discard preview edits or recover immediately, open **Actions →
-Deploy PR preview → Run workflow** on `main`. An empty PR number refreshes the
-active preview. Enter an open PR number to rebuild it from its latest commit. To retry an Azure
-deployment after a workflow repair, supply the previous tested preview run ID.
-The workflow reuses the image only if the PR head and tested application sources
-still match.
+`gustavo_planner` schema using a read-only database identity. It restores trip
+data and migration history to a separate database on the existing PostgreSQL
+server and runs pending migrations there. A failed migration or startup restores
+the prior deployment when available. The slot is never swapped into production.
+The database copy is refreshed daily at 07:17 UTC while the test environment is
+active.
+
+To run the workflow manually, open **Actions → Deploy PR test environment →
+Run workflow** on `main`. Leave the PR number blank to refresh the active
+deployment's database. Enter an open PR number to build and deploy its latest
+commit. Select **announce_only** to post the sign-in link for the specified PR
+already running in the test environment. This option verifies the live commit,
+health, and sign-in without rebuilding or resetting its database. To retry a
+deployment with a prior tested run ID, leave **announce_only** unchecked. The
+workflow reuses the image only if the PR head and tested application sources
+still match. If GitHub reports an outdated merge snapshot, use **Update branch**
+on the PR and rerun the workflow.
 
 ## API routes
 

@@ -132,45 +132,52 @@ az deployment group create -g "$resource_group" -n tripplanner-preview-reader \
     readerName="$preview_identity_name" readerPrincipalId="$preview_principal" \
     slotName="$web_app-preview" slotPrincipalId="$slot_principal" -o none
 
-auth_name="$web_app-preview-entra"
-auth_app="$(az ad app list --filter "displayName eq '$auth_name'" --query '[0].appId' -o tsv)"
-if [[ -z "$auth_app" ]]; then
-  auth_app="$(az ad app create --display-name "$auth_name" --sign-in-audience AzureADMyOrg \
-    --enable-id-token-issuance true --query appId -o tsv)"
-fi
-az ad app update --id "$auth_app" --enable-id-token-issuance true \
-  --web-redirect-uris "$slot_url/.auth/login/aad/callback"
-if [[ -z "$(az ad sp list --filter "appId eq '$auth_app'" --query '[0].id' -o tsv)" ]]; then
-  az ad sp create --id "$auth_app" -o none
-fi
-
 az rest --method patch --uri "$slot_id?api-version=2023-12-01" --body '{"properties":{"httpsOnly":true}}' -o none
-az rest --method put --uri "$slot_id/config/authsettingsV2?api-version=2023-12-01" --body "$(jq -cn \
-  --arg app "$auth_app" --arg tenant "$tenant_id" --arg viewer "$viewer_id" '{
-    properties: {
-      platform: {enabled: true},
-      globalValidation: {
-        requireAuthentication: true,
-        unauthenticatedClientAction: "RedirectToLoginPage",
-        redirectToProvider: "azureactivedirectory",
-        excludedPaths: ["/health"]
-      },
-      identityProviders: {azureActiveDirectory: {
-        enabled: true,
-        registration: {clientId: $app, openIdIssuer: ("https://login.microsoftonline.com/" + $tenant + "/v2.0")},
-        login: {loginParameters: ["scope=openid profile email"]},
-        validation: {defaultAuthorizationPolicy: {allowedPrincipals: {identities: [$viewer]}}}
-      }},
-      login: {tokenStore: {enabled: false}},
-      httpSettings: {requireHttps: true}
-    }
-  }')" -o none
+use_app_service_auth=true
+if [[ "$(az webapp config appsettings list -g "$resource_group" -n "$web_app" --slot preview \
+    --query "[?name=='Authentication__ReviewerAccess__Required'].value | [0]" -o tsv)" == true ]]; then
+  use_app_service_auth=false
+fi
+if [[ "$use_app_service_auth" == true ]]; then
+  auth_name="$web_app-preview-entra"
+  auth_app="$(az ad app list --filter "displayName eq '$auth_name'" --query '[0].appId' -o tsv)"
+  if [[ -z "$auth_app" ]]; then
+    auth_app="$(az ad app create --display-name "$auth_name" --sign-in-audience AzureADMyOrg \
+      --enable-id-token-issuance true --query appId -o tsv)"
+  fi
+  az ad app update --id "$auth_app" --enable-id-token-issuance true \
+    --web-redirect-uris "$slot_url/.auth/login/aad/callback"
+  if [[ -z "$(az ad sp list --filter "appId eq '$auth_app'" --query '[0].id' -o tsv)" ]]; then
+    az ad sp create --id "$auth_app" -o none
+  fi
+
+  az rest --method put --uri "$slot_id/config/authsettingsV2?api-version=2023-12-01" --body "$(jq -cn \
+    --arg app "$auth_app" --arg tenant "$tenant_id" --arg viewer "$viewer_id" '{
+      properties: {
+        platform: {enabled: true},
+        globalValidation: {
+          requireAuthentication: true,
+          unauthenticatedClientAction: "RedirectToLoginPage",
+          redirectToProvider: "azureactivedirectory",
+          excludedPaths: ["/health"]
+        },
+        identityProviders: {azureActiveDirectory: {
+          enabled: true,
+          registration: {clientId: $app, openIdIssuer: ("https://login.microsoftonline.com/" + $tenant + "/v2.0")},
+          login: {loginParameters: ["scope=openid profile email"]},
+          validation: {defaultAuthorizationPolicy: {allowedPrincipals: {identities: [$viewer]}}}
+        }},
+        login: {tokenStore: {enabled: false}},
+        httpSettings: {requireHttps: true}
+      }
+    }')" -o none
+fi
 
 az webapp config appsettings set -g "$resource_group" -n "$web_app" --slot preview \
   --slot-settings \
-    WEBSITES_PORT=8080 WEBSITES_ENABLE_APP_SERVICE_STORAGE=false ASPNETCORE_ENVIRONMENT=Production \
+    WEBSITES_PORT=8080 ASPNETCORE_ENVIRONMENT=Production \
     "DOCKER_REGISTRY_SERVER_URL=https://$production_host" "ClientOrigins__0=$slot_url" \
-    Authentication__UseAppServiceAuthentication=true Database__UseAzureManagedIdentity=true \
+    "Authentication__UseAppServiceAuthentication=$use_app_service_auth" Database__UseAzureManagedIdentity=true \
     Planning__WorkerEnabled=false Mcp__Enabled=false "ActivityPlanning__PublicBaseUrl=$slot_url/" \
   -o none
 

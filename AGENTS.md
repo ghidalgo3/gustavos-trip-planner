@@ -2,6 +2,11 @@
 
 This repository contains a small trip-planning web application and its Azure infrastructure.
 
+## Pull Requests
+
+- Humans review and merge pull requests. Agents must leave pull requests open for human review and completion.
+- Agents must never merge a pull request, enable auto-merge, or enqueue a pull request for automatic merge. This applies to every pull request, including workflow and documentation changes.
+
 ## Structure
 
 - `src/TripPlanner.Api`: .NET 10 minimal API. Authentication uses Azure App Service Authentication headers; trip data is currently stored in memory behind `ITripStore`.
