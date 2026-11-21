@@ -1220,7 +1220,8 @@ and sign in with that account at the preview URL. Use
 
 A pull request from a branch in this repository builds its proposed merge with
 `main` and deploys to the single shared slot. API tests and web checks plus image
-packaging run in parallel. The **Azure PR preview** status links to the deployment
+packaging run in parallel. The first successful preview for each PR commit posts a comment with the sign-in
+link. The **Azure PR preview** status links to the deployment
 summary with the preview URL and commit. A successful deployment replaces the previous preview.
 Closing the pull request stops the slot if it is the one being previewed. Fork
 pull requests are excluded because preview code can read the copied trip data.
