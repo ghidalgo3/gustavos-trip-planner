@@ -31,12 +31,13 @@ production_server="$(jq -er '.postgresServerName.value' <<< "$infra")"
 postgres_admin="$(jq -er '.postgresAdminIdentityName.value // empty' <<< "$infra")" || postgres_admin="${web_app/-api-/-postgres-admin-}"
 site="$(az webapp show -g "$resource_group" -n "$web_app" -o json)"
 site_id="$(jq -er '.id' <<< "$site")"
-plan_id="$(jq -er '.serverFarmId' <<< "$site")"
+plan_id="$(jq -er '.appServicePlanId // .serverFarmId' <<< "$site")"
 location="$(az appservice plan show --ids "$plan_id" --query location -o tsv)"
 prod_rg_id="/subscriptions/$subscription_id/resourceGroups/$resource_group"
 prod_db_id="$prod_rg_id/providers/Microsoft.DBforPostgreSQL/flexibleServers/$production_server"
 slot_id="$site_id/slots/preview"
 
+print -r -- "Preparing the Azure preview resource group."
 az group create -n "$preview_group" -l "$location" -o none
 
 make_pipeline_identity() {
@@ -59,6 +60,7 @@ preview_identity="$(make_pipeline_identity "$preview_identity_name")"
 preview_principal="$(jq -er '.principalId' <<< "$preview_identity")"
 preview_client="$(jq -er '.clientId' <<< "$preview_identity")"
 
+print -r -- "Provisioning the preview PostgreSQL server and container registry."
 preview="$(az deployment group create -g "$preview_group" -n tripplanner-preview \
   --template-file infra/preview.bicep --parameters deployPrincipalId="$preview_principal" \
     deployPrincipalName="$preview_identity_name" --query properties.outputs -o json)"
@@ -91,11 +93,13 @@ fi
 grant_role "$preview_principal" "$firewall_role_id" "$prod_db_id"
 grant_role "$preview_principal" "$firewall_role_id" "$preview_db_id"
 
+print -r -- "Granting read access for production database copies."
 az deployment group create -g "$resource_group" -n tripplanner-preview-reader \
   --template-file infra/preview-reader.bicep --parameters postgresServerName="$production_server" \
     postgresAdminIdentityName="$postgres_admin" productionRole="$web_app" \
     readerName="$preview_identity_name" readerPrincipalId="$preview_principal" -o none
 
+print -r -- "Configuring the authenticated preview slot."
 tier="$(az appservice plan show --ids "$plan_id" --query sku.tier -o tsv)"
 case "$tier" in
   Free|Shared|Basic) az appservice plan update --ids "$plan_id" --sku S1 -o none ;;
@@ -112,13 +116,16 @@ grant_role "$slot_principal" 'AcrPull' "$preview_registry_id"
 grant_role "$preview_principal" 'Website Contributor' "$slot_id"
 
 auth_name="$web_app-preview-entra"
-auth_app="$(az ad app list --display-name "$auth_name" --filter "displayName eq '$auth_name'" --query '[0].appId' -o tsv)"
+auth_app="$(az ad app list --filter "displayName eq '$auth_name'" --query '[0].appId' -o tsv)"
 if [[ -z "$auth_app" ]]; then
   auth_app="$(az ad app create --display-name "$auth_name" --sign-in-audience AzureADMyOrg \
     --enable-id-token-issuance true --query appId -o tsv)"
 fi
 az ad app update --id "$auth_app" --enable-id-token-issuance true \
   --web-redirect-uris "$slot_url/.auth/login/aad/callback"
+if [[ -z "$(az ad sp list --filter "appId eq '$auth_app'" --query '[0].id' -o tsv)" ]]; then
+  az ad sp create --id "$auth_app" -o none
+fi
 
 az rest --method patch --uri "$slot_id?api-version=2023-12-01" --body '{"properties":{"httpsOnly":true}}' -o none
 az rest --method put --uri "$slot_id/config/authsettingsV2?api-version=2023-12-01" --body "$(jq -cn \
