@@ -1841,7 +1841,8 @@ main {
 .activity-cards-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  padding: 12px 0 20px;
+  row-gap: 14px;
+  padding: 4px 4px 14px;
 }
 .activity-cards-toolbar,
 .activity-search-toolbar {
@@ -2040,7 +2041,7 @@ main {
 .activity-cards {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 12px;
   list-style: none;
   padding: 0;
   margin: 0;
@@ -2067,6 +2068,7 @@ main {
 }
 .activity-card-heading h3 {
   flex: 1 1 160px;
+  min-width: 0;
   margin: 0;
   font-size: 18px;
 }
@@ -2197,7 +2199,6 @@ main:has(.trip-workspace-activities) > .topbar {
 }
 .activity-cards-heading {
   flex-shrink: 0;
-  padding: 4px 4px 12px;
 }
 .activity-cards {
   min-height: 0;
@@ -2356,14 +2357,14 @@ main:has(.trip-workspace-activities) > .topbar {
 }
 
 .activity-list-heading {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
 }
 .activity-list-heading > .activity-state-menu-button,
 .activity-list-heading > .activity-state {
-  flex-shrink: 0;
-  max-width: min(60%, 200px);
+  max-width: 128px;
   overflow-wrap: anywhere;
 }
 .activity-status-label {
@@ -2378,8 +2379,10 @@ main:has(.trip-workspace-activities) > .topbar {
   min-height: 44px;
 }
 .activity-list-item {
+  display: grid;
+  gap: 12px;
   min-width: 0;
-  padding: 12px;
+  padding: 16px;
   border: 1px solid var(--colorNeutralStroke2);
   border-radius: 10px;
   background: var(--colorNeutralBackground1);
@@ -2388,25 +2391,48 @@ main:has(.trip-workspace-activities) > .topbar {
   border-color: var(--colorBrandStroke1);
   background: var(--colorBrandBackground2);
 }
-.activity-list-title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 60px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--colorNeutralForeground1);
-  font: inherit;
+.activity-list-heading > .activity-card-title {
   font-weight: 600;
-  text-align: left;
 }
-.activity-list-title > span:last-child {
+.activity-list-tags {
+  grid-column: 2 / -1;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  column-gap: 8px;
+}
+.activity-list-tags .activity-kind-tag {
+  flex: none;
+  width: max-content;
+  max-width: none;
+}
+.activity-list-tags .fui-Tag__primaryText {
+  white-space: nowrap;
+}
+.activity-list-tags [data-overflow] {
+  position: absolute;
+  visibility: hidden;
+}
+.activity-card-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
+}
+.activity-list-address {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--colorNeutralForeground2);
+  overflow-wrap: anywhere;
+}
+.activity-list-address svg {
+  flex-shrink: 0;
+  align-self: start;
+  margin-top: 2px;
 }
 .activity-map-panel > .activity-map-bottom-card {
   max-height: 65%;
@@ -2645,7 +2671,7 @@ main:has(.trip-workspace-activities) > .topbar {
   overflow-x: auto;
   scrollbar-width: none;
   gap: 8px;
-  padding: 12px 2px 4px;
+  padding: 2px;
 }
 .activity-status-filters::-webkit-scrollbar {
   display: none;

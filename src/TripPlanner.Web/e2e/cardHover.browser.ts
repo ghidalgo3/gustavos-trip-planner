@@ -82,7 +82,7 @@ for (const width of [390, 1280]) {
         await expectCardHover(page, activity, state);
         const initial = await cardColors(activity);
         const title = (await activity
-          .locator(".activity-list-title")
+          .locator(".activity-card-title")
           .boundingBox())!;
         await page.mouse.move(
           title.x + title.width / 2,
@@ -96,7 +96,7 @@ for (const width of [390, 1280]) {
         );
         expect(
           await activity
-            .locator(".activity-list-title")
+            .locator(".activity-card-title")
             .evaluate((element) => getComputedStyle(element).backgroundColor),
         ).toBe("rgba(0, 0, 0, 0)");
         await activity.screenshot({

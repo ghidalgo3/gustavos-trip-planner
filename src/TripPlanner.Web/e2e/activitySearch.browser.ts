@@ -14,7 +14,14 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         const document = await response.json();
         const museum = calendarActivities[0];
         const activities = [
-          museum,
+          {
+            ...museum,
+            properties: {
+              ...museum.properties,
+              address: "Museum street",
+              kinds: ["Nature", "Sightseeing", "Bus tour"],
+            },
+          },
           {
             ...museum,
             id: "search-cafe",
@@ -160,6 +167,71 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
       ).toBe(searchFontSize);
     });
 
+    test("keeps card titles to two lines above the tags and address", async ({
+      page,
+    }) => {
+      const card = page.locator(".activity-list-item").first();
+      const title = card.locator(".activity-card-title");
+      await expect(title).toHaveText("Museum");
+      const sizes = await title.evaluate((element) => {
+        const singleLineHeight = element.getBoundingClientRect().height;
+        element.textContent = "A very long museum activity title ".repeat(12);
+        return {
+          singleLineHeight,
+          clampedHeight: element.getBoundingClientRect().height,
+          fullHeight: element.scrollHeight,
+        };
+      });
+      expect(sizes.clampedHeight).toBeCloseTo(sizes.singleLineHeight * 2);
+      expect(sizes.fullHeight).toBeGreaterThan(sizes.clampedHeight);
+      const tags = (await card.locator(".activity-kinds").boundingBox())!;
+      const address = (await card
+        .locator(".activity-list-address")
+        .boundingBox())!;
+      const titleBounds = (await title.boundingBox())!;
+      const status = (await card
+        .getByRole("button", { name: /^Status for Museum/ })
+        .boundingBox())!;
+      expect(tags.x).toBeCloseTo(titleBounds.x);
+      expect(
+        tags.y -
+          Math.max(
+            titleBounds.y + titleBounds.height,
+            status.y + status.height,
+          ),
+      ).toBeCloseTo(8);
+      expect(address.y - (tags.y + tags.height)).toBeCloseTo(12);
+    });
+
+    test("fits whole tags below the status button and restores them on resize", async ({
+      page,
+    }) => {
+      const card = page.locator(".activity-list-item").first();
+      const row = card.locator(".activity-list-tags");
+      const tags = row.locator(".activity-kind-tag");
+      const visibleTags = row.locator(".activity-kind-tag:visible");
+      await expect(visibleTags.nth(1)).toHaveText("Sightseeing");
+      const originalTags = await visibleTags.allTextContents();
+      const bounds = await row.boundingBox();
+      expect(bounds).not.toBeNull();
+      for (const tag of await visibleTags.all()) {
+        const box = (await tag.boundingBox())!;
+        expect(box.y).toBeCloseTo(bounds!.y);
+        expect(box.x + box.width).toBeLessThanOrEqual(
+          bounds!.x + bounds!.width,
+        );
+      }
+      await card.evaluate((element) => {
+        element.style.maxWidth = "185px";
+      });
+      await expect(visibleTags).toHaveText(["Nature"]);
+      await expect(tags.last()).toBeHidden();
+      await card.evaluate((element) => {
+        element.style.removeProperty("max-width");
+      });
+      await expect(visibleTags).toHaveText(originalTags);
+    });
+
     test("filters and clears the list online and offline while keeping the map visible", async ({
       page,
       context,
@@ -184,8 +256,8 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         const filters = page.getByRole("group", {
           name: "Filter activities by status",
         });
-        const considering = filters.getByRole("button", {
-          name: "Considering activities: 1",
+        const maybe = filters.getByRole("button", {
+          name: "Maybe activities: 1",
           exact: true,
         });
         const planned = filters.getByRole("button", {
@@ -215,14 +287,19 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         }
         for (const filter of await filters.getByRole("button").all()) {
           await expect(filter).toBeEnabled();
-          await expect(filter).toHaveAttribute("aria-pressed", "true");
+          const isNotInterested =
+            (await filter.getAttribute("data-activity-state")) === "No";
+          await expect(filter).toHaveAttribute(
+            "aria-pressed",
+            isNotInterested ? "false" : "true",
+          );
           await expect(filter.locator("svg")).toBeVisible();
           expect((await filter.boundingBox())!.height).toBeGreaterThanOrEqual(
             44,
           );
         }
-        await considering.click();
-        await expect(considering).toHaveAttribute("aria-pressed", "false");
+        await maybe.click();
+        await expect(maybe).toHaveAttribute("aria-pressed", "false");
         await expect(
           list.getByRole("button", { name: "Harbour café", exact: true }),
         ).toHaveCount(0);
@@ -231,7 +308,7 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         await expect(
           page.getByText("No activities match your filters.", { exact: true }),
         ).toBeVisible();
-        await considering.click();
+        await maybe.click();
         await expect(
           list.getByRole("button", { name: "Harbour café", exact: true }),
         ).toBeVisible();
@@ -262,7 +339,7 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         await search.fill("  MUSEUM  ");
         await expect(
           filters.getByRole("button", {
-            name: "Considering activities: 0",
+            name: "Maybe activities: 0",
             exact: true,
           }),
         ).toHaveAttribute("aria-pressed", "true");

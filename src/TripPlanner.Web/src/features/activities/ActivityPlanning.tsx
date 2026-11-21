@@ -38,6 +38,7 @@ import {
   Delete24Regular,
   Dismiss24Regular,
   Share24Regular,
+  Location16Regular,
   Search24Regular,
 } from "@fluentui/react-icons";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -59,6 +60,7 @@ import { destinationDates, tripSpansMultipleYears } from "../trips/tripDates";
 import CityIcon from "../../shared/components/CityIcon";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
+import ActivityCardTags from "./ActivityCardTags";
 import ActivityDurationSlider from "./ActivityDurationSlider";
 import ActivityLinksEditor from "./ActivityLinksEditor";
 import ActivityKindsPicker from "./ActivityKindsPicker";
@@ -153,7 +155,7 @@ export default function ActivityPlanning({
   const [query, setQuery] = useSearchParams();
   const [activityView, setActivityView] = useState("ideas");
   const [excludedStatuses, setExcludedStatuses] = useState<Set<string>>(
-    new Set(),
+    () => new Set(["No"]),
   );
   const [destinations, setDestinations] =
     useState<DestinationCollection | null>();
@@ -796,7 +798,7 @@ export default function ActivityPlanning({
           >
             {index + 1}
           </span>
-          <h3>{item.properties.name}</h3>
+          <h3 className="activity-card-title">{item.properties.name}</h3>
           {renderActivityMenu(item)}
         </div>
         <TagGroup
@@ -1636,32 +1638,22 @@ export default function ActivityPlanning({
                       onClick={() => openIdea(item)}
                     />
                     <div className="activity-list-heading">
-                      <span className="activity-list-title">
-                        <span className="activity-number" aria-hidden="true">
-                          {index + 1}
-                        </span>
-                        <span>{item.properties.name}</span>
+                      <span className="activity-number" aria-hidden="true">
+                        {index + 1}
+                      </span>
+                      <span className="activity-card-title">
+                        {item.properties.name}
                       </span>
                       {renderActivityMenu(item)}
+                      {item.properties.kinds.length > 0 && (
+                        <ActivityCardTags kinds={item.properties.kinds} />
+                      )}
                     </div>
-                    <TagGroup
-                      className="activity-kinds"
-                      aria-label="Activity kinds"
-                      size="small"
-                    >
-                      {item.properties.kinds.map((kind) => (
-                        <Tag
-                          key={kind}
-                          value={kind}
-                          appearance="outline"
-                          className="activity-kind-tag"
-                        >
-                          {kind}
-                        </Tag>
-                      ))}
-                    </TagGroup>
                     {item.properties.address && (
-                      <p>{item.properties.address}</p>
+                      <p className="activity-list-address">
+                        <Location16Regular aria-hidden="true" />
+                        {item.properties.address}
+                      </p>
                     )}
                     {!item.geometry && (
                       <div className="activity-list-location">
@@ -1687,9 +1679,9 @@ export default function ActivityPlanning({
               {activities.features.length > 0 &&
                 visibleActivities.length === 0 && (
                   <Text className="activity-empty" role="status">
-                    {excludedStatuses.size > 0
-                      ? "No activities match your filters."
-                      : "No activities match your search."}
+                    {matchingActivities.length === 0
+                      ? "No activities match your search."
+                      : "No activities match your filters."}
                   </Text>
                 )}
               {activities.features.length === 0 && (

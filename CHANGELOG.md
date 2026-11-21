@@ -25,6 +25,12 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Add GitHub Actions deployment for merged pull requests and a shared Azure test environment backed by a daily refresh of copied PostgreSQL trip data.
 - Add a cloud mode to the setup, dependency installation, and development server scripts.
 
+### Changed
+
+- Rename Considering to Maybe, hide Not Interested activities by default, and
+  standardize Ideas cards with two-line titles and a single row of whole tags
+  below the title and status.
+
 ## 2026.11.17.1
 
 ### Changed
