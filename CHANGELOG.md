@@ -17,6 +17,9 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Changed
 
+- Activity schedules skip generic breakfast, lunch, and dinner blocks by default.
+  Explicit meal durations still reserve time.
+
 - Start PR test deployments alongside CI, and publish just the Vite assets when
   the running test backend can serve them. The test navigation shows a crane.
 

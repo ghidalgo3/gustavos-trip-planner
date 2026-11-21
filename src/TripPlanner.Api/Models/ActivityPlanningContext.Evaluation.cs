@@ -360,7 +360,8 @@ public sealed partial record ActivityPlanningContext
             foreach (var meal in new[] { "breakfast", "lunch", "dinner" })
             {
                 if (
-                    !ActivityFlightAvailability.IncludesMeal(
+                    allowances[meal] > TimeSpan.Zero
+                    && !ActivityFlightAvailability.IncludesMeal(
                         day,
                         settings,
                         zone,

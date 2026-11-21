@@ -99,6 +99,12 @@ internal static class ActivityPlanningFixture
     internal static ActivityPlan Plan(ActivityPlanningContext s) =>
         ActivityPlanRules.Initial(s) with
         {
+            Settings = new()
+            {
+                BreakfastDuration = TimeSpan.FromMinutes(30),
+                LunchDuration = TimeSpan.FromMinutes(45),
+                DinnerDuration = TimeSpan.FromMinutes(45),
+            },
             SelectedActivityIds = s.Activities.Select(a => a.Id).ToArray(),
             Days =
             [
