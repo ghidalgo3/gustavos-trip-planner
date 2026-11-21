@@ -95,6 +95,8 @@ trap 'exit 143' TERM
 
 runner_ip="$(curl -4fsS --retry 3 --max-time 10 https://api.ipify.org)"
 [[ "$runner_ip" =~ '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' ]] || die 'could not resolve runner IPv4'
+postgres_roots="${0:A:h}/azure-postgres-roots.pem"
+[[ -s "$postgres_roots" ]] || die 'Azure PostgreSQL root certificates are missing'
 docker pull postgres:18
 firewall_open=true
 az rest --method put --uri "$firewall_uri" --body "$(jq -cn --arg ip "$runner_ip"   '{properties: {startIpAddress: $ip, endIpAddress: $ip}}')" --only-show-errors -o none
@@ -105,10 +107,9 @@ PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query acce
 export PGPASSWORD
 print -r -- "::add-mask::$PGPASSWORD"
 
-postgres_roots="${0:A:h}/azure-postgres-roots.pem"
 pg() {
   docker run --rm -i -v "$work_dir:/backup" \
-    -v "$postgres_roots:$PGSSLROOTCERT:ro" \
+    --mount "type=bind,source=$postgres_roots,target=$PGSSLROOTCERT,readonly" \
     -e PGHOST -e PGUSER -e PGSSLMODE -e PGSSLROOTCERT -e PGPASSWORD -e PGCONNECT_TIMEOUT=5 \
     postgres:18 "$@"
 }
@@ -119,7 +120,11 @@ wait_for_database() {
       return 0
     fi
     print -ru2 -- "$result"
-    [[ "$result" != *"certificate verify failed"* ]] || die "TLS verification failed for $PGHOST"
+    case "$result" in
+      *"certificate verify failed"*|*"root certificate file"*)
+        die "TLS verification failed for $PGHOST"
+        ;;
+    esac
     sleep 10
   done
   die "could not connect to $PGHOST"
