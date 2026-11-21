@@ -284,9 +284,13 @@ web_request patch "$slot_id" /config/web --body "$(jq -cn --arg image "$image_re
 web_request post "$slot_id" /start -o none
 if [[ "$app_sign_in" == true ]]; then
   verify_revision "$slot_url" "$revision" "$reviewer_header" || die "test environment failed startup or reviewer validation for $revision"
+  # A running Linux slot can keep serving the previous Easy Auth configuration.
+  print -r -- 'Restarting the test slot with Trip Planner sign-in.'
+  web_request post "$slot_id" /stop -o none
   set_slot_guard false
-  verify_app_sign_in
+  web_request post "$slot_id" /start -o none
   verify_revision "$slot_url" "$revision" "$reviewer_header" || die "the test environment is not serving $revision after the sign-in switch"
+  verify_app_sign_in
 else
   verify_revision "$slot_url" "$revision" || die "test environment failed startup or migrations for $revision"
   verify_legacy_sign_in
