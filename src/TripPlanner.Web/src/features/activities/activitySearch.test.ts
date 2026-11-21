@@ -36,7 +36,7 @@ test.each([
   "family",
   "harbour",
   "old town",
-  "considering",
+  "maybe",
   "required",
   "PT1H30M",
   "19.5",
@@ -64,7 +64,7 @@ test.each(["unmatched activity", "ticketRequirement", "properties"])(
 );
 
 test.each([
-  ["Maybe", "Considering"],
+  ["Maybe", "Maybe"],
   ["Yes", "Planned"],
   ["No", "Not Interested"],
 ])("searches the displayed label for status %s", (state, label) => {

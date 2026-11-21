@@ -598,7 +598,7 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
     target: { value: "Tickets" },
   });
   const stateTrigger = within(drawer).getByRole("button", {
-    name: "Status Considering",
+    name: "Status Maybe",
   });
   act(() => stateTrigger.focus());
   click(stateTrigger);
@@ -771,7 +771,7 @@ test.each([false, true])(
       within(list).queryByText("See the paintings"),
     ).not.toBeInTheDocument();
     expect(within(list).queryByText("2h")).not.toBeInTheDocument();
-    expect(await within(list).findAllByText("Considering")).toHaveLength(2);
+    expect(await within(list).findAllByText("Maybe")).toHaveLength(2);
     expect(
       within(list).queryAllByRole("button", { name: /^Status for/ }),
     ).toHaveLength(readOnly ? 0 : 2);
@@ -796,7 +796,7 @@ test.each([false, true])(
     expect(within(card).getByText("See the paintings")).toBeVisible();
     expect(within(card).getByLabelText("Activity 1")).toHaveTextContent("1");
     expect(within(card).getByText("2h")).toBeVisible();
-    expect(within(card).getByText("Considering")).toBeVisible();
+    expect(within(card).getByText("Maybe")).toBeVisible();
     click(within(card).getByText("See the paintings"));
     expect(
       within(list).getByRole("button", { name: "Louvre" }),
@@ -1130,10 +1130,10 @@ test.each([false, true])(
 );
 
 test.each([
-  ["ideas", "Maybe", "Yes", "Considering", "Planned"],
+  ["ideas", "Maybe", "Yes", "Maybe", "Planned"],
   ["ideas", "Yes", "No", "Planned", "Not Interested"],
-  ["ideas", "No", "Maybe", "Not Interested", "Considering"],
-  ["map", "Maybe", "Yes", "Considering", "Planned"],
+  ["ideas", "No", "Maybe", "Not Interested", "Maybe"],
+  ["map", "Maybe", "Yes", "Maybe", "Planned"],
 ])(
   "%s card menu changes %s to %s with the current ETag and preserves other fields",
   async (view, state, nextState, label, nextLabel) => {
@@ -1155,6 +1155,12 @@ test.each([
     });
     show();
     const list = await screen.findByRole("list", { name: "Paris activities" });
+    if (state === "No" || nextState === "No")
+      click(
+        await screen.findByRole("button", {
+          name: `Not Interested activities: ${state === "No" ? 1 : 0}`,
+        }),
+      );
     if (view === "map")
       click(await screen.findByRole("button", { name: "Map marker: Louvre" }));
     const container =
@@ -1175,7 +1181,7 @@ test.each([
       (await screen.findAllByRole("menuitemradio")).map(
         (item) => item.textContent,
       ),
-    ).toEqual(["Considering", "Planned", "Not Interested"]);
+    ).toEqual(["Maybe", "Planned", "Not Interested"]);
     click(await screen.findByRole("menuitemradio", { name: nextLabel }));
     await within(container).findByRole("button", {
       name: `Status for Louvre: ${nextLabel}`,
@@ -1235,7 +1241,7 @@ test.each(["ideas", "map", "fullscreen"])(
             name: "Selected activity details",
           });
     const stateButton = await within(container).findByRole("button", {
-      name: "Status for Louvre: Considering",
+      name: "Status for Louvre: Maybe",
     });
     const openDelete = async () => {
       act(() => stateButton.focus());
@@ -1528,8 +1534,8 @@ test.each([false, true])(
     const filters = screen.getByRole("group", {
       name: "Filter activities by status",
     });
-    const considering = within(filters).getByRole("button", {
-      name: "Considering activities: 3",
+    const maybe = within(filters).getByRole("button", {
+      name: "Maybe activities: 3",
     });
     const planned = within(filters).getByRole("button", {
       name: "Planned activities: 1",
@@ -1541,6 +1547,9 @@ test.each([false, true])(
       within(list)
         .getAllByRole("button", { name: /^Idea / })
         .map((button) => button.getAttribute("aria-label"));
+    expect(visibleNames()).toEqual(["Idea 1", "Idea 2", "Idea 4", "Idea 5"]);
+    expect(notInterested).toHaveAttribute("aria-pressed", "false");
+    click(notInterested);
     expect(visibleNames()).toEqual([
       "Idea 1",
       "Idea 2",
@@ -1548,7 +1557,7 @@ test.each([false, true])(
       "Idea 4",
       "Idea 5",
     ]);
-    for (const filter of [considering, planned, notInterested]) {
+    for (const filter of [maybe, planned, notInterested]) {
       expect(filter).toBeEnabled();
       expect(filter).toHaveAttribute("aria-pressed", "true");
     }
@@ -1561,7 +1570,7 @@ test.each([false, true])(
       .getByRole("button", { name: "Idea 2" })
       .closest(".activity-list-item")! as HTMLElement;
     expect(within(card).getByText("2", { exact: true })).toBeVisible();
-    click(considering);
+    click(maybe);
     expect(
       within(list).queryAllByRole("button", { name: /^Idea / }),
     ).toHaveLength(0);
@@ -1576,19 +1585,19 @@ test.each([false, true])(
     });
     expect(
       within(filters).getByRole("button", {
-        name: "Considering activities: 1",
+        name: "Maybe activities: 1",
       }),
     ).toHaveAttribute("aria-pressed", "false");
     expect(
       within(filters).getByRole("button", { name: "Planned activities: 0" }),
     ).toHaveAttribute("aria-pressed", "true");
-    click(considering);
+    click(maybe);
     expect(visibleNames()).toEqual(["Idea 4"]);
     click(
       screen.getByRole("button", { name: "Clear and dismiss activity search" }),
     );
     expect(visibleNames()).toEqual(["Idea 1", "Idea 2", "Idea 4", "Idea 5"]);
-    expect(considering).toHaveAccessibleName("Considering activities: 3");
+    expect(maybe).toHaveAccessibleName("Maybe activities: 3");
     click(screen.getByRole("tab", { name: "Schedule" }));
     click(screen.getByRole("tab", { name: "Ideas" }));
     expect(

@@ -11,7 +11,7 @@ async function expectStatusHighlightAndAlignment(page: Page, selected: string) {
   });
   await expect(current).toHaveAttribute("aria-checked", "true");
   const other = menu.getByRole("menuitemradio", {
-    name: selected === "Planned" ? "Considering" : "Planned",
+    name: selected === "Planned" ? "Maybe" : "Planned",
     exact: true,
   });
   expect(
@@ -131,11 +131,11 @@ for (const width of [390, 1280]) {
         const menu = page.locator(".fui-MenuPopover");
         await expect(menu).toBeVisible();
         await expect(page.getByRole("menuitemradio")).toHaveText([
-          "Considering",
+          "Maybe",
           "Planned",
           "Not Interested",
         ]);
-        for (const label of ["Considering", "Planned", "Not Interested"]) {
+        for (const label of ["Maybe", "Planned", "Not Interested"]) {
           await expect(
             page
               .getByRole("menuitemradio", { name: label, exact: true })
@@ -177,10 +177,10 @@ for (const width of [390, 1280]) {
         });
         await expect(drawer).toBeVisible();
         await drawer
-          .getByRole("button", { name: "Status Considering", exact: true })
+          .getByRole("button", { name: "Status Maybe", exact: true })
           .click();
         await page.mouse.move(0, 0);
-        await expectStatusHighlightAndAlignment(page, "Considering");
+        await expectStatusHighlightAndAlignment(page, "Maybe");
         await page.screenshot({
           path: testInfo.outputPath("drawer-status-menu.png"),
           fullPage: true,

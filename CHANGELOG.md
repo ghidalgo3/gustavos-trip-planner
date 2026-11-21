@@ -15,6 +15,11 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 - Add a cloud mode to the setup, dependency installation, and development server scripts.
 
+### Changed
+
+- Rename Considering to Maybe, hide Not Interested activities by default, and
+  standardize Ideas cards with two-line titles.
+
 ## 2026.11.17.1
 
 ### Changed

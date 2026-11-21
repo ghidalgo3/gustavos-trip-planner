@@ -705,7 +705,7 @@ test("shows activity counts by decision state instead of a plan button for a pop
     await screen.findByRole("link", { name: "2 Planned activities in Paris" }),
   ).toHaveAttribute("href", "/trips/trip/activities?destination=paris-fr");
   expect(
-    screen.getByRole("link", { name: "1 Considering activities in Paris" }),
+    screen.getByRole("link", { name: "1 Maybe activities in Paris" }),
   ).toBeVisible();
   expect(
     screen.queryByRole("link", { name: "Plan activities in Paris" }),
