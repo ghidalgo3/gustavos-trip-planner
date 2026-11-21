@@ -16,7 +16,11 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         const activities = [
           {
             ...museum,
-            properties: { ...museum.properties, address: "Museum street" },
+            properties: {
+              ...museum.properties,
+              address: "Museum street",
+              kinds: ["Nature", "Sightseeing", "Bus tour"],
+            },
           },
           {
             ...museum,
@@ -185,8 +189,47 @@ for (const width of [320, 390, 768, 820, 1024, 1280]) {
         .locator(".activity-list-address")
         .boundingBox())!;
       const titleBounds = (await title.boundingBox())!;
-      expect(tags.y - (titleBounds.y + titleBounds.height)).toBeCloseTo(8);
+      const status = (await card
+        .getByRole("button", { name: /^Status for Museum/ })
+        .boundingBox())!;
+      expect(tags.x).toBeCloseTo(titleBounds.x);
+      expect(
+        tags.y -
+          Math.max(
+            titleBounds.y + titleBounds.height,
+            status.y + status.height,
+          ),
+      ).toBeCloseTo(8);
       expect(address.y - (tags.y + tags.height)).toBeCloseTo(12);
+    });
+
+    test("fits whole tags below the status button and restores them on resize", async ({
+      page,
+    }) => {
+      const card = page.locator(".activity-list-item").first();
+      const row = card.locator(".activity-list-tags");
+      const tags = row.locator(".activity-kind-tag");
+      const visibleTags = row.locator(".activity-kind-tag:visible");
+      await expect(visibleTags.nth(1)).toHaveText("Sightseeing");
+      const originalTags = await visibleTags.allTextContents();
+      const bounds = await row.boundingBox();
+      expect(bounds).not.toBeNull();
+      for (const tag of await visibleTags.all()) {
+        const box = (await tag.boundingBox())!;
+        expect(box.y).toBeCloseTo(bounds!.y);
+        expect(box.x + box.width).toBeLessThanOrEqual(
+          bounds!.x + bounds!.width,
+        );
+      }
+      await card.evaluate((element) => {
+        element.style.maxWidth = "185px";
+      });
+      await expect(visibleTags).toHaveText(["Nature"]);
+      await expect(tags.last()).toBeHidden();
+      await card.evaluate((element) => {
+        element.style.removeProperty("max-width");
+      });
+      await expect(visibleTags).toHaveText(originalTags);
     });
 
     test("filters and clears the list online and offline while keeping the map visible", async ({

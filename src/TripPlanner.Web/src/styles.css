@@ -2391,11 +2391,28 @@ main:has(.trip-workspace-activities) > .topbar {
   border-color: var(--colorBrandStroke1);
   background: var(--colorBrandBackground2);
 }
-.activity-list-summary {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
+.activity-list-heading > .activity-card-title {
   font-weight: 600;
+}
+.activity-list-tags {
+  grid-column: 2 / -1;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  column-gap: 8px;
+}
+.activity-list-tags .activity-kind-tag {
+  flex: none;
+  width: max-content;
+  max-width: none;
+}
+.activity-list-tags .fui-Tag__primaryText {
+  white-space: nowrap;
+}
+.activity-list-tags [data-overflow] {
+  position: absolute;
+  visibility: hidden;
 }
 .activity-card-title {
   display: -webkit-box;

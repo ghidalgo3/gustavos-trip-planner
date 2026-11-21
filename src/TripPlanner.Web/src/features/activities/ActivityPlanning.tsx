@@ -60,6 +60,7 @@ import { destinationDates, tripSpansMultipleYears } from "../trips/tripDates";
 import CityIcon from "../../shared/components/CityIcon";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
+import ActivityCardTags from "./ActivityCardTags";
 import ActivityDurationSlider from "./ActivityDurationSlider";
 import ActivityLinksEditor from "./ActivityLinksEditor";
 import ActivityKindsPicker from "./ActivityKindsPicker";
@@ -1640,29 +1641,13 @@ export default function ActivityPlanning({
                       <span className="activity-number" aria-hidden="true">
                         {index + 1}
                       </span>
-                      <div className="activity-list-summary">
-                        <span className="activity-card-title">
-                          {item.properties.name}
-                        </span>
-                        {item.properties.kinds.length > 0 && (
-                          <TagGroup
-                            className="activity-kinds"
-                            aria-label="Activity kinds"
-                            size="small"
-                          >
-                            {item.properties.kinds.map((kind) => (
-                              <Tag
-                                key={kind}
-                                value={kind}
-                                className="activity-kind-tag"
-                              >
-                                {kind}
-                              </Tag>
-                            ))}
-                          </TagGroup>
-                        )}
-                      </div>
+                      <span className="activity-card-title">
+                        {item.properties.name}
+                      </span>
                       {renderActivityMenu(item)}
+                      {item.properties.kinds.length > 0 && (
+                        <ActivityCardTags kinds={item.properties.kinds} />
+                      )}
                     </div>
                     {item.properties.address && (
                       <p className="activity-list-address">
