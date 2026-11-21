@@ -177,17 +177,38 @@ web_request patch "$slot_id" /config/web --body "$(jq -cn --arg image "$image_re
 web_request post "$slot_id" /start -o none
 verify_revision "$slot_url" "$revision" || die "preview failed startup or migrations for $revision"
 
-# Stop the slot if the host does not enforce Azure authentication.
-auth_redirect="$(curl -sS --max-time 15 -o /dev/null -w '%{redirect_url}' "$slot_url/")"
-[[ "$auth_redirect" == *'/.auth/login/aad'* || "$auth_redirect" == https://login.microsoftonline.com/* ]] \
-  || {
-    unauthenticated_access=true
-    die 'preview did not require Entra authentication'
-  }
+# App Service starts the authentication sidecar after the application responds.
+# Keep the slot closed if it actually serves an unauthenticated response.
+login_url="$slot_url/.auth/login/aad?post_login_redirect_uri=%2F"
+auth_ready=false
+auth_status=000
+print -r -- 'Waiting for Microsoft Entra sign-in on the preview.'
+for attempt in {1..18}; do
+  if auth_response="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code} %{redirect_url}' "$slot_url/")"; then
+    auth_status="${auth_response%% *}"
+    auth_redirect="${auth_response#* }"
+    case "$auth_status" in
+      2*)
+        unauthenticated_access=true
+        die 'preview served a successful response without Entra authentication'
+        ;;
+      401|403)
+        auth_redirect="$(curl -sS --max-time 10 -o /dev/null -w '%{redirect_url}' "$login_url")" || auth_redirect=''
+        ;;
+    esac
+    if [[ "$auth_redirect" == "$slot_url/.auth/login/aad"* ||
+          "$auth_redirect" == https://login.microsoftonline.com/* ]]; then
+      auth_ready=true
+      break
+    fi
+  fi
+  sleep 10
+done
+[[ "$auth_ready" == true ]] || die "preview sign-in did not become ready (HTTP $auth_status)"
 
 switching=false
-printf 'Preview for PR #%s at [%s](%s)\n\nCommit `%s`\n' \
-  "$pr_number" "$slot_url" "$slot_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
+printf '[Sign in to preview PR #%s](%s)\n\nCommit `%s`\n' \
+  "$pr_number" "$login_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   print -r -- 'deployed=true' >> "$GITHUB_OUTPUT"
 fi
