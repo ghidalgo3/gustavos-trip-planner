@@ -1,0 +1,30 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+rule_name='Require pull requests into main'
+existing_rules="$(gh api --paginate --slurp "repos/$repo/rulesets")"
+rule_id="$(jq -r --arg name "$rule_name" '.[][] | select(.name == $name) | .id' <<< "$existing_rules")"
+payload="$(jq -cn --arg name "$rule_name" '{
+  name: $name,
+  target: "branch",
+  enforcement: "active",
+  bypass_actors: [],
+  conditions: {ref_name: {include: ["refs/heads/main"], exclude: []}},
+  rules: [{type: "deletion"}, {type: "non_fast_forward"}, {type: "pull_request", parameters: {
+    required_approving_review_count: 0,
+    dismiss_stale_reviews_on_push: false,
+    require_code_owner_review: false,
+    require_last_push_approval: false,
+    required_review_thread_resolution: false,
+    allowed_merge_methods: ["merge", "squash", "rebase"]
+  }}]
+}')"
+
+if [[ -n "$rule_id" ]]; then
+  gh api --method PUT "repos/$repo/rulesets/$rule_id" --input - <<< "$payload" >/dev/null
+else
+  gh api --method POST "repos/$repo/rulesets" --input - <<< "$payload" >/dev/null
+fi
+gh api "repos/$repo/rules/branches/main" --jq 'any(.[]; .type == "pull_request")' | grep -qx true
+print -r -- "Main requires pull requests in $repo."

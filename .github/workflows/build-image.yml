@@ -1,0 +1,60 @@
+name: Build deployment image
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh
+          npm install --global corepack
+      - name: Test and build
+        env:
+          DEPLOYMENT_REVISION: ${{ inputs.ref }}
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+          IMAGE_NAME: tripplanner-api
+        run: |
+          mkdir -p "$RELEASE_STATE_DIR"
+          dotnet tool restore
+          dotnet csharpier check .
+          (
+            cd src/TripPlanner.Web
+            corepack pnpm install --frozen-lockfile
+            corepack pnpm run lint
+            corepack pnpm test
+          )
+          dotnet test GustavoTripPlanner.sln -c Release
+          zsh scripts/release-tasks/build-web.zsh
+          zsh scripts/release-tasks/refresh-airports.zsh
+          zsh scripts/release-tasks/build-image.zsh
+          docker save tripplanner-api:release | gzip -1 > "$RELEASE_STATE_DIR/image.tar.gz"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deployment-image
+          path: |
+            ${{ runner.temp }}/release/image.tar.gz
+            ${{ runner.temp }}/release/index.sha256
+          if-no-files-found: error
+          retention-days: 1

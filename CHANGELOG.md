@@ -13,6 +13,7 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
+- Add GitHub Actions deployment for merged pull requests and a shared Azure preview slot backed by a daily refresh of copied PostgreSQL trip data.
 - Add a cloud mode to the setup, dependency installation, and development server scripts.
 
 ## 2026.11.17.1

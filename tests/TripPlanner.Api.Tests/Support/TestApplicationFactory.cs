@@ -27,6 +27,7 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
     public InMemoryPlannerDb Database { get; } = new();
     public bool McpEnabled { get; set; }
     public bool UseNativeAuthentication { get; set; }
+    public bool UseAppServiceAuthentication { get; set; }
     public IIgnavClient? FlightClient { get; set; }
     public IAzureMapsClient? MapsClient { get; set; }
     public MapToken? MapTokenOverride { get; set; }
@@ -46,6 +47,10 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 "com.example.tripplanner:/oauth/callback"
             );
         }
+        builder.UseSetting(
+            "Authentication:UseAppServiceAuthentication",
+            UseAppServiceAuthentication.ToString()
+        );
         builder.UseSetting("Planning:WorkerEnabled", "false");
         builder.UseSetting("ActivityPlanning:PublicBaseUrl", "https://localhost/");
         builder.UseSetting("ActivityPlanning:SolverSeconds", "3");
@@ -128,6 +133,11 @@ public sealed class TestApplicationFactory : WebApplicationFactory<Program>
                 );
             services.PostConfigure<AuthenticationOptions>(options =>
             {
+                if (UseAppServiceAuthentication)
+                {
+                    return;
+                }
+
                 options.DefaultAuthenticateScheme = UseNativeAuthentication
                     ? "TripPlannerClient"
                     : "Test";

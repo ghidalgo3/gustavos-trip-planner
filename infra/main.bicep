@@ -11,7 +11,7 @@ param location string = 'eastus2'
 @description('Azure Maps and its SAS identity region. Azure Maps is unavailable in East US 2.')
 param azureMapsLocation string = 'eastus'
 
-param appServicePlanSku string = 'B1'
+param appServicePlanSku string = 'S1'
 
 @description('Object ID of the user who manages application credentials in Key Vault.')
 param keyVaultOperatorPrincipalId string
@@ -484,6 +484,7 @@ output webAppName string = webApp.name
 output applicationInsightsName string = applicationInsights.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output postgresServerName string = postgresServer.name
+output postgresAdminIdentityName string = postgresAdminIdentity.name
 output postgresContributorRoleName string = 'gustavo_planner_contributor'
 output postgresUserRoleName string = 'gustavo_hidalgo'
 output azureMapsAccountName string = azureMapsAccount.name
