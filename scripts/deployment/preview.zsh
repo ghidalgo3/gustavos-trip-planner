@@ -53,7 +53,7 @@ previous_web="$(web_request get "$slot_id" /config/web --query '{properties: {li
 preview_image_prefix="$registry_host/tripplanner-preview:pr-$pr_number-"
 if [[ -n "${PR_NUMBER:-}" ]]; then
   image_ref="$preview_image_prefix$revision-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-  publish_image "$registry_name" "$image_ref"
+  publish_image "$registry_name" "$image_ref" "$resource_group"
 else
   image_ref="$(jq -er '.properties.linuxFxVersion | ltrimstr("DOCKER|")' <<< "$previous_web")"
   [[ "$image_ref" == "$preview_image_prefix"* ]] || die 'unexpected deployed preview image'
@@ -63,6 +63,7 @@ fi
 umask 077
 work_dir="$(mktemp -d)"
 firewall_rule="github-preview-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+firewall_uri="/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$resource_group/providers/Microsoft.DBforPostgreSQL/flexibleServers/$database_server/firewallRules/$firewall_rule?api-version=2024-08-01"
 firewall_open=false
 switching=false
 unauthenticated_access=false
@@ -83,8 +84,7 @@ cleanup() {
     fi
   fi
   if [[ "$firewall_open" == true ]]; then
-    az postgres flexible-server firewall-rule delete -g "$resource_group" -n "$database_server" \
-      --rule-name "$firewall_rule" --yes --only-show-errors -o none || result=1
+    az rest --method delete --uri "$firewall_uri" --only-show-errors -o none || result=1
   fi
   rm -rf -- "$work_dir"
   exit "$result"
@@ -97,9 +97,7 @@ runner_ip="$(curl -4fsS --retry 3 --max-time 10 https://api.ipify.org)"
 [[ "$runner_ip" =~ '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' ]] || die 'could not resolve runner IPv4'
 docker pull postgres:18
 firewall_open=true
-az postgres flexible-server firewall-rule create -g "$resource_group" -n "$database_server" \
-  --rule-name "$firewall_rule" --start-ip-address "$runner_ip" --end-ip-address "$runner_ip" \
-  --only-show-errors -o none
+az rest --method put --uri "$firewall_uri" --body "$(jq -cn --arg ip "$runner_ip"   '{properties: {startIpAddress: $ip, endIpAddress: $ip}}')" --only-show-errors -o none
 
 PGHOST="$database_server.postgres.database.azure.com"
 export PGHOST PGUSER="$database_user" PGSSLMODE=verify-full PGSSLROOTCERT=system
@@ -180,3 +178,6 @@ auth_redirect="$(curl -sS --max-time 15 -o /dev/null -w '%{redirect_url}' "$slot
 switching=false
 printf 'Preview for PR #%s at [%s](%s)\n\nCommit `%s`\n' \
   "$pr_number" "$slot_url" "$slot_url" "$revision" >> "$GITHUB_STEP_SUMMARY"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  print -r -- 'deployed=true' >> "$GITHUB_OUTPUT"
+fi

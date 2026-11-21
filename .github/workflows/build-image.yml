@@ -14,7 +14,27 @@ permissions:
   contents: read
 
 jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check C# formatting
+        run: |
+          dotnet tool restore
+          dotnet csharpier check .
+      - name: Run API tests
+        run: dotnet test GustavoTripPlanner.sln -c Release
+
   build:
+    name: Web checks and image
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -26,37 +46,37 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y zsh
           npm install --global corepack
-      - name: Test and build
+      - name: Identify the build commit
         env:
           PR_HEAD: ${{ inputs.pr_head }}
           RELEASE_STATE_DIR: ${{ runner.temp }}/release
-          IMAGE_NAME: tripplanner-api
         run: |
           mkdir -p "$RELEASE_STATE_DIR"
           if [[ -n "$PR_HEAD" && "$(git rev-parse HEAD^2)" != "$PR_HEAD" ]]; then
             echo "The pull request changed before checkout."
             exit 1
           fi
-          DEPLOYMENT_REVISION="$(git rev-parse HEAD)"
+          git rev-parse HEAD > "$RELEASE_STATE_DIR/revision.sha"
+      - name: Install web dependencies
+        working-directory: src/TripPlanner.Web
+        run: corepack pnpm install --frozen-lockfile
+      - name: Check the web client
+        working-directory: src/TripPlanner.Web
+        run: |
+          corepack pnpm run lint
+          corepack pnpm test
+      - name: Package the deployment image
+        env:
+          RELEASE_STATE_DIR: ${{ runner.temp }}/release
+          IMAGE_NAME: tripplanner-api
+        run: |
+          DEPLOYMENT_REVISION="$(cat "$RELEASE_STATE_DIR/revision.sha")"
           export DEPLOYMENT_REVISION
-          echo "$DEPLOYMENT_REVISION" > "$RELEASE_STATE_DIR/revision.sha"
-          dotnet tool restore
-          dotnet csharpier check .
-          (
-            cd src/TripPlanner.Web
-            corepack pnpm install --frozen-lockfile
-            corepack pnpm run lint
-            corepack pnpm test
-          )
-          dotnet test GustavoTripPlanner.sln -c Release
           zsh scripts/release-tasks/build-web.zsh
           zsh scripts/release-tasks/refresh-airports.zsh
           zsh scripts/release-tasks/build-image.zsh
