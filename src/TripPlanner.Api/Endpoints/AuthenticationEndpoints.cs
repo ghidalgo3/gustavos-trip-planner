@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
+using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Options;
+using AuthenticationOptions = TripPlanner.Api.Options.AuthenticationOptions;
 
 namespace TripPlanner.Api.Endpoints;
 
@@ -9,17 +11,33 @@ public static class AuthenticationEndpoints
 {
     public static void MapAuthenticationEndpoints(
         this WebApplication app,
-        bool authenticationEnabled
+        bool authenticationEnabled,
+        bool localUsersEnabled
     )
     {
         app.MapGet(
             "/.auth/login/{provider}",
-            IResult (
+            async Task<IResult> (
+                HttpContext context,
                 string provider,
                 string? post_login_redirect_uri,
-                IOptions<WebOptions> webOptions
+                IOptions<WebOptions> webOptions,
+                IOptions<AuthenticationOptions> authOptions
             ) =>
             {
+                if (
+                    localUsersEnabled
+                    && LocalDevelopmentUsers.CreatePrincipal(provider, context.Request) is { } local
+                )
+                {
+                    await context.SignInAsync(
+                        CookieAuthenticationDefaults.AuthenticationScheme,
+                        local
+                    );
+                    context.Response.Headers.CacheControl = "no-store";
+                    return Results.Redirect("/");
+                }
+
                 if (!authenticationEnabled)
                 {
                     return NotConfigured();
@@ -31,19 +49,25 @@ public static class AuthenticationEndpoints
                     "aad" => "aad",
                     _ => null,
                 };
-                return scheme is null
-                    ? Results.NotFound()
-                    : Results.Challenge(
-                        new AuthenticationProperties
-                        {
-                            IsPersistent = true,
-                            RedirectUri = SafeRedirect(
-                                post_login_redirect_uri,
-                                webOptions.Value.ClientOrigins
-                            ),
-                        },
-                        [scheme]
-                    );
+                if (scheme is null)
+                {
+                    return Results.NotFound();
+                }
+                if (!authOptions.Value.IsEnabled)
+                {
+                    return NotConfigured();
+                }
+                return Results.Challenge(
+                    new AuthenticationProperties
+                    {
+                        IsPersistent = true,
+                        RedirectUri = SafeRedirect(
+                            post_login_redirect_uri,
+                            webOptions.Value.ClientOrigins
+                        ),
+                    },
+                    [scheme]
+                );
             }
         );
 

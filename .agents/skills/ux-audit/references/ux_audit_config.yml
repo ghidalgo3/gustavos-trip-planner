@@ -1,0 +1,87 @@
+targetOrigin: http://localhost:5173
+
+personas:
+  - id: new-trip-planner
+    version: "1"
+    name: First-time trip planner
+    familiarity: First visit to Trip Planner, comfortable with common web controls
+    description: Planning shared travel and checking details from both a laptop and a phone.
+
+scenarios:
+  - id: find-destination-dates
+    version: "2"
+    goal: Find the arrival and departure dates for a destination in a saved trip.
+    persona: new-trip-planner
+    setup: Start signed in on the Trips page of the local Docker app. Pick a trip and a dated destination from the local data before measuring the path. Use the same trip and destination for reruns.
+    startPath: /
+    success: The trip overview shows both dates next to the selected destination.
+    partial: The trip is open and the destination is visible, but the stay dates cannot be confirmed.
+    components: [trip-list, trip-overview, search]
+    platforms: [desktop, mobile-web]
+    actionBudget:
+      desktop: 2
+      mobile-web: 2
+
+  - id: trip-lifecycle
+    version: "1"
+    goal: Create a trip, rename it, and delete it.
+    persona: new-trip-planner
+    setup: Start signed in on Trips in a disposable local database. Choose a unique name for a trip created during this attempt.
+    startPath: /
+    success: The trip was created, saved under its new name, and removed.
+    writes: true
+    components: [trip-list, trip-overview, search]
+    platforms: [desktop, mobile-web]
+    checkpoints:
+      - id: create-trip
+        goal: Create a new trip with the chosen name.
+        success: The saved trip appears on the Trips page or in its overview.
+      - id: edit-trip
+        goal: Rename the trip you just created.
+        success: The same saved trip shows the new name after you close the editor.
+      - id: delete-trip
+        goal: Delete the trip you just renamed.
+        success: The Trips page no longer lists the renamed trip when you look for it.
+
+  - id: add-destination-to-new-trip
+    version: "1"
+    goal: Create a trip and add a destination.
+    persona: new-trip-planner
+    setup: Start signed in on Trips in a disposable local database. Choose a unique trip name and a destination to add.
+    startPath: /
+    success: The selected destination is saved on the newly created trip.
+    writes: true
+    components: [trip-list, trip-overview, place-search]
+    platforms: [desktop, mobile-web]
+    checkpoints:
+      - id: create-trip
+        goal: Create a new trip with the chosen name.
+        success: The saved trip appears on the Trips page or in its overview.
+      - id: add-destination
+        goal: Add the selected destination to the trip you just created.
+        success: The trip overview shows the saved destination after the editor closes.
+
+  - id: add-activity-to-new-trip
+    version: "1"
+    goal: Create a trip and save an activity at one of its destinations.
+    persona: new-trip-planner
+    setup: Start signed in on Trips in a disposable local database. Choose a unique trip name, a destination, and a named activity.
+    startPath: /
+    success: The activity appears under its destination on the newly created trip.
+    writes: true
+    components: [trip-list, trip-overview, place-search, activities]
+    platforms: [desktop, mobile-web]
+    checkpoints:
+      - id: create-trip
+        goal: Create a new trip with the chosen name.
+        success: The saved trip appears on the Trips page or in its overview.
+      - id: add-destination
+        goal: Add the selected destination to the trip you just created.
+        success: The trip overview shows the saved destination.
+      - id: add-activity
+        goal: Save the named activity at the destination you just added.
+        success: The destination's activity list shows the saved activity under its chosen name.
+
+# Browser profiles are defined by the skill and can be overridden here.
+# Use a rule ID and false to disable it, or supply the fields to override.
+rules: {}

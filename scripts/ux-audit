@@ -1,0 +1,10 @@
+#!/bin/zsh
+set -euo pipefail
+
+repo_root=${0:A:h:h}
+export UX_AUDIT_DEPS=${UX_AUDIT_DEPS:-"$repo_root/src/TripPlanner.Web"}
+if [[ "${1:-}" == sign-in ]]; then
+  shift
+  exec node "$repo_root/scripts/ux-audit-sign-in.mjs" "$@"
+fi
+exec node "$repo_root/.agents/skills/ux-audit/scripts/audit.mjs" "$@"

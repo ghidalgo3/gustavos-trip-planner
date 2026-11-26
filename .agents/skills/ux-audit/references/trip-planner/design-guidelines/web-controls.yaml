@@ -1,0 +1,51 @@
+- id: TRIP-SEARCH-FONT
+  title: Search field text is at least 16 CSS pixels
+  category: design
+  instructions: Inspect the computed input font size in visible toolbar and drawer search fields at each tested width.
+  evidence:
+    [Computed input font size and viewport, Screenshot of the search field]
+  pass: Set the inner search input font size to at least 16 CSS pixels at every viewport width.
+  threshold: 16
+  severity: 2
+  references: [AGENTS.md]
+  validator: { kind: control, control: search, check: min-font }
+- id: TRIP-SEARCH-CLEAR
+  title: Search dismiss buttons are at least 48 CSS pixels wide
+  category: design
+  instructions: Measure the complete search clear or dismiss button when visible.
+  evidence:
+    [Computed button bounds, Screenshot of the search clear or dismiss button]
+  pass: Give the search clear or dismiss button a width of at least 48 CSS pixels.
+  threshold: 48
+  severity: 2
+  references: [AGENTS.md]
+  validator: { kind: control, control: search-clear, check: min-width }
+- id: TRIP-ICON-WIDTH
+  title: Icon-only actions are at least 44 CSS pixels wide
+  category: design
+  instructions: Measure the full action target and check documented exceptions or adjacent hit areas.
+  evidence: [Computed button bounds, Screenshot of the icon-only action]
+  pass: Give the complete icon-only action a width of at least 44 CSS pixels.
+  threshold: 44
+  severity: 2
+  references: [AGENTS.md]
+  validator: { kind: control, control: icon-button, check: min-width }
+- id: TRIP-ICON-HEIGHT
+  title: Icon-only actions are at least 44 CSS pixels tall
+  category: design
+  instructions: Measure the full action target and check documented exceptions or adjacent hit areas.
+  evidence: [Computed button bounds, Screenshot of the icon-only action]
+  pass: Give the complete icon-only action a height of at least 44 CSS pixels.
+  threshold: 44
+  severity: 2
+  references: [AGENTS.md]
+  validator: { kind: control, control: icon-button, check: min-height }
+- id: TRIP-BUTTON-SHAPE
+  title: Buttons are at least as wide as they are tall
+  category: design
+  instructions: Compare complete button bounds at all tested viewport widths.
+  evidence: [Computed button bounds, Screenshot of the button]
+  pass: Increase the button width to at least its height while preserving the required tap target.
+  severity: 2
+  references: [AGENTS.md]
+  validator: { kind: control, control: button, check: width-at-least-height }

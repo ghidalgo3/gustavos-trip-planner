@@ -286,7 +286,9 @@ export async function deleteTrip(
   forgetOfflineTrip(userId, tripId);
 }
 
-export function loginUrl(provider: "google" | "aad"): string {
+export function loginUrl(
+  provider: "google" | "aad" | "local-user-1" | "local-user-2",
+): string {
   const returnTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
   return `${apiBaseUrl}/.auth/login/${provider}?post_login_redirect_uri=${encodeURIComponent(returnTo)}`;
 }

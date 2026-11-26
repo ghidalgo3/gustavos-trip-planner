@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Spatial;
 using Npgsql;
+using TripPlanner.Api.Authentication;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.Models;
 using static TripPlanner.Api.Tests.Support.OperationFixture;
@@ -84,6 +85,7 @@ public sealed class PlannerDbTests
                 Assert.AreEqual(1L, reader.GetInt64(5));
             }
             var db = new PostgresPlannerDb(source);
+            await LocalDevelopmentUserContract(db);
             await QueueContract(db);
             await QueuePriorityContract(db);
             await DestinationContract(db);
@@ -101,6 +103,20 @@ public sealed class PlannerDbTests
             await using var drop = admin.CreateCommand($"DROP DATABASE {name} WITH (FORCE)");
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task LocalDevelopmentUserContract(IPlannerDb db)
+    {
+        var profile = new AuthenticatedUserProfile(
+            "local",
+            "local-user-1@example.test",
+            "Local user 1"
+        );
+        var created = await db.GetOrCreateUserAsync(profile);
+        var signedInAgain = await db.GetOrCreateUserAsync(profile);
+
+        Assert.AreEqual("local", created.Provider);
+        Assert.AreEqual(created.Id, signedInAgain.Id);
     }
 
     private static async Task VisitStayLocationsContract(IPlannerDb db)

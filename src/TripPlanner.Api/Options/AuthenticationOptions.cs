@@ -6,6 +6,8 @@ public sealed class AuthenticationOptions
 
     public bool UseAppServiceAuthentication { get; init; }
 
+    public bool LocalUsersEnabled { get; init; }
+
     public OAuthProviderOptions Google { get; init; } = new();
 
     public OAuthProviderOptions Microsoft { get; init; } = new();

@@ -1,0 +1,135 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/copy_production_db [--database tripplanner_copy_NAME] [--temporary-firewall]
+
+Copy the production application schema into a new database in local Docker.
+The default name contains the UTC run timestamp. Existing databases are preserved.
+Use --temporary-firewall if Azure does not already allow your public IPv4.
+Environment: RESOURCE_GROUP, SUBSCRIPTION, INFRA_DEPLOYMENT_NAME, EXPECTED_TENANT_ID.
+USAGE
+}
+
+die() { print -ru2 -- "error: $*"; exit 1; }
+
+repo_root=${0:A:h:h}
+cd "$repo_root"
+source scripts/lib/local-database-copy.zsh
+
+database=""
+temporary_firewall=false
+while (( $# )); do
+  case "$1" in
+    --help|-h) usage; exit 0 ;;
+    --database) (( $# >= 2 )) || die 'provide a database name'; database="$2"; shift ;;
+    --temporary-firewall) temporary_firewall=true ;;
+    *) die "unknown option: $1" ;;
+  esac
+  shift
+done
+database=${database:-tripplanner_copy_$(date -u +%Y%m%d_%H%M%S)}
+is_local_copy_name "$database" || die 'use tripplanner_copy_ followed by lowercase letters, digits, or underscores'
+
+for tool in az docker; do
+  command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
+done
+docker_endpoint=${DOCKER_HOST:-}
+if [[ -n "${DOCKER_CONTEXT:-}" || -z "$docker_endpoint" ]]; then
+  docker_endpoint="$(docker context inspect --format '{{ .Endpoints.docker.Host }}')"
+fi
+case "$docker_endpoint" in
+  unix://*|npipe://*) ;;
+  *) die 'select a local Docker context before copying production data' ;;
+esac
+
+resource_group=${RESOURCE_GROUP:-rg-tripplanner-dev}
+subscription=${SUBSCRIPTION:-Gustavo Hidalgo personal subscription}
+deployment=${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}
+tenant=${EXPECTED_TENANT_ID:-8ac19fe6-f2db-412e-9750-97a9772a6786}
+actual_tenant="$(az account show --subscription "$subscription" --query tenantId -o tsv)"
+[[ "$actual_tenant" == "$tenant" ]] || die "Azure tenant $actual_tenant does not match $tenant"
+
+read_output() {
+  az deployment group show --subscription "$subscription" --resource-group "$resource_group" \
+    --name "$deployment" --query "properties.outputs.$1.value" -o tsv
+}
+server="$(read_output postgresServerName)"
+login_role="$(read_output postgresUserRoleName)"
+contributor="$(read_output postgresContributorRoleName)"
+[[ "$server" =~ '^[a-z0-9-]+$' && -n "$login_role" && -n "$contributor" ]] || die 'Azure PostgreSQL deployment outputs are incomplete'
+roots="$repo_root/scripts/deployment/azure-postgres-roots.pem"
+[[ -s "$roots" ]] || die 'Azure PostgreSQL root certificates are missing'
+
+docker compose up --detach --wait database >&2
+database_image="$(docker compose images -q database)"
+[[ -n "$database_image" ]] || die 'local PostgreSQL image is unavailable'
+existing="$(local_postgres psql -X -U tripplanner -d postgres -Atq -c "SELECT 1 FROM pg_database WHERE datname = '$database'")"
+[[ -z "$existing" ]] || die "local database '$database' already exists"
+
+umask 077
+archive="$(mktemp)"
+firewall_rule=""
+cleanup() {
+  local result=$?
+  trap - EXIT
+  if [[ -n "$firewall_rule" ]]; then
+    az postgres flexible-server firewall-rule delete --subscription "$subscription" \
+      --resource-group "$resource_group" --server-name "$server" --name "$firewall_rule" \
+      --yes --only-show-errors -o none || {
+        print -ru2 -- "Remove temporary Azure firewall rule '$firewall_rule' on '$server'."
+        result=1
+      }
+  fi
+  rm -f -- "$archive" || result=1
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [[ "$temporary_firewall" == true ]]; then
+  ip="$(curl -4fsS --max-time 10 https://api.ipify.org)"
+  [[ "$ip" =~ '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' ]] || die 'could not determine your public IPv4'
+  firewall_rule="tripplanner-local-copy-$(date -u +%Y%m%d%H%M%S)-${RANDOM}"
+  az postgres flexible-server firewall-rule create --subscription "$subscription" \
+    --resource-group "$resource_group" --server-name "$server" --name "$firewall_rule" \
+    --start-ip-address "$ip" --end-ip-address "$ip" --only-show-errors -o none
+fi
+
+print -ru2 -- 'Reading the production trip schema over TLS.'
+PGPASSWORD="$(az account get-access-token --subscription "$subscription" \
+  --resource-type oss-rdbms --query accessToken -o tsv)"
+[[ -n "$PGPASSWORD" ]] || die 'Azure returned an empty PostgreSQL access token'
+export PGPASSWORD
+
+production_postgres() {
+  # Match the major version of the local restore client.
+  docker run --rm --platform linux/amd64 \
+    --mount "type=bind,source=$roots,target=/azure-postgres-roots.pem,readonly" \
+    -e PGPASSWORD -e PGSSLMODE=verify-full -e PGSSLROOTCERT=/azure-postgres-roots.pem \
+    -e PGCONNECT_TIMEOUT=10 -e 'PGOPTIONS=-c default_transaction_read_only=on' \
+    "$database_image" "$@"
+}
+source_args=(--host="$server.postgres.database.azure.com" --username="$login_role" --dbname=tripplanner)
+if [[ "$temporary_firewall" == true ]]; then
+  ready=false
+  for attempt in {1..8}; do
+    if production_postgres psql "${source_args[@]}" -XAtq -c 'SELECT 1' >/dev/null; then
+      ready=true
+      break
+    fi
+    sleep 3
+  done
+  [[ "$ready" == true ]] || die 'could not reach production through the temporary firewall rule'
+fi
+
+dump_application_schema production_postgres pg_dump "${source_args[@]}" --role="$contributor" > "$archive" || \
+  die 'could not dump production. Check your Azure database access and firewall rule.'
+unset PGPASSWORD
+
+print -ru2 -- "Restoring into local Docker as $database."
+restore_local_copy "$archive" "$database" >&2
+print -ru2 -- "Start the app with scripts/server --detached --database $database"
+print -r -- "$database"

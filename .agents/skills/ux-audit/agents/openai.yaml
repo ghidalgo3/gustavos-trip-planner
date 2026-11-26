@@ -1,0 +1,4 @@
+interface:
+  display_name: "UX Audit"
+  short_description: "Evaluate live user journeys and UX regressions"
+  default_prompt: "Use $ux-audit to evaluate this app on desktop and mobile web."

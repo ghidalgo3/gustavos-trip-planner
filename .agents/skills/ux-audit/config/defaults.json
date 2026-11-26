@@ -1,0 +1,23 @@
+{
+  "profiles": {
+    "desktop": { "browser": "chromium", "width": 1440, "height": 900 },
+    "mobile-web": { "browser": "chromium", "device": "iPhone 13" }
+  },
+  "severity": {
+    "0": "Observation",
+    "1": "Minor friction",
+    "2": "Moderate friction",
+    "3": "Major usability problem",
+    "4": "Critical blocker"
+  },
+  "weights": {
+    "cognitive-load": 7,
+    "navigation": 6,
+    "action-count": 5,
+    "discoverability": 4,
+    "consistency": 3,
+    "design": 2,
+    "accessibility": 1,
+    "responsive": 1
+  }
+}

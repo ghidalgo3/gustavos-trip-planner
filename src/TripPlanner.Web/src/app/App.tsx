@@ -4,6 +4,11 @@ import {
   Card,
   CardHeader,
   LargeTitle,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   SkeletonItem,
   Subtitle1,
   Text,
@@ -288,6 +293,37 @@ export default function App() {
                     height="41"
                   />
                 </a>
+                {import.meta.env.DEV &&
+                  import.meta.env.VITE_LOCAL_USERS === "true" && (
+                    <Menu>
+                      <MenuTrigger disableButtonEnhancement>
+                        <Button
+                          className="local-user-sign-in"
+                          icon={<Person24Regular />}
+                        >
+                          Use local user
+                        </Button>
+                      </MenuTrigger>
+                      <MenuPopover>
+                        <MenuList>
+                          <MenuItem
+                            onClick={() =>
+                              window.location.assign(loginUrl("local-user-1"))
+                            }
+                          >
+                            Local user 1
+                          </MenuItem>
+                          <MenuItem
+                            onClick={() =>
+                              window.location.assign(loginUrl("local-user-2"))
+                            }
+                          >
+                            Local user 2
+                          </MenuItem>
+                        </MenuList>
+                      </MenuPopover>
+                    </Menu>
+                  )}
               </div>
             )}
           </div>

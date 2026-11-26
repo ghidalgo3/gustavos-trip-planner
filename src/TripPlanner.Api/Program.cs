@@ -86,7 +86,19 @@ builder.Services.AddCors(options =>
 );
 
 var app = builder.Build();
+var authOptions = app.Services.GetRequiredService<IOptions<AuthenticationOptions>>().Value;
+bool localUsersEnabled = LocalDevelopmentUsers.IsEnabled(app.Environment, authOptions);
+if (localUsersEnabled)
+{
+    LocalDevelopmentUsers.RequireLocalDatabase(
+        app.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value
+    );
+}
 await app.Services.GetRequiredService<IDatabaseMigrator>().MigrateAsync();
+if (localUsersEnabled)
+{
+    await LocalDevelopmentUsers.SeedAsync(app.Services.GetRequiredService<IPlannerDb>());
+}
 var airportCatalog = app.Services.GetRequiredService<AirportCatalog>();
 airportCatalog.Replace(
     (
@@ -107,9 +119,7 @@ if (app.Environment.IsDevelopment())
 // No UseHttpsRedirection: the container serves HTTP and App Service terminates TLS.
 app.UseForwardedHeaders();
 string? deploymentRevision = Environment.GetEnvironmentVariable("DEPLOYMENT_REVISION");
-bool reviewerAccessEnabled = app
-    .Services.GetRequiredService<IOptions<AuthenticationOptions>>()
-    .Value.ReviewerAccess.Required;
+bool reviewerAccessEnabled = authOptions.ReviewerAccess.Required;
 string? previewWebRoot = SpaHosting.PreviewWebRoot(deploymentRevision);
 if (!string.IsNullOrWhiteSpace(deploymentRevision))
 {
@@ -163,7 +173,7 @@ if (mcpEnabled)
 
 app.MapMcpEndpoints(mcpEnabled);
 
-app.MapAuthenticationEndpoints(authenticationEnabled);
+app.MapAuthenticationEndpoints(authenticationEnabled, localUsersEnabled);
 app.MapTelemetryEndpoints();
 app.MapHealthChecks("/health");
 
