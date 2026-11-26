@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+    },
+    "ruleId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+    },
+    "scenarioId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "severity": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4
+    },
+    "confidence": {
+      "enum": ["low", "medium", "high"]
+    },
+    "basis": {
+      "enum": ["observed", "inferred", "hypothesis"]
+    },
+    "reproduction": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "remediation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expectedImprovement": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "id",
+    "ruleId",
+    "scenarioId",
+    "title",
+    "description",
+    "severity",
+    "confidence",
+    "basis",
+    "reproduction",
+    "evidence",
+    "remediation",
+    "expectedImprovement"
+  ],
+  "additionalProperties": false
+}

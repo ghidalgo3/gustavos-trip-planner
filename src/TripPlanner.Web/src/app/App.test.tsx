@@ -42,6 +42,30 @@ test("offers both configured sign-in providers", async () => {
   expect(
     screen.getByRole("link", { name: "Sign in with Microsoft" }),
   ).toHaveAttribute("href", expect.stringContaining("/.auth/login/aad"));
+  expect(screen.queryByRole("button", { name: "Use local user" })).toBeNull();
+});
+
+test("the development switch offers two local users", async () => {
+  vi.stubEnv("VITE_LOCAL_USERS", "true");
+  try {
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <MemoryRouter>
+          <App />
+        </MemoryRouter>
+      </FluentProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Use local user" }),
+    );
+    for (const number of [1, 2]) {
+      expect(
+        screen.getByRole("menuitem", { name: `Local user ${number}` }),
+      ).toBeInTheDocument();
+    }
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 test("the footer opens public notices without signing in", async () => {

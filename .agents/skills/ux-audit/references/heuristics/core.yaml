@@ -1,0 +1,183 @@
+- id: COG-001
+  title: Keep required information visible
+  category: cognitive-load
+  instructions: Identify a fact needed to decide or act, where it was presented, and where it needs to be recalled or copied. Count each unique required item once.
+  evidence:
+    [
+      Earlier screen with information,
+      Later screen where that information is needed,
+    ]
+  pass: Display or preserve access to the facts needed at the point of action.
+  severity: 3
+  references:
+    [
+      https://www.nngroup.com/articles/ten-usability-heuristics/,
+      https://doi.org/10.1109/32.47795,
+    ]
+- id: COG-002
+  title: Make choices easy to distinguish
+  category: cognitive-load
+  instructions: Count relevant alternatives at a meaningful decision and check grouping, relative prominence, and labels. Treat Hick's Law as directional guidance and compare perceived groups using Gestalt proximity and similarity.
+  evidence:
+    [
+      Screenshot of the decision,
+      List of plausible alternatives and their observable cues,
+    ]
+  pass: Group related choices and use distinct labels so a user can identify the relevant option.
+  severity: 2
+  references:
+    [
+      https://doi.org/10.1080/17470215208416600,
+      https://doi.org/10.1037/a0029333,
+    ]
+- id: NAV-001
+  title: Preserve location and offer a clear return
+  category: navigation
+  instructions: Count page and modal changes. Review app-level depth, backtracking, and whether back or dismiss preserves relevant context.
+  evidence:
+    [
+      Ordered state and action trace,
+      Screenshots before entering and after returning,
+    ]
+  pass: Show the current location and retain relevant context when returning to the prior screen.
+  severity: 3
+  references:
+    [
+      https://www.nngroup.com/articles/ten-usability-heuristics/,
+      https://www.cs.umd.edu/users/ben/goldenrules.html,
+    ]
+- id: ACT-001
+  title: Stay within the configured action budget
+  category: action-count
+  instructions: Count purposeful inputs along the observed successful journey. Compare the scenario budget and shortest verified completed attempt where available.
+  evidence: [Completed attempt with an interaction log, Configured budget]
+  pass: Remove unnecessary steps until a typical successful journey fits the configured action budget.
+  severity: 2
+  validator: { kind: action-budget }
+  references: [https://www.nngroup.com/articles/interaction-cost-definition/]
+- id: ACT-002
+  title: Avoid repeated interaction costs
+  category: action-count
+  instructions: Use GOMS to map goals, operators, methods, and method selection. Use KLM to identify repeated pointing, typing and switching operators on comparable successful paths. Label any timing model and its assumptions as estimates.
+  evidence:
+    [
+      Observed and alternative action traces,
+      Segment showing repeated work or confirmation,
+    ]
+  pass: Preserve useful entries and streamline frequently repeated steps.
+  severity: 2
+  references:
+    [
+      https://doi.org/10.1145/358886.358895,
+      https://www.nngroup.com/articles/interaction-cost-definition/,
+    ]
+- id: DISC-001
+  title: Make the next action discoverable
+  category: discoverability
+  instructions: At each meaningful choice, use a cognitive walkthrough. Check whether the persona would form the correct intention, notice the action, associate it with the goal, and recognize progress afterward.
+  evidence: [UI before the decision, Attempted action, Next visible state]
+  pass: Expose an understandable action with feedback that confirms progress.
+  severity: 3
+  references:
+    [
+      https://doi.org/10.1145/97243.97279,
+      https://www.nngroup.com/articles/ten-usability-heuristics/,
+    ]
+- id: CONS-001
+  title: Keep equivalent actions consistent
+  category: consistency
+  instructions: Compare language, placement, input conventions and outcomes for equivalent actions across relevant surfaces and device profiles.
+  evidence: [Screenshots of both surfaces, Matching interaction outcomes]
+  pass: Reuse recognizable language and behaviors for equivalent actions.
+  severity: 2
+  references:
+    [
+      https://www.nngroup.com/articles/ten-usability-heuristics/,
+      https://www.cs.umd.edu/users/ben/goldenrules.html,
+      https://fluent2.microsoft.design/,
+    ]
+- id: DESIGN-001
+  title: Give timely feedback and clear closure
+  category: design
+  instructions: During loading or saving, check the visible status, preservation of useful context, and the completion signal.
+  evidence: [Before and after screenshots, Loading or save state if observable]
+  pass: Show progress and a clear result while keeping relevant content visible.
+  severity: 2
+  references:
+    [
+      https://www.nngroup.com/articles/ten-usability-heuristics/,
+      https://www.cs.umd.edu/users/ben/goldenrules.html,
+    ]
+- id: DESIGN-002
+  title: Prevent errors and support recovery
+  category: design
+  instructions: Check likely slips, valid alternatives, undo or cancel, clear recovery feedback, and number of steps to recover. Prefer safe probes on a disposable fixture.
+  evidence:
+    [Error or avoided error, Visible recovery action, Post-recovery state]
+  pass: Prevent avoidable mistakes and provide a specific, reversible recovery path.
+  severity: 3
+  references:
+    [
+      https://www.nngroup.com/articles/ten-usability-heuristics/,
+      https://www.cs.umd.edu/users/ben/goldenrules.html,
+    ]
+- id: DESIGN-003
+  title: Use the user's language and provide contextual help
+  category: design
+  instructions: Evaluate whether vocabulary follows the user's task, extraneous content obscures decisions, and help can be located at the point of need.
+  evidence:
+    [
+      Screenshot showing labels or help access,
+      Concrete effect on the chosen journey,
+    ]
+  pass: Use familiar vocabulary, prioritize relevant content, and make task-specific help available where users need it.
+  severity: 2
+  references: [https://www.nngroup.com/articles/ten-usability-heuristics/]
+- id: A11Y-001
+  title: Check names of rendered buttons
+  category: accessibility
+  instructions: Inspect button names from the rendered control inventory. Verify suspected name problems with assistive technology where possible.
+  evidence: [Rendered accessibility label inputs, Screenshot of the control]
+  pass: Give affected buttons a meaningful visible label or an accessible name.
+  severity: 2
+  validator: { kind: control, control: button, check: accessible-name }
+  references: [https://www.w3.org/TR/WCAG22/#name-role-value]
+- id: A11Y-002
+  title: Preserve keyboard access and focus
+  category: accessibility
+  instructions: Complete the relevant interaction using a keyboard. Inspect focus visibility, order, recovery, and any traps.
+  evidence: [Key sequence, Focused control and relevant view]
+  pass: Make the complete interaction reachable with a keyboard and keep focus visible and predictable.
+  severity: 3
+  references:
+    [
+      https://www.w3.org/TR/WCAG22/#keyboard,
+      https://www.w3.org/TR/WCAG22/#focus-visible,
+    ]
+- id: A11Y-003
+  title: Make key targets easy to acquire
+  category: accessibility
+  instructions: Apply Fitts's Law qualitatively using observed distances and target bounds. Check WCAG 2.2 target spacing and its exceptions before recording a violation.
+  evidence:
+    [Target bounds and neighboring controls, Input method and screenshot]
+  pass: Provide adequately sized or spaced targets, especially for frequent or consequential actions.
+  severity: 2
+  references:
+    [
+      https://doi.org/10.1037/h0055392,
+      https://www.w3.org/TR/WCAG22/#target-size-minimum,
+    ]
+- id: RESP-001
+  title: Preserve equivalent workflows across viewport widths
+  category: responsive
+  instructions: Compare outcomes, reachable controls, action counts, clipping, input conventions and alternate paths on desktop and mobile. Use Fluent conventions for web and apply platform-specific guidance where relevant.
+  evidence:
+    [Corresponding desktop and mobile states, Action traces for both profiles]
+  pass: Preserve essential actions and visible feedback at each supported width and input modality.
+  severity: 3
+  references:
+    [
+      https://www.w3.org/TR/WCAG22/#reflow,
+      https://fluent2.microsoft.design/,
+      https://developer.apple.com/design/human-interface-guidelines/,
+    ]

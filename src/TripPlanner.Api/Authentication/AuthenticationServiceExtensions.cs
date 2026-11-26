@@ -76,12 +76,13 @@ public static class AuthenticationServiceExtensions
                 .PersistKeysToFileSystem(new DirectoryInfo(options.DataProtectionKeysPath));
         }
 
-        if (!options.IsEnabled)
+        bool localUsersEnabled = LocalDevelopmentUsers.IsEnabled(builder.Environment, options);
+        if (!options.IsEnabled && !localUsersEnabled)
         {
             return false;
         }
 
-        builder
+        var authentication = builder
             .Services.AddAuthentication(auth =>
             {
                 auth.DefaultAuthenticateScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -108,7 +109,12 @@ public static class AuthenticationServiceExtensions
                 };
                 cookie.Events.OnValidatePrincipal = async context =>
                 {
-                    if (!ReviewerAccess.Allows(options.ReviewerAccess, context.Principal))
+                    if (
+                        (
+                            LocalDevelopmentUsers.HasLocalIdentity(context.Principal)
+                            && !localUsersEnabled
+                        ) || !ReviewerAccess.Allows(options.ReviewerAccess, context.Principal)
+                    )
                     {
                         context.RejectPrincipal();
                         await context.HttpContext.SignOutAsync(context.Scheme.Name);
@@ -117,7 +123,14 @@ public static class AuthenticationServiceExtensions
                 cookie.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
                     ? CookieSecurePolicy.SameAsRequest
                     : CookieSecurePolicy.Always;
-            })
+            });
+
+        if (!options.IsEnabled)
+        {
+            return true;
+        }
+
+        authentication
             .AddGoogle(
                 "google",
                 google =>

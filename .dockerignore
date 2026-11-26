@@ -5,6 +5,7 @@
 **/.idea/
 .git/
 .github/
+artifacts/
 infra/
 scripts/
 tests/

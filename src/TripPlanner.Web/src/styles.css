@@ -322,6 +322,9 @@ main {
   align-items: center;
   gap: 12px;
 }
+.auth-actions .local-user-sign-in {
+  min-height: 44px;
+}
 .provider-sign-in {
   display: inline-block;
   line-height: 0;

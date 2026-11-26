@@ -7,7 +7,7 @@ INFRA_DEPLOYMENT_NAME="${INFRA_DEPLOYMENT_NAME:-tripplanner-infra}"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/server [DOCKER_COMPOSE_UP_OPTIONS]
+Usage: scripts/server [--detached] [--local-users] [--database NAME] [DOCKER_COMPOSE_UP_OPTIONS]
        scripts/server --cloud {database|api|web}
 
 Load local authentication credentials and the Ignav API key from the deployed Azure Key Vault, issue
@@ -18,7 +18,9 @@ In cloud mode start PostgreSQL first, then run API and Vite in separate shells.
 
 Examples:
   scripts/server
-  scripts/server --detach
+  scripts/server --detached
+  scripts/server --detached --local-users
+  scripts/server --detached --database tripplanner_copy_20261125_193000
 
 Environment overrides: RESOURCE_GROUP, SUBSCRIPTION, INFRA_DEPLOYMENT_NAME,
 EXPECTED_TENANT_ID.
@@ -62,10 +64,38 @@ if [[ "${1:-}" == --cloud ]]; then
   exit 0
 fi
 
+source scripts/lib/local-database-copy.zsh
+compose_args=()
+database=tripplanner
+local_users_enabled=false
+while (( $# )); do
+  case "$1" in
+    --detached) compose_args+=(--detach) ;;
+    --local-users) local_users_enabled=true ;;
+    --database)
+      (( $# >= 2 )) || die 'provide a database name'
+      database="$2"
+      shift
+      ;;
+    *) compose_args+=("$1") ;;
+  esac
+  shift
+done
+[[ "$database" == tripplanner ]] || is_local_copy_name "$database" || die 'select a tripplanner_copy_ database or tripplanner'
+export LOCAL_TRIPPLANNER_DATABASE="$database"
+export LOCAL_DEVELOPMENT_USERS_ENABLED="$local_users_enabled"
+
 for command_name in az docker; do
   command -v "$command_name" >/dev/null 2>&1 || die "$command_name is required; run scripts/setup"
 done
 docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
+if [[ "$database" != tripplanner ]]; then
+  docker compose up --detach --wait database
+  local_postgres psql -X -U tripplanner -d "$database" -v ON_ERROR_STOP=1 -q \
+    -c 'SELECT 1 FROM gustavo_planner.schema_migrations LIMIT 0' >/dev/null || \
+    die "local copy '$database' is unavailable; run scripts/copy_production_db first"
+fi
+
 az account show >/dev/null 2>&1 || die "not signed in to Azure; run: az login"
 az account set --subscription "$SUBSCRIPTION"
 
@@ -139,5 +169,5 @@ LOCAL_AZURE_MAPS_ENDPOINT='https://atlas.microsoft.com'
 export LOCAL_AZURE_MAPS_ENDPOINT LOCAL_AZURE_MAPS_SAS_TOKEN
 export LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT
 
-log "Starting development containers"
-docker compose up --build "$@"
+log "Starting development containers with database $database"
+exec docker compose up --build "${compose_args[@]}"

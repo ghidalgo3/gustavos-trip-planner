@@ -19,7 +19,7 @@ services:
       POSTGRES_USER: tripplanner
       POSTGRES_PASSWORD: tripplanner
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-18-data:/var/lib/postgresql
     healthcheck:
@@ -38,9 +38,10 @@ services:
       Mcp__Enabled: "true"
       Mcp__Issuer: ${LOCAL_MCP_ISSUER:-http://localhost:5173/}
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
-      ConnectionStrings__TripPlanner: Host=database;Port=5432;Database=tripplanner;Username=tripplanner;Password=tripplanner
+      ConnectionStrings__TripPlanner: Host=database;Port=5432;Database=${LOCAL_TRIPPLANNER_DATABASE:-tripplanner};Username=tripplanner;Password=tripplanner
       Ignav__ApiKey: ${LOCAL_IGNAV_API_KEY:-}
       ActivityPlanning__PublicBaseUrl: ${LOCAL_MCP_ISSUER:-http://localhost:5173/}
+      Authentication__LocalUsersEnabled: ${LOCAL_DEVELOPMENT_USERS_ENABLED:-false}
       Authentication__Google__ClientId: ${LOCAL_GOOGLE_CLIENT_ID:-}
       Authentication__Google__ClientSecret: ${LOCAL_GOOGLE_CLIENT_SECRET:-}
       Authentication__Microsoft__ClientId: ${LOCAL_MICROSOFT_CLIENT_ID:-}
@@ -49,7 +50,7 @@ services:
       AzureMaps__SasToken: ${LOCAL_AZURE_MAPS_SAS_TOKEN:-}
       AzureMaps__SasTokenExpiresAt: ${LOCAL_AZURE_MAPS_SAS_TOKEN_EXPIRES_AT:-}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./src/TripPlanner.Api:/workspace/src/TripPlanner.Api
       - api-obj:/workspace/src/TripPlanner.Api/obj
@@ -66,8 +67,9 @@ services:
     environment:
       CI: "true"
       VITE_API_PROXY_TARGET: http://api:8080
+      VITE_LOCAL_USERS: ${LOCAL_DEVELOPMENT_USERS_ENABLED:-false}
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     volumes:
       - ./src/TripPlanner.Web:/workspace/src/TripPlanner.Web
       - web-node-modules:/workspace/src/TripPlanner.Web/node_modules

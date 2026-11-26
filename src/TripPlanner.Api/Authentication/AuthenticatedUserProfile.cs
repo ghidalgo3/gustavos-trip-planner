@@ -19,6 +19,11 @@ public sealed record AuthenticatedUserProfile(string Provider, string Email, str
             return null;
         }
 
+        if (LocalDevelopmentUsers.HasLocalIdentity(principal))
+        {
+            return LocalDevelopmentUsers.ReadProfile(principal);
+        }
+
         string? localProvider = NormalizeProvider(principal.FindFirstValue("provider"));
         string? email = FirstNotEmpty(
             principal.FindFirstValue(ClaimTypes.Email),

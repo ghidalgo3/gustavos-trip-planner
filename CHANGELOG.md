@@ -11,6 +11,16 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Added
+
+- Add two opt-in local sign-in accounts for development and UX audits.
+
+- Add UX audit checkpoints and multi-step scenarios for trip changes, destinations, and activities.
+
+- Add a production database copy command for local Docker testing. UX audits now target the local Docker app and can reuse a saved local sign-in.
+
+- Add a Codex UX audit skill for evaluating desktop and mobile web journeys with Playwright, bundled Trip Planner rules, and styled HTML regression reports with embedded screenshots.
+
 ### Fixed
 
 - Keep saved transportation when browsing mode tabs. Use Save to apply a change.
