@@ -123,6 +123,24 @@ export type TripDocument = {
   canPlan?: boolean;
 };
 
+export function tripDocumentScheduleDays(document: TripDocument | undefined) {
+  return new Map(
+    list(document?.preferences.destinations).map((destination) => [
+      text(destination.destinationId),
+      list(object(destination.schedule).days)
+        .filter(
+          (day) =>
+            typeof day.stayId === "string" && typeof day.date === "string",
+        )
+        .map((day) => ({
+          stayId: text(day.stayId),
+          date: text(day.date),
+          name: text(day.name),
+        })),
+    ]),
+  );
+}
+
 export function validateTripDocument(
   value: unknown,
   tripId: string,

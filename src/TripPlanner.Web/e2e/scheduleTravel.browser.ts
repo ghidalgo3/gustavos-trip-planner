@@ -5,6 +5,217 @@ import { calendarResponse } from "../src/test/activityCalendarFixture";
 for (const width of [390, 1280]) {
   test.describe(`scheduled travel at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
+    test("switches destinations on a shared day without moving the calendar controls", async ({
+      page,
+      request,
+      context,
+    }) => {
+      await request.post("/__test/session", { data: { authenticated: true } });
+      const prefix = `/trips/${fixtures.trip.id}`;
+      const paris = {
+        id: "paris-fr",
+        name: "Paris",
+        countryCode: "FR",
+        timeZone: "Europe/Paris",
+        stayId: "paris-stay",
+        arrivalDate: "2027-06-10",
+        departureDate: "2027-06-11",
+        coordinates: [2.35, 48.86],
+        order: 0,
+      };
+      const london = {
+        id: "london-gb",
+        name: "London",
+        countryCode: "GB",
+        timeZone: "Europe/London",
+        stayId: "london-stay",
+        arrivalDate: "2027-06-11",
+        departureDate: "2027-06-12",
+        coordinates: [-0.12, 51.5],
+        order: 1,
+      };
+      const dates = [paris, london].map((city) => ({
+        stayId: city.stayId,
+        arrivalDate: city.arrivalDate,
+        departureDate: city.departureDate,
+      }));
+      const savedDay = {
+        ...calendarResponse.plan.days[0],
+        stayId: london.stayId,
+        date: "2027-06-13",
+        name: "Museum day",
+        activityIds: [],
+      };
+      let writes = 0;
+      const loadLondon = Promise.withResolvers<void>();
+      for (const city of [paris, london]) {
+        const response = structuredClone(calendarResponse);
+        response.plan.days = city === london ? [savedDay] : [];
+        response.plan.timeZone = city.timeZone;
+        response.plan.selectedActivityIds = [];
+        response.assessment.days = [];
+        response.context.visits = dates.filter(
+          (visit) => visit.stayId === city.stayId,
+        );
+        await page.route(
+          `**${prefix}/destinations/${city.id}/activity-plan`,
+          async (route) => {
+            if (route.request().method() === "PUT") writes++;
+            if (city === london) await loadLondon.promise;
+            return route.fulfill({ json: response, headers: { ETag: '"1"' } });
+          },
+        );
+      }
+      await page.route(`**${prefix}/document`, async (route) => {
+        const result = await route.fetch();
+        const document = await result.json();
+        document.places = document.places.filter(
+          (place: { destinationId?: string }) => !place.destinationId,
+        );
+        document.itinerary.items = document.itinerary.items.filter(
+          (item: { kind: string }) => item.kind !== "visit",
+        );
+        document.preferences.destinations = [];
+        for (const city of [london, paris]) {
+          document.places.push({
+            id: city.id,
+            destinationId: city.id,
+            type: "Place",
+            active: true,
+            name: city.name,
+            countryCode: city.countryCode,
+            timeZone: city.timeZone,
+            location: { type: "Point", coordinates: city.coordinates },
+          });
+          document.itinerary.items.push({
+            id: city.stayId,
+            destinationId: city.id,
+            placeId: city.id,
+            kind: "visit",
+            type: "event",
+            name: city.name,
+            busy: false,
+            order: city.order,
+            start: city.arrivalDate,
+            end: city.departureDate,
+          });
+          document.preferences.destinations.push({
+            destinationId: city.id,
+            schedule: { days: city === london ? [savedDay] : [] },
+          });
+        }
+        document.itinerary.items.push({
+          id: "paris-to-london",
+          kind: "flight",
+          type: "event",
+          busy: true,
+          name: "Flight BA 307",
+          originVisitId: paris.stayId,
+          destinationVisitId: london.stayId,
+          start: "2027-06-11T10:00:00Z",
+          end: "2027-06-11T11:00:00Z",
+        });
+        await route.fulfill({ json: document });
+      });
+      await page.goto(`${prefix}/activities?destination=${paris.id}`);
+      await page.getByRole("tab", { name: "Schedule", exact: true }).click();
+
+      const day = page.getByRole("combobox", { name: "Calendar day" });
+      const calendar = page.getByRole("region", { name: "Day calendar" });
+      const details = page.getByRole("button", { name: "Day details" });
+      const search = page.getByRole("searchbox", {
+        name: "Search schedule activities",
+      });
+      const flight = page.getByRole("link", {
+        name: "Flight BA 307",
+        exact: true,
+      });
+      const sharedDay = "2027-06-11";
+      await expect(day).toHaveValue(`${paris.stayId}:2027-06-10`);
+      await expect(day.getByRole("option")).toHaveText([
+        "Thursday, Jun 10",
+        "Friday, Jun 11 · Paris",
+        "Friday, Jun 11 · London",
+        "Saturday, Jun 12",
+        "Museum day · Sunday, Jun 13",
+      ]);
+
+      for (const offline of [false, true]) {
+        if (offline) await context.setOffline(true);
+        await day.selectOption(`${paris.stayId}:${sharedDay}`);
+        await expect(flight).toContainText("12:00–13:00");
+        await expect(calendar).toHaveAttribute("aria-busy", "false");
+        const resize = page.getByRole("separator", {
+          name: "Resize activities and calendar",
+        });
+        if (!offline && width >= 1100) {
+          const initialWidth = await resize.getAttribute("aria-valuenow");
+          await resize.press("ArrowRight");
+          await expect(resize).not.toHaveAttribute(
+            "aria-valuenow",
+            initialWidth!,
+          );
+        }
+        const paneWidth =
+          width >= 1100 ? await resize.getAttribute("aria-valuenow") : null;
+        const originalPicker = await day.elementHandle();
+        const originalCalendar = await calendar.elementHandle();
+        const originalSearch = await search.elementHandle();
+        await day.focus();
+        const pickerBounds = (await day.boundingBox())!;
+        try {
+          await day.selectOption(`${london.stayId}:${sharedDay}`);
+          if (!offline) {
+            await expect(calendar).toHaveAttribute("aria-busy", "true");
+            await expect(details).toBeDisabled();
+            await expect(flight).toContainText("11:00–12:00");
+            await expect(day).toBeFocused();
+            expect(await day.boundingBox()).toEqual(pickerBounds);
+            if (paneWidth)
+              await expect(resize).toHaveAttribute("aria-valuenow", paneWidth);
+          }
+        } finally {
+          loadLondon.resolve();
+        }
+        await expect(calendar).toHaveAttribute("aria-busy", "false");
+        await expect(details).toBeEnabled();
+        await expect(flight).toContainText("11:00–12:00");
+        await expect(day).toHaveValue(`${london.stayId}:${sharedDay}`);
+        await expect(day).toBeFocused();
+        await expect(page.getByLabel("Map of London")).toBeVisible();
+        expect(
+          await day.evaluate(
+            (current, original) => current === original,
+            originalPicker,
+          ),
+        ).toBe(true);
+        expect(
+          await calendar.evaluate(
+            (current, original) => current === original,
+            originalCalendar,
+          ),
+        ).toBe(true);
+        expect(
+          await search.evaluate(
+            (current, original) => current === original,
+            originalSearch,
+          ),
+        ).toBe(true);
+        if (paneWidth)
+          await expect(resize).toHaveAttribute("aria-valuenow", paneWidth);
+
+        await page.getByRole("button", { name: "Next day" }).click();
+        await expect(day).toHaveValue(`${london.stayId}:2027-06-12`);
+        await expect(flight).toHaveCount(0);
+        await page.getByRole("button", { name: "Previous day" }).click();
+        await expect(flight).toContainText("11:00–12:00");
+        await page.getByRole("button", { name: "Previous day" }).click();
+        await expect(day).toHaveValue(`${paris.stayId}:${sharedDay}`);
+        await expect(flight).toContainText("12:00–13:00");
+      }
+      expect(writes).toBe(0);
+    });
+
     test("London flights appear after visit dates change beyond the saved activity plan", async ({
       page,
       request,
