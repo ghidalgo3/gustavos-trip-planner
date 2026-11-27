@@ -19,7 +19,7 @@ a SwiftUI iOS app, and a .NET API with PostgreSQL. Production runs on Azure.
 | Transportation between visits | [Transportation resources and route estimates](docs/transportation.md) |
 | Fare search, selection, and booking | [Flight planning](docs/flight_planning.md) |
 | Ideas, schedules, and calendar subscriptions | [Activity planning](docs/activity_planning.md) |
-| Offline use, profile editing, and routing | [Web application](docs/web_app.md) |
+| Maps, offline use, profile editing, and routing | [Web application](docs/web_app.md) |
 | Simulator setup, local storage, and cloud sync | [iOS application](docs/ios_app.md) |
 | Maps artwork and licensing | [Place artwork and open source notices](docs/artwork.md) |
 

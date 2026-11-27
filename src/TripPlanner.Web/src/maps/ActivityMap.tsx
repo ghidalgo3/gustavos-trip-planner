@@ -21,7 +21,12 @@ import {
   type MapMarkerDescription,
 } from "./AnimatedMapMarkers";
 import { mapsClient } from "./mapsClient";
-import type { MapControl, MapHandle } from "./IMapsClient";
+import type {
+  MapControl,
+  MapHandle,
+  MapOptions,
+  MapStyle,
+} from "./IMapsClient";
 import PersistentMapSurface from "./PersistentMapSurface";
 import { DestinationFlight, destinationCamera } from "./destinationFlight";
 import type {
@@ -29,8 +34,6 @@ import type {
   Point,
   StayLocation,
 } from "../features/activities/activitiesApi";
-
-type Marker = { getElement?: () => HTMLElement };
 
 export type PlaceSearch = {
   results: { label: string; longitude?: number; latitude?: number }[];
@@ -45,11 +48,51 @@ export type MapLandmark = {
 };
 
 const noLandmarks: MapLandmark[] = [];
+const openStreetMapCountries = new Set(["KR"]);
 
-export default function ActivityMap({
+type ActivityMapProps = {
+  stayLocation?: StayLocation | null;
+  stayLocations?: StayLocation[];
+  center: Point;
+  destinationName?: string;
+  destinationId?: string;
+  countryCodes?: (string | undefined)[];
+  activities: Activity[];
+  connectActivities?: boolean;
+  selectedId?: string;
+  onSelect: (id: string) => void;
+  onPick?: (point: Point) => void;
+  placeSearch?: PlaceSearch;
+  portalHost?: HTMLElement | null;
+  zoom?: number;
+  route?: ActivityRoutePreview;
+  routeLabel?: string;
+  routeLoading?: boolean;
+  routeError?: string;
+  onClearRoute?: () => void;
+  landmarks?: MapLandmark[];
+};
+
+export default function ActivityMap(props: ActivityMapProps) {
+  const openStreetMap =
+    props.countryCodes?.some(
+      (code) => code && openStreetMapCountries.has(code.trim().toUpperCase()),
+    ) ?? false;
+
+  return (
+    <ActivityMapContent
+      key={openStreetMap ? "openstreetmap" : "azure"}
+      {...props}
+      openStreetMap={openStreetMap}
+    />
+  );
+}
+
+function ActivityMapContent({
   center,
   destinationName,
   destinationId,
+  openStreetMap,
   activities: savedActivities,
   connectActivities = false,
   selectedId,
@@ -66,27 +109,7 @@ export default function ActivityMap({
   routeError,
   onClearRoute,
   landmarks = noLandmarks,
-}: {
-  stayLocation?: StayLocation | null;
-  stayLocations?: StayLocation[];
-  center: Point;
-  destinationName?: string;
-  destinationId?: string;
-  activities: Activity[];
-  connectActivities?: boolean;
-  selectedId?: string;
-  onSelect: (id: string) => void;
-  onPick?: (point: Point) => void;
-  placeSearch?: PlaceSearch;
-  portalHost?: HTMLElement | null;
-  zoom?: number;
-  route?: ActivityRoutePreview;
-  routeLabel?: string;
-  routeLoading?: boolean;
-  routeError?: string;
-  onClearRoute?: () => void;
-  landmarks?: MapLandmark[];
-}) {
+}: ActivityMapProps & { openStreetMap: boolean }) {
   const activities = useMemo(
     () =>
       placeSearch
@@ -118,7 +141,7 @@ export default function ActivityMap({
   const darkMode = useSystemDarkMode();
   const reducedMotion = useReducedMotion();
   const style = darkMode ? "grayscale_dark" : "grayscale_light";
-  const styleRef = useRef(style);
+  const styleRef = useRef<MapStyle["style"]>(style);
   const framedMap = useRef<{
     instance: MapHandle;
     positions: string;
@@ -129,7 +152,9 @@ export default function ActivityMap({
   const flight = useRef<DestinationFlight | null>(null);
   const destinationKey = destinationId ?? destinationName;
   const routeWasShown = useRef(false);
-  const markerTransitions = useRef<AnimatedMapMarkers<Marker> | null>(null);
+  const markerTransitions = useRef<AnimatedMapMarkers<
+    ReturnType<MapHandle["addMarker"]>
+  > | null>(null);
   const centerRef = useRef(center.coordinates);
   const zoomRef = useRef(zoom);
   const callbacks = useRef({ onSelect, onPick, placeSearch });
@@ -260,8 +285,12 @@ export default function ActivityMap({
 
   useEffect(() => {
     let active = true;
-    void mapsClient
-      .loadControl()
+    const loading = openStreetMap
+      ? import("./OpenStreetMapControl").then(
+          ({ openStreetMapControl }) => openStreetMapControl,
+        )
+      : mapsClient.loadControl();
+    void loading
       .then((loaded) => {
         if (active) setControl(loaded);
       })
@@ -271,7 +300,7 @@ export default function ActivityMap({
     return () => {
       active = false;
     };
-  }, [retry]);
+  }, [openStreetMap, retry]);
 
   useEffect(() => {
     if (!control || !element.current) return;
@@ -283,36 +312,40 @@ export default function ActivityMap({
     }, 20_000);
     let observer: ResizeObserver | undefined;
     let resizeFrame = 0;
-    void mapsClient
-      .getToken(undefined, retry > 0)
+    const credentials = openStreetMap
+      ? Promise.resolve(undefined)
+      : mapsClient.getToken(undefined, retry > 0);
+    void credentials
       .then((token) => {
         if (!active || !element.current) return;
+        const azureOptions: Pick<MapOptions, "view" | "authOptions"> = token
+          ? {
+              view: "Auto",
+              authOptions: {
+                authType: "sas",
+                sasToken: token.token,
+                getToken: (resolve, reject) => {
+                  void mapsClient
+                    .getToken(undefined, true)
+                    .then((fresh) => resolve(fresh.token))
+                    .catch((reason: unknown) => {
+                      if (active)
+                        setError(
+                          reason instanceof Error
+                            ? reason.message
+                            : "The map token could not be refreshed.",
+                        );
+                      reject(reason);
+                    });
+                },
+              },
+            }
+          : {};
         const instance = control.createMap(element.current, {
           center: centerRef.current,
           zoom: zoomRef.current,
           style: styleRef.current,
-          view: "Auto",
-          authOptions: {
-            authType: "sas",
-            sasToken: token.token,
-            getToken: (
-              resolve: (token: string) => void,
-              reject: (error: unknown) => void,
-            ) => {
-              void mapsClient
-                .getToken(undefined, true)
-                .then((fresh) => resolve(fresh.token))
-                .catch((reason: unknown) => {
-                  if (active)
-                    setError(
-                      reason instanceof Error
-                        ? reason.message
-                        : "The map token could not be refreshed.",
-                    );
-                  reject(reason);
-                });
-            },
-          },
+          ...azureOptions,
         });
         map.current = instance;
         flight.current = new DestinationFlight(instance, () => ({
@@ -320,15 +353,12 @@ export default function ActivityMap({
           height: element.current?.clientHeight ?? 0,
         }));
         markerTransitions.current = new AnimatedMapMarkers(
-          ({ position, button }) => {
-            const marker = control.createMarker({
+          ({ position, button }) =>
+            instance.addMarker({
               position,
               htmlContent: button,
-            });
-            instance.markers.add(marker);
-            return marker;
-          },
-          (marker) => instance.markers.remove(marker),
+            }),
+          (marker) => marker.remove(),
         );
         if (typeof ResizeObserver !== "undefined") {
           observer = new ResizeObserver(([entry]) => {
@@ -386,11 +416,11 @@ export default function ActivityMap({
       map.current = null;
     };
     // Keep the map alive across destination changes so its camera can animate.
-  }, [control, retry]);
+  }, [control, openStreetMap, retry]);
 
   useEffect(() => {
     const instance = map.current;
-    if (!instance || !control || !ready) return;
+    if (!instance || !ready) return;
     const descriptions: MapMarkerDescription[] = [];
     for (const landmark of landmarks) {
       const button = document.createElement("button");
@@ -466,7 +496,6 @@ export default function ActivityMap({
     }
     markerTransitions.current?.update(descriptions, reducedMotion);
   }, [
-    control,
     ready,
     activities,
     selectedId,
@@ -479,47 +508,32 @@ export default function ActivityMap({
 
   useEffect(() => {
     const instance = map.current;
-    if (
-      !ready ||
-      !instance ||
-      !control ||
-      !connectActivities ||
-      placeSearch ||
-      route
-    )
+    if (!ready || !instance || !connectActivities || placeSearch || route)
       return;
     const connections = activityConnections(
       activities.map((activity) => activity.geometry),
     );
     if (!connections.length) return;
 
-    const source = control.createRouteSource();
-    const layer = control.createRouteLayer(source, {
+    const line = instance.addLine([connectionFeature(connections)], {
       strokeColor: darkMode ? "#60cdff" : "#005a9e",
       strokeWidth: 4,
       lineCap: "round",
     });
-    instance.sources.add(source);
-    source.add(connectionFeature(connections));
-    instance.layers.add(layer);
-
     let frame = 0;
-    const flowSource = reducedMotion ? undefined : control.createRouteSource();
-    const flowLayer =
-      flowSource &&
-      control.createRouteLayer(flowSource, {
-        strokeColor: darkMode ? "#ffffff" : "#8aeaff",
-        strokeWidth: 3,
-        lineCap: "round",
-      });
-    if (flowSource && flowLayer) {
-      instance.sources.add(flowSource);
-      instance.layers.add(flowLayer);
+    const flow = reducedMotion
+      ? undefined
+      : instance.addLine([], {
+          strokeColor: darkMode ? "#ffffff" : "#8aeaff",
+          strokeWidth: 3,
+          lineCap: "round",
+        });
+    if (flow) {
       const began = performance.now();
       let lastFrame = began;
       const animate = (time: number) => {
         if (time - lastFrame >= 32) {
-          flowSource.setShapes(flowingConnections(connections, time - began));
+          flow.setFeatures(flowingConnections(connections, time - began));
           lastFrame = time;
         }
         frame = requestAnimationFrame(animate);
@@ -529,16 +543,11 @@ export default function ActivityMap({
     return () => {
       cancelAnimationFrame(frame);
       if (map.current !== instance) return;
-      if (flowSource && flowLayer) {
-        instance.layers.remove(flowLayer);
-        instance.sources.remove(flowSource);
-      }
-      instance.layers.remove(layer);
-      instance.sources.remove(source);
+      flow?.remove();
+      line.remove();
     };
   }, [
     ready,
-    control,
     connectActivities,
     placeSearch,
     route,
@@ -550,22 +559,21 @@ export default function ActivityMap({
   const restoreMap = useEffectEvent(() => fitActivities());
   useEffect(() => {
     const instance = map.current;
-    if (!ready || !instance || !control) return;
+    if (!ready || !instance) return;
     if (!route) {
       if (routeWasShown.current && !flight.current?.active) restoreMap();
       routeWasShown.current = false;
       return;
     }
-    const source = control.createRouteSource();
     flight.current?.cancel();
-    instance.sources.add(source);
-    source.add({ type: "Feature", geometry: route.geometry, properties: {} });
-    const layer = control.createRouteLayer(source, {
-      strokeColor: darkMode ? "#60cdff" : "#0067c0",
-      strokeWidth: 5,
-      ...(route.mode === "walking" ? { strokeDashArray: [2, 2] } : {}),
-    });
-    instance.layers.add(layer);
+    const line = instance.addLine(
+      [{ type: "Feature", geometry: route.geometry, properties: {} }],
+      {
+        strokeColor: darkMode ? "#60cdff" : "#0067c0",
+        strokeWidth: 5,
+        ...(route.mode === "walking" ? { strokeDashArray: [2, 2] } : {}),
+      },
+    );
     const points = route.geometry.coordinates.flat();
     // Padding switches Azure to bounds fitting; the flight camera already
     // accounts for padding, so bounds-only options must stay in the other branch.
@@ -595,17 +603,16 @@ export default function ActivityMap({
     routeWasShown.current = true;
     return () => {
       if (map.current !== instance) return;
-      instance.layers.remove(layer);
-      instance.sources.remove(source);
+      line.remove();
     };
-  }, [control, ready, route, darkMode, reducedMotion]);
+  }, [ready, route, darkMode, reducedMotion]);
 
   return (
     <PersistentMapSurface host={portalHost}>
       <div
         ref={element}
         className="activity-map"
-        role="img"
+        role={openStreetMap ? "region" : "img"}
         aria-label={
           destinationName ? `Map of ${destinationName}` : "Activity map"
         }

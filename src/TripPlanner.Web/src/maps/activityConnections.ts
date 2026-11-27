@@ -1,4 +1,5 @@
 import type { Point } from "../features/activities/activitiesApi";
+import type { MapLineFeature } from "./IMapsClient";
 import { greatCircle } from "./greatCircle";
 
 type Position = Point["coordinates"];
@@ -15,7 +16,7 @@ export function activityConnections(points: (Point | null)[]): Connection[] {
   });
 }
 
-export function connectionFeature(connections: Connection[]) {
+export function connectionFeature(connections: Connection[]): MapLineFeature {
   return {
     type: "Feature",
     geometry: {

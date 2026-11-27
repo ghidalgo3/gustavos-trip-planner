@@ -18,39 +18,60 @@ export type MapToken = {
   expiresAt: string;
 };
 
-type Marker = { getElement?: () => HTMLElement };
 type MapEvent = { position?: [number, number]; error?: Error };
-type RouteSource = {
-  add: (feature: object) => void;
-  setShapes: (features: object[]) => void;
+type Position = [number, number];
+export type MapCamera = { center: Position; zoom: number };
+export type MapCameraOptions = Partial<MapCamera> & {
+  bounds?: [west: number, south: number, east: number, north: number];
+  padding?: number;
+  maxZoom?: number;
+  type?: "jump" | "ease";
+  duration?: number;
 };
-type RouteLayer = object;
-export type MapCamera = { center: [number, number]; zoom: number };
+export type MapStyle = { style: "grayscale_dark" | "grayscale_light" };
+export type MapOptions = MapCamera &
+  MapStyle & {
+    view?: "Auto";
+    authOptions?: {
+      authType: "sas";
+      sasToken: string;
+      getToken: (
+        resolve: (token: string) => void,
+        reject: (error: unknown) => void,
+      ) => void;
+    };
+  };
+export type MapMarkerOptions = { position: Position; htmlContent: HTMLElement };
+export type MapLineFeature = {
+  type: "Feature";
+  geometry: { type: "MultiLineString"; coordinates: Position[][] };
+  properties: Record<string, never>;
+};
+export type MapLineOptions = {
+  strokeColor: string;
+  strokeWidth: number;
+  lineCap?: "round";
+  strokeDashArray?: number[];
+};
+export type MapLine = {
+  setFeatures: (features: MapLineFeature[]) => void;
+  remove: () => void;
+};
 export type MapHandle = {
   events: {
     add: (event: string, callback: (event: MapEvent) => void) => void;
   };
-  markers: { add: (marker: Marker) => void; remove: (marker: Marker) => void };
-  sources: {
-    add: (source: RouteSource) => void;
-    remove: (source: RouteSource) => void;
-  };
-  layers: {
-    add: (layer: RouteLayer) => void;
-    remove: (layer: RouteLayer) => void;
-  };
-  setCamera: (options: object) => void;
+  addMarker: (options: MapMarkerOptions) => { remove: () => void };
+  addLine: (features: MapLineFeature[], options: MapLineOptions) => MapLine;
+  setCamera: (options: MapCameraOptions) => void;
   getCamera: () => MapCamera;
   stop: () => void;
-  setStyle: (options: object) => void;
+  setStyle: (options: MapStyle) => void;
   dispose: () => void;
   resize: () => void;
 };
 export interface MapControl {
-  createMap(container: HTMLElement, options: object): MapHandle;
-  createMarker(options: object): Marker;
-  createRouteSource(): RouteSource;
-  createRouteLayer(source: RouteSource, options: object): RouteLayer;
+  createMap(container: HTMLElement, options: MapOptions): MapHandle;
 }
 
 export interface MapsClient {

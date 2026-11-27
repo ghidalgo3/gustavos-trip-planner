@@ -50,6 +50,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Changed
 
+- Use OpenStreetMap for South Korean destinations and transportation legs that start or end there on the web.
+
 - Activity schedules skip generic breakfast, lunch, and dinner blocks by default.
   Explicit meal durations still reserve time.
 

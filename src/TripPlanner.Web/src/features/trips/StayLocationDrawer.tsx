@@ -316,6 +316,7 @@ export default function StayLocationDrawer({
             {selectedStay && <Text>{selectedStay.properties.name}</Text>}
             <ActivityMap
               center={selectedStay?.geometry ?? destination.geometry}
+              countryCodes={[destination.properties.countryCode]}
               destinationName={
                 places.length > 0
                   ? destination.properties.name
