@@ -161,11 +161,42 @@ for (const width of [320, 390, 1280]) {
           const response = await route.fetch();
           const document = await response.json();
           document.name = "Amsterdam Trip VERY LONG TRIP NAME LMAOOOOOOOOOOOOO";
+          document.places.push({
+            id: "versailles",
+            name: "Versailles",
+            type: "Place",
+            destinationId: "versailles",
+            countryCode: "FR",
+            timeZone: "Europe/Paris",
+            active: true,
+            etag: "1",
+            activitiesEtag: "1",
+            location: { type: "Point", coordinates: [2.13, 48.8] },
+          });
+          document.itinerary.items.push({
+            id: "versailles-visit",
+            order: 1,
+            kind: "visit",
+            type: "event",
+            name: "Versailles",
+            busy: false,
+            start: "2030-04-10",
+            end: "2030-04-15",
+            destinationId: "versailles",
+            placeId: "versailles",
+          });
+          document.preferences.destinations.push({
+            destinationId: "versailles",
+            constraints: {},
+            activities: { instructions: "", defaults: null },
+            schedule: {},
+          });
           await route.fulfill({ json: document });
         });
         await page.goto(overviewPath);
         const share = page.getByRole("button", { name: "Share", exact: true });
         await expect(share).toBeVisible();
+        await expect(page.locator(".app-footer")).toHaveCount(0);
         await expect(
           page.getByRole("navigation", { name: "Trip pages" }),
         ).toHaveCount(0);
@@ -209,11 +240,27 @@ for (const width of [320, 390, 1280]) {
             expect(navigation.y).toBeGreaterThanOrEqual(dates.y + dates.height);
           }
           if (section === "activities") {
-            const destination = page
-              .getByRole("tablist", { name: "Destinations", exact: true })
-              .getByRole("tab")
-              .first();
+            const destinations = page.getByRole("tablist", {
+              name: "Destinations",
+              exact: true,
+            });
+            const destination = destinations.getByRole("tab", {
+              name: /Tokyo/,
+            });
+            const versailles = destinations.getByRole("tab", {
+              name: /Versailles/,
+            });
             await expect(destination).toBeVisible();
+            await expect(destination.locator(".city-icon")).toBeAttached();
+            await expect(versailles.locator(".city-icon")).toHaveCount(0);
+            const destinationName = ".fui-Tab__content .activity-tab-title strong";
+            const tokyoName = await destination
+              .locator(destinationName)
+              .boundingBox();
+            const versaillesName = await versailles
+              .locator(destinationName)
+              .boundingBox();
+            expect(versaillesName!.y).toBeCloseTo(tokyoName!.y);
             const tab = (await destination.boundingBox())!;
             await expect(
               destination.locator(".country-flag").first(),

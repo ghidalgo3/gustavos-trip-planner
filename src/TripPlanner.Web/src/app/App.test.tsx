@@ -81,6 +81,7 @@ test("the footer opens public notices without signing in", async () => {
   expect(link).toHaveAttribute("href", "/notices");
   fireEvent.click(link);
   expect(await screen.findByRole("heading", { name: "Notices" })).toBeVisible();
+  expect(footer).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "City Icons" })).toHaveAttribute(
     "href",
     "https://svgcities.com/",
@@ -145,6 +146,10 @@ test("opens the profile route from the user menu and keeps sign out there", asyn
     await screen.findByRole("heading", { name: "Your profile" }),
   ).toBeVisible();
   expect(screen.getByTestId("route")).toHaveTextContent("/profile");
+  expect(document.querySelector("footer")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Back to trips" }),
+  ).not.toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Home city" })).toHaveValue(
     "Boston",
   );

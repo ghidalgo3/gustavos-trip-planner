@@ -153,7 +153,7 @@ main {
 .app-footer {
   flex-shrink: 0;
   margin-top: auto;
-  padding: 8px var(--app-page-gutter) max(8px, env(safe-area-inset-bottom));
+  padding: 0 var(--app-page-gutter) env(safe-area-inset-bottom);
   border-top: 1px solid var(--colorNeutralStroke2);
   text-align: center;
   font-size: 12px;
@@ -1829,6 +1829,9 @@ main {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.activity-tab-icon {
+  min-height: 36px;
+}
 .activity-tab-label small {
   font-weight: 400;
   color: var(--colorNeutralForeground2);
@@ -1868,7 +1871,7 @@ main {
     padding: 8px;
     align-items: center;
   }
-  .activity-destination-tabs .activity-tab-label > .city-icon {
+  .activity-destination-tabs .activity-tab-icon {
     display: none;
   }
   .activity-destination-tabs .activity-tab-title {

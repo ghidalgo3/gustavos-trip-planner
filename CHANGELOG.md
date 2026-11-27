@@ -27,6 +27,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Fixed
 
+- Keep the Notices footer on the web home page, simplify Profile navigation, and align destination names when a city has no icon.
+
 - Give the day selector its own row when the calendar panel is narrow.
 
 - Move breadcrumbs into the top bar and flagged destination tabs beside the trip title on wide Activities screens.

@@ -1544,10 +1544,12 @@ export default function ActivityPlanning({
                 title={`${name} · ${dates}`}
               >
                 <span className="activity-tab-label">
-                  <CityIcon
-                    name={name}
-                    countryCode={item.properties.countryCode}
-                  />
+                  <span className="activity-tab-icon" aria-hidden="true">
+                    <CityIcon
+                      name={name}
+                      countryCode={item.properties.countryCode}
+                    />
+                  </span>
                   <span className="activity-tab-title">
                     <strong>{name}</strong>
                     <CountryFlag

@@ -233,7 +233,6 @@ export default function App() {
               offline ? (
                 <section className="planning-page">
                   <Text>Connect to the internet to manage your profile.</Text>
-                  <Button onClick={() => navigate("/")}>Back to trips</Button>
                 </section>
               ) : (
                 <ProfilePage user={{ ...user, profile }} onSaved={acceptUser} />
@@ -358,11 +357,13 @@ export default function App() {
           </Card>
         </section>
       )}
-      <footer className="app-footer">
-        <Link to="/notices" onClick={() => window.scrollTo(0, 0)}>
-          Notices
-        </Link>
-      </footer>
+      {location.pathname === "/" && (
+        <footer className="app-footer">
+          <Link to="/notices" onClick={() => window.scrollTo(0, 0)}>
+            Notices
+          </Link>
+        </footer>
+      )}
     </main>
   );
 }
