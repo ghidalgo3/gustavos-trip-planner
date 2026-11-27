@@ -40,15 +40,19 @@ type Gesture = {
 export default function useCalendarDrag({
   disabled,
   onTiming,
+  onUnschedule,
   grid,
   scroll,
+  activityList,
   dayKey,
   onNavigate,
 }: {
   disabled: boolean;
   onTiming: (timing: CalendarTiming) => void;
+  onUnschedule: (id: string) => void;
   grid: RefObject<HTMLDivElement | null>;
   scroll: RefObject<HTMLDivElement | null>;
+  activityList: RefObject<HTMLElement | null>;
   dayKey: string;
   onNavigate: (key: string) => void;
 }) {
@@ -57,6 +61,7 @@ export default function useCalendarDrag({
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<CalendarTiming | null>(null);
   const [dragCard, setDragCard] = useState<CalendarDragCard | null>(null);
+  const [overActivityList, setOverActivityList] = useState(false);
   const [wasDisabled, setWasDisabled] = useState(disabled);
   const navigate = useEffectEvent(onNavigate);
   const previewAtPointer = useEffectEvent((current: Gesture) =>
@@ -67,6 +72,7 @@ export default function useCalendarDrag({
     setDragging(false);
     setPreview(null);
     setDragCard(null);
+    setOverActivityList(false);
   }
 
   function atPointer(current: Gesture) {
@@ -84,6 +90,18 @@ export default function useCalendarDrag({
       return null;
     const minute = (current.y - bounds.top) / pixelsPerMinute - current.offset;
     return calendarGestureTiming(current.timing, current.mode, minute);
+  }
+
+  function overUnscheduleTarget(current: Gesture) {
+    return (
+      current.mode === "move" &&
+      !current.listCard &&
+      Boolean(
+        activityList.current?.contains(
+          document.elementFromPoint(current.x, current.y),
+        ),
+      )
+    );
   }
 
   useEffect(() => {
@@ -182,6 +200,7 @@ export default function useCalendarDrag({
       event.preventDefault();
       suppressClick.current = true;
       setPreview(atPointer(current));
+      setOverActivityList(overUnscheduleTarget(current));
       if (current.listCard) {
         setDragCard({
           activityId: current.timing.activityId,
@@ -199,16 +218,20 @@ export default function useCalendarDrag({
     setDragging(false);
     setPreview(null);
     setDragCard(null);
+    setOverActivityList(false);
   }
 
   function finish(event: ReactPointerEvent<HTMLElement>) {
     const current = gesture.current;
     if (!current || current.pointerId !== event.pointerId) return;
-    const next =
-      current.moved && !disabled
-        ? atPointer({ ...current, x: event.clientX, y: event.clientY })
-        : null;
+    const drop = { ...current, x: event.clientX, y: event.clientY };
     cancel();
+    if (!current.moved || disabled) return;
+    if (overUnscheduleTarget(drop)) {
+      onUnschedule(current.timing.activityId);
+      return;
+    }
+    const next = atPointer(drop);
     if (
       next &&
       (next.start !== current.timing.start ||
@@ -222,6 +245,7 @@ export default function useCalendarDrag({
   return {
     preview,
     dragCard,
+    overActivityList,
     begin,
     handlers: {
       onPointerDownCapture: () => {

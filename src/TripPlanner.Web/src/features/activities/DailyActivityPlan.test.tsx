@@ -239,6 +239,51 @@ test("cancel discards temporal edits", async () => {
   expect(writes()).toHaveLength(0);
 });
 
+test("the drawer can unschedule an activity and retry a failed save", async () => {
+  render(<DailyActivityPlan {...props} />);
+  const calendar = await screen.findByRole("region", { name: "Day calendar" });
+  fireEvent.click(within(calendar).getByRole("button", { name: "Garden" }));
+  vi.mocked(planningRequest).mockRejectedValueOnce(
+    new Error("Schedule unavailable."),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Unschedule" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Schedule unavailable.",
+  );
+  expect(calendar).toHaveTextContent("Garden");
+  expect(screen.getByRole("dialog", { name: "Garden" })).toBeVisible();
+
+  fireEvent.click(screen.getByRole("button", { name: "Unschedule" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
+  expect(
+    within(calendar).queryByRole("button", { name: "Garden" }),
+  ).not.toBeInTheDocument();
+  const unscheduled = screen.getByRole("region", {
+    name: "Unscheduled activities",
+  });
+  fireEvent.click(
+    within(unscheduled).getByRole("button", { name: "Schedule Garden" }),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Unschedule" }),
+  ).not.toBeInTheDocument();
+  expect(writes()).toHaveLength(2);
+  expect(writes()[1][1]).toMatchObject({
+    etag: '"1"',
+    body: {
+      plan: {
+        selectedActivityIds: calendarResponse.plan.selectedActivityIds,
+        days: [
+          { ...calendarResponse.plan.days[0], activityIds: ["activity-0"] },
+          calendarResponse.plan.days[1],
+        ],
+      },
+    },
+  });
+});
+
 test.each(["invalid range", "flight conflict", "stale save"])(
   "retains event edits after %s and allows correction",
   async (failure) => {
@@ -275,15 +320,23 @@ test.each(["invalid range", "flight conflict", "stale save"])(
   },
 );
 
-test.each(["driving", "walking"] as const)(
-  "chooses %s between events and saves the Azure Maps estimate with the whole resource",
-  async (mode) => {
+test.each([
+  ["driving", "10:30"],
+  ["walking", null],
+] as const)(
+  "saves %s to the activity with time change %s in one plan update",
+  async (mode, start) => {
     vi.mocked(mapsClient.estimateTravelTime).mockResolvedValue("PT12M");
     render(<DailyActivityPlan {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Garden" }));
+    const drawer = screen.getByRole("dialog", { name: "Garden" });
+    expect(within(drawer).getByLabelText("Event start")).toHaveValue("10:20");
+    if (start)
+      fireEvent.change(within(drawer).getByLabelText("Event start"), {
+        target: { value: start },
+      });
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Walking from Museum to Garden",
-      }),
+      within(drawer).getByText("Transportation", { exact: true }),
     );
     fireEvent.change(screen.getByLabelText("Transportation mode"), {
       target: { value: mode },
@@ -315,11 +368,89 @@ test.each(["driving", "walking"] as const)(
             },
           ],
           days: calendarResponse.plan.days,
+          rules: start
+            ? [
+                expect.objectContaining({
+                  activityId: "activity-1",
+                  fixedStart: "10:30:00",
+                  duration: "PT50M",
+                }),
+              ]
+            : [],
         },
       },
     });
   },
 );
+
+test("transport edits follow the current connection when an activity is reordered", async () => {
+  render(<DailyActivityPlan {...props} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Garden" }));
+  fireEvent.click(screen.getByText("Transportation", { exact: true }));
+  fireEvent.change(screen.getByLabelText("Travel time (minutes)"), {
+    target: { value: "15" },
+  });
+  fireEvent.change(screen.getByLabelText("Event start"), {
+    target: { value: "08:00" },
+  });
+  expect(
+    screen.queryByText("Transportation", { exact: true }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(writes()).toHaveLength(1));
+  const next = (writes()[0][1]!.body as { plan: ActivityPlan }).plan;
+  expect(next.days[0].activityIds).toEqual(["activity-1", "activity-0"]);
+  expect(next.transportOverrides).toEqual([]);
+});
+
+test("the last activity drawer can edit the return to the stay separately", async () => {
+  const destination = structuredClone(calendarDestination);
+  destination.properties.stays = [
+    {
+      id: "visit-0",
+      order: 0,
+      arrivalDate: "2027-06-10",
+      departureDate: "2027-06-12",
+      arrivalAt: "",
+      departureAt: "",
+      stayLocation: {
+        type: "Feature",
+        id: "visit-0",
+        geometry: destination.geometry,
+        properties: {
+          name: "Hotel",
+          checkInTime: "16:00:00",
+          checkOutTime: "11:00:00",
+        },
+      },
+    },
+  ];
+  render(<DailyActivityPlan {...props} destination={destination} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Garden" }));
+  fireEvent.click(screen.getByText("Return to stay", { exact: true }));
+  const section = within(
+    screen.getByRole("group", { name: "Return to stay details" }),
+  );
+  fireEvent.change(section.getByLabelText("Transportation mode"), {
+    target: { value: "walking" },
+  });
+  fireEvent.change(section.getByLabelText("Travel time (minutes)"), {
+    target: { value: "15" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(writes()).toHaveLength(1));
+  const next = (writes()[0][1]!.body as { plan: ActivityPlan }).plan;
+  expect(next.rules).toEqual([]);
+  expect(next.transportOverrides).toEqual([
+    {
+      date: "2027-06-10",
+      fromActivityId: "activity-1",
+      toActivityId: null,
+      mode: "walking",
+      duration: "PT15M",
+    },
+  ]);
+});
 
 test("route failure preserves manual travel time and exposes retry", async () => {
   vi.mocked(mapsClient.estimateTravelTime)
@@ -331,6 +462,7 @@ test("route failure preserves manual travel time and exposes retry", async () =>
       name: "Walking from Museum to Garden",
     }),
   );
+  expect(screen.getByRole("dialog", { name: "Garden" })).toBeVisible();
   fireEvent.click(
     screen.getByRole("button", { name: "Calculate travel time" }),
   );
@@ -351,6 +483,7 @@ test("navigation and event details remain usable offline with editing disabled",
   fireEvent.click(await screen.findByRole("button", { name: "Museum" }));
   expect(screen.getByLabelText("Event start")).toHaveValue("09:00");
   expect(screen.getByLabelText("Event start")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Unschedule" })).toBeDisabled();
   expect(
     screen.queryByRole("button", { name: "Save" }),
   ).not.toBeInTheDocument();
@@ -446,7 +579,7 @@ test("missing locations produce an actionable route error without a provider req
     screen.getByRole("button", { name: "Calculate travel time" }),
   );
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Set both activity locations",
+    "Set both locations",
   );
   expect(mapsClient.estimateTravelTime).not.toHaveBeenCalled();
   expect(screen.getByLabelText("Travel time (minutes)")).toHaveValue(20);

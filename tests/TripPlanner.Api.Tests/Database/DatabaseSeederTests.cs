@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Http;
+using TripPlanner.Api.Database;
+using TripPlanner.Api.Models;
 using TripPlanner.SeedDatabase;
 
 namespace TripPlanner.Api.Tests.Database;
@@ -8,7 +11,7 @@ public sealed class DatabaseSeederTests
     private static readonly DateOnly Today = new(2026, 11, 8);
 
     [TestMethod]
-    [DataRow(2000, 1, 1)]
+    [DataRow(1999, 12, 30)]
     [DataRow(2100, 12, 31)]
     public async Task UnsupportedScheduleDatesAreRejectedBeforeWritingTrips(
         int year,
@@ -90,20 +93,14 @@ public sealed class DatabaseSeederTests
             allVisits.AddRange(visits);
         }
 
-        Assert.AreEqual(Math.Min(10, count), ranges.Count(range => range.End < Today));
-        Assert.AreEqual(Math.Max(count - 10, 0), ranges.Count(range => range.Start > Today));
         var chronological = ranges.OrderBy(range => range.Start).ToArray();
+        Assert.AreEqual(Today.AddDays(1), chronological[0].Start);
         for (int index = 1; index < chronological.Length; index++)
         {
-            Assert.AreEqual(
-                chronological[index - 1].End.AddDays(index == 10 ? 2 : 1),
-                chronological[index].Start
-            );
+            Assert.AreEqual(chronological[index - 1].End.AddDays(1), chronological[index].Start);
         }
         if (count == 1000)
         {
-            Assert.AreEqual(Today.AddDays(-1), chronological[9].End);
-            Assert.AreEqual(Today.AddDays(1), chronological[10].Start);
             Assert.IsTrue(chronological[^1].End > Today.AddYears(40));
         }
 
@@ -124,6 +121,96 @@ public sealed class DatabaseSeederTests
             confirmedVisits.AddRange(await database.GetDestinationVisitsAsync(owner.Id, trip.Id));
         }
         CollectionAssert.AreEquivalent(allVisits, confirmedVisits);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SeedsFifteenLocalActivitiesPerLargeTripDestination(bool usePostgres)
+    {
+        if (usePostgres)
+        {
+            await TripReadPostgresTests.WithDatabase(
+                (source, database) =>
+                    AssertLargeTripActivitiesAsync(
+                        AuditedPlannerDb.Create(
+                            database,
+                            new PostgresActivityLogStore(source),
+                            new HttpContextAccessor(),
+                            TimeProvider.System
+                        )
+                    )
+            );
+        }
+        else
+        {
+            await AssertLargeTripActivitiesAsync(new InMemoryPlannerDb());
+        }
+    }
+
+    [TestMethod]
+    public async Task RerunFillsMissingActivitiesWithoutOverwritingEditsOrDuplicatingAnExistingName()
+    {
+        var database = new InMemoryPlannerDb();
+        var owner = await database.GetOrCreateUserAsync(new("google", "seed@example.com", "Owner"));
+        var seeder = new DatabaseSeeder(database);
+        await seeder.SeedAsync(owner.Id, 3, Today);
+        var trip = (await database.GetTripsAsync(owner.Id)).Single(trip =>
+            trip.Name == "Trip Large"
+        );
+        const string cityId = "new-york-us";
+        var place = await database.GetDestinationPlaceAsync(owner.Id, trip.Id, cityId);
+        Assert.IsNotNull(place);
+        var activities = await database.GetActivitiesAsync(owner.Id, trip.Id, cityId);
+        var renamed = activities[0] with
+        {
+            Properties = activities[0].Properties with
+            {
+                Name = "My museum visit",
+                State = ActivityState.Yes,
+            },
+        };
+        Assert.IsNotNull(
+            await database.SaveActivityAsync(
+                owner.Id,
+                renamed,
+                place.ContextVersion,
+                renamed.UpdatedAt
+            )
+        );
+
+        foreach (var activity in activities.Skip(1).Take(2))
+        {
+            Assert.IsTrue(
+                await database.DeleteActivityAsync(
+                    owner.Id,
+                    trip.Id,
+                    cityId,
+                    activity.Id,
+                    place.ContextVersion,
+                    activity.UpdatedAt
+                )
+            );
+        }
+        var manual = activities[1] with
+        {
+            Id = Guid.NewGuid(),
+            Properties = activities[1].Properties with { Notes = "My own notes" },
+        };
+        Assert.IsNotNull(
+            await database.SaveActivityAsync(owner.Id, manual, place.ContextVersion, null)
+        );
+
+        Assert.AreEqual(new SeedResult(0, 1, 2), await seeder.SeedAsync(owner.Id, 3, Today));
+        var restored = await database.GetActivitiesAsync(owner.Id, trip.Id, cityId);
+        Assert.HasCount(15, restored);
+        Assert.AreEqual(renamed, restored.Single(activity => activity.Id == renamed.Id));
+        Assert.AreEqual(
+            manual,
+            restored.Single(activity => activity.Properties.Name == manual.Properties.Name)
+        );
+        Assert.IsTrue(restored.Any(activity => activity.Id == activities[2].Id));
+        Assert.AreEqual(new SeedResult(0, 0, 3), await seeder.SeedAsync(owner.Id, 3, Today));
     }
 
     [TestMethod]
@@ -230,5 +317,45 @@ public sealed class DatabaseSeederTests
         var seeder = new DatabaseSeeder(database);
         await Assert.ThrowsAsync<InvalidOperationException>(() => seeder.FindOwnerAsync(null));
         Assert.IsEmpty(database.Trips);
+    }
+
+    private static async Task AssertLargeTripActivitiesAsync(IPlannerDb database)
+    {
+        var owner = await database.GetOrCreateUserAsync(new("google", "seed@example.com", "Owner"));
+        var seeder = new DatabaseSeeder(database);
+        await seeder.SeedAsync(owner.Id, 6, Today);
+
+        foreach (var trip in await database.GetTripsAsync(owner.Id))
+        {
+            bool isLarge = trip.Name.StartsWith("Trip Large", StringComparison.Ordinal);
+            foreach (var place in await database.GetDestinationPlacesAsync(owner.Id, trip.Id))
+            {
+                var activities = await database.GetActivitiesAsync(owner.Id, trip.Id, place.CityId);
+                Assert.HasCount(isLarge ? 15 : 0, activities, $"{trip.Name}: {place.Name}");
+                if (isLarge)
+                {
+                    Assert.HasCount(
+                        15,
+                        activities.Select(activity => activity.Properties.Name).Distinct()
+                    );
+                    Assert.HasCount(
+                        15,
+                        activities.Select(activity => activity.Geometry?.Position).Distinct()
+                    );
+                }
+                foreach (var activity in activities)
+                {
+                    Assert.IsNotNull(activity.Geometry);
+                    var point = activity.Geometry.Position;
+                    Assert.IsLessThan(1, Math.Abs(point.Latitude - place.Latitude));
+                    Assert.IsLessThan(1, Math.Abs(point.Longitude - place.Longitude));
+                    Assert.IsTrue(activity.Properties.Duration > TimeSpan.Zero);
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(activity.Properties.Description));
+                    Assert.IsNotEmpty(activity.Properties.Kinds);
+                }
+            }
+        }
+
+        Assert.AreEqual(new SeedResult(0, 0, 6), await seeder.SeedAsync(owner.Id, 6, Today));
     }
 }

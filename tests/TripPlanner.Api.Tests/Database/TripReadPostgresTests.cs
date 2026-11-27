@@ -29,9 +29,11 @@ public sealed class TripReadPostgresTests
                 );
                 var seeder = new DatabaseSeeder(database);
                 var today = new DateOnly(2026, 11, 8);
+                var previousRunDate = today.AddYears(-1);
+                int dateShift = today.DayNumber - previousRunDate.DayNumber;
                 Assert.AreEqual(
                     new SeedResult(12, 0, 0),
-                    await seeder.SeedAsync(owner.Id, 12, today.AddDays(-1))
+                    await seeder.SeedAsync(owner.Id, 12, previousRunDate)
                 );
                 var trips = await database.GetTripsAsync(owner.Id);
                 var originalVisits = new List<DestinationVisit>();
@@ -59,16 +61,26 @@ public sealed class TripReadPostgresTests
                         var old = originalVisits.Single(original =>
                             original.StayId == visit.StayId
                         );
-                        Assert.AreEqual(old.ArrivalDate!.Value.AddDays(1), visit.ArrivalDate);
+                        Assert.AreEqual(
+                            old.ArrivalDate!.Value.AddDays(dateShift),
+                            visit.ArrivalDate
+                        );
                         Assert.AreEqual(visit.ArrivalDate!.Value.AddDays(3), visit.DepartureDate);
                     }
                 }
                 var past = await database.GetTripPageAsync(owner.Id, new(Past: true), today);
-                Assert.HasCount(10, past.Trips);
+                Assert.IsEmpty(past.Trips);
                 Assert.IsFalse(past.HasMore);
-                var future = await database.GetTripPageAsync(owner.Id, new(Past: false), today);
-                Assert.HasCount(2, future.Trips);
-                Assert.IsTrue(future.Trips.All(trip => trip.StartDate > today));
+                var firstPage = await database.GetTripPageAsync(owner.Id, new(Past: false), today);
+                var lastPage = await database.GetTripPageAsync(
+                    owner.Id,
+                    new(Skip: TripListQuery.PageSize, Past: false),
+                    today
+                );
+                var futureTrips = firstPage.Trips.Concat(lastPage.Trips).ToArray();
+                Assert.HasCount(12, futureTrips);
+                Assert.AreEqual(today.AddDays(1), futureTrips[0].StartDate);
+                Assert.IsTrue(futureTrips.All(trip => trip.StartDate > today));
             }
         );
     }

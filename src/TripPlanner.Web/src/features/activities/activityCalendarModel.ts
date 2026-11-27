@@ -159,18 +159,14 @@ export function calendarEntries(
       });
     }
   }
-  const title = (id: string | null) =>
-    id === null
-      ? "Stay"
-      : (activities.find((activity) => activity.id === id)?.properties.name ??
-        "Activity");
   for (const id of day.activityIds) {
     const activity = activities.find((item) => item.id === id);
     const evaluatedEntry = evaluated?.entries.find(
       (item) => item.activityId === id,
     );
     const rule = activityRule(plan, id);
-    const pending = pendingTiming?.activityId === id ? pendingTiming : undefined;
+    const pending =
+      pendingTiming?.activityId === id ? pendingTiming : undefined;
     const start =
       pending?.start ??
       (evaluatedEntry?.start
@@ -189,7 +185,7 @@ export function calendarEntries(
     entries.push({
       id,
       kind: "activity",
-      title: title(id),
+      title: activity?.properties.name ?? "Activity",
       activityId: id,
       start,
       end,
@@ -197,48 +193,31 @@ export function calendarEntries(
       estimated: !rule.fixedStart,
     });
   }
-  const hasStay = destination?.properties.stays.some(
-    (stay) => stay.id === day.stayId && stay.stayLocation,
-  );
-  const pairs: [string | null, string | null][] = day.activityIds.flatMap<
-    [string | null, string | null]
-  >((id, index) =>
-    index > 0
-      ? [[day.activityIds[index - 1], id] as [string, string]]
-      : hasStay
-        ? [[null, id] as [null, string]]
-        : [],
-  );
-  if (hasStay && day.activityIds.length)
-    pairs.push([day.activityIds.at(-1)!, null]);
-  for (const [from, to] of pairs) {
-    const leg = evaluated?.travel.find(
-      (item) => item.fromActivityId === from && item.toActivityId === to,
-    );
-    const override = plan.transportOverrides.find(
-      (item) =>
-        item.date === day.date &&
-        item.fromActivityId === from &&
-        item.toActivityId === to,
-    );
+  for (const { step, minutes, departure, estimated } of calendarTravelLegs(
+    plan,
+    day,
+    activities,
+    assessment,
+    destination,
+  )) {
+    const { fromActivityId: from, toActivityId: to, mode } = step;
     const fromEntry = entries.find((item) => item.activityId === from);
     const toEntry = entries.find((item) => item.activityId === to);
-    const duration = override?.duration ?? leg?.duration;
-    const minutes = durationMinutes(duration);
-    const start = leg?.departure
-      ? localMinutes(leg.departure, day.date)
-      : (fromEntry?.end ??
-        (toEntry && minutes !== null ? toEntry.start - minutes : undefined));
+    const arrival =
+      toEntry && minutes !== null && minutes > 0
+        ? { start: toEntry.start - minutes, end: toEntry.start }
+        : undefined;
+    const start =
+      arrival?.start ??
+      (departure
+        ? localMinutes(departure, day.date)
+        : (fromEntry?.end ?? (minutes === 0 ? toEntry?.start : undefined)));
     if (start === undefined) continue;
-    const mode =
-      override?.mode ??
-      leg?.mode ??
-      (day.settings ?? plan.settings).transportMode;
     entries.push({
       id: `travel:${from}:${to}`,
       kind: "travel",
       start,
-      end: start + (minutes ?? 0),
+      end: arrival?.end ?? start + (minutes ?? 0),
       title:
         mode === "walking"
           ? "Walking"
@@ -249,16 +228,8 @@ export function calendarEntries(
               : "Choose transport",
       detail:
         minutes === null ? "Travel time unknown" : `${Math.ceil(minutes)} min`,
-      estimated: leg?.provisional,
-      travel: {
-        stayId: day.stayId,
-        date: day.date,
-        fromActivityId: from,
-        toActivityId: to,
-        mode,
-        duration: duration ?? "PT0M",
-        label: `${title(from)} → ${title(to)}`,
-      },
+      estimated,
+      travel: step,
     });
   }
   for (const item of evaluated?.breaks ?? []) {
@@ -293,6 +264,62 @@ export function calendarEntries(
     });
   }
   return entries.sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+}
+
+export function calendarTravelLegs(
+  plan: ActivityPlan,
+  day: PlanDay,
+  activities: Activity[],
+  assessment?: PlanAssessment,
+  destination?: Destination,
+) {
+  const stay = destination?.properties.stays.find(
+    (item) => item.id === day.stayId,
+  )?.stayLocation;
+  const stops = stay ? [null, ...day.activityIds, null] : day.activityIds;
+  const assessedTravel = assessment?.days.find(
+    (item) => calendarDayKey(item) === calendarDayKey(day),
+  )?.travel;
+  const title = (id: string | null) =>
+    id === null
+      ? "Stay"
+      : (activities.find((activity) => activity.id === id)?.properties.name ??
+        "Activity");
+
+  return stops.slice(1).flatMap((to, index) => {
+    const from = stops[index];
+    if (from === null && to === null) return [];
+    const leg = assessedTravel?.find(
+      (item) => item.fromActivityId === from && item.toActivityId === to,
+    );
+    const override = plan.transportOverrides.find(
+      (item) =>
+        item.date === day.date &&
+        item.fromActivityId === from &&
+        item.toActivityId === to,
+    );
+    const duration = override?.duration ?? leg?.duration;
+    const step: ActivityRouteStep = {
+      stayId: day.stayId,
+      date: day.date,
+      fromActivityId: from,
+      toActivityId: to,
+      mode:
+        override?.mode ??
+        leg?.mode ??
+        (day.settings ?? plan.settings).transportMode,
+      duration: duration ?? "PT0M",
+      label: `${title(from)} → ${title(to)}`,
+    };
+    return [
+      {
+        step,
+        minutes: durationMinutes(duration),
+        departure: leg?.departure,
+        estimated: leg?.provisional,
+      },
+    ];
+  });
 }
 
 export function applyEventTiming(
@@ -371,38 +398,107 @@ export function applyEventTiming(
   };
 }
 
-// Assign overlapping blocks separate columns, including short, tappable travel blocks.
 export function calendarLayout(entries: CalendarEntry[]) {
-  const result: (CalendarEntry & { lane: number; lanes: number })[] = [];
-  let group: typeof result = [];
+  const activities = new Map(
+    entries
+      .filter((entry) => entry.kind === "activity")
+      .map((entry) => [entry.id, entry]),
+  );
+  const inboundTravel = new Map<string, CalendarEntry>();
+  for (const entry of entries) {
+    const activity = activities.get(entry.travel?.toActivityId ?? "");
+    if (activity && entry.start < entry.end && entry.end === activity.start) {
+      inboundTravel.set(activity.id, entry);
+    }
+  }
+
+  const extensions = new Set(inboundTravel.values());
+  // An activity and its inbound travel occupy one column. Stripe only the
+  // actual shared time, since short events may need extra space for their labels.
+  const blocks = entries
+    .filter((entry) => !extensions.has(entry))
+    .map((entry) => {
+      const travel = inboundTravel.get(entry.id);
+      return {
+        entry,
+        travel,
+        start: travel?.start ?? entry.start,
+        displayEnd: Math.max(
+          entry.end,
+          entry.start + (entry.kind === "travel" ? 30 : 32),
+        ),
+      };
+    })
+    .sort((a, b) => a.start - b.start || a.entry.id.localeCompare(b.entry.id));
+  const result: (CalendarEntry & {
+    lane: number;
+    lanes: number;
+    isTravelExtension: boolean;
+    hasTravelExtension: boolean;
+    overlaps: Pick<CalendarEntry, "start" | "end">[];
+  })[] = [];
+  let group: ((typeof blocks)[number] & { lane: number })[] = [];
   let end = -Infinity;
   const finish = () => {
     const lanes = Math.max(1, ...group.map((item) => item.lane + 1));
-    result.push(...group.map((item) => ({ ...item, lanes })));
+    for (const { entry, travel, lane } of group) {
+      if (travel) {
+        result.push({
+          ...travel,
+          lane,
+          lanes,
+          isTravelExtension: true,
+          hasTravelExtension: false,
+          overlaps: calendarOverlaps(travel, entries),
+        });
+      }
+      result.push({
+        ...entry,
+        lane,
+        lanes,
+        isTravelExtension: false,
+        hasTravelExtension: Boolean(travel),
+        overlaps: calendarOverlaps(entry, entries),
+      });
+    }
     group = [];
   };
-  for (const entry of entries) {
-    if (entry.start >= end) finish();
-    const displayEnd = Math.max(
-      entry.end,
-      entry.start + (entry.kind === "travel" ? 30 : 32),
-    );
+  for (const block of blocks) {
+    if (block.start >= end) finish();
     const used = new Set(
       group
-        .filter(
-          (item) =>
-            Math.max(
-              item.end,
-              item.start + (item.kind === "travel" ? 30 : 32),
-            ) > entry.start,
-        )
+        .filter((item) => item.displayEnd > block.start)
         .map((item) => item.lane),
     );
     let lane = 0;
     while (used.has(lane)) lane++;
-    group.push({ ...entry, lane, lanes: 1 });
-    end = Math.max(group.length === 1 ? -Infinity : end, displayEnd);
+    group.push({ ...block, lane });
+    end = Math.max(end, block.displayEnd);
   }
   finish();
   return result;
+}
+
+function calendarOverlaps(entry: CalendarEntry, entries: CalendarEntry[]) {
+  const intersections = entries
+    .filter(
+      (other) =>
+        other !== entry && other.start < entry.end && other.end > entry.start,
+    )
+    .map((other) => ({
+      start: Math.max(entry.start, other.start),
+      end: Math.min(entry.end, other.end),
+    }))
+    .filter(({ start, end }) => start < end)
+    .sort((a, b) => a.start - b.start);
+  const overlaps: typeof intersections = [];
+  for (const intersection of intersections) {
+    const previous = overlaps.at(-1);
+    if (previous && intersection.start <= previous.end) {
+      previous.end = Math.max(previous.end, intersection.end);
+    } else {
+      overlaps.push(intersection);
+    }
+  }
+  return overlaps;
 }
