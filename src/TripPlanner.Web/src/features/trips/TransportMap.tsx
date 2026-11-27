@@ -19,6 +19,8 @@ import type {
 
 const noActivities: Activity[] = [];
 const selectLandmark = () => {};
+type MapStop = { point: Point; countryCode?: string };
+
 export default function TransportMap({
   from,
   to,
@@ -37,35 +39,48 @@ export default function TransportMap({
   const flightPath = useFlightMapPath(flight);
   const [resolved, setResolved] = useState<{
     key: string;
-    points: (Point | undefined)[];
+    stops: (MapStop | undefined)[];
     error: string;
   }>();
   const [retry, setRetry] = useState(0);
   const key = JSON.stringify([
     from.city,
     from.destination?.geometry,
+    from.destination?.properties.countryCode,
     to.city,
     to.destination?.geometry,
+    to.destination?.properties.countryCode,
   ]);
   useEffect(() => {
     const controller = new AbortController();
-    async function resolve(stop: TransportStop): Promise<Point> {
-      if (stop.destination) return stop.destination.geometry;
+    async function resolve(stop: TransportStop): Promise<MapStop> {
+      if (stop.destination)
+        return {
+          point: stop.destination.geometry,
+          countryCode: stop.destination.properties.countryCode,
+        };
       if (!stop.city)
         throw new Error("Set your home city to show both destinations.");
       const matches = await mapsClient.searchCities(
         stop.city,
         controller.signal,
       );
-      if (!matches[0]) throw new Error(`Could not locate ${stop.city}.`);
-      const point = await mapsClient.geocodeCity(matches[0], controller.signal);
-      return { type: "Point", coordinates: [point.longitude, point.latitude] };
+      const city = matches[0];
+      if (!city) throw new Error(`Could not locate ${stop.city}.`);
+      const point = await mapsClient.geocodeCity(city, controller.signal);
+      return {
+        point: {
+          type: "Point",
+          coordinates: [point.longitude, point.latitude],
+        },
+        countryCode: city.countryCode,
+      };
     }
     void Promise.allSettled([resolve(from), resolve(to)]).then((results) => {
       if (controller.signal.aborted) return;
       setResolved({
         key,
-        points: results.map((result) =>
+        stops: results.map((result) =>
           result.status === "fulfilled" ? result.value : undefined,
         ),
         error: results
@@ -80,8 +95,8 @@ export default function TransportMap({
     return () => controller.abort();
   }, [key, retry, from, to]);
   const current = resolved?.key === key ? resolved : undefined;
-  const origin = from.destination?.geometry ?? current?.points[0];
-  const destination = to.destination?.geometry ?? current?.points[1];
+  const origin = from.destination?.geometry ?? current?.stops[0]?.point;
+  const destination = to.destination?.geometry ?? current?.stops[1]?.point;
   const landmarks = useMemo<MapLandmark[]>(
     () =>
       flightPath.route
@@ -136,6 +151,12 @@ export default function TransportMap({
         <ActivityMap
           center={(origin ?? destination ?? flightPath.landmarks[0]?.geometry)!}
           destinationName={`${from.city ?? "Home"} to ${to.city ?? "Home"}`}
+          countryCodes={[
+            from.destination?.properties.countryCode ??
+              current?.stops[0]?.countryCode,
+            to.destination?.properties.countryCode ??
+              current?.stops[1]?.countryCode,
+          ]}
           zoom={14}
           activities={noActivities}
           landmarks={landmarks}

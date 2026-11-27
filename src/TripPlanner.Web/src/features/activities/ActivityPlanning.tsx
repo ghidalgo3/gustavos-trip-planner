@@ -1590,6 +1590,7 @@ export default function ActivityPlanning({
             center={destination.geometry}
             destinationName={destination.properties.name}
             destinationId={destination.id}
+            countryCodes={[destination.properties.countryCode]}
             stayLocations={destination.properties.stays.flatMap((visit) =>
               visit.stayLocation
                 ? [{ ...visit.stayLocation, id: visit.id }]

@@ -6,6 +6,11 @@ import type {
   PlaceSuggestion,
   MapToken,
   MapControl,
+  MapHandle,
+  MapLineFeature,
+  MapLineOptions,
+  MapMarkerOptions,
+  MapOptions,
   MapsClient,
 } from "./IMapsClient";
 
@@ -99,19 +104,36 @@ export function formatCityLabel(label: string, countryCode?: string): string {
   return parts.join(", ");
 }
 
+type AtlasMarker = object;
+type AtlasLineLayer = object;
+type AtlasSource = {
+  add: (feature: MapLineFeature) => void;
+  setShapes: (features: MapLineFeature[]) => void;
+};
+type AtlasMap = Omit<MapHandle, "addMarker" | "addLine"> & {
+  markers: {
+    add: (marker: AtlasMarker) => void;
+    remove: (marker: AtlasMarker) => void;
+  };
+  sources: {
+    add: (source: AtlasSource) => void;
+    remove: (source: AtlasSource) => void;
+  };
+  layers: {
+    add: (layer: AtlasLineLayer) => void;
+    remove: (layer: AtlasLineLayer) => void;
+  };
+};
 type Atlas = {
-  Map: new (
-    container: HTMLElement,
-    options: object,
-  ) => ReturnType<MapControl["createMap"]>;
-  HtmlMarker: new (options: object) => ReturnType<MapControl["createMarker"]>;
-  source: { DataSource: new () => ReturnType<MapControl["createRouteSource"]> };
+  Map: new (container: HTMLElement, options: MapOptions) => AtlasMap;
+  HtmlMarker: new (options: MapMarkerOptions) => AtlasMarker;
+  source: { DataSource: new () => AtlasSource };
   layer: {
     LineLayer: new (
-      source: ReturnType<MapControl["createRouteSource"]>,
+      source: AtlasSource,
       id: string | null,
-      options: object,
-    ) => ReturnType<MapControl["createRouteLayer"]>;
+      options: MapLineOptions,
+    ) => AtlasLineLayer;
   };
 };
 
@@ -457,11 +479,41 @@ export function createAzureMapsClient(): MapsClient {
       const existing = controls.get(atlas);
       if (existing) return existing;
       const control: MapControl = {
-        createMap: (container, options) => new atlas.Map(container, options),
-        createMarker: (options) => new atlas.HtmlMarker(options),
-        createRouteSource: () => new atlas.source.DataSource(),
-        createRouteLayer: (source, options) =>
-          new atlas.layer.LineLayer(source, null, options),
+        createMap(container, options) {
+          const map = new atlas.Map(container, options);
+          return {
+            events: map.events,
+            setCamera: (camera) => map.setCamera(camera),
+            getCamera: () => map.getCamera(),
+            stop: () => map.stop(),
+            setStyle: (style) => map.setStyle(style),
+            resize: () => map.resize(),
+            dispose: () => map.dispose(),
+            addMarker(markerOptions) {
+              const marker = new atlas.HtmlMarker(markerOptions);
+              map.markers.add(marker);
+              return { remove: () => map.markers.remove(marker) };
+            },
+            addLine(features, lineOptions) {
+              const source = new atlas.source.DataSource();
+              map.sources.add(source);
+              for (const feature of features) source.add(feature);
+              const layer = new atlas.layer.LineLayer(
+                source,
+                null,
+                lineOptions,
+              );
+              map.layers.add(layer);
+              return {
+                setFeatures: (shapes) => source.setShapes(shapes),
+                remove() {
+                  map.layers.remove(layer);
+                  map.sources.remove(source);
+                },
+              };
+            },
+          };
+        },
       };
       controls.set(atlas, control);
       return control;

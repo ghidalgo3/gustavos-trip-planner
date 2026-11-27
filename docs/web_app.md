@@ -40,6 +40,18 @@ The dashboard also uses `/?create=1` and `/?edit={tripId}` for its forms. These
 routes support direct loading, refresh, and browser Back/Forward navigation.
 Flight-result filters remain in the query string, so refreshing or sharing the URL restores those filters.
 
+## Map display
+
+The web app uses Leaflet with OpenStreetMap tiles when a destination or either
+end of a transportation leg has the country code `KR` (South Korea). Other maps
+use the Azure Maps control. Place search and route estimates use Azure Maps for
+all destinations.
+
+OpenStreetMap tiles load on demand and use the browser's HTTP cache. To use a
+different OpenStreetMap tile host, set `VITE_OPENSTREETMAP_TILE_URL` at build
+time to its tile URL template, including `{z}`, `{x}`, and `{y}`. The map shows
+OpenStreetMap attribution. [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+
 ## Offline behavior
 
 The web app reads trip views through adapters over its account-scoped document cache, saves through
