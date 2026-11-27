@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Link,
   MemoryRouter,
@@ -46,11 +46,12 @@ vi.mock("./TripOverview", () => ({
   ),
 }));
 vi.mock("../activities/ActivityPlanning", () => ({
-  default: function Activities() {
+  default: function Activities({ tripHeader }: { tripHeader?: ReactNode }) {
     const [draft, setDraft] = useState("");
     const [query] = useSearchParams();
     return (
       <section aria-label="Activity planning">
+        {tripHeader}
         <span>{query.get("destination")}</span>
         <input
           aria-label="Draft"

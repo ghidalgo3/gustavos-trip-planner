@@ -1,6 +1,7 @@
 import { Button, Text, Title1 } from "@fluentui/react-components";
 import { Share24Regular } from "@fluentui/react-icons";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router";
 import { apiBaseUrl, type Trip } from "../../api/api";
 import {
@@ -18,6 +19,7 @@ import TripOverview from "./TripOverview";
 import TripDateSummary from "./TripDateSummary";
 import TripBreadcrumbs from "./TripBreadcrumbs";
 import OfflineNotice from "../../shared/components/OfflineNotice";
+import { useMediaQuery } from "../../shared/hooks/useMediaQuery";
 import type { DestinationCollection } from "../activities/activitiesApi";
 import { DestinationOverviewSkeleton, TripPageSkeleton } from "./TripSkeletons";
 
@@ -25,13 +27,16 @@ export default function TripPlanningPage({
   userId,
   homeCity,
   offline = false,
+  breadcrumbHost,
 }: {
   userId: string;
   homeCity?: string | null;
   offline?: boolean;
+  breadcrumbHost?: HTMLElement | null;
 }) {
   const { tripId, "*": section } = useParams();
   const navigate = useNavigate();
+  const wide = useMediaQuery("(min-width: 1100px)");
   const activeSection =
     section === "activities"
       ? "activities"
@@ -89,11 +94,46 @@ export default function TripPlanningPage({
     offline ||
     documentState.offline ||
     (trip.ownerUserId !== userId && !trip.canPlan);
+  const breadcrumbs = <TripBreadcrumbs trip={trip} section={activeSection} />;
+  const topbarBreadcrumbs =
+    activeSection === "activities" && wide ? breadcrumbHost : null;
+  const tripHeader = (
+    <header className="trip-page-header">
+      <div className="trip-page-heading">
+        <div className="trip-page-heading-main">
+          <Title1 as="h1">{trip.name}</Title1>
+        </div>
+        {activeSection === "overview" && (
+          <Button
+            appearance="outline"
+            icon={<Share24Regular />}
+            onClick={() =>
+              navigate(`/trips/${encodeURIComponent(trip.id)}/party`)
+            }
+          >
+            Share
+          </Button>
+        )}
+      </div>
+      <div className="trip-page-title">
+        <TripDateSummary
+          trip={trip}
+          destinations={destinations?.features ?? []}
+          showFlags={activeSection !== "activities"}
+        />
+        {readOnly && !offline && !documentState.offline && (
+          <Text size={200}>Shared with you · View only</Text>
+        )}
+      </div>
+      {!topbarBreadcrumbs && breadcrumbs}
+    </header>
+  );
 
   return (
     <div
       className={`trip-workspace trip-workspace-overview${activeSection === "activities" ? " trip-workspace-activities" : ""}`}
     >
+      {topbarBreadcrumbs && createPortal(breadcrumbs, topbarBreadcrumbs)}
       {(documentState.conflict ||
         (documentState.message && !documentState.offline)) && (
         <div
@@ -121,34 +161,7 @@ export default function TripPlanningPage({
         }
         onRetry={() => void refreshConflictedResource().catch(() => undefined)}
       />
-      <header className="trip-page-header">
-        <div className="trip-page-heading">
-          <div className="trip-page-heading-main">
-            <Title1 as="h1">{trip.name}</Title1>
-          </div>
-          {activeSection === "overview" && (
-            <Button
-              appearance="outline"
-              icon={<Share24Regular />}
-              onClick={() =>
-                navigate(`/trips/${encodeURIComponent(trip.id)}/party`)
-              }
-            >
-              Share
-            </Button>
-          )}
-        </div>
-        <div className="trip-page-title">
-          <TripDateSummary
-            trip={trip}
-            destinations={destinations?.features ?? []}
-          />
-          {readOnly && !offline && !documentState.offline && (
-            <Text size={200}>Shared with you · View only</Text>
-          )}
-        </div>
-        <TripBreadcrumbs trip={trip} section={activeSection} />
-      </header>
+      {activeSection !== "activities" && tripHeader}
       <div className="trip-page-body">
         <div className="planning-page trip-page-content">
           {activeSection === "flights" ? (
@@ -176,6 +189,7 @@ export default function TripPlanningPage({
             active={activeSection === "activities"}
             trip={trip}
             readOnly={readOnly}
+            tripHeader={activeSection === "activities" ? tripHeader : undefined}
           />
         </div>
       </div>

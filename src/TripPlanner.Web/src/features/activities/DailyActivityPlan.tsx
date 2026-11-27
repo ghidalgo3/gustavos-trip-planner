@@ -1,4 +1,11 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Button,
   DrawerBody,
@@ -110,6 +117,7 @@ export default function DailyActivityPlan({
   onChooseActivities,
   onSelectTravel,
   onPlanChange,
+  onMapDayChange,
 }: {
   tripId: string;
   destinationId: string;
@@ -121,6 +129,7 @@ export default function DailyActivityPlan({
   onChooseActivities?: () => void;
   onSelectTravel?: (selection: ActivityRouteSelection) => void;
   onPlanChange?: () => void;
+  onMapDayChange?: (activityIds: string[]) => void;
 }) {
   const path = activityPlanPath(tripId, destinationId);
   const resourceVersion = useTripResourceVersion(path);
@@ -144,15 +153,23 @@ export default function DailyActivityPlan({
   const routeRequest = useRef<AbortController | undefined>(undefined);
   const savedRequest = useRef<AbortController | undefined>(undefined);
   const plan = resource?.data.plan;
-  const visits =
-    resource?.data.context.visits ??
-    destination?.properties.stays.map((stay) => ({
-      stayId: stay.id,
-      arrivalDate: stay.arrivalDate,
-      departureDate: stay.departureDate,
-    })) ??
-    [];
-  const days = plan ? calendarDays(plan, visits) : [];
+  const assessment = resource?.data.assessment;
+  const savedVisits = resource?.data.context.visits;
+  const visits = useMemo(
+    () =>
+      savedVisits ??
+      destination?.properties.stays.map((stay) => ({
+        stayId: stay.id,
+        arrivalDate: stay.arrivalDate,
+        departureDate: stay.departureDate,
+      })) ??
+      [],
+    [savedVisits, destination],
+  );
+  const days = useMemo(
+    () => (plan ? calendarDays(plan, visits) : []),
+    [plan, visits],
+  );
   const day =
     days.find((item) => calendarDayKey(item) === dayKey) ??
     days.find((item) =>
@@ -163,6 +180,21 @@ export default function DailyActivityPlan({
       ),
     ) ??
     days[0];
+  const showDayOnMap = useEffectEvent((activityIds: string[]) =>
+    onMapDayChange?.(activityIds),
+  );
+  useLayoutEffect(() => {
+    if (!plan || !day) {
+      showDayOnMap([]);
+      return;
+    }
+    const timed = new Set(
+      calendarEntries(plan, day, activities, assessment).flatMap((entry) =>
+        entry.activityId ? [entry.activityId] : [],
+      ),
+    );
+    showDayOnMap([...timed, ...day.activityIds.filter((id) => !timed.has(id))]);
+  }, [plan, day, activities, assessment]);
   const invalidateRoute = useEffectEvent(() => onPlanChange?.());
   useEffect(() => {
     invalidateRoute();
@@ -521,7 +553,10 @@ export default function DailyActivityPlan({
         destination={destination}
         readOnly={readOnly}
         busy={busy}
-        onDay={setDayKey}
+        onDay={(key) => {
+          setDayKey(key);
+          onPlanChange?.();
+        }}
         onTiming={(timing) => void saveTiming(timing)}
         onEvent={openEvent}
         onEntry={openEntry}

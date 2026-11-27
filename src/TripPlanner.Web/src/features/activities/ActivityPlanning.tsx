@@ -41,7 +41,14 @@ import {
   Location16Regular,
   Search24Regular,
 } from "@fluentui/react-icons";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useSearchParams } from "react-router";
 import type { PlaceSuggestion, Trip } from "../../api/api";
 import {
@@ -58,6 +65,7 @@ import { durationMinutes } from "../../shared/time/durations";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { destinationDates, tripSpansMultipleYears } from "../trips/tripDates";
 import CityIcon from "../../shared/components/CityIcon";
+import CountryFlag from "../../shared/components/CountryFlag";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
 import ActivityCardTags from "./ActivityCardTags";
@@ -143,11 +151,13 @@ export default function ActivityPlanning({
   readOnly,
   onDestinationChange,
   active = true,
+  tripHeader,
 }: {
   trip: Trip;
   readOnly: boolean;
   onDestinationChange?: (destination: Destination | undefined) => void;
   active?: boolean;
+  tripHeader?: ReactNode;
 }) {
   const documentVersion = useTripResourceVersion(
     `/trips/${trip.id}/destinations`,
@@ -173,6 +183,10 @@ export default function ActivityPlanning({
   const [selectedTravel, setSelectedTravel] = useState<{
     cityId: string;
     selection: ActivityRouteSelection;
+  }>();
+  const [scheduledMapDay, setScheduledMapDay] = useState<{
+    cityId: string;
+    activityIds: string[];
   }>();
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
@@ -227,9 +241,16 @@ export default function ActivityPlanning({
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
     observer.observe(list);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [active, activityView, cityId, loading]);
   const routeSelection =
     activityView === "daily" &&
@@ -250,6 +271,11 @@ export default function ActivityPlanning({
     activityData && activityData.cityId === cityId
       ? activityData.collection
       : emptyCollection;
+  const scheduledActivities = useMemo(() => {
+    if (!scheduledMapDay || scheduledMapDay.cityId !== cityId) return [];
+    const byId = new Map(activities.features.map((item) => [item.id, item]));
+    return scheduledMapDay.activityIds.flatMap((id) => byId.get(id) ?? []);
+  }, [scheduledMapDay, cityId, activities.features]);
   const searchText = activitySearch.trim().toLocaleLowerCase();
   const matchingActivities = activities.features
     .map((item, index) => ({ item, index }))
@@ -357,11 +383,7 @@ export default function ActivityPlanning({
   );
 
   const savedActivitiesForMap =
-    activityView === "daily"
-      ? activities.features.filter(
-          (activity) => activity.properties.state === "Yes",
-        )
-      : activities.features;
+    activityView === "daily" ? scheduledActivities : activities.features;
   const draftOnMap =
     editor && editor.value.geometry
       ? { ...editor.value, id: editor.value.id ?? "draft-activity" }
@@ -961,7 +983,11 @@ export default function ActivityPlanning({
         </section>
       );
     }
-    return showMapCard && selected && !editor ? (
+    if (!showMapCard || !selected || editor) return null;
+    const mapIndex = activitiesForMap.findIndex(
+      (item) => item.id === selected.id,
+    );
+    return (
       <section
         key={selected.id}
         className="activity-map-bottom-card"
@@ -977,17 +1003,24 @@ export default function ActivityPlanning({
         <ul className="activity-map-card-list">
           {renderActivityCard(
             selected,
-            activities.features.findIndex((item) => item.id === selected.id),
+            mapIndex >= 0
+              ? mapIndex
+              : activities.features.findIndex(
+                  (item) => item.id === selected.id,
+                ),
           )}
         </ul>
       </section>
-    ) : null;
+    );
   }
 
-  if (loading) return <ActivityWorkspaceSkeleton />;
+  if (loading) return <ActivityWorkspaceSkeleton tripHeader={tripHeader} />;
   if (!destinations || !destination)
     return (
       <section className="activity-planning">
+        {tripHeader && (
+          <div className="activity-planning-heading">{tripHeader}</div>
+        )}
         {error ? (
           <Text role="alert">{error}</Text>
         ) : (
@@ -1492,31 +1525,50 @@ export default function ActivityPlanning({
       aria-label="Activity planning"
     >
       {toaster}
-      <TabList
-        aria-label="Destinations"
-        selectedValue={destination.id}
-        onTabSelect={(_, data) => selectDestination(String(data.value))}
-        className="activity-destination-tabs"
-      >
-        {destinations.features.map((item) => (
-          <Tab value={item.id} key={item.id} disabled={busy}>
-            <span className="activity-tab-label">
-              <CityIcon
-                name={item.properties.name}
-                countryCode={item.properties.countryCode}
-              />
-              <strong>{item.properties.name}</strong>
-              <small>{destinationDates(item, includeDestinationYears)}</small>
-            </span>
-          </Tab>
-        ))}
-      </TabList>
+      <div className="activity-planning-heading">
+        {tripHeader}
+        <TabList
+          aria-label="Destinations"
+          selectedValue={destination.id}
+          onTabSelect={(_, data) => selectDestination(String(data.value))}
+          className="activity-destination-tabs"
+        >
+          {destinations.features.map((item) => {
+            const name = item.properties.name;
+            const dates = destinationDates(item, includeDestinationYears);
+            return (
+              <Tab
+                value={item.id}
+                key={item.id}
+                disabled={busy}
+                title={`${name} · ${dates}`}
+              >
+                <span className="activity-tab-label">
+                  <CityIcon
+                    name={name}
+                    countryCode={item.properties.countryCode}
+                  />
+                  <span className="activity-tab-title">
+                    <strong>{name}</strong>
+                    <CountryFlag
+                      code={item.properties.countryCode}
+                      decorative
+                    />
+                  </span>
+                  <small>{dates}</small>
+                </span>
+              </Tab>
+            );
+          })}
+        </TabList>
+      </div>
       <TabList
         aria-label="Activity views"
         appearance="filled-circular"
         selectedValue={activityView}
         onTabSelect={(_, data) => {
           setActivityView(String(data.value));
+          if (activityView !== data.value) setScheduledMapDay(undefined);
           setSelectedTravel(undefined);
           setShowMapCard(false);
         }}
@@ -1540,6 +1592,7 @@ export default function ActivityPlanning({
                 : [],
             )}
             activities={activitiesForMap}
+            connectActivities={active && activityView === "daily" && !editor}
             placeSearch={placeSearch}
             portalHost={mapExpanded && active ? fullscreenMapHost : undefined}
             route={routePreview.route}
@@ -1578,7 +1631,13 @@ export default function ActivityPlanning({
               readOnly={!canEdit}
 
               onSelect={selectActivity}
-              onPlanChange={() => setSelectedTravel(undefined)}
+              onPlanChange={() => {
+                setSelectedTravel(undefined);
+                setShowMapCard(false);
+              }}
+              onMapDayChange={(activityIds) =>
+                setScheduledMapDay({ cityId: destination.id, activityIds })
+              }
               onSelectTravel={(selection) => {
                 setSelectedTravel({ cityId: destination.id, selection });
                 setSelectedId(undefined);

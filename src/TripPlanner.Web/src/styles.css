@@ -135,6 +135,21 @@ main {
   background: var(--app-topbar-background);
   backdrop-filter: blur(12px);
 }
+.topbar-navigation {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+}
+.topbar-breadcrumbs:empty {
+  display: none;
+}
+.topbar-breadcrumbs .trip-breadcrumbs {
+  margin: 0;
+}
+.topbar-breadcrumbs .trip-breadcrumbs ol {
+  flex-wrap: nowrap;
+}
 .app-footer {
   flex-shrink: 0;
   margin-top: auto;
@@ -1135,6 +1150,15 @@ main {
   width: 100%;
   min-width: 0;
 }
+.activity-planning-heading {
+  display: grid;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.activity-planning-heading > .trip-page-header {
+  width: 100%;
+  margin: 0;
+}
 .retained-activity-panel:not([hidden]) {
   display: contents;
 }
@@ -1809,6 +1833,60 @@ main {
   font-weight: 400;
   color: var(--colorNeutralForeground2);
   font-size: 12px;
+}
+.activity-tab-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.activity-tab-title > .country-flag {
+  width: 18px;
+  height: 14px;
+  flex-shrink: 0;
+}
+@media (min-width: 1100px) {
+  .activity-planning-heading:has(> .trip-page-header):has(
+      > .activity-destination-tabs,
+      > .skeleton-destination-tabs
+    ) {
+    grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+    align-items: center;
+    gap: 20px;
+  }
+  .activity-planning-heading > .trip-page-header {
+    padding-block: 12px;
+  }
+  .activity-destination-tabs,
+  .skeleton-destination-tabs {
+    gap: 8px;
+    padding-block: 8px;
+    min-width: 0;
+  }
+  .activity-destination-tabs .fui-Tab,
+  .skeleton-destination-tabs > .skeleton-stack {
+    min-height: 60px;
+    padding: 8px;
+    align-items: center;
+  }
+  .activity-destination-tabs .activity-tab-label > .city-icon {
+    display: none;
+  }
+  .activity-destination-tabs .activity-tab-title {
+    justify-content: space-between;
+  }
+  .activity-destination-tabs .activity-tab-title > strong,
+  .activity-destination-tabs .activity-tab-label > small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .skeleton-destination-tabs > .skeleton-stack {
+    gap: 4px;
+  }
+  .skeleton-destination-tabs > .skeleton-stack > :first-child {
+    display: none;
+  }
 }
 .city-icon {
   display: block;

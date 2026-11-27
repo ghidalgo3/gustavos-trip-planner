@@ -87,11 +87,17 @@ vi.mock("../../maps/mapsClient", () => ({
 vi.mock("./DailyActivityPlan", () => ({
   default: ({
     onSelectTravel,
+    onMapDayChange,
   }: {
     onSelectTravel?: (value: ActivityRouteSelection) => void;
+    onMapDayChange?: (activityIds: string[]) => void;
   }) => (
     <div>
       Plan editor
+      <button onClick={() => onMapDayChange?.(["museum"])}>
+        Map first day
+      </button>
+      <button onClick={() => onMapDayChange?.(["garden"])}>Map next day</button>
       <button
         onClick={() =>
           onSelectTravel?.({
@@ -344,7 +350,7 @@ test("selecting a Plan travel step focuses the map and forwards its route; closi
   ).not.toBeInTheDocument();
 });
 
-test("Plan shows only activity bubbles marked Yes, and Ideas restores the others", async () => {
+test("Schedule shows bubbles from its selected day, and Ideas restores the other bubbles", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
     features: [
@@ -380,9 +386,14 @@ test("Plan shows only activity bubbles marked Yes, and Ideas restores the others
     await screen.findByRole("button", { name: "Map marker: Louvre" }),
   ).toBeInTheDocument();
   click(screen.getByRole("tab", { name: "Schedule" }));
+  click(screen.getByRole("button", { name: "Map first day" }));
   expect(
-    screen.queryByRole("tab", { name: "Daily plan" }),
+    screen.getByRole("button", { name: "Map marker: Louvre" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Map marker: Garden" }),
   ).not.toBeInTheDocument();
+  click(screen.getByRole("button", { name: "Map next day" }));
   expect(
     screen.getByRole("button", { name: "Map marker: Garden" }),
   ).toBeInTheDocument();

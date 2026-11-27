@@ -13,6 +13,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
+- Show numbered activities and animated connections for the selected day on the web Schedule map.
+
 - Add measurable web UI complexity guidelines and a four-city UX audit scenario with train, car, and walking legs plus an activity reschedule.
 
 - Add two opt-in local sign-in accounts for development and UX audits.
@@ -24,6 +26,10 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Add a Codex UX audit skill for evaluating desktop and mobile web journeys with Playwright, bundled Trip Planner rules, and styled HTML regression reports with embedded screenshots.
 
 ### Fixed
+
+- Give the day selector its own row when the calendar panel is narrow.
+
+- Move breadcrumbs into the top bar and flagged destination tabs beside the trip title on wide Activities screens.
 
 - Show a short Add activity form, keep Save visible on phones, and use a single scrolling agenda for narrow activity schedules.
 

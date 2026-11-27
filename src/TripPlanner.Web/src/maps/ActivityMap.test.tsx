@@ -11,6 +11,7 @@ import ActivityMap from "./ActivityMap";
 import { greatCircle } from "./greatCircle";
 import type { Activity } from "../features/activities/activitiesApi";
 import { mapsClient } from "./mapsClient";
+import { calendarActivities } from "../test/activityCalendarFixture";
 
 vi.spyOn(mapsClient, "getToken");
 
@@ -24,6 +25,7 @@ const sourceAdd = vi.fn(),
   layerAdd = vi.fn(),
   layerRemove = vi.fn(),
   routeData = vi.fn(),
+  routeShapes = vi.fn(),
   lineOptions = vi.fn();
 
 beforeEach(() => {
@@ -37,6 +39,7 @@ beforeEach(() => {
     layerAdd,
     layerRemove,
     routeData,
+    routeShapes,
     lineOptions,
   ].forEach((mock) => mock.mockReset());
   events.clear();
@@ -70,6 +73,7 @@ beforeEach(() => {
     source: {
       DataSource: class {
         add = routeData;
+        setShapes = routeShapes;
       },
     },
     layer: {
@@ -661,6 +665,65 @@ test("repeat visits render separate accommodation pins and preserve their select
   fireEvent.click(markers[1]);
   expect(onSelect).toHaveBeenCalledWith("stay:second");
 });
+
+test.each([false, true])(
+  "connects numbered activities for a day and honors reduced motion (%s)",
+  async (reducedMotion) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion") && reducedMotion,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    vi.mocked(mapsClient.getToken).mockResolvedValue({
+      token: "sas",
+      endpoint: "https://atlas.microsoft.com",
+      expiresAt: "2030-01-01T02:00:00Z",
+    });
+    const [museum, garden, cafe] = calendarActivities;
+    const onSelect = vi.fn();
+    const props = {
+      center: museum.geometry!,
+      activities: [
+        garden,
+        museum,
+        { ...cafe, geometry: null },
+        { ...cafe, id: "fourth" },
+      ],
+      onSelect,
+    };
+    const { rerender } = render(<ActivityMap {...props} connectActivities />);
+    await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
+    act(() => events.get("ready")?.({}));
+    expect(markers.map((marker) => marker.title)).toEqual([
+      "1. Garden",
+      "2. Museum",
+      "4. Cafe",
+    ]);
+    fireEvent.click(markers[0]);
+    expect(onSelect).toHaveBeenCalledWith(garden.id);
+    const geometry = routeData.mock.calls[0][0].geometry;
+    expect(geometry.type).toBe("MultiLineString");
+    expect(geometry.coordinates).toHaveLength(1);
+    expect(geometry.coordinates[0][0]).toEqual(garden.geometry!.coordinates);
+    expect(geometry.coordinates[0].at(-1)).toEqual(
+      museum.geometry!.coordinates,
+    );
+    if (reducedMotion) {
+      expect(layerAdd).toHaveBeenCalledOnce();
+      expect(routeShapes).not.toHaveBeenCalled();
+    } else {
+      expect(layerAdd).toHaveBeenCalledTimes(2);
+      await waitFor(() =>
+        expect(routeShapes.mock.calls.length).toBeGreaterThanOrEqual(3),
+      );
+      expect(routeShapes.mock.calls[0]).not.toEqual(routeShapes.mock.calls[2]);
+    }
+    rerender(<ActivityMap {...props} activities={[]} connectActivities />);
+    expect(layerRemove).toHaveBeenCalledTimes(reducedMotion ? 1 : 2);
+    expect(sourceRemove).toHaveBeenCalledTimes(reducedMotion ? 1 : 2);
+    expect(createMap).toHaveBeenCalledOnce();
+  },
+);
 
 test("draws the selected street path, frames it, and replaces or clears it without rebuilding the map", async () => {
   vi.mocked(mapsClient.getToken).mockResolvedValue({

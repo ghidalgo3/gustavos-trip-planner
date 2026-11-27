@@ -1,9 +1,6 @@
 import type { Trip } from "../../api/api";
-import {
-  countryName,
-  flagSymbol,
-  tripCountries,
-} from "../../shared/placeArtwork";
+import CountryFlag from "../../shared/components/CountryFlag";
+import { tripCountries } from "../../shared/placeArtwork";
 import type { Destination } from "../activities/activitiesApi";
 import { formatStayDates } from "./tripDates";
 
@@ -11,16 +8,22 @@ export default function TripDateSummary({
   trip,
   destinations,
   dateText,
+  showFlags = true,
 }: {
   trip: Trip;
   destinations?: Destination[];
   dateText?: string;
+  showFlags?: boolean;
 }) {
-  const countries = tripCountries(
-    destinations?.map((destination) => destination.properties.countryCode) ??
-      trip.countryCodes ??
-      [],
-  );
+  const countries = showFlags
+    ? tripCountries(
+        destinations?.map(
+          (destination) => destination.properties.countryCode,
+        ) ??
+          trip.countryCodes ??
+          [],
+      )
+    : [];
   const dates =
     dateText ?? formatStayDates(trip.startDate ?? null, trip.endDate ?? null);
   if (!dates && countries.length === 0) return null;
@@ -32,16 +35,7 @@ export default function TripDateSummary({
           {dates && <span aria-hidden="true">·</span>}
           <span className="trip-country-flags" aria-label="Trip countries">
             {countries.map((code) => (
-              <svg
-                key={code}
-                className="country-flag"
-                viewBox="0 0 16 12"
-                role="img"
-                aria-label={countryName(code)}
-              >
-                <title>{countryName(code)}</title>
-                <use href={`/artwork/flags.svg#${flagSymbol(code)}`} />
-              </svg>
+              <CountryFlag key={code} code={code} />
             ))}
           </span>
         </>

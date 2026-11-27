@@ -151,6 +151,27 @@ for (const width of [390, 820, 1100, 1280]) {
         exact: true,
       });
       await expect(calendar).toBeVisible();
+      if (width === 1100) {
+        const rowPosition = async (
+          name: string,
+          role: "button" | "combobox" = "button",
+        ) => {
+          const bounds = (await page
+            .getByRole(role, { name, exact: true })
+            .boundingBox())!;
+          return bounds.y + bounds.height / 2;
+        };
+        const dayPicker = page.getByRole("combobox", { name: "Calendar day" });
+        expect((await dayPicker.boundingBox())!.width).toBeGreaterThanOrEqual(
+          160,
+        );
+        const firstRow = await rowPosition("Calendar day", "combobox");
+        expect(await rowPosition("Previous day")).toBe(firstRow);
+        expect(await rowPosition("Next day")).toBe(firstRow);
+        const secondRow = await rowPosition("Day details");
+        expect(secondRow).toBeGreaterThan(firstRow);
+        expect(await rowPosition("Add event")).toBe(secondRow);
+      }
       if (originalMap) {
         expect(
           await mapPanel.evaluate(

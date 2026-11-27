@@ -53,7 +53,11 @@ numbered requirements and can open the editor at the first one.
 
 ## Activity selection and daily planning (milestone 3)
 
-Activities has **Ideas** and **Schedule** views. Ideas has independent pill filters
+Activities has **Ideas** and **Schedule** views. On wide screens, the top bar
+shows the trip breadcrumbs and the destination tabs sit beside the trip name.
+Each tab shows its destination's flag.
+
+Ideas has independent pill filters
 for Considering, Planned, and Not Interested, each with its status icon and count.
 All three start enabled. Counts reflect the current search, and enabled statuses
 share one list in their original order. Filters remain available offline and in
@@ -66,6 +70,10 @@ screens, the map sits above the selected day's events and the activity list.
 They scroll with the page. On phones, the map keeps its position when you switch
 between Ideas and Schedule.
 The agenda lists timed entries in order. Tap an entry to open it.
+The Schedule map numbers activities for the selected day. Timed activities come
+first, followed by assigned activities without a time. Activities with locations
+get map bubbles. Animated lines connect consecutive locations to show the order.
+A missing location leaves a gap. Reduced motion shows still lines.
 On the hour grid, drag an activity from the list to schedule it, move an event
 to change its time, or drag its start/end handles to resize it. Timing snaps to
 15 minutes, previews before release, and saves the complete versioned plan on
