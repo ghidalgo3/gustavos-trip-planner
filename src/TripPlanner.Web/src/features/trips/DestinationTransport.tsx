@@ -41,7 +41,13 @@ import {
   type TransportationFeature,
 } from "./transportationApi";
 import "./transportation.css";
-const modes = { flight: "Flight", train: "Train", car: "Car", walk: "Walking" };
+const modes = {
+  flight: "Flight",
+  train: "Train",
+  car: "Car",
+  walk: "Walking",
+  "arranged-separately": "Arranged separately",
+};
 type Mode = keyof typeof modes;
 
 export default function DestinationTransport({
@@ -51,6 +57,7 @@ export default function DestinationTransport({
   readOnly,
   flights,
   homeUserId,
+  nextAction,
 }: {
   tripId: string;
   from: TransportStop;
@@ -58,6 +65,7 @@ export default function DestinationTransport({
   readOnly: boolean;
   flights: string;
   homeUserId: string;
+  nextAction?: boolean;
 }) {
   const version = useTripResourceVersion(`/trips/${tripId}`);
   const tabsId = useId();
@@ -137,7 +145,7 @@ export default function DestinationTransport({
     stop: TransportStop,
     mode: Mode,
   ): Promise<TransportationFeature> {
-    if (mode === "flight" && !stop.stayId)
+    if ((mode === "flight" || mode === "arranged-separately") && !stop.stayId)
       return {
         type: "Feature",
         id,
@@ -255,7 +263,7 @@ export default function DestinationTransport({
     setHoveredFlight(undefined);
     setFocusedFlight(undefined);
     setEditBase(value);
-    setDraftMode((mode as Mode) ?? undefined);
+    setDraftMode(mode && mode in modes ? (mode as Mode) : undefined);
     setStationSearch(undefined);
     setPreview(undefined);
     setTrainEndpoints(
@@ -291,6 +299,7 @@ export default function DestinationTransport({
         <button
           type="button"
           className="overview-transport-card"
+          data-next-action={nextAction || undefined}
           disabled={busy || !loaded}
           onClick={openDrawer}
         >
@@ -378,6 +387,7 @@ export default function DestinationTransport({
           </DrawerHeader>
           <DrawerBody className="transport-drawer-body">
             <TabList
+              className="transport-mode-tabs"
               aria-label="Transportation mode"
               selectedValue={draftMode ?? null}
               disabled={busy || !loaded}

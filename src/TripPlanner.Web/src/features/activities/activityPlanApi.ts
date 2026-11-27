@@ -24,6 +24,7 @@ export type PlanDay = {
   stayId: string;
   date: string;
   name?: string | null;
+  review?: string | null;
   activityIds: string[];
   mealPositions?: MealPositions | null;
   settings: DailySettings | null;
@@ -69,7 +70,11 @@ export type ActivityPlan = {
 export function activityPlanSchedule(plan: ActivityPlan) {
   return {
     ...plan,
-    days: plan.days?.map((day) => ({ ...day, name: undefined })),
+    days: plan.days?.map((day) => ({
+      ...day,
+      name: undefined,
+      review: undefined,
+    })),
   };
 }
 

@@ -1,6 +1,6 @@
 # Repository Guide
 
-This repository contains a small trip-planning web application and its Azure infrastructure.
+This repository contains a trip-planning web application and its Azure infrastructure.
 
 ## Pull Requests
 
@@ -64,6 +64,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 ## UI Conventions
 
 - UI elements should be self-explanatory and not require descriptive text to explain to the user what they do or how they work.
+- Do not add standalone text lines for routine status or progress counts. Show meaningful state on the relevant control or item, and omit information the interface already conveys. Keep feedback that helps users understand a save, an error, or a required action.
 - All buttons, including icon-only and dismiss buttons, must be square or wider than they are tall (width >= height). Never make buttons taller than they are wide unless the user explicitly requests it. Preserve required minimum tap-target dimensions when applying this rule.
 
 ## Cross platform instructions

@@ -63,6 +63,38 @@ test("one document supplies resource GETs and edits use its resource ETag", asyn
   expect(cachedTripResource(path)).toMatchObject({ name: "Normalized" });
 });
 
+test.each([
+  "/transportation/estimate",
+  "/destinations/amsterdam-nl/activity-plan/route-previews",
+])(
+  "a cancelled route calculation leaves the trip editable (%s)",
+  async (route) => {
+    const network = vi
+      .fn()
+      .mockResolvedValueOnce(response())
+      .mockRejectedValueOnce(
+        new DOMException("Request cancelled", "AbortError"),
+      )
+      .mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(response(fixture("Updated", "2")));
+    vi.stubGlobal("fetch", network);
+    await openTripDocument("owner", tripId, "");
+    const abort = new AbortController();
+    abort.abort();
+
+    await expect(
+      tripFetch(path + route, { method: "POST", signal: abort.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect((await tripFetch(path + route, { method: "POST" })).ok).toBe(true);
+    expect(network).toHaveBeenCalledTimes(3);
+    expect((await tripFetch(path, { method: "PUT", body: "{}" })).ok).toBe(
+      true,
+    );
+    expect(cachedTripResource(path)).toMatchObject({ name: "Updated" });
+  },
+);
+
 test("conflicts leave confirmed state intact and refresh never replays the write", async () => {
   const network = vi
     .fn()

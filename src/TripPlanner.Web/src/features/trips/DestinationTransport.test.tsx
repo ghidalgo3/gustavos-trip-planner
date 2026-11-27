@@ -405,11 +405,66 @@ test("the whole card is one accessible button and opens both destinations in the
   const tabs = within(
     screen.getByRole("tablist", { name: "Transportation mode" }),
   ).getAllByRole("tab");
-  expect(tabs).toHaveLength(4);
-  ["Flight", "Train", "Car", "Walking"].forEach((label, index) => {
-    expect(tabs[index]).toHaveAccessibleName(label);
-  });
+  expect(tabs).toHaveLength(5);
+  ["Flight", "Train", "Car", "Walking", "Arranged separately"].forEach(
+    (label, index) => {
+      expect(tabs[index]).toHaveAccessibleName(label);
+    },
+  );
   expect(tabs.every((tab) => tab.tagName === "BUTTON")).toBe(true);
+});
+
+test("Arranged separately uses the shared Save action and stays selected on reopen", async () => {
+  show();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Choose transportation/ }),
+  );
+  const tab = screen.getByRole("tab", { name: "Arranged separately" });
+  fireEvent.click(tab);
+  expect(tab).toHaveAttribute("aria-selected", "true");
+  expect(
+    screen.getByRole("tabpanel", { name: "Arranged separately" }),
+  ).toBeVisible();
+  expect(saveTransportation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(saveTransportation).toHaveBeenCalledExactlyOnceWith(
+      "trip",
+      expect.objectContaining({
+        mode: "arranged-separately",
+        originStayId: "paris",
+        destinationStayId: "lyon",
+      }),
+      true,
+    ),
+  );
+  expect(estimateTransportation).not.toHaveBeenCalled();
+  const dismiss = screen.getByRole("button", { name: "Close transportation" });
+  await waitFor(() => expect(dismiss).toBeEnabled());
+  fireEvent.click(dismiss);
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: /Arranged separately/,
+    }),
+  );
+  expect(
+    screen.getByRole("tab", { name: "Arranged separately" }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("read-only travelers see the saved Arranged separately tab", async () => {
+  vi.mocked(listTransportation).mockResolvedValue({
+    data: [{ ...value, mode: "arranged-separately", duration: null }],
+    etag: "",
+  });
+  show(true);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Arranged separately/ }),
+  );
+  expect(
+    screen.getByRole("tab", { name: "Arranged separately" }),
+  ).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 });
 
 test("flight search stays inside the transportation drawer after selecting flight", async () => {

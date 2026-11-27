@@ -236,7 +236,7 @@ test("Details defaults to 4 PM check-in and 11 AM check-out and saves both clock
   fireEvent.change(checkIn, { target: { value: "15:30" } });
   fireEvent.change(checkOut, { target: { value: "10:15" } });
   expect(saveStayLocation).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Save times" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save details" }));
   await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
   expect(saveStayLocation).toHaveBeenCalledWith(
     "trip",
@@ -251,7 +251,7 @@ test("Details defaults to 4 PM check-in and 11 AM check-out and saves both clock
       },
     }),
   );
-  expect(screen.getByRole("button", { name: "Save times" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save details" })).toBeDisabled();
 });
 
 test("a failed time save retains the draft and confirmed hotel and can be retried", async () => {
@@ -263,7 +263,7 @@ test("a failed time save retains the draft and confirmed hotel and can be retrie
   fireEvent.change(screen.getByLabelText("Check-in"), {
     target: { value: "17:30" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save times" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save details" }));
   const retry = await screen.findByRole("button", {
     name: "Retry stay details",
   });

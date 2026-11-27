@@ -8,11 +8,17 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { useImperativeHandle, type Ref } from "react";
 import type { Trip } from "../../api/api";
+import {
+  clearTripDocumentCache,
+  openTripDocument,
+} from "../../api/tripDocumentStore";
 import ColorSchemeProvider from "../../app/ColorSchemeProvider";
-import type { PlaceSearch } from "../../maps/ActivityMap";
+import type { ActivityMapSchedule, PlaceSearch } from "../../maps/ActivityMap";
 import { mapsClient } from "../../maps/mapsClient";
 import PersistentMapSurface from "../../maps/PersistentMapSurface";
+import { tripDocumentFixture } from "../../test/tripDocumentFixture";
 import {
   deleteActivity,
   getActivities,
@@ -24,6 +30,7 @@ import {
 } from "./activitiesApi";
 import { planningRequest } from "./activityPlanApi";
 import ActivityPlanning from "./ActivityPlanning";
+import type { DailyActivityPlanHandle } from "./DailyActivityPlan";
 import { listActivityKinds } from "./activityKindsApi";
 vi.mock("./activityKindsApi", () => ({ listActivityKinds: vi.fn() }));
 import type {
@@ -43,7 +50,11 @@ vi.mock("../../maps/ActivityMap", () => ({
     portalHost,
     route,
     onClearRoute,
+    schedule,
+    ideasScheduledActivityIds,
   }: {
+    schedule?: ActivityMapSchedule;
+    ideasScheduledActivityIds?: readonly string[];
     route?: ActivityRoutePreview;
     onClearRoute?: () => void;
     portalHost?: HTMLElement | null;
@@ -74,6 +85,20 @@ vi.mock("../../maps/ActivityMap", () => ({
           .map((item) => (
             <button
               key={item.id}
+              data-schedule={
+                schedule &&
+                (schedule.activeActivityIds.includes(item.id)
+                  ? "active"
+                  : schedule.scheduledActivityIds.includes(item.id)
+                    ? "other"
+                    : "unassigned")
+              }
+              data-ideas={
+                ideasScheduledActivityIds &&
+                (ideasScheduledActivityIds.includes(item.id)
+                  ? "scheduled"
+                  : "unassigned")
+              }
               onClick={() => onSelect(item.id)}
             >{`Map marker: ${item.properties.name}`}</button>
           ))}
@@ -84,39 +109,61 @@ vi.mock("../../maps/ActivityMap", () => ({
 vi.mock("../../maps/mapsClient", () => ({
   mapsClient: { searchPlaces: vi.fn() },
 }));
+const openActivityOnSchedule = vi.hoisted(() => vi.fn());
 vi.mock("./DailyActivityPlan", () => ({
-  default: ({
+  default: function MockDailyActivityPlan({
+    ref,
     onSelectTravel,
-    onMapDayChange,
+    onMapScheduleChange,
   }: {
+    ref?: Ref<DailyActivityPlanHandle>;
     onSelectTravel?: (value: ActivityRouteSelection) => void;
-    onMapDayChange?: (activityIds: string[]) => void;
-  }) => (
-    <div>
-      Plan editor
-      <button onClick={() => onMapDayChange?.(["museum"])}>
-        Map first day
-      </button>
-      <button onClick={() => onMapDayChange?.(["garden"])}>Map next day</button>
-      <button
-        onClick={() =>
-          onSelectTravel?.({
-            stayId: "visit",
-            date: "2027-06-10",
-            fromActivityId: "museum",
-            toActivityId: "garden",
-            mode: "walking",
-            duration: "PT10M",
-            label: "Travel from Museum to Garden",
-            contextVersion: "revision",
-            plan: {} as ActivityRouteSelection["plan"],
-          })
-        }
-      >
-        Show sample travel route
-      </button>
-    </div>
-  ),
+    onMapScheduleChange?: (schedule: ActivityMapSchedule) => void;
+  }) {
+    useImperativeHandle(ref, () => ({ openActivity: openActivityOnSchedule }));
+    return (
+      <div>
+        Plan editor
+        <button
+          onClick={() =>
+            onMapScheduleChange?.({
+              activeActivityIds: ["museum"],
+              scheduledActivityIds: ["museum", "garden"],
+            })
+          }
+        >
+          Map first day
+        </button>
+        <button
+          onClick={() =>
+            onMapScheduleChange?.({
+              activeActivityIds: ["garden"],
+              scheduledActivityIds: ["museum", "garden"],
+            })
+          }
+        >
+          Map next day
+        </button>
+        <button
+          onClick={() =>
+            onSelectTravel?.({
+              stayId: "visit",
+              date: "2027-06-10",
+              fromActivityId: "museum",
+              toActivityId: "garden",
+              mode: "walking",
+              duration: "PT10M",
+              label: "Travel from Museum to Garden",
+              contextVersion: "revision",
+              plan: {} as ActivityRouteSelection["plan"],
+            })
+          }
+        >
+          Show sample travel route
+        </button>
+      </div>
+    );
+  },
 }));
 vi.mock("./activitiesApi", () => ({
   getDestinations: vi.fn(),
@@ -350,8 +397,8 @@ test("selecting a Plan travel step focuses the map and forwards its route; closi
   ).not.toBeInTheDocument();
 });
 
-test("Schedule shows bubbles from its selected day, and Ideas restores the other bubbles", async () => {
-  vi.mocked(getActivities).mockResolvedValue({
+test("Ideas shows saved day assignments on first open and Schedule distinguishes the selected day", async () => {
+  const collection = {
     type: "FeatureCollection",
     features: [
       activity,
@@ -380,37 +427,81 @@ test("Schedule shows bubbles from its selected day, and Ideas restores the other
         },
       },
     ],
+  } satisfies Awaited<ReturnType<typeof getActivities>>;
+  vi.mocked(getActivities).mockResolvedValue(collection);
+  const document = tripDocumentFixture(trip, {
+    itinerary: {
+      items: collection.features.map((item) => ({
+        ...item.properties,
+        id: item.id,
+        kind: "activity",
+        type: "task",
+        busy: false,
+        destinationId: "paris-fr",
+        visitId:
+          item.id === "museum" ? "p1" : item.id === "garden" ? "p2" : undefined,
+      })),
+    },
   });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(document)),
+  );
+  await openTripDocument(trip.ownerUserId, trip.id, "");
+
   show();
+  const pin = (name: string) =>
+    screen.getByRole("button", { name: `Map marker: ${name}` });
   expect(
     await screen.findByRole("button", { name: "Map marker: Louvre" }),
-  ).toBeInTheDocument();
+  ).toHaveAttribute("data-ideas", "scheduled");
+  expect(pin("Garden")).toHaveAttribute("data-ideas", "scheduled");
+  expect(pin("Excluded place")).toHaveAttribute("data-ideas", "unassigned");
+
   click(screen.getByRole("tab", { name: "Schedule" }));
   click(screen.getByRole("button", { name: "Map first day" }));
-  expect(
-    screen.getByRole("button", { name: "Map marker: Louvre" }),
-  ).toBeInTheDocument();
-  expect(
-    screen.queryByRole("button", { name: "Map marker: Garden" }),
-  ).not.toBeInTheDocument();
+  expect(pin("Louvre")).toHaveAttribute("data-schedule", "active");
+  expect(pin("Garden")).toHaveAttribute("data-schedule", "other");
+  expect(pin("Excluded place")).toHaveAttribute("data-schedule", "unassigned");
+
   click(screen.getByRole("button", { name: "Map next day" }));
-  expect(
-    screen.getByRole("button", { name: "Map marker: Garden" }),
-  ).toBeInTheDocument();
-  expect(
-    screen.queryByRole("button", { name: "Map marker: Louvre" }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole("button", { name: "Map marker: Excluded place" }),
-  ).not.toBeInTheDocument();
+  expect(pin("Garden")).toHaveAttribute("data-schedule", "active");
+  expect(pin("Louvre")).toHaveAttribute("data-schedule", "other");
+  expect(pin("Excluded place")).toHaveAttribute("data-schedule", "unassigned");
+
   click(screen.getByRole("tab", { name: "Ideas" }));
-  expect(
-    screen.getByRole("button", { name: "Map marker: Louvre" }),
-  ).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: "Map marker: Excluded place" }),
-  ).toBeInTheDocument();
+  expect(pin("Louvre")).not.toHaveAttribute("data-schedule");
+  expect(pin("Louvre")).toHaveAttribute("data-ideas", "scheduled");
+  expect(pin("Garden")).toHaveAttribute("data-ideas", "scheduled");
+  expect(pin("Excluded place")).toHaveAttribute("data-ideas", "unassigned");
 });
+
+test.each([false, true])(
+  "opens the scheduling drawer for a map activity pin (full screen: %s)",
+  async (fullScreen) => {
+    vi.mocked(getActivities).mockResolvedValue({
+      type: "FeatureCollection",
+      features: [activity],
+    });
+    openActivityOnSchedule.mockReturnValue(true);
+    show();
+    const markerName = { name: "Map marker: Louvre" };
+    await screen.findByRole("button", markerName);
+    click(screen.getByRole("tab", { name: "Schedule" }));
+    if (fullScreen) {
+      click(screen.getByRole("button", { name: "Explore map full screen" }));
+      const map = await screen.findByRole("dialog", { name: "Map of Paris" });
+      click(within(map).getByRole("button", markerName));
+      await waitFor(() => expect(map).not.toBeVisible());
+    } else {
+      click(screen.getByRole("button", markerName));
+    }
+    expect(openActivityOnSchedule).toHaveBeenCalledExactlyOnceWith("museum");
+    expect(
+      screen.queryByRole("region", { name: "Selected activity details" }),
+    ).toBeNull();
+  },
+);
 
 test("destination tabs show every visit's dates and switch the selected city without duplicate headings or destination details", async () => {
   const onDestinationChange = vi.fn();
@@ -735,7 +826,10 @@ test("shared trip members see the cards without add or edit actions", async () =
   ).not.toBeInTheDocument();
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  clearTripDocumentCache();
+  vi.unstubAllGlobals();
+});
 
 test("activity links appear in the cards and can be removed in the edit drawer", async () => {
   const linked = {

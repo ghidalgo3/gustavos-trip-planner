@@ -359,7 +359,11 @@ export default function App() {
       )}
       {location.pathname === "/" && (
         <footer className="app-footer">
-          <Link to="/notices" onClick={() => window.scrollTo(0, 0)}>
+          <Link
+            className="navigation-button"
+            to="/notices"
+            onClick={() => window.scrollTo(0, 0)}
+          >
             Notices
           </Link>
         </footer>

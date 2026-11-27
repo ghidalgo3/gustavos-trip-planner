@@ -6,20 +6,27 @@ export default function DestinationPlanningProgress({
   response,
   stayId,
   name,
+  date,
 }: {
   response: PlanResponse;
   stayId: string;
   name: string;
+  date?: string;
 }) {
   // Only saved, scheduled activities count as planning; proposals and unassigned ideas do not.
   if (
     response.version === 0 ||
     !response.plan.days.some(
-      (day) => day.stayId === stayId && day.activityIds.length > 0,
+      (day) =>
+        day.stayId === stayId &&
+        (!date || day.date === date) &&
+        day.activityIds.length > 0,
     )
   )
     return null;
-  const days = response.assessment.days.filter((day) => day.stayId === stayId);
+  const days = response.assessment.days.filter(
+    (day) => day.stayId === stayId && (!date || day.date === date),
+  );
   const available = days.reduce(
     (sum, day) => sum + durationMinutes(day.availableDuration),
     0,

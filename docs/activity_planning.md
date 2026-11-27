@@ -74,13 +74,15 @@ The Schedule map numbers activities for the selected day. Timed activities come
 first, followed by assigned activities without a time. Activities with locations
 get map bubbles. Animated lines connect consecutive locations to show the order.
 A missing location leaves a gap. Reduced motion shows still lines.
-On the hour grid, drag an activity from the list to schedule it, move an event
-to change its time, or drag its start/end handles to resize it. Timing snaps to
+Tap a Schedule map pin to open the activity's scheduling drawer. On the hour
+grid, drag an activity from the list or its map pin to schedule it.
+Move an event to change its time, or drag its start/end handles to resize it. Timing snaps to
 15 minutes, previews before release, and saves the complete versioned plan on
 drop. Drag near the calendar's top or bottom to scroll; hover the previous/next
 day button to move an event to another visit day. Escape or dropping outside
 the calendar cancels the gesture. Failed saves keep the confirmed event and offer
-a retry. Touch users drag activities by their dotted handle.
+a retry. On touch screens with an hour grid, drag a list item by its dotted
+handle or drag a pin directly.
 Use previous/next or the date picker to navigate visit days, including empty days.
 Activities without timing appear in **Unscheduled**. Tap one, or use **Add event**, to choose
 its visit date, start, and end. **Save** submits the complete plan with its ETag and
@@ -91,14 +93,17 @@ time zone, which appears in the calendar toolbar. Saved meals and flights appear
 alongside activities. The hour grid shows overlapping events in separate columns.
 
 Tap a travel block between activities (or to/from a saved stay) to choose
-**Driving** or **Walking**. **Calculate travel time** calls the Azure Maps Route
-Matrix API from the browser using its authenticated Maps SAS. Estimates use
-historical traffic without a specific departure time and round up to whole minutes.
-Users can also enter a travel allowance directly. Changing mode clears the draft
-allowance. **Save** updates the complete plan with a leg-specific mode and ISO 8601
-duration; individual choices take precedence over the day's default mode.
-Failed calculations retain the allowance and can be retried. **View route** previews
-the selected mode on the map without saving the draft. No standalone transportation form appears on Overview.
+**Driving** or **Walking**. Changing the mode estimates travel time and draws
+the street route on the Schedule map. The animated line follows the route.
+You can edit the travel allowance before choosing **Save**, which updates the
+complete plan with a leg-specific mode and ISO 8601 duration. A failed
+calculation offers **Retry route** and leaves the time editable. The Schedule
+map uses saved leg routes when they are available. **View route** can preview
+a leg whose mode you haven't changed in the drawer.
+
+When saved times are out of date, opening Schedule online with editing access
+refreshes them automatically. Schedule shows up to five notices, with conflicts
+first. Use **View more notices** to open the remaining notices in a drawer.
 
 The calendar remains available offline with date navigation, scrolling, event
 inspection, and disabled editing/calculation controls. Save failures retain the
@@ -108,9 +113,9 @@ plan update. Scheduling proposals, detailed assessments, and advanced restrictio
 remain available through REST/MCP rather than a second planning form below the
 calendar. Existing saved restrictions are preserved when editing event timing.
 
-Overview destination cards let you edit dates by tapping the date range. Their
-utilization bars use saved assessments of travel, meals, activities, and reserved
-slack; gaps between scheduled events remain free time.
+Overview destination cards let you edit dates by tapping the date range. In
+Schedule, **Day details** shows how much time the day's activities, travel, meals,
+and reserved slack use. Gaps between scheduled events remain free time.
 
 On tablets and laptops (768px and wider), drag the divider between the activity
 column and the map to resize them. Focus the divider and use the arrow keys for
@@ -135,6 +140,16 @@ Profile interests are private; trip and destination interests are shared. Prefer
 scoring combines all travellers with equal weight and narrower instructions take
 precedence. Agent-proposed timing rules and flight-derived availability require
 explicit acceptance.
+
+Schedule shows every located activity in the destination. Solid blue pins mark
+the selected day, dimmed solid pins mark other days, and dashed outlines mark
+activities with no day assigned. The selected day's line animates in schedule
+order unless reduced motion is enabled. Open **Map legend** to see the styles.
+The activity list uses the same numbers as the map, including when you search
+or switch days. Activities without locations still appear in the list.
+
+Ideas uses solid pins for activities assigned to any day and dashed pins for
+activities with no day assigned. **Map legend** shows both styles.
 
 The activity map stays visible in Ideas and Schedule. Ideas has a search icon beside **Add activity**. Opening it replaces the heading
 and actions with a focused search field and an X button. The filter searches all

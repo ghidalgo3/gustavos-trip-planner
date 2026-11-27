@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Activity, Destination } from "./activitiesApi";
 import {
   activityPlanPath,
   planningRequest,
@@ -30,6 +31,40 @@ export const activityRouteKey = (
 ) =>
   `${step.stayId}:${step.date}:${step.fromActivityId ?? "stay"}:${step.toActivityId ?? "stay"}`;
 
+export const activityRouteLegKey = (from: string | null, to: string | null) =>
+  `${from ?? "stay"}:${to ?? "stay"}`;
+
+export function activityRoutePoint(
+  id: string | null,
+  stayId: string,
+  activities: Activity[],
+  destination: Destination,
+) {
+  return id === null
+    ? destination.properties.stays.find((stay) => stay.id === stayId)
+        ?.stayLocation?.geometry
+    : activities.find((activity) => activity.id === id)?.geometry;
+}
+
+export function requestActivityRoute(
+  path: string,
+  selection: ActivityRouteSelection,
+  signal: AbortSignal,
+) {
+  return planningRequest<ActivityRoutePreview>(`${path}/route-previews`, {
+    method: "POST",
+    signal,
+    body: {
+      plan: selection.plan,
+      contextVersion: selection.contextVersion,
+      stayId: selection.stayId,
+      date: selection.date,
+      fromActivityId: selection.fromActivityId,
+      toActivityId: selection.toActivityId,
+    },
+  });
+}
+
 export function useActivityRoute(
   tripId: string,
   cityId: string | undefined,
@@ -44,20 +79,10 @@ export function useActivityRoute(
   useEffect(() => {
     if (!selection || !cityId) return;
     const abort = new AbortController();
-    void planningRequest<ActivityRoutePreview>(
-      `${activityPlanPath(tripId, cityId)}/route-previews`,
-      {
-        method: "POST",
-        signal: abort.signal,
-        body: {
-          plan: selection.plan,
-          contextVersion: selection.contextVersion,
-          stayId: selection.stayId,
-          date: selection.date,
-          fromActivityId: selection.fromActivityId,
-          toActivityId: selection.toActivityId,
-        },
-      },
+    void requestActivityRoute(
+      activityPlanPath(tripId, cityId),
+      selection,
+      abort.signal,
     ).then(
       (value) => {
         if (!abort.signal.aborted) setResult({ key, route: value.data });

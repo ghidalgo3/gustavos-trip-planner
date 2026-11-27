@@ -472,7 +472,11 @@ export async function tripFetch(
     );
   const headers = new Headers(init.headers);
   const resourceKey = key.endsWith("/purchases") ? key.slice(0, -10) : key;
-  const mutation = !!tripId && ["PUT", "DELETE", "POST"].includes(method);
+  const routeCalculation =
+    method === "POST" &&
+    /\/(?:transportation\/estimate|activity-plan\/route-previews)$/.test(key);
+  const mutation =
+    !!tripId && !routeCalculation && ["PUT", "DELETE", "POST"].includes(method);
   let addedValidator = false;
   if (
     ["PUT", "DELETE"].includes(method) &&

@@ -430,6 +430,37 @@ test("place search replaces activity and stay bubbles with numbered selectable r
   ]);
 });
 
+test("Ideas draws solid pins for any assigned day and dashed pins for unassigned activities", async () => {
+  vi.mocked(mapsClient.getToken).mockResolvedValue({
+    token: "sas",
+    endpoint: "https://atlas.microsoft.com",
+    expiresAt: "2030-01-01T02:00:00Z",
+  });
+  const [museum, garden, cafe] = calendarActivities;
+  render(
+    <ActivityMap
+      center={museum.geometry!}
+      activities={[museum, garden, cafe]}
+      ideasScheduledActivityIds={[museum.id, garden.id]}
+      onSelect={vi.fn()}
+    />,
+  );
+  await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
+  act(() => events.get("ready")?.({}));
+
+  expect(markers.map((marker) => marker.textContent)).toEqual(["1", "2", "3"]);
+  expect(markers[0]).toHaveClass("activity-map-scheduled");
+  expect(markers[1]).toHaveClass("activity-map-scheduled");
+  expect(markers[2]).toHaveClass("activity-map-unscheduled");
+  expect(layerAdd).not.toHaveBeenCalled();
+  const legend = screen.getByText("Map legend");
+  expect(legend.closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(legend);
+  expect(screen.getByText("Scheduled")).toBeVisible();
+  expect(screen.getByText("No day assigned")).toBeVisible();
+  expect(screen.queryByText("Other days")).not.toBeInTheDocument();
+});
+
 test.each([false, true])(
   "map uses the system theme and changes it without recreating or moving the map (dark=%s)",
   async (dark) => {
@@ -667,7 +698,7 @@ test("repeat visits render separate accommodation pins and preserve their select
 });
 
 test.each([false, true])(
-  "connects numbered activities for a day and honors reduced motion (%s)",
+  "styles all Schedule pins and connects the selected day in time order (%s)",
   async (reducedMotion) => {
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: query.includes("prefers-reduced-motion") && reducedMotion,
@@ -688,25 +719,40 @@ test.each([false, true])(
         museum,
         { ...cafe, geometry: null },
         { ...cafe, id: "fourth" },
+        { ...cafe, id: "fifth" },
       ],
       onSelect,
     };
-    const { rerender } = render(<ActivityMap {...props} connectActivities />);
+    const schedule = {
+      activeActivityIds: [museum.id, garden.id, cafe.id],
+      scheduledActivityIds: [museum.id, garden.id, cafe.id, "fourth"],
+    };
+    const { rerender } = render(<ActivityMap {...props} schedule={schedule} />);
     await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
     act(() => events.get("ready")?.({}));
     expect(markers.map((marker) => marker.title)).toEqual([
       "1. Garden",
       "2. Museum",
       "4. Cafe",
+      "5. Cafe",
     ]);
+    expect(markers[0]).toHaveClass("activity-map-active-day");
+    expect(markers[0]).toHaveAttribute("data-calendar-activity-id", garden.id);
+    expect(markers[1]).toHaveClass("activity-map-active-day");
+    expect(markers[2]).toHaveClass("activity-map-other-day");
+    expect(markers[3]).toHaveClass("activity-map-unscheduled");
     fireEvent.click(markers[0]);
     expect(onSelect).toHaveBeenCalledWith(garden.id);
+    const legend = screen.getByText("Map legend");
+    expect(legend.closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(legend);
+    expect(screen.getByText("No day assigned")).toBeVisible();
     const geometry = routeData.mock.calls[0][0].geometry;
     expect(geometry.type).toBe("MultiLineString");
     expect(geometry.coordinates).toHaveLength(1);
-    expect(geometry.coordinates[0][0]).toEqual(garden.geometry!.coordinates);
+    expect(geometry.coordinates[0][0]).toEqual(museum.geometry!.coordinates);
     expect(geometry.coordinates[0].at(-1)).toEqual(
-      museum.geometry!.coordinates,
+      garden.geometry!.coordinates,
     );
     if (reducedMotion) {
       expect(layerAdd).toHaveBeenCalledOnce();
@@ -718,10 +764,94 @@ test.each([false, true])(
       );
       expect(routeShapes.mock.calls[0]).not.toEqual(routeShapes.mock.calls[2]);
     }
-    rerender(<ActivityMap {...props} activities={[]} connectActivities />);
+    rerender(
+      <ActivityMap
+        {...props}
+        schedule={{ ...schedule, activeActivityIds: ["fourth"] }}
+      />,
+    );
+    expect(markers.map((marker) => marker.textContent)).toEqual([
+      "1",
+      "2",
+      "4",
+      "5",
+    ]);
+    expect(markers[0]).toHaveClass("activity-map-other-day");
+    expect(markers[2]).toHaveClass("activity-map-active-day");
+    expect(markers[3]).toHaveClass("activity-map-unscheduled");
     expect(layerRemove).toHaveBeenCalledTimes(reducedMotion ? 1 : 2);
     expect(sourceRemove).toHaveBeenCalledTimes(reducedMotion ? 1 : 2);
     expect(createMap).toHaveBeenCalledOnce();
+  },
+);
+
+test.each(["preview", "saved leg"] as const)(
+  "animation follows the street corner for a %s",
+  async (source) => {
+    vi.mocked(mapsClient.getToken).mockResolvedValue({
+      token: "sas",
+      endpoint: "https://atlas.microsoft.com",
+      expiresAt: "2030-01-01T00:00:00Z",
+    });
+    const [museum, garden] = calendarActivities;
+    const corner: [number, number] = [museum.geometry!.coordinates[0], 48.81];
+    const route = {
+      mode: "walking",
+      geometry: {
+        type: "MultiLineString" as const,
+        coordinates: [
+          [
+            museum.geometry!.coordinates,
+            corner,
+            [garden.geometry!.coordinates[0], corner[1]],
+          ] as [number, number][],
+        ],
+      },
+    };
+    const start = vi.spyOn(performance, "now").mockReturnValue(0);
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      callbacks.push(callback),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    render(
+      <ActivityMap
+        center={museum.geometry!}
+        activities={[museum, garden]}
+        onSelect={vi.fn()}
+        {...(source === "preview"
+          ? { route, animateRoute: true }
+          : {
+              schedule: {
+                activeActivityIds: [museum.id, garden.id],
+                scheduledActivityIds: [museum.id, garden.id],
+                routes: new Map([[museum.id + ":" + garden.id, route]]),
+              },
+            })}
+      />,
+    );
+    await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
+    act(() => events.get("ready")?.({}));
+    expect(routeData).toHaveBeenCalledWith(
+      expect.objectContaining({ geometry: route.geometry }),
+    );
+    for (const time of [800, 1500, 2100]) {
+      const pending = callbacks.splice(0);
+      pending.forEach((callback) => callback(time));
+    }
+    const points = routeShapes.mock.calls.flatMap(([features]) =>
+      features.flatMap(({ geometry }: { geometry: typeof route.geometry }) =>
+        geometry.coordinates.flat(),
+      ),
+    );
+    expect(points.length).toBeGreaterThan(0);
+    for (const [longitude, latitude] of points) {
+      expect(
+        Math.abs(longitude - corner[0]) < 1e-8 ||
+          Math.abs(latitude - corner[1]) < 1e-8,
+      ).toBe(true);
+    }
+    start.mockRestore();
   },
 );
 

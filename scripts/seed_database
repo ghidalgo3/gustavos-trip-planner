@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/seed_database [--count COUNT] [USER_EMAIL]
+Usage: scripts/seed_database [--count COUNT | --planning-audit TRIP_NAME] [USER_EMAIL]
 
 Seed the local development database through the application's C# database services.
 Start scripts/server and sign in at least once first. Requires the .NET 10 SDK.
@@ -14,6 +14,7 @@ Large trips include 15 activity ideas per destination. Reruns refresh visit date
 and fill in missing sample activities, including any deleted sample activities.
 The first trip starts tomorrow. Each destination gets three nights, with one
 day between trips.
+Use --planning-audit with a unique trip name for the seeded planning journey.
 With multiple users, supply the owner's email.
 USAGE
 }

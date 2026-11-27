@@ -6,6 +6,7 @@ import {
   useRef,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { Link } from "react-router";
 import {
@@ -16,8 +17,15 @@ import {
   Bed20Regular,
 } from "@fluentui/react-icons";
 import type { Activity, Destination } from "./activitiesApi";
-import type { ActivityPlan, PlanAssessment, PlanDay } from "./activityPlanApi";
+import type {
+  ActivityPlan,
+  PlanAssessment,
+  PlanDay,
+  PlanIssue,
+} from "./activityPlanApi";
 import {
+  calendarActivityDragTiming,
+  calendarActivityMinutes,
   calendarClock,
   calendarDateLabel,
   calendarDayKey,
@@ -49,6 +57,10 @@ export default function ActivityCalendar({
   readOnly,
   busy,
   pendingTiming,
+  mapPanel,
+  scheduleNotices,
+  moreNoticeCount,
+  onMoreNotices,
   notice,
   onDay,
   onEvent,
@@ -70,6 +82,10 @@ export default function ActivityCalendar({
   readOnly: boolean;
   busy: boolean;
   pendingTiming?: CalendarTiming;
+  mapPanel?: RefObject<HTMLDivElement | null>;
+  scheduleNotices: PlanIssue[];
+  moreNoticeCount: number;
+  onMoreNotices: () => void;
   notice?: ReactNode;
   onDay: (key: string) => void;
   onEvent: (id?: string) => void;
@@ -144,6 +160,15 @@ export default function ActivityCalendar({
     grid,
     scroll,
     activityList,
+    mapPanel,
+    mapTiming: (id) => {
+      const activity = activities.find((item) => item.id === id);
+      if (activity && plan)
+        return calendarActivityDragTiming(
+          id,
+          calendarActivityMinutes(plan, activity),
+        );
+    },
     dayKey,
     onNavigate: onDay,
   });
@@ -159,10 +184,6 @@ export default function ActivityCalendar({
   useLayoutEffect(() => {
     if (!loading) scrollToEvents();
   }, [agenda, day?.stayId, day?.date, loading]);
-  const issues =
-    assessment?.issues.filter(
-      (item) => !item.date || item.date === day?.date,
-    ) ?? [];
   return (
     <div className="calendar-interaction-workspace" {...drag.handlers}>
       <ResizableActivityWorkspace mapPanelId={calendarId} layout="calendar">
@@ -217,18 +238,20 @@ export default function ActivityCalendar({
             </h3>
           )}
           {notice}
-          {issues.length > 0 && (
-            <details className="calendar-conflicts">
-              <summary>
-                {issues.length}{" "}
-                {issues.length === 1 ? "schedule notice" : "schedule notices"}
-              </summary>
-              <ul>
-                {issues.map((issue, i) => (
+          {scheduleNotices.length > 0 && (
+            <section aria-label="Schedule notices" className="calendar-notices">
+              <ul className="calendar-notice-list">
+                {scheduleNotices.map((issue, i) => (
                   <li key={i}>{issue.message}</li>
                 ))}
               </ul>
-            </details>
+              {moreNoticeCount > 0 && (
+                <Button appearance="outline" onClick={onMoreNotices}>
+                  View {moreNoticeCount} more{" "}
+                  {moreNoticeCount === 1 ? "notice" : "notices"}
+                </Button>
+              )}
+            </section>
           )}
           {plan && !day && (
             <div className="calendar-empty">

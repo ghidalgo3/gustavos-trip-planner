@@ -11,11 +11,39 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ## Unreleased
 
+### Changed
+
+- Restore flight options when a booked outbound no longer fits the visit dates and the return is still selected.
+
+- Show destination names as headings on clickable Overview cards and remove the Day details shortcut. Move Arranged separately into the transportation tabs.
+
+- Let the production database copy use a rebuilt PostgreSQL image when the running container’s image has been removed.
+
+- Open the scheduling drawer when selecting an activity pin on the Schedule map.
+
+- Hide unscheduled-activity and unverified opening-hours reminders from Schedule notices.
+
+- Refresh stale activity times automatically and show up to five schedule notices, with the rest in a drawer. Confirm individual days in Day details.
+
+- Drag activity pins onto the Schedule hour grid and see travel route previews on the Schedule map.
+
+- Use solid pins for scheduled activities and dashed pins for unscheduled activities on the Ideas map.
+
+- Automatically estimate time and show the animated street route when changing a Schedule travel mode.
+
+- Remove standalone planning counts from Overview and day review. Show completion and next actions where travelers use them.
+
+- Place the next planning action on its visit or travel card and give web navigation links a visible button style.
+
 ### Added
+
+- Show planning progress for trips, visits, and days on web. Keep days open and record travel arranged separately.
+- Give stays at private addresses and other places a custom name. Add the Arranged separately transportation choice on iOS.
+- Add a seeded UX audit that takes a trip from unfinished to planned and checks what reopens after a date change.
 
 - Seed 15 local activity ideas at each destination on large sample trips, including existing samples when rerun.
 
-- Show numbered activities and animated connections for the selected day on the web Schedule map.
+- Show every located activity on the web Schedule map, with matching list numbers, a collapsible legend, and animated connections for the selected day.
 
 - Add measurable web UI complexity guidelines and a four-city UX audit scenario with train, car, and walking legs plus an activity reschedule.
 

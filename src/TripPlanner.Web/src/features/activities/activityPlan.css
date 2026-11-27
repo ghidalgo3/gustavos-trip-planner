@@ -206,15 +206,29 @@
   border-radius: 8px;
 }
 .calendar-notice,
-.calendar-conflicts {
+.calendar-notices {
   padding: 10px 12px;
   margin: 0;
   border: 1px solid var(--colorPaletteMarigoldBorder1);
   border-radius: 6px;
   color: var(--colorPaletteMarigoldForeground1);
 }
-.calendar-conflicts summary {
-  cursor: pointer;
+.calendar-notices > button {
+  margin-top: 8px;
+  min-height: 44px;
+}
+.calendar-notice-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-inline-start: 20px;
+  overflow-wrap: anywhere;
+}
+.calendar-timing-update {
+  margin: 0;
+}
+.calendar-notice p {
+  margin: 0 0 8px;
 }
 .calendar-editor-fields {
   display: grid;
@@ -477,7 +491,7 @@
   color: var(--colorNeutralForeground3);
   touch-action: none;
 }
-.schedule-activity > span:not([data-drag-handle]) {
+.schedule-activity-label {
   display: grid;
   min-width: 0;
   gap: 4px;
@@ -582,12 +596,11 @@
   text-decoration: none;
 }
 .calendar-event-content.calendar-travel-link:hover {
-  background: inherit;
+  background: var(--colorNeutralBackground1Hover);
 }
 .calendar-travel-link strong,
 .calendar-transportation-link strong {
   color: var(--colorBrandForegroundLink);
-  text-decoration: underline;
 }
 .calendar-travel-link:focus-visible {
   outline: 2px solid var(--colorStrokeFocus2);
@@ -768,4 +781,19 @@
   .schedule-activity-groups {
     overflow: visible;
   }
+}
+
+.calendar-editor [aria-label="Close drawer"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+[data-calendar-map-drag] [data-calendar-activity-id] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+[data-calendar-map-drag] [data-calendar-activity-id]:active {
+  cursor: grabbing;
 }

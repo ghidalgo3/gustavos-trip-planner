@@ -98,17 +98,20 @@ export const estimateTransportation = (
   from: Point,
   to: Point,
   mode: "car" | "walk",
+  signal?: AbortSignal,
+  departureAt = new Date().toISOString(),
 ) =>
   planningRequest<{
     duration: string;
     geometry: ActivityRoutePreview["geometry"];
   }>(`/trips/${encodeURIComponent(tripId)}/transportation/estimate`, {
     method: "POST",
+    signal,
     body: {
       from,
       to,
       mode,
-      departureAt: new Date().toISOString(),
+      departureAt,
       includeGeometry: true,
     },
   });

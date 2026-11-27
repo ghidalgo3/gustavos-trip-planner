@@ -92,6 +92,11 @@ public sealed record ActivityPlanDay(
     [Description(McpInstructions.Fields.PlanDayName)]
     public string? Name { get; init; }
 
+    [Description("Saved day review marker. Preserve this value when replacing a plan.")]
+    [RegularExpression("^(planned|open):[a-f0-9]{16}$")]
+    [StringLength(24)]
+    public string? Review { get; init; }
+
     public DailyPlanningSettings? Settings { get; init; }
 
     [Description(McpInstructions.Fields.MealPositions)]

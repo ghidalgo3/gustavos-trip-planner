@@ -64,7 +64,14 @@ roots="$repo_root/scripts/deployment/azure-postgres-roots.pem"
 
 docker compose up --detach --wait database >&2
 database_image="$(docker compose images -q database)"
-[[ -n "$database_image" ]] || die 'local PostgreSQL image is unavailable'
+# Docker can retain a running container after its image has been removed.
+if [[ -z "$database_image" ]] || ! docker image inspect "$database_image" >/dev/null 2>&1; then
+  database_image="$(docker compose config --images database)"
+  [[ -n "$database_image" ]] || die 'local PostgreSQL image is unavailable'
+  if ! docker image inspect "$database_image" >/dev/null 2>&1; then
+    docker compose build database >&2
+  fi
+fi
 existing="$(local_postgres psql -X -U tripplanner -d postgres -Atq -c "SELECT 1 FROM pg_database WHERE datname = '$database'")"
 [[ -z "$existing" ]] || die "local database '$database' already exists"
 

@@ -49,6 +49,23 @@ destination when repeating a regression audit. For a fresh development database,
 audit, give Codex a task or area to investigate. Keep the scenario file and ID
 when you want to repeat the same task.
 
+## Audit trip planning progress
+
+Run `finish-seeded-trip-plan` with a fresh fixture for each profile and attempt.
+After signing in, create the fixture for that account in the local development database.
+
+```zsh
+scripts/seed_database --planning-audit "Planning audit mobile" local-user-1@example.test
+scripts/ux-audit session --platform mobile-web --scenario finish-seeded-trip-plan \
+  --storage-state artifacts/ux/auth/localhost.json --fixture planning-audit-v1 \
+  --allow-fixture-writes --out artifacts/ux/planning-progress
+```
+
+Give the traveler the exact trip name. The seed creates two dated visits,
+two scheduled activities, one unscheduled activity, and one missing travel leg.
+It creates a new trip and leaves existing trips alone. For a desktop run, use
+`--platform desktop` and seed another name.
+
 ## How a journey is evaluated
 
 1. Codex delegates browser interactions to a fresh `gpt-6-luna` subagent with

@@ -24,6 +24,14 @@
   border-color: var(--colorBrandStroke1);
   background: var(--colorNeutralBackground2Hover);
 }
+.overview-transport .overview-transport-card[data-next-action] {
+  border-color: var(--colorBrandStroke1);
+  border-style: solid;
+  background: var(--colorBrandBackground2);
+}
+.overview-transport .overview-transport-card[data-next-action]:hover {
+  background: var(--colorBrandBackground2Hover);
+}
 .overview-transport-card:focus-visible {
   outline: 2px solid var(--colorBrandStroke1);
   outline-offset: 2px;
@@ -75,6 +83,14 @@
 .transport-dismiss {
   min-width: 44px !important;
   min-height: 44px;
+}
+.transport-drawer-body > .transport-mode-tabs {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.transport-mode-tabs .fui-Tab {
+  min-height: 44px;
+  min-width: 44px;
 }
 .transport-map {
   position: relative;

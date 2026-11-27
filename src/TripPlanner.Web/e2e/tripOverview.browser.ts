@@ -200,9 +200,20 @@ for (const width of [320, 390, 1280]) {
         await expect(
           page.getByRole("navigation", { name: "Trip pages" }),
         ).toHaveCount(0);
+        const destinationCard = page.locator(".overview-destination").first();
+        const destinationLink = destinationCard.locator(
+          ".overview-destination-link",
+        );
+        await expect(destinationLink).toBeVisible();
         await expect(
-          page.locator(".overview-destination-link").first(),
-        ).toBeVisible();
+          destinationCard.getByRole("heading").getByRole("link"),
+        ).toHaveCount(0);
+        await expect(
+          destinationCard.getByRole("link", {
+            name: "Day details",
+            exact: true,
+          }),
+        ).toHaveCount(0);
         if (offline) await context.setOffline(true);
         await page.screenshot({
           path: testInfo.outputPath("overview-navigation.png"),
@@ -211,12 +222,13 @@ for (const width of [320, 390, 1280]) {
           ["Activities", "activities"],
           ["Party", "party"],
         ]) {
-          const link =
-            section === "party"
-              ? share
-              : page.locator(".overview-destination-link").first();
-          await link.focus();
-          await link.press("Enter");
+          const link = section === "party" ? share : destinationLink;
+          if (section === "activities" && !offline)
+            await link.click({ position: { x: 8, y: 8 } });
+          else {
+            await link.focus();
+            await link.press("Enter");
+          }
           await expect(page).toHaveURL(
             new RegExp(`${overviewPath}/${section}(\\?.*)?$`),
           );
@@ -253,7 +265,8 @@ for (const width of [320, 390, 1280]) {
             await expect(destination).toBeVisible();
             await expect(destination.locator(".city-icon")).toBeAttached();
             await expect(versailles.locator(".city-icon")).toHaveCount(0);
-            const destinationName = ".fui-Tab__content .activity-tab-title strong";
+            const destinationName =
+              ".fui-Tab__content .activity-tab-title strong";
             const tokyoName = await destination
               .locator(destinationName)
               .boundingBox();

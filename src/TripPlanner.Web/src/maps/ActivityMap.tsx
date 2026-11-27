@@ -12,9 +12,9 @@ import { Button } from "@fluentui/react-components";
 import { useSystemDarkMode } from "../shared/hooks/useSystemDarkMode";
 import { useReducedMotion } from "../shared/hooks/useReducedMotion";
 import {
-  activityConnections,
-  connectionFeature,
-  flowingConnections,
+  activityRoutes,
+  animateAlongRoutes,
+  routeFeature,
 } from "./activityConnections";
 import {
   AnimatedMapMarkers,
@@ -47,6 +47,12 @@ export type MapLandmark = {
   geometry: Point;
 };
 
+export type ActivityMapSchedule = {
+  activeActivityIds: readonly string[];
+  scheduledActivityIds: readonly string[];
+  routes?: ReadonlyMap<string, ActivityRoutePreview>;
+};
+
 const noLandmarks: MapLandmark[] = [];
 const openStreetMapCountries = new Set(["KR"]);
 
@@ -58,7 +64,8 @@ type ActivityMapProps = {
   destinationId?: string;
   countryCodes?: (string | undefined)[];
   activities: Activity[];
-  connectActivities?: boolean;
+  ideasScheduledActivityIds?: readonly string[];
+  schedule?: ActivityMapSchedule;
   selectedId?: string;
   onSelect: (id: string) => void;
   onPick?: (point: Point) => void;
@@ -66,6 +73,7 @@ type ActivityMapProps = {
   portalHost?: HTMLElement | null;
   zoom?: number;
   route?: ActivityRoutePreview;
+  animateRoute?: boolean;
   routeLabel?: string;
   routeLoading?: boolean;
   routeError?: string;
@@ -94,7 +102,8 @@ function ActivityMapContent({
   destinationId,
   openStreetMap,
   activities: savedActivities,
-  connectActivities = false,
+  ideasScheduledActivityIds,
+  schedule,
   selectedId,
   onSelect,
   onPick,
@@ -104,6 +113,7 @@ function ActivityMapContent({
   portalHost,
   zoom = 11,
   route,
+  animateRoute,
   routeLabel,
   routeLoading,
   routeError,
@@ -130,6 +140,20 @@ function ActivityMapContent({
         : savedActivities,
     [placeSearch, savedActivities],
   );
+  const scheduledActivityIds =
+    schedule?.scheduledActivityIds ?? ideasScheduledActivityIds;
+  const scheduled = useMemo(
+    () => new Set(scheduledActivityIds),
+    [scheduledActivityIds],
+  );
+  const active = useMemo(
+    () => new Set(schedule?.activeActivityIds),
+    [schedule],
+  );
+  const showActivityStyles = !placeSearch && scheduledActivityIds !== undefined;
+  const scheduledMarkerClass = schedule
+    ? "activity-map-other-day"
+    : "activity-map-scheduled";
   const stayLocations = useMemo(
     () =>
       placeSearch
@@ -441,6 +465,17 @@ function ActivityMapContent({
       const button = document.createElement("button");
       button.type = "button";
       button.className = "activity-map-marker";
+      if (!placeSearch && schedule)
+        button.dataset.calendarActivityId = activity.id;
+      if (showActivityStyles) {
+        button.classList.add(
+          active.has(activity.id)
+            ? "activity-map-active-day"
+            : scheduled.has(activity.id)
+              ? scheduledMarkerClass
+              : "activity-map-unscheduled",
+        );
+      }
       button.textContent = String(index + 1);
       button.title = `${index + 1}. ${activity.properties.name}`;
       button.setAttribute("aria-label", `Select ${activity.properties.name}`);
@@ -498,6 +533,11 @@ function ActivityMapContent({
   }, [
     ready,
     activities,
+    active,
+    scheduled,
+    showActivityStyles,
+    scheduledMarkerClass,
+    schedule,
     selectedId,
     stayLocations,
     savedStayLocations,
@@ -508,19 +548,18 @@ function ActivityMapContent({
 
   useEffect(() => {
     const instance = map.current;
-    if (!ready || !instance || !connectActivities || placeSearch || route)
-      return;
-    const connections = activityConnections(
-      activities.map((activity) => activity.geometry),
+    if (!ready || !instance || !schedule || placeSearch || route) return;
+    const paths = activityRoutes(
+      schedule.activeActivityIds,
+      new Map(activities.map(({ id, geometry }) => [id, geometry])),
+      schedule.routes,
     );
-    if (!connections.length) return;
-
-    const line = instance.addLine([connectionFeature(connections)], {
+    if (!paths.length) return;
+    const line = instance.addLine([routeFeature(paths.flat())], {
       strokeColor: darkMode ? "#60cdff" : "#005a9e",
       strokeWidth: 4,
       lineCap: "round",
     });
-    let frame = 0;
     const flow = reducedMotion
       ? undefined
       : instance.addLine([], {
@@ -528,27 +567,18 @@ function ActivityMapContent({
           strokeWidth: 3,
           lineCap: "round",
         });
-    if (flow) {
-      const began = performance.now();
-      let lastFrame = began;
-      const animate = (time: number) => {
-        if (time - lastFrame >= 32) {
-          flow.setFeatures(flowingConnections(connections, time - began));
-          lastFrame = time;
-        }
-        frame = requestAnimationFrame(animate);
-      };
-      frame = requestAnimationFrame(animate);
-    }
+    const stop =
+      flow &&
+      animateAlongRoutes(paths, (features) => flow.setFeatures(features));
     return () => {
-      cancelAnimationFrame(frame);
+      stop?.();
       if (map.current !== instance) return;
       flow?.remove();
       line.remove();
     };
   }, [
     ready,
-    connectActivities,
+    schedule,
     placeSearch,
     route,
     activities,
@@ -574,6 +604,19 @@ function ActivityMapContent({
         ...(route.mode === "walking" ? { strokeDashArray: [2, 2] } : {}),
       },
     );
+    const flow =
+      animateRoute && !reducedMotion
+        ? instance.addLine([], {
+            strokeColor: darkMode ? "#ffffff" : "#8aeaff",
+            strokeWidth: 3,
+            lineCap: "round",
+          })
+        : undefined;
+    const stop =
+      flow &&
+      animateAlongRoutes([route.geometry.coordinates], (features) =>
+        flow.setFeatures(features),
+      );
     const points = route.geometry.coordinates.flat();
     // Padding switches Azure to bounds fitting; the flight camera already
     // accounts for padding, so bounds-only options must stay in the other branch.
@@ -602,22 +645,31 @@ function ActivityMapContent({
     });
     routeWasShown.current = true;
     return () => {
+      stop?.();
       if (map.current !== instance) return;
+      flow?.remove();
       line.remove();
     };
-  }, [ready, route, darkMode, reducedMotion]);
+  }, [ready, route, animateRoute, darkMode, reducedMotion]);
 
   return (
     <PersistentMapSurface host={portalHost}>
       <div
         ref={element}
         className="activity-map"
-        role={openStreetMap ? "region" : "img"}
+        role={
+          openStreetMap || schedule || ideasScheduledActivityIds
+            ? "region"
+            : "img"
+        }
         aria-label={
           destinationName ? `Map of ${destinationName}` : "Activity map"
         }
         aria-busy={!ready && !error}
       />
+      {ready && showActivityStyles && (
+        <ActivityMapLegend showDayStyles={!!schedule} />
+      )}
       {routeLabel && (
         <section
           className="activity-map-route"
@@ -677,5 +729,38 @@ function ActivityMapContent({
         </div>
       )}
     </PersistentMapSurface>
+  );
+}
+
+function ActivityMapLegend({ showDayStyles }: { showDayStyles: boolean }) {
+  return (
+    <details className="activity-map-legend">
+      <summary>Map legend</summary>
+      <ul>
+        <li>
+          <span
+            aria-hidden="true"
+            className={`activity-map-key ${showDayStyles ? "activity-map-active-day" : "activity-map-scheduled"}`}
+          />
+          <span>{showDayStyles ? "Selected day" : "Scheduled"}</span>
+        </li>
+        {showDayStyles && (
+          <li>
+            <span
+              aria-hidden="true"
+              className="activity-map-key activity-map-other-day"
+            />
+            <span>Other days</span>
+          </li>
+        )}
+        <li>
+          <span
+            aria-hidden="true"
+            className="activity-map-key activity-map-unscheduled"
+          />
+          <span>No day assigned</span>
+        </li>
+      </ul>
+    </details>
   );
 }
