@@ -29,6 +29,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Fixed
 
+- Keep calendar controls and the layout steady while switching Schedule destinations.
+
 - Unschedule activities from the activity drawer or by dragging them back to the activities panel on wide displays.
 
 - Keep Add event available while the calendar saves a timing change.
@@ -53,6 +55,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Reload Azure test slot authentication during deployment so the Trip Planner sign-in page becomes available.
 
 ### Changed
+
+- Use one day picker across all destinations in the web Schedule and show destination names on shared dates.
 
 - Show inbound travel time above scheduled activities, stripe overlapping times, and edit transportation in the activity drawer.
 

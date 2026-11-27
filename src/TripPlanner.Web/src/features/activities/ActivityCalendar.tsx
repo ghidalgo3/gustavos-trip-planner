@@ -1,16 +1,15 @@
 import { Button } from "@fluentui/react-components";
 import {
-  useEffect,
   useEffectEvent,
   useId,
+  useLayoutEffect,
   useRef,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { Link } from "react-router";
 import {
   Add20Regular,
-  ChevronLeft20Regular,
-  ChevronRight20Regular,
   VehicleCar20Regular,
   PersonWalking20Regular,
   Airplane20Regular,
@@ -24,10 +23,13 @@ import {
   calendarDayKey,
   calendarEntries,
   calendarLayout,
+  type CalendarDayOption,
   type CalendarEntry,
   type CalendarTiming,
 } from "./activityCalendarModel";
 import CalendarActivityList from "./CalendarActivityList";
+import CalendarDayNavigation from "./CalendarDayNavigation";
+import { CalendarEventsSkeleton } from "./ActivityPlanningSkeletons";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
 import useCalendarDrag from "./useCalendarDrag";
 import type { TripDocument } from "../../api/tripDocument";
@@ -38,12 +40,16 @@ export default function ActivityCalendar({
   itinerary,
   plan,
   day,
+  dayOptions,
   activities,
+  activitiesLoading = false,
+  planLoading = false,
   assessment,
   destination,
   readOnly,
   busy,
   pendingTiming,
+  notice,
   onDay,
   onEvent,
   onEntry,
@@ -53,14 +59,18 @@ export default function ActivityCalendar({
 }: {
   tripId: string;
   itinerary?: TripDocument["itinerary"];
-  plan: ActivityPlan;
+  plan?: ActivityPlan;
   day?: PlanDay;
+  dayOptions: CalendarDayOption[];
   activities: Activity[];
+  activitiesLoading?: boolean;
+  planLoading?: boolean;
   assessment?: PlanAssessment;
   destination?: Destination;
   readOnly: boolean;
   busy: boolean;
   pendingTiming?: CalendarTiming;
+  notice?: ReactNode;
   onDay: (key: string) => void;
   onEvent: (id?: string) => void;
   onEntry: (entry: CalendarEntry) => void;
@@ -69,16 +79,15 @@ export default function ActivityCalendar({
   onUnschedule: (id: string) => void;
 }) {
   const agenda = useSyncExternalStore(subscribeToWideCalendar, showAgenda);
-  const days = [...plan.days].sort((a, b) => a.date.localeCompare(b.date));
-  const index = days.findIndex(
-    (item) => day && calendarDayKey(item) === calendarDayKey(day),
-  );
+  const dayKey = day ? calendarDayKey(day) : "";
+  const timeZone = plan?.timeZone ?? destination?.properties.timeZone ?? null;
+  const loading = planLoading || activitiesLoading;
   const tripTravel = day
-    ? scheduledTravelEntries(itinerary?.items ?? [], day, plan.timeZone)
+    ? scheduledTravelEntries(itinerary?.items ?? [], day, timeZone)
     : [];
-  const entries = day
-    ? [
-        ...calendarEntries(
+  const planEntries =
+    plan && day && !activitiesLoading
+      ? calendarEntries(
           plan,
           day,
           activities,
@@ -89,24 +98,27 @@ export default function ActivityCalendar({
           (entry) =>
             entry.kind !== "flight" ||
             !tripTravel.some((item) => item.kind === "flight"),
-        ),
-        ...tripTravel,
-      ].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))
-    : [];
+        )
+      : [];
+  const entries = [...planEntries, ...tripTravel].sort(
+    (a, b) => a.start - b.start || a.id.localeCompare(b.id),
+  );
   const timed = new Set(
-    plan.days
-      .flatMap((item) =>
-        calendarEntries(
-          plan,
-          item,
-          activities,
-          assessment,
-          destination,
-          pendingTiming,
-        ),
-      )
-      .filter((item) => item.kind === "activity")
-      .flatMap((item) => (item.activityId ? [item.activityId] : [])),
+    plan && !activitiesLoading
+      ? plan.days
+          .flatMap((item) =>
+            calendarEntries(
+              plan,
+              item,
+              activities,
+              assessment,
+              destination,
+              pendingTiming,
+            ),
+          )
+          .filter((item) => item.kind === "activity")
+          .flatMap((item) => (item.activityId ? [item.activityId] : []))
+      : [],
   );
   const startHour = 0;
   const endHour = 24;
@@ -126,13 +138,13 @@ export default function ActivityCalendar({
   const grid = useRef<HTMLDivElement>(null);
   const activityList = useRef<HTMLElement>(null);
   const drag = useCalendarDrag({
-    disabled: agenda || readOnly || busy || !day,
+    disabled: agenda || readOnly || busy || loading || !plan || !day,
     onTiming,
     onUnschedule,
     grid,
     scroll,
     activityList,
-    dayKey: day ? calendarDayKey(day) : "",
+    dayKey,
     onNavigate: onDay,
   });
   const scrollToEvents = useEffectEvent(() => {
@@ -144,9 +156,9 @@ export default function ActivityCalendar({
       );
     }
   });
-  useEffect(() => {
-    scrollToEvents();
-  }, [agenda, day?.stayId, day?.date]);
+  useLayoutEffect(() => {
+    if (!loading) scrollToEvents();
+  }, [agenda, day?.stayId, day?.date, loading]);
   const issues =
     assessment?.issues.filter(
       (item) => !item.date || item.date === day?.date,
@@ -159,6 +171,7 @@ export default function ActivityCalendar({
           dropToUnschedule={drag.overActivityList}
           activities={activities}
           plan={plan}
+          loading={loading}
           timedIds={timed}
           disabled={busy}
           readOnly={readOnly}
@@ -172,58 +185,24 @@ export default function ActivityCalendar({
         />
         <div className="activity-calendar" id={calendarId}>
           <header className="calendar-toolbar">
-            <div className="calendar-navigation">
-              <Button
-                icon={<ChevronLeft20Regular />}
-                aria-label="Previous day"
-                data-calendar-day={
-                  index > 0 ? calendarDayKey(days[index - 1]) : undefined
-                }
-                disabled={index <= 0}
-                onClick={() => onDay(calendarDayKey(days[index - 1]))}
-              />
-              <label className="calendar-date-picker">
-                <span className="visually-hidden">Calendar day</span>
-                <select
-                  aria-label="Calendar day"
-                  value={day ? calendarDayKey(day) : ""}
-                  onChange={(event) => onDay(event.target.value)}
-                  disabled={!days.length}
-                >
-                  {!days.length && <option value="">No visit dates</option>}
-                  {days.map((item) => (
-                    <option
-                      key={calendarDayKey(item)}
-                      value={calendarDayKey(item)}
-                    >
-                      {item.name ? `${item.name} · ` : ""}
-                      {calendarDateLabel(item.date)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button
-                icon={<ChevronRight20Regular />}
-                aria-label="Next day"
-                data-calendar-day={
-                  index >= 0 && index < days.length - 1
-                    ? calendarDayKey(days[index + 1])
-                    : undefined
-                }
-                disabled={index < 0 || index >= days.length - 1}
-                onClick={() => onDay(calendarDayKey(days[index + 1]))}
-              />
-            </div>
+            <CalendarDayNavigation
+              options={dayOptions}
+              selectedKey={dayKey}
+              dragDestinationId={plan && !loading ? destination?.id : undefined}
+              onDay={onDay}
+            />
             <div className="calendar-toolbar-actions">
-              <span className="calendar-zone">
-                {plan.timeZone ?? destination?.properties.timeZone}
-              </span>
-              {day && <Button onClick={onDayDetails}>Day details</Button>}
+              <span className="calendar-zone">{timeZone}</span>
+              {day && (
+                <Button disabled={!plan} onClick={onDayDetails}>
+                  Day details
+                </Button>
+              )}
               {!readOnly && (
                 <Button
                   appearance="primary"
                   icon={<Add20Regular />}
-                  disabled={!days.length || !activities.length}
+                  disabled={loading || !plan || !day || !activities.length}
                   onClick={() => onEvent()}
                 >
                   Add event
@@ -231,6 +210,13 @@ export default function ActivityCalendar({
               )}
             </div>
           </header>
+          {day && (
+            <h3 className="calendar-day-heading">
+              {day.name && <strong>{day.name}</strong>}
+              <time dateTime={day.date}>{calendarDateLabel(day.date)}</time>
+            </h3>
+          )}
+          {notice}
           {issues.length > 0 && (
             <details className="calendar-conflicts">
               <summary>
@@ -244,256 +230,254 @@ export default function ActivityCalendar({
               </ul>
             </details>
           )}
-          {!days.length ? (
+          {plan && !day && (
             <div className="calendar-empty">
               <h3>No visit dates</h3>
               <p>Add dates on Overview.</p>
             </div>
-          ) : (
-            <>
-              <h3 className="calendar-day-heading">
-                {day?.name && <strong>{day.name}</strong>}
-                <time dateTime={day?.date}>
-                  {day && calendarDateLabel(day.date)}
-                </time>
-              </h3>
+          )}
+          {(day || planLoading) && (
+            <div
+              ref={agenda ? undefined : scroll}
+              className={agenda ? "calendar-agenda" : "calendar-scroll"}
+              tabIndex={agenda ? undefined : 0}
+              role="region"
+              aria-label="Day calendar"
+              aria-busy={loading}
+            >
+              {layout.some((entry) => entry.overlaps.length > 0) && (
+                <span id={overlapDescriptionId} className="visually-hidden">
+                  Overlaps another calendar event.
+                </span>
+              )}
               <div
-                ref={agenda ? undefined : scroll}
-                className={agenda ? "calendar-agenda" : "calendar-scroll"}
-                tabIndex={agenda ? undefined : 0}
-                role="region"
-                aria-label="Day calendar"
+                className="calendar-grid"
+                style={agenda ? undefined : { height }}
               >
-                {layout.some((entry) => entry.overlaps.length > 0) && (
-                  <span id={overlapDescriptionId} className="visually-hidden">
-                    Overlaps another calendar event.
-                  </span>
+                {!agenda && loading && !entries.length && (
+                  <CalendarEventsSkeleton />
                 )}
+                {!agenda &&
+                  Array.from({ length: endHour - startHour + 1 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="calendar-hour"
+                      style={{ top: i * 90 }}
+                    >
+                      <time>{calendarClock((startHour + i) * 60)}</time>
+                      <span />
+                    </div>
+                  ))}
                 <div
-                  className="calendar-grid"
-                  style={agenda ? undefined : { height }}
+                  className="calendar-events"
+                  ref={agenda ? undefined : grid}
                 >
-                  {!agenda &&
-                    Array.from({ length: endHour - startHour + 1 }, (_, i) => (
-                      <div
-                        key={i}
-                        className="calendar-hour"
-                        style={{ top: i * 90 }}
-                      >
-                        <time>{calendarClock((startHour + i) * 60)}</time>
-                        <span />
-                      </div>
-                    ))}
-                  <div
-                    className="calendar-events"
-                    ref={agenda ? undefined : grid}
-                  >
-                    {layout.map((entry) => {
-                      const visibleStart = Math.max(startMinute, entry.start);
-                      const top = (visibleStart - startMinute) * 1.5;
-                      const durationHeight =
-                        (Math.min(endMinute, entry.end) - visibleStart) * 1.5;
-                      const hasOverlap = entry.overlaps.length > 0;
-                      const size = entry.isTravelExtension
-                        ? durationHeight
-                        : Math.max(
-                            entry.kind === "travel" ? 44 : 46,
-                            hasOverlap ? durationHeight : durationHeight - 3,
-                          );
-                      const label = entry.travel
-                        ? `${entry.title} from ${entry.travel.label.replace(" → ", " to ")}`
-                        : entry.title;
-                      const content = (
-                        <>
-                          <strong>
-                            {entry.kind === "lodging" && <Bed20Regular />}
-                            {entry.kind === "flight" && <Airplane20Regular />}
-                            {entry.kind === "transportation" && (
-                              <VehicleCar20Regular />
-                            )}
-                            {entry.kind === "travel" &&
-                              (entry.travel?.mode === "walking" ? (
-                                <PersonWalking20Regular />
-                              ) : (
-                                <VehicleCar20Regular />
-                              ))}
-                            {entry.title}
-                          </strong>
-                          <span>
-                            {entry.kind === "travel"
-                              ? entry.detail
-                              : entry.start === entry.end
-                                ? calendarClock(entry.start)
-                                : `${calendarClock(Math.max(0, entry.start))}–${entry.end === 1440 ? "24:00" : calendarClock(entry.end)}${entry.end > 1440 ? " (+1 day)" : ""}`}
-                          </span>
-                          {entry.kind !== "travel" && entry.detail && (
-                            <small>{entry.detail}</small>
+                  {layout.map((entry) => {
+                    const visibleStart = Math.max(startMinute, entry.start);
+                    const top = (visibleStart - startMinute) * 1.5;
+                    const durationHeight =
+                      (Math.min(endMinute, entry.end) - visibleStart) * 1.5;
+                    const hasOverlap = entry.overlaps.length > 0;
+                    const size = entry.isTravelExtension
+                      ? durationHeight
+                      : Math.max(
+                          entry.kind === "travel" ? 44 : 46,
+                          hasOverlap ? durationHeight : durationHeight - 3,
+                        );
+                    const label = entry.travel
+                      ? `${entry.title} from ${entry.travel.label.replace(" → ", " to ")}`
+                      : entry.title;
+                    const content = (
+                      <>
+                        <strong>
+                          {entry.kind === "lodging" && <Bed20Regular />}
+                          {entry.kind === "flight" && <Airplane20Regular />}
+                          {entry.kind === "transportation" && (
+                            <VehicleCar20Regular />
                           )}
-                        </>
-                      );
-                      return (
-                        <div
-                          key={entry.id}
-                          className={`calendar-event calendar-event-${entry.kind}${entry.estimated ? " calendar-event-estimated" : ""}${entry.isTravelExtension ? " calendar-event-travel-extension" : ""}${entry.hasTravelExtension ? " calendar-event-with-travel" : ""}`}
-                          style={
-                            agenda
-                              ? undefined
-                              : {
-                                  top,
-                                  height: size,
-                                  left: `calc(${(entry.lane / entry.lanes) * 100}% + 2px)`,
-                                  width: `calc(${100 / entry.lanes}% - 4px)`,
-                                }
-                          }
-                          onPointerDown={(event) => {
-                            if (
-                              event.target === event.currentTarget &&
-                              entry.activityId
-                            )
+                          {entry.kind === "travel" &&
+                            (entry.travel?.mode === "walking" ? (
+                              <PersonWalking20Regular />
+                            ) : (
+                              <VehicleCar20Regular />
+                            ))}
+                          {entry.title}
+                        </strong>
+                        <span>
+                          {entry.kind === "travel"
+                            ? entry.detail
+                            : entry.start === entry.end
+                              ? calendarClock(entry.start)
+                              : `${calendarClock(Math.max(0, entry.start))}–${entry.end === 1440 ? "24:00" : calendarClock(entry.end)}${entry.end > 1440 ? " (+1 day)" : ""}`}
+                        </span>
+                        {entry.kind !== "travel" && entry.detail && (
+                          <small>{entry.detail}</small>
+                        )}
+                      </>
+                    );
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`calendar-event calendar-event-${entry.kind}${entry.estimated ? " calendar-event-estimated" : ""}${entry.isTravelExtension ? " calendar-event-travel-extension" : ""}${entry.hasTravelExtension ? " calendar-event-with-travel" : ""}`}
+                        style={
+                          agenda
+                            ? undefined
+                            : {
+                                top,
+                                height: size,
+                                left: `calc(${(entry.lane / entry.lanes) * 100}% + 2px)`,
+                                width: `calc(${100 / entry.lanes}% - 4px)`,
+                              }
+                        }
+                        onPointerDown={(event) => {
+                          if (
+                            event.target === event.currentTarget &&
+                            entry.activityId
+                          )
+                            drag.begin(event, {
+                              activityId: entry.activityId,
+                              start: entry.start,
+                              end: entry.end,
+                            });
+                        }}
+                        onClick={(event) => {
+                          if (!busy && event.target === event.currentTarget)
+                            onEntry(entry);
+                        }}
+                      >
+                        {entry.kind === "flight" ? (
+                          <Link
+                            className="calendar-event-content calendar-travel-link"
+                            aria-label={label}
+                            aria-describedby={
+                              hasOverlap ? overlapDescriptionId : undefined
+                            }
+                            to={`/trips/${encodeURIComponent(tripId)}/flights`}
+                          >
+                            {content}
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`calendar-event-content${entry.kind === "transportation" ? " calendar-transportation-link" : ""}`}
+                            data-draggable={
+                              !!entry.activityId && !readOnly && !agenda
+                            }
+                            aria-label={label}
+                            aria-describedby={
+                              hasOverlap ? overlapDescriptionId : undefined
+                            }
+                            title={
+                              entry.travel
+                                ? `${label} · ${entry.detail}`
+                                : undefined
+                            }
+                            disabled={busy}
+                            onClick={() => onEntry(entry)}
+                            onPointerDown={(event) =>
+                              entry.activityId &&
                               drag.begin(event, {
                                 activityId: entry.activityId,
                                 start: entry.start,
                                 end: entry.end,
-                              });
-                          }}
-                          onClick={(event) => {
-                            if (!busy && event.target === event.currentTarget)
-                              onEntry(entry);
-                          }}
-                        >
-                          {entry.kind === "flight" ? (
-                            <Link
-                              className="calendar-event-content calendar-travel-link"
-                              aria-label={label}
-                              aria-describedby={
-                                hasOverlap ? overlapDescriptionId : undefined
-                              }
-                              to={`/trips/${encodeURIComponent(tripId)}/flights`}
-                            >
-                              {content}
-                            </Link>
-                          ) : (
-                            <button
-                              type="button"
-                              className={`calendar-event-content${entry.kind === "transportation" ? " calendar-transportation-link" : ""}`}
-                              data-draggable={
-                                !!entry.activityId && !readOnly && !agenda
-                              }
-                              aria-label={label}
-                              aria-describedby={
-                                hasOverlap ? overlapDescriptionId : undefined
-                              }
-                              title={
-                                entry.travel
-                                  ? `${label} · ${entry.detail}`
-                                  : undefined
-                              }
-                              disabled={busy}
-                              onClick={() => onEntry(entry)}
-                              onPointerDown={(event) =>
-                                entry.activityId &&
-                                drag.begin(event, {
-                                  activityId: entry.activityId,
-                                  start: entry.start,
-                                  end: entry.end,
-                                })
-                              }
-                            >
-                              {content}
-                            </button>
-                          )}
-                          {entry.activityId && !readOnly && !agenda && (
-                            <>
-                              {(["start", "end"] as const).map((edge) => (
-                                <button
-                                  key={edge}
-                                  type="button"
-                                  className={`calendar-resize calendar-resize-${edge}`}
-                                  aria-label={`Resize ${entry.title} ${edge}`}
-                                  title={`Resize ${edge} time`}
-                                  disabled={busy}
-                                  onClick={() => onEntry(entry)}
-                                  onPointerDown={(event) =>
-                                    drag.begin(
-                                      event,
-                                      {
-                                        activityId: entry.activityId!,
-                                        start: entry.start,
-                                        end: entry.end,
-                                      },
-                                      edge,
-                                    )
-                                  }
-                                >
-                                  <span />
-                                </button>
-                              ))}
-                            </>
-                          )}
-                          {agenda
-                            ? hasOverlap && (
+                              })
+                            }
+                          >
+                            {content}
+                          </button>
+                        )}
+                        {entry.activityId && !readOnly && !agenda && (
+                          <>
+                            {(["start", "end"] as const).map((edge) => (
+                              <button
+                                key={edge}
+                                type="button"
+                                className={`calendar-resize calendar-resize-${edge}`}
+                                aria-label={`Resize ${entry.title} ${edge}`}
+                                title={`Resize ${edge} time`}
+                                disabled={busy}
+                                onClick={() => onEntry(entry)}
+                                onPointerDown={(event) =>
+                                  drag.begin(
+                                    event,
+                                    {
+                                      activityId: entry.activityId!,
+                                      start: entry.start,
+                                      end: entry.end,
+                                    },
+                                    edge,
+                                  )
+                                }
+                              >
+                                <span />
+                              </button>
+                            ))}
+                          </>
+                        )}
+                        {agenda
+                          ? hasOverlap && (
+                              <span
+                                className="calendar-event-overlap"
+                                aria-hidden="true"
+                              />
+                            )
+                          : entry.overlaps.map(({ start, end }) => {
+                              const overlapStart = Math.max(
+                                visibleStart,
+                                start,
+                              );
+                              return (
                                 <span
+                                  key={start}
                                   className="calendar-event-overlap"
                                   aria-hidden="true"
+                                  style={{
+                                    top: (overlapStart - visibleStart) * 1.5,
+                                    height:
+                                      (Math.min(endMinute, end) -
+                                        overlapStart) *
+                                      1.5,
+                                  }}
                                 />
-                              )
-                            : entry.overlaps.map(({ start, end }) => {
-                                const overlapStart = Math.max(
-                                  visibleStart,
-                                  start,
-                                );
-                                return (
-                                  <span
-                                    key={start}
-                                    className="calendar-event-overlap"
-                                    aria-hidden="true"
-                                    style={{
-                                      top: (overlapStart - visibleStart) * 1.5,
-                                      height:
-                                        (Math.min(endMinute, end) -
-                                          overlapStart) *
-                                        1.5,
-                                    }}
-                                  />
-                                );
-                              })}
-                        </div>
-                      );
-                    })}
-                    {entries.length === 0 && (
-                      <div className="calendar-empty-day">
-                        No events scheduled
+                              );
+                            })}
                       </div>
-                    )}
-                    {drag.preview && (
-                      <div
-                        className="calendar-drag-preview"
-                        style={{
-                          top: drag.preview.start * 1.5,
-                          height: Math.max(
-                            44,
-                            (drag.preview.end - drag.preview.start) * 1.5,
-                          ),
-                        }}
-                      >
-                        <strong>
-                          {
-                            activities.find(
-                              (item) => item.id === drag.preview!.activityId,
-                            )?.properties.name
-                          }
-                        </strong>
-                        <span>
-                          {calendarClock(drag.preview.start)}–
-                          {calendarClock(drag.preview.end)}
-                          {drag.preview.end >= 1440 ? " (+1 day)" : ""}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                    );
+                  })}
+                  {agenda && loading && <CalendarEventsSkeleton />}
+                  {plan && !loading && entries.length === 0 && (
+                    <div className="calendar-empty-day">
+                      No events scheduled
+                    </div>
+                  )}
+                  {drag.preview && (
+                    <div
+                      className="calendar-drag-preview"
+                      style={{
+                        top: drag.preview.start * 1.5,
+                        height: Math.max(
+                          44,
+                          (drag.preview.end - drag.preview.start) * 1.5,
+                        ),
+                      }}
+                    >
+                      <strong>
+                        {
+                          activities.find(
+                            (item) => item.id === drag.preview!.activityId,
+                          )?.properties.name
+                        }
+                      </strong>
+                      <span>
+                        {calendarClock(drag.preview.start)}–
+                        {calendarClock(drag.preview.end)}
+                        {drag.preview.end >= 1440 ? " (+1 day)" : ""}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       </ResizableActivityWorkspace>

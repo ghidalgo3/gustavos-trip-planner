@@ -18,6 +18,7 @@ import {
   previewActivityPlan,
   type ActivityPlan,
   type PlanResponse,
+  type Versioned,
 } from "./activityPlanApi";
 import { mapsClient } from "../../maps/mapsClient";
 import {
@@ -68,6 +69,45 @@ const writes = () =>
     .mocked(planningRequest)
     .mock.calls.filter(([, options]) => options?.method === "PUT");
 
+test("a late calendar response cannot replace the selected destination", async () => {
+  let finishParis!: (value: Versioned<PlanResponse>) => void;
+  const paris = new Promise<Versioned<PlanResponse>>((resolve) => {
+    finishParis = resolve;
+  });
+  const london = structuredClone(response);
+  const londonDay = {
+    ...london.plan.days[0],
+    stayId: "london-stay",
+    date: "2027-06-20",
+    activityIds: [],
+  };
+  london.plan.days = [londonDay];
+  london.context.visits = [
+    {
+      stayId: londonDay.stayId,
+      arrivalDate: londonDay.date,
+      departureDate: londonDay.date,
+    },
+  ];
+  vi.mocked(planningRequest)
+    .mockImplementationOnce(() => paris as never)
+    .mockResolvedValueOnce({ data: london, etag: '"london"' });
+
+  const { rerender } = render(<DailyActivityPlan {...props} />);
+  rerender(
+    <DailyActivityPlan
+      {...props}
+      destinationId="london-gb"
+      destination={{ ...calendarDestination, id: "london-gb" }}
+    />,
+  );
+  const picker = screen.getByRole("combobox", { name: "Calendar day" });
+  await waitFor(() => expect(picker).toHaveValue("london-stay:2027-06-20"));
+
+  await act(async () => finishParis({ data: response, etag: '"paris"' }));
+  expect(picker).toHaveValue("london-stay:2027-06-20");
+});
+
 test("reports the selected day's activities in time order, then assigned activities without times", async () => {
   response.plan.days[0].activityIds = [
     "activity-2",
@@ -76,7 +116,7 @@ test("reports the selected day's activities in time order, then assigned activit
   ];
   const onMapDayChange = vi.fn();
   render(<DailyActivityPlan {...props} onMapDayChange={onMapDayChange} />);
-  await screen.findByRole("region", { name: "Day calendar" });
+  await screen.findByRole("region", { name: "Day calendar", busy: false });
   expect(onMapDayChange).toHaveBeenLastCalledWith([
     "activity-0",
     "activity-1",
@@ -170,7 +210,10 @@ test("scheduling on a new visit date adds that day while retaining other saved d
 
 test("renders a time grid with timed events and travel, with planning forms behind event taps", async () => {
   render(<DailyActivityPlan {...props} />);
-  const calendar = await screen.findByRole("region", { name: "Day calendar" });
+  const calendar = await screen.findByRole("region", {
+    name: "Day calendar",
+    busy: false,
+  });
   expect(
     within(calendar).getByRole("button", { name: "Museum" }),
   ).toBeVisible();
@@ -241,7 +284,10 @@ test("cancel discards temporal edits", async () => {
 
 test("the drawer can unschedule an activity and retry a failed save", async () => {
   render(<DailyActivityPlan {...props} />);
-  const calendar = await screen.findByRole("region", { name: "Day calendar" });
+  const calendar = await screen.findByRole("region", {
+    name: "Day calendar",
+    busy: false,
+  });
   fireEvent.click(within(calendar).getByRole("button", { name: "Garden" }));
   vi.mocked(planningRequest).mockRejectedValueOnce(
     new Error("Schedule unavailable."),

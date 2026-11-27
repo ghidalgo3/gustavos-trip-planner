@@ -325,20 +325,11 @@
     max-width: 100% !important;
   }
 }
-.calendar-loading-grid {
-  padding: 12px 4px;
-  border: 1px solid var(--colorNeutralStroke2);
-  border-radius: 8px;
-}
-.calendar-loading-hour {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 12px;
-  height: 90px;
-}
-.calendar-loading-hour > div {
-  border-top: 1px solid var(--colorNeutralStroke2);
-  padding-top: 2px;
+.calendar-scroll .calendar-events-skeleton {
+  position: sticky;
+  z-index: 1;
+  top: 36px;
+  margin: 0 8px 0 56px;
 }
 .calendar-date-picker select,
 .calendar-editor-fields select {
@@ -719,17 +710,7 @@
   box-shadow: var(--shadow8);
   pointer-events: none;
 }
-.calendar-loading-workspace {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 16px;
-}
 @media (min-width: 1100px) {
-  .calendar-loading-workspace {
-    display: grid;
-    grid-template-columns: minmax(180px, 28fr) minmax(300px, 72fr);
-    gap: 24px;
-  }
   .schedule-workspace {
     display: grid;
     grid-template-columns:

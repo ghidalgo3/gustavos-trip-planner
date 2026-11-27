@@ -14,12 +14,14 @@ import {
 } from "./activityCalendarModel";
 import { durationMinutes } from "../../shared/time/durations";
 import type { CalendarDragCard } from "./useCalendarDrag";
+import { CalendarActivityCardsSkeleton } from "./ActivityPlanningSkeletons";
 
 export default function CalendarActivityList({
   listRef,
   dropToUnschedule,
   activities,
   plan,
+  loading,
   timedIds,
   disabled,
   readOnly,
@@ -30,7 +32,8 @@ export default function CalendarActivityList({
   listRef: RefObject<HTMLElement | null>;
   dropToUnschedule: boolean;
   activities: Activity[];
-  plan: ActivityPlan;
+  plan?: ActivityPlan;
+  loading: boolean;
   timedIds: Set<string>;
   disabled: boolean;
   readOnly: boolean;
@@ -39,14 +42,18 @@ export default function CalendarActivityList({
   onDrag?: (event: PointerEvent<HTMLElement>, timing: CalendarTiming) => void;
 }) {
   const [query, setQuery] = useState("");
-  const matching = activities.filter((item) =>
-    activityMatchesSearch(item, query.trim().toLocaleLowerCase()),
-  );
+  const matching =
+    loading || !plan
+      ? []
+      : activities.filter((item) =>
+          activityMatchesSearch(item, query.trim().toLocaleLowerCase()),
+        );
   return (
     <aside
       ref={listRef}
       className="schedule-activities"
       aria-label="Schedule activities"
+      aria-busy={loading}
       data-unschedule-hover={dropToUnschedule || undefined}
     >
       {dropToUnschedule && (
@@ -55,7 +62,8 @@ export default function CalendarActivityList({
         </span>
       )}
       <h2>
-        Activities <span>{activities.length}</span>
+        Activities{" "}
+        <span>{plan && !loading ? activities.length : undefined}</span>
       </h2>
       <div className="schedule-activity-search">
         <SearchBox
@@ -87,90 +95,92 @@ export default function CalendarActivityList({
             >
               <h3>
                 {scheduled ? "Scheduled" : "Unscheduled"}{" "}
-                <span>{items.length}</span>
+                <span>{plan && !loading ? items.length : undefined}</span>
               </h3>
+              {loading && <CalendarActivityCardsSkeleton />}
               <ul>
-                {items.map((activity) => {
-                  const rule = activityRule(plan, activity.id);
-                  const minutes =
-                    durationMinutes(
-                      rule.duration ?? activity.properties.duration,
-                    ) ?? 60;
-                  const day = plan.days.find((item) =>
-                    item.activityIds.includes(activity.id),
-                  );
-                  const className = `schedule-activity${scheduled ? " is-scheduled" : ""}`;
-                  const preview =
-                    dragCard?.activityId === activity.id ? dragCard : null;
-                  const content = (
-                    <>
-                      {onDrag && (
-                        <span data-drag-handle="true" aria-hidden="true">
-                          <ReOrderDotsVertical24Regular />
+                {plan &&
+                  items.map((activity) => {
+                    const rule = activityRule(plan, activity.id);
+                    const minutes =
+                      durationMinutes(
+                        rule.duration ?? activity.properties.duration,
+                      ) ?? 60;
+                    const day = plan.days.find((item) =>
+                      item.activityIds.includes(activity.id),
+                    );
+                    const className = `schedule-activity${scheduled ? " is-scheduled" : ""}`;
+                    const preview =
+                      dragCard?.activityId === activity.id ? dragCard : null;
+                    const content = (
+                      <>
+                        {onDrag && (
+                          <span data-drag-handle="true" aria-hidden="true">
+                            <ReOrderDotsVertical24Regular />
+                          </span>
+                        )}
+                        <span>
+                          <strong>{activity.properties.name}</strong>
+                          <small>
+                            {minutes} min
+                            {scheduled && day
+                              ? ` · ${calendarDateLabel(day.date)}${rule.fixedStart ? ` · ${rule.fixedStart.slice(0, 5)}` : ""}`
+                              : ""}
+                          </small>
                         </span>
-                      )}
-                      <span>
-                        <strong>{activity.properties.name}</strong>
-                        <small>
-                          {minutes} min
-                          {scheduled && day
-                            ? ` · ${calendarDateLabel(day.date)}${rule.fixedStart ? ` · ${rule.fixedStart.slice(0, 5)}` : ""}`
-                            : ""}
-                        </small>
-                      </span>
-                    </>
-                  );
-                  return (
-                    <li key={activity.id}>
-                      <button
-                        type="button"
-                        className={className}
-                        data-draggable={!!onDrag && !readOnly}
-                        data-dragging={!!preview}
-                        aria-label={`Schedule ${activity.properties.name}`}
-                        disabled={disabled}
-                        onClick={() => onEvent(activity.id)}
-                        onPointerDown={(event) => {
-                          if (
-                            event.pointerType === "touch" &&
-                            !(event.target as Element).closest(
-                              "[data-drag-handle]",
+                      </>
+                    );
+                    return (
+                      <li key={activity.id}>
+                        <button
+                          type="button"
+                          className={className}
+                          data-draggable={!!onDrag && !readOnly}
+                          data-dragging={!!preview}
+                          aria-label={`Schedule ${activity.properties.name}`}
+                          disabled={disabled}
+                          onClick={() => onEvent(activity.id)}
+                          onPointerDown={(event) => {
+                            if (
+                              event.pointerType === "touch" &&
+                              !(event.target as Element).closest(
+                                "[data-drag-handle]",
+                              )
                             )
-                          )
-                            return;
-                          onDrag?.(event, {
-                            activityId: activity.id,
-                            start: 0,
-                            end: Math.min(1440, Math.max(15, minutes)),
-                          });
-                        }}
-                      >
-                        {content}
-                      </button>
-                      {preview && (
-                        <Portal>
-                          <div
-                            className={`${className} schedule-activity-drag-card`}
-                            aria-hidden="true"
-                            style={{
-                              left: preview.left,
-                              top: preview.top,
-                              width: preview.width,
-                              height: preview.height,
-                            }}
-                          >
-                            {content}
-                          </div>
-                        </Portal>
-                      )}
-                    </li>
-                  );
-                })}
+                              return;
+                            onDrag?.(event, {
+                              activityId: activity.id,
+                              start: 0,
+                              end: Math.min(1440, Math.max(15, minutes)),
+                            });
+                          }}
+                        >
+                          {content}
+                        </button>
+                        {preview && (
+                          <Portal>
+                            <div
+                              className={`${className} schedule-activity-drag-card`}
+                              aria-hidden="true"
+                              style={{
+                                left: preview.left,
+                                top: preview.top,
+                                width: preview.width,
+                                height: preview.height,
+                              }}
+                            >
+                              {content}
+                            </div>
+                          </Portal>
+                        )}
+                      </li>
+                    );
+                  })}
               </ul>
             </section>
           );
         })}
-        {!matching.length && (
+        {plan && !loading && !matching.length && (
           <p role="status">
             {activities.length
               ? "No activities match your search."

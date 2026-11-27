@@ -2,6 +2,7 @@ import type { Activity, Destination } from "./activitiesApi";
 import {
   activityRule,
   chooseActivity,
+  namedDayLabel,
   type ActivityPlan,
   type PlanAssessment,
   type PlanDay,
@@ -23,36 +24,114 @@ export type CalendarVisit = {
   departureDate: string | null;
 };
 
+export type CalendarDayOption = {
+  key: string;
+  label: string;
+  destinationId: string;
+};
+
+export function calendarDayOptions(
+  destinationId: string,
+  days: PlanDay[],
+  destinations: Destination[],
+  savedDays?: ReadonlyMap<string, CalendarDayDate[]>,
+): CalendarDayOption[] {
+  const options = destinations.flatMap((destination) => {
+    const stayOrder = new Map(
+      destination.properties.stays.map((stay) => [stay.id, stay.order]),
+    );
+    const destinationDays =
+      destination.id === destinationId
+        ? days
+        : calendarDays(
+            undefined,
+            calendarVisits(destination),
+            savedDays?.get(destination.id),
+          );
+    return destinationDays.map((day) => ({
+      day,
+      destinationId: destination.id,
+      destinationName: destination.properties.name,
+      order: stayOrder.get(day.stayId) ?? Number.MAX_SAFE_INTEGER,
+    }));
+  });
+  const destinationByDate = new Map<string, string>();
+  const sharedDates = new Set<string>();
+  for (const { day, destinationId } of options) {
+    const firstDestination = destinationByDate.get(day.date);
+    if (firstDestination === undefined)
+      destinationByDate.set(day.date, destinationId);
+    else if (firstDestination !== destinationId) sharedDates.add(day.date);
+  }
+
+  return options
+    .sort((a, b) => a.day.date.localeCompare(b.day.date) || a.order - b.order)
+    .map(({ day, destinationId, destinationName }) => {
+      const date = calendarDateLabel(day.date);
+      const label = sharedDates.has(day.date)
+        ? `${date} · ${destinationName}`
+        : date;
+      return {
+        key: calendarDayKey(day),
+        label: namedDayLabel(day, label),
+        destinationId,
+      };
+    });
+}
+
+export function calendarVisits(destination: Destination): CalendarVisit[] {
+  return destination.properties.stays.map((stay) => ({
+    stayId: stay.id,
+    arrivalDate: stay.arrivalDate,
+    departureDate: stay.departureDate,
+  }));
+}
+
+type CalendarDayDate = Pick<PlanDay, "stayId" | "date" | "name">;
+
 // Visit dates can change independently of a saved activity plan. Keep both visible
 // without moving or rewriting activities on the old dates.
 export function calendarDays(
-  plan: ActivityPlan,
+  plan: Pick<ActivityPlan, "days"> | undefined,
   visits: CalendarVisit[],
+  savedDays: CalendarDayDate[] = [],
 ): PlanDay[] {
-  const days = new Map(plan.days.map((day) => [calendarDayKey(day), day]));
+  const plannedDays = plan?.days ?? savedDays.map(emptyCalendarDay);
+  const days = new Map(plannedDays.map((day) => [calendarDayKey(day), day]));
+  for (const day of calendarVisitDays(visits)) {
+    const key = calendarDayKey(day);
+    if (!days.has(key)) days.set(key, emptyCalendarDay(day));
+  }
+  return [...days.values()].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.stayId.localeCompare(b.stayId),
+  );
+}
+
+function emptyCalendarDay(day: CalendarDayDate): PlanDay {
+  return {
+    ...day,
+    activityIds: [],
+    settings: null,
+    availableFrom: null,
+    availableUntil: null,
+    availabilityConfirmed: false,
+  };
+}
+
+function calendarVisitDays(visits: CalendarVisit[]) {
+  const days: CalendarDayDate[] = [];
   for (const visit of visits) {
     const start = visit.arrivalDate ?? visit.departureDate;
     const end = visit.departureDate ?? visit.arrivalDate;
     if (!start || !end) continue;
     for (let date = start, count = 0; date <= end && count < 366; count++) {
-      const day: PlanDay = {
-        stayId: visit.stayId,
-        date,
-        activityIds: [],
-        settings: null,
-        availableFrom: null,
-        availableUntil: null,
-        availabilityConfirmed: false,
-      };
-      if (!days.has(calendarDayKey(day))) days.set(calendarDayKey(day), day);
+      days.push({ stayId: visit.stayId, date });
       date = new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000)
         .toISOString()
         .slice(0, 10);
     }
   }
-  return [...days.values()].sort(
-    (a, b) => a.date.localeCompare(b.date) || a.stayId.localeCompare(b.stayId),
-  );
+  return days;
 }
 
 export function withCalendarDay(

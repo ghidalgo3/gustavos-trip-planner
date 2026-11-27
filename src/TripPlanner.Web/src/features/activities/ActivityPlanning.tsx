@@ -188,6 +188,10 @@ export default function ActivityPlanning({
     cityId: string;
     activityIds: string[];
   }>();
+  const [requestedScheduleDay, setRequestedScheduleDay] = useState<{
+    destinationId: string;
+    key: string;
+  }>();
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
   const [activitySearch, setActivitySearch] = useState("");
@@ -232,6 +236,10 @@ export default function ActivityPlanning({
     destinations?.features.find((item) => item.id === selectedCity) ??
     destinations?.features[0];
   const cityId = destination?.id;
+  const scheduleDay =
+    requestedScheduleDay?.destinationId === cityId
+      ? requestedScheduleDay
+      : undefined;
   useLayoutEffect(() => {
     const list = activityList.current;
     const heading = activityHeading.current;
@@ -405,11 +413,15 @@ export default function ActivityPlanning({
         }
       : undefined;
 
-  function selectDestination(cityId: string) {
+  function selectDestination(cityId: string, dayKey?: string) {
     if (editor && !window.confirm("Discard unsaved changes?")) return;
+    setRequestedScheduleDay(
+      dayKey ? { destinationId: cityId, key: dayKey } : undefined,
+    );
     setSelectedId(undefined);
     setSelectedTravel(undefined);
     setEditor(undefined);
+    setShowMapCard(false);
     setQuery(
       (current) => {
         const next = new URLSearchParams(current);
@@ -1628,13 +1640,18 @@ export default function ActivityPlanning({
         >
           {activityView === "daily" ? (
             <DailyActivityPlan
-              key={`${trip.id}-${destination.id}`}
+              key={trip.id}
               tripId={trip.id}
               destinationId={destination.id}
               destination={destination}
+              tripCalendar={{
+                destinations: destinations.features,
+                initialDayKey: scheduleDay?.key,
+                onDestinationDay: selectDestination,
+              }}
               activities={activities.features}
+              activitiesLoading={activityData?.cityId !== cityId && !error}
               readOnly={!canEdit}
-
               onSelect={selectActivity}
               onScheduleError={(message) => notify(message, "error")}
               onPlanChange={() => {
@@ -1652,7 +1669,11 @@ export default function ActivityPlanning({
               onChooseActivities={() => setActivityView("ideas")}
               onSaved={async () => {
                 const collection = await getActivities(trip.id, destination.id);
-                setActivityData({ cityId: destination.id, collection });
+                setActivityData((current) =>
+                  current?.cityId === destination.id
+                    ? { cityId: destination.id, collection }
+                    : current,
+                );
               }}
             />
           ) : (

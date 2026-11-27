@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 import ActivityCalendar from "./ActivityCalendar";
-import { calendarPlan } from "../../test/activityCalendarFixture";
+import {
+  calendarDestination,
+  calendarPlan,
+} from "../../test/activityCalendarFixture";
+import { calendarDayOptions } from "./activityCalendarModel";
 
 test.each([false, true])(
   "flight links and transportation remain accessible on empty days (read only: %s)",
@@ -15,6 +19,11 @@ test.each([false, true])(
           tripId="trip/one"
           plan={{ ...calendarPlan, days: [day] }}
           day={day}
+          dayOptions={calendarDayOptions(
+            calendarDestination.id,
+            [day],
+            [calendarDestination],
+          )}
           activities={[]}
           itinerary={{
             items: [
