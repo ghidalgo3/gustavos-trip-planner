@@ -27,6 +27,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Fixed
 
+- Keep Add event available while the calendar saves a timing change.
+
 - Make schedule cards follow the pointer when dragged. Save drops in the background and restore the previous schedule with a toast if a save fails.
 
 - Keep the Notices footer on the web home page, simplify Profile navigation, and align destination names when a city has no icon.

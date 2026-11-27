@@ -207,7 +207,7 @@ export default function ActivityCalendar({
                 <Button
                   appearance="primary"
                   icon={<Add20Regular />}
-                  disabled={busy || !days.length || !activities.length}
+                  disabled={!days.length || !activities.length}
                   onClick={() => onEvent()}
                 >
                   Add event

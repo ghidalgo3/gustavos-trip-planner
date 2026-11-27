@@ -491,7 +491,32 @@ for (const width of [390, 820, 1100, 1280]) {
         await dismissToast.click();
         await expect(toast).toHaveCount(0);
 
-        await dragCafe();
+        const successfulSave = Promise.withResolvers<void>();
+        holdNextSave = successfulSave.promise;
+        const eventDraft = page.getByRole("dialog");
+        const saveDraft = eventDraft.getByRole("button", {
+          name: "Save",
+          exact: true,
+        });
+        const draftStart = eventDraft.getByLabel("Event start");
+        try {
+          await dragCafe();
+          await page
+            .getByRole("button", { name: "Add event", exact: true })
+            .click();
+          const draftActivity = eventDraft.getByLabel("Event activity");
+          await draftActivity.selectOption("activity-2");
+          await expect(draftStart).toHaveValue("12:00");
+          await expect(eventDraft.getByLabel("Event end")).toHaveValue("13:00");
+          await draftActivity.selectOption("activity-1");
+          await draftStart.fill("10:30");
+          await expect(saveDraft).toBeDisabled();
+        } finally {
+          successfulSave.resolve();
+        }
+        await expect(saveDraft).toBeEnabled();
+        await expect(draftStart).toHaveValue("10:30");
+        await eventDraft.getByRole("button", { name: "Cancel" }).click();
         await expect.poll(() => writes.length).toBe(6);
         expect(
           writes[5].rules.find((rule) => rule.activityId === "activity-2"),

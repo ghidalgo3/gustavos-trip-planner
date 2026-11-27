@@ -141,7 +141,9 @@ export default function DailyActivityPlan({
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [dayKey, setDayKey] = useState("");
   const [editor, setEditor] = useState<Editor>();
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState<"calendar" | "editor">();
+  const busy = saving !== undefined;
+  const savingEditor = saving === "editor";
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState("");
   const [editorError, setEditorError] = useState("");
@@ -257,7 +259,7 @@ export default function DailyActivityPlan({
   ) {
     if (!resource || readOnly || operation.current) return;
     operation.current = true;
-    setBusy(true);
+    setSaving(editor && !timing ? "editor" : "calendar");
     setEditorError("");
     const controller = new AbortController();
     // A dropped card starts a background save that can finish after leaving Schedule.
@@ -306,11 +308,11 @@ export default function DailyActivityPlan({
         throw reason;
       }
       if (controller.signal.aborted || !active.current) return;
-      setEditorError((reason as Error).message);
+      if (editor) setEditorError((reason as Error).message);
       throw reason;
     } finally {
       operation.current = false;
-      if (active.current) setBusy(false);
+      if (active.current) setSaving(undefined);
     }
   }
   async function saveTiming(timing: CalendarTiming) {
@@ -353,6 +355,7 @@ export default function DailyActivityPlan({
       activities,
       resource?.data.assessment,
       destination,
+      pendingTiming,
     ).find((item) => item.activityId === selected);
     const rule = activityRule(plan, selected);
     const start =
@@ -399,7 +402,7 @@ export default function DailyActivityPlan({
     } else setEditor({ kind: "info", entry });
   }
   function close() {
-    if (busy) return;
+    if (savingEditor) return;
     routeRequest.current?.abort();
     setEditor(undefined);
     setEditorError("");
@@ -455,7 +458,7 @@ export default function DailyActivityPlan({
     }
   }
   async function saveEditor() {
-    if (!plan || !editor || readOnly || calculating) return;
+    if (!plan || !editor || readOnly || calculating || operation.current) return;
     try {
       if (editor.kind === "event") {
         const target = days.find(
@@ -521,8 +524,8 @@ export default function DailyActivityPlan({
           <Button
             disabled={busy || readOnly}
             onClick={() =>
-              void persist(plan).catch((reason: Error) =>
-                setError(reason.message),
+              void persist(plan, { closeEditor: false }).catch(
+                (reason: Error) => setError(reason.message),
               )
             }
           >
@@ -576,7 +579,7 @@ export default function DailyActivityPlan({
                 appearance="secondary"
                 aria-label="Close event"
                 icon={<Dismiss24Regular />}
-                disabled={busy}
+                disabled={savingEditor}
                 onClick={close}
               />
             }
@@ -587,7 +590,7 @@ export default function DailyActivityPlan({
         <DrawerBody>
           {editor?.kind === "event" && (
             <fieldset
-              disabled={busy || readOnly}
+              disabled={savingEditor || readOnly}
               className="calendar-editor-fields"
             >
               <legend className="visually-hidden">Event timing</legend>
@@ -848,10 +851,10 @@ export default function DailyActivityPlan({
                 disabled={busy || calculating}
                 onClick={() => void saveEditor()}
               >
-                {busy ? "Saving…" : "Save"}
+                {savingEditor ? "Saving…" : "Save"}
               </Button>
             )}
-          <Button disabled={busy} onClick={close}>
+          <Button disabled={savingEditor} onClick={close}>
             {readOnly || editor?.kind === "info" || editor?.kind === "day"
               ? "Close"
               : "Cancel"}
