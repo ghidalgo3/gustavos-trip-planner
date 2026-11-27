@@ -700,6 +700,11 @@ test("repeat visits render separate accommodation pins and preserve their select
 test.each([false, true])(
   "styles all Schedule pins and connects the selected day in time order (%s)",
   async (reducedMotion) => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: query.includes("prefers-reduced-motion") && reducedMotion,
       addEventListener: vi.fn(),
@@ -729,6 +734,7 @@ test.each([false, true])(
     };
     const { rerender } = render(<ActivityMap {...props} schedule={schedule} />);
     await waitFor(() => expect(createMap).toHaveBeenCalledOnce());
+    const startedAt = performance.now();
     act(() => events.get("ready")?.({}));
     expect(markers.map((marker) => marker.title)).toEqual([
       "1. Garden",
@@ -759,9 +765,11 @@ test.each([false, true])(
       expect(routeShapes).not.toHaveBeenCalled();
     } else {
       expect(layerAdd).toHaveBeenCalledTimes(2);
-      await waitFor(() =>
-        expect(routeShapes.mock.calls.length).toBeGreaterThanOrEqual(3),
-      );
+      for (const elapsed of [200, 400, 600]) {
+        const pending = frames.splice(0);
+        act(() => pending.forEach((frame) => frame(startedAt + elapsed)));
+      }
+      expect(routeShapes).toHaveBeenCalledTimes(3);
       expect(routeShapes.mock.calls[0]).not.toEqual(routeShapes.mock.calls[2]);
     }
     rerender(

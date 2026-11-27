@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -416,9 +417,11 @@ test("the whole card is one accessible button and opens both destinations in the
 
 test("Arranged separately uses the shared Save action and stays selected on reopen", async () => {
   show();
-  fireEvent.click(
-    await screen.findByRole("button", { name: /Choose transportation/ }),
-  );
+  const card = await screen.findByRole("button", {
+    name: /Choose transportation/,
+  });
+  act(() => card.focus());
+  fireEvent.click(card);
   const tab = screen.getByRole("tab", { name: "Arranged separately" });
   fireEvent.click(tab);
   expect(tab).toHaveAttribute("aria-selected", "true");
@@ -441,6 +444,7 @@ test("Arranged separately uses the shared Save action and stays selected on reop
   expect(estimateTransportation).not.toHaveBeenCalled();
   const dismiss = screen.getByRole("button", { name: "Close transportation" });
   await waitFor(() => expect(dismiss).toBeEnabled());
+  act(() => dismiss.focus());
   fireEvent.click(dismiss);
   fireEvent.click(
     await screen.findByRole("button", {
