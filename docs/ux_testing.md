@@ -153,7 +153,7 @@ one. The starter scenarios cover these paths.
 | `trip-lifecycle` | Create the trip → rename it → delete it |
 | `add-destination-to-new-trip` | Create the trip → add a destination |
 | `add-activity-to-new-trip` | Create the trip → add a destination → add an activity there |
-| `plan-multi-city-trip-without-flights` | Create the trip → add three dated cities → save train and car legs → create one activity per city → schedule each during its visit |
+| `plan-multi-city-trip-without-flights` | Create the trip → add four dated cities → save train, car, and walking legs → add ten activities → check the map across views → schedule nine activities → move one to a different day and reload |
 
 Start a write audit in a disposable local database. Use a unique trip name
 for each attempt and pass the database name as the fixture.

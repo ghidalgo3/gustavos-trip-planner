@@ -13,7 +13,7 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
-- Add measurable web UI complexity guidelines and a UX audit scenario for planning a multi-city trip by train and car, then scheduling activities.
+- Add measurable web UI complexity guidelines and a four-city UX audit scenario with train, car, and walking legs plus an activity reschedule.
 
 - Add two opt-in local sign-in accounts for development and UX audits.
 
@@ -26,6 +26,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 ### Fixed
 
 - Show a short Add activity form, keep Save visible on phones, and use a single scrolling agenda for narrow activity schedules.
+
+- Keep the map above both Ideas and Schedule on phones when switching views.
 
 - Keep saved transportation when browsing mode tabs. Use Save to apply a change.
 

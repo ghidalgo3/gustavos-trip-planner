@@ -127,12 +127,43 @@ for (const width of [390, 820, 1100, 1280]) {
       await expect(
         page.getByRole("tab", { name: "Schedule", exact: true }),
       ).toBeVisible({ timeout: 10_000 });
+      const mapPanel = page.locator(".activity-map-panel");
+      const activityViews = page.getByRole("tablist", {
+        name: "Activity views",
+      });
+      const activitiesPane = page.getByRole("region", {
+        name: "Destination activities",
+      });
+      const originalMap = width < 768 ? await mapPanel.elementHandle() : null;
+      const measureMap = async () => {
+        const mapBounds = (await mapPanel.boundingBox())!;
+        const tabBounds = (await activityViews.boundingBox())!;
+        const contentBounds = (await activitiesPane.boundingBox())!;
+        expect(mapBounds.y + mapBounds.height).toBeLessThanOrEqual(
+          contentBounds.y,
+        );
+        return mapBounds.y - tabBounds.y;
+      };
+      const ideasMapPosition = originalMap ? await measureMap() : null;
       await page.getByRole("tab", { name: "Schedule", exact: true }).click();
       const calendar = page.getByRole("region", {
         name: "Day calendar",
         exact: true,
       });
       await expect(calendar).toBeVisible();
+      if (originalMap) {
+        expect(
+          await mapPanel.evaluate(
+            (panel, original) => panel === original,
+            originalMap,
+          ),
+        ).toBe(true);
+        expect(await measureMap()).toBe(ideasMapPosition);
+        await page.getByRole("tab", { name: "Ideas", exact: true }).click();
+        expect(await measureMap()).toBe(ideasMapPosition);
+        await page.getByRole("tab", { name: "Schedule", exact: true }).click();
+        await expect(calendar).toBeVisible();
+      }
       if (width < 1100) {
         const schedule = page.getByRole("region", {
           name: "Activity calendar",

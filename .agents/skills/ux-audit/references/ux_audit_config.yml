@@ -83,32 +83,47 @@ scenarios:
         success: The destination's activity list shows the saved activity under its chosen name.
 
   - id: plan-multi-city-trip-without-flights
-    version: "1"
-    goal: Create a multi-city trip, plan different ground transportation between the cities, and schedule an activity at every destination.
+    version: "2"
+    goal: Plan a four-city trip using only ground transportation. Build the daily schedule, revise one event, and check that the plan survives a reload.
     persona: new-trip-planner
-    setup: Start signed in on Trips using a disposable local database. Give each attempt a unique trip name. Plan Amsterdam June 10–12, Brussels June 12–14, and Paris June 14–16, 2027. Use a train from Amsterdam to Brussels and a car from Brussels to Paris. Add Canal walk, Grand Place walk, and Seine walk to the matching cities.
+    setup: >-
+      Start signed in on Trips using a disposable local database. Give each attempt a unique trip name.
+      Plan Amsterdam June 10–12, Brussels June 12–14, Paris June 14–16, and Versailles June 16–18, 2027.
+      Plan a train to Brussels on June 12 from 09:00 to 11:00 local time, a car to Paris, and a walk to Versailles.
+      In Amsterdam add Canal walk, Museum visit, and Jordaan photos. In Brussels add Grand Place walk and Comic Art Museum.
+      In Paris add Seine walk, Orsay visit, and Luxembourg Gardens. In Versailles add Palace visit and Gardens walk.
+      Leave Jordaan photos unscheduled. Schedule the other Amsterdam activities on June 11 at 09:00–10:00 and 10:30–12:00.
+      Schedule the Brussels activities on arrival day at 12:00–13:00 and 14:00–15:00, after the train.
+      Schedule the Paris activities on June 15 at 09:00–10:00, 10:30–12:30, and 14:00–15:00, then move Luxembourg Gardens to June 16 at the same time.
+      Schedule the Versailles activities on June 17 at 09:00–11:00 and 11:30–12:30.
     startPath: /
-    success: The new trip shows all three dated visits, the two saved ground transportation legs, and a scheduled activity within each visit.
-    partial: The trip exists, but one or more dated visits, transportation legs, or scheduled activities could not be confirmed.
+    success: After reload, the trip shows four dated visits and three ground legs. Each schedule shows its saved events, Luxembourg Gardens appears on the new day, and Jordaan photos is still unscheduled.
+    partial: The trip exists, but one or more visits, ground legs, map checks, or schedule changes could not be confirmed.
     writes: true
-    components: [trip-list, trip-overview, place-search, transportation, activities, schedule]
+    components: [trip-list, trip-overview, place-search, transportation, activities, schedule, map]
     platforms: [desktop, mobile-web]
     checkpoints:
       - id: create-trip
-        goal: Create the new trip.
+        goal: Create a new trip.
         success: The trip overview or Trips page shows the unique name.
       - id: add-destinations
-        goal: Save all three dated visits in travel order.
-        success: Amsterdam, Brussels, and Paris appear in order with their planned dates.
+        goal: Save all four dated visits in travel order.
+        success: Amsterdam, Brussels, Paris, and Versailles appear in order with their planned dates.
       - id: plan-transportation
-        goal: Save the train and car legs between consecutive cities without choosing a flight.
-        success: The Amsterdam-to-Brussels card shows Train and the Brussels-to-Paris card shows Car.
+        goal: Save the train, car, and walking legs without choosing a flight.
+        success: The overview shows Train to Brussels, Car to Paris, and Walking to Versailles. The train card shows the departure and arrival times.
       - id: create-activities
-        goal: Add each named activity to its matching destination using the activity name only.
+        goal: Add the ten activities to their matching destinations by name.
         success: Each named activity appears in the Ideas list for its destination.
+      - id: switch-activity-views
+        goal: Switch from Ideas to Schedule and back within one destination while checking the map.
+        success: The map stays visible for the same destination in both views. On a phone, it stays above the content below the Ideas and Schedule tabs.
       - id: schedule-activities
-        goal: Schedule the three activities during their respective visits.
-        success: The calendar shows each activity on a date in its destination's visit after returning to the schedule.
+        goal: Schedule nine activities across the four visits and leave Jordaan photos unscheduled.
+        success: The calendar shows each activity at the chosen time, with the train and both Brussels activities on arrival day. Jordaan photos appears in Unscheduled.
+      - id: revise-schedule
+        goal: Move Luxembourg Gardens to June 16, then reload and verify the trip.
+        success: The revised activity appears once on June 16 at 14:00. After reload, the other activities retain their dates and times and all three ground legs appear on Overview.
 
 # Browser profiles are defined by the skill and can be overridden here.
 # Use a rule ID and false to disable it, or supply the fields to override.

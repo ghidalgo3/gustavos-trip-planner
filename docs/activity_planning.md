@@ -62,7 +62,9 @@ A plan selects activities,
 assigns each activity at most once across repeat visits, and orders each day.
 On wide screens, Schedule shows an hour grid between a searchable activity list
 and the map. Resize either panel with its divider or the keyboard. On narrower
-screens, the selected day's events, activities, and map scroll with the page.
+screens, the map sits above the selected day's events and the activity list.
+They scroll with the page. On phones, the map keeps its position when you switch
+between Ideas and Schedule.
 The agenda lists timed entries in order. Tap an entry to open it.
 On the hour grid, drag an activity from the list to schedule it, move an event
 to change its time, or drag its start/end handles to resize it. Timing snaps to
