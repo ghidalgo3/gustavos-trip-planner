@@ -238,6 +238,14 @@ for (const width of [390, 1280]) {
       response.context.destinationName = "London";
       response.timingStale = true;
       response.assessment.days = [];
+      response.assessment.issues = Array.from({ length: 7 }, (_, index) => ({
+        code: "travel",
+        severity: "provisional",
+        message: `Check travel estimate ${index + 1}`,
+        date: "2026-11-23",
+        activityId: null,
+        duration: null,
+      }));
       let writes = 0;
       await page.route(`**${prefix}/document`, async (route) => {
         const result = await route.fetch();
@@ -290,12 +298,40 @@ for (const width of [390, 1280]) {
       await page.route(
         `**${prefix}/destinations/london-gb/activity-plan`,
         (route) => {
-          if (route.request().method() === "PUT") writes++;
+          if (route.request().method() === "PUT") {
+            expect(route.request().postDataJSON()).toEqual({
+              plan: response.plan,
+              contextVersion: response.contextVersion,
+            });
+            writes++;
+            response.timingStale = false;
+          }
           return route.fulfill({ json: response, headers: { ETag: '"1"' } });
         },
       );
       await page.goto(`${prefix}/activities?destination=london-gb`);
       await page.getByRole("tab", { name: "Schedule", exact: true }).click();
+      await expect.poll(() => writes).toBe(1);
+      await expect(
+        page.getByRole("button", { name: "Update times" }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Review days" }),
+      ).toHaveCount(0);
+      const notices = page.getByRole("region", { name: "Schedule notices" });
+      await expect(notices.getByRole("listitem")).toHaveCount(5);
+      await notices
+        .getByRole("button", { name: "View 2 more notices" })
+        .click();
+      const drawer = page.getByRole("dialog", {
+        name: "More schedule notices",
+      });
+      await expect(drawer.getByRole("listitem")).toHaveText([
+        "Check travel estimate 6",
+        "Check travel estimate 7",
+      ]);
+      await drawer.getByRole("button", { name: "Close drawer" }).click();
+      await expect(drawer).toBeHidden();
       for (const offline of [false, true]) {
         if (offline) await context.setOffline(true);
         const day = page.getByRole("combobox", { name: "Calendar day" });
@@ -323,7 +359,7 @@ for (const width of [390, 1280]) {
         ).toBeVisible();
         await day.selectOption(`${stayId}:2026-11-23`);
       }
-      expect(writes).toBe(0);
+      expect(writes).toBe(1);
     });
     test("opens flight links and transportation details on their days, including offline", async ({
       page,

@@ -34,15 +34,15 @@ public static class ActivityPlanRules
                 .ToArray(),
         };
 
-    private static ActivityPlan WithoutDayNames(ActivityPlan plan) =>
+    private static ActivityPlan WithoutDayDetails(ActivityPlan plan) =>
         plan with
         {
-            Days = plan.Days.Select(day => day with { Name = null }).ToArray(),
+            Days = plan.Days.Select(day => day with { Name = null, Review = null }).ToArray(),
         };
 
-    public static bool OnlyDayNamesChanged(ActivityPlan before, ActivityPlan after) =>
+    public static bool OnlyDayDetailsChanged(ActivityPlan before, ActivityPlan after) =>
         Hash(before) != Hash(after)
-        && Hash(WithoutDayNames(before)) == Hash(WithoutDayNames(after));
+        && Hash(WithoutDayDetails(before)) == Hash(WithoutDayDetails(after));
 
     // A planning day starts at wake-up. A 01:00 booking belongs to the following
     // calendar date when that day's awake window extends past midnight.
@@ -215,10 +215,7 @@ public static class ActivityPlanRules
 
             for (var day = start; day <= end && days.Count < 366; day = day.AddDays(1))
             {
-                if (!days.Any(d => d.Date == day))
-                {
-                    days.Add(new(visit.StayId, day, []));
-                }
+                days.Add(new(visit.StayId, day, []));
             }
         }
         return Reconcile(
@@ -304,10 +301,15 @@ public static class ActivityPlanRules
 
             if (
                 plan.Days.Select(d => (d.StayId, d.Date)).Distinct().Count() != plan.Days.Length
-                || plan.Days.Select(d => d.Date).Distinct().Count() != plan.Days.Length
+                || plan.Days.Where(d => d.ActivityIds.Length > 0)
+                    .GroupBy(d => d.Date)
+                    .Any(g => g.Count() > 1)
             )
             {
-                errors["days"] = ["Use one shared schedule per local date."];
+                errors["days"] =
+                [
+                    "Use one review per visit and one activity schedule per local date.",
+                ];
             }
 
             if (

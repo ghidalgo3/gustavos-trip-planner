@@ -30,6 +30,7 @@ type Gesture = {
   offset: number;
   timing: CalendarTiming;
   mode: CalendarGesture;
+  source: "calendar" | "list" | "map";
   moved: boolean;
   listCard?: DOMRect;
   dayKey: string;
@@ -44,6 +45,8 @@ export default function useCalendarDrag({
   grid,
   scroll,
   activityList,
+  mapPanel,
+  mapTiming,
   dayKey,
   onNavigate,
 }: {
@@ -53,6 +56,8 @@ export default function useCalendarDrag({
   grid: RefObject<HTMLDivElement | null>;
   scroll: RefObject<HTMLDivElement | null>;
   activityList: RefObject<HTMLElement | null>;
+  mapPanel?: RefObject<HTMLDivElement | null>;
+  mapTiming: (activityId: string) => CalendarTiming | undefined;
   dayKey: string;
   onNavigate: (key: string) => void;
 }) {
@@ -95,7 +100,7 @@ export default function useCalendarDrag({
   function overUnscheduleTarget(current: Gesture) {
     return (
       current.mode === "move" &&
-      !current.listCard &&
+      current.source === "calendar" &&
       Boolean(
         activityList.current?.contains(
           document.elementFromPoint(current.x, current.y),
@@ -157,14 +162,15 @@ export default function useCalendarDrag({
   }, [dragging, disabled, scroll]);
 
   function begin(
-    event: ReactPointerEvent<HTMLElement>,
+    event: ReactPointerEvent<HTMLElement> | PointerEvent,
+    target: HTMLElement,
     timing: CalendarTiming,
     mode: CalendarGesture = "move",
-    fromList = false,
+    source: Gesture["source"] = "calendar",
   ) {
     if (disabled || !event.isPrimary || event.button !== 0) return;
     event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    target.setPointerCapture(event.pointerId);
     suppressClick.current = false;
     gesture.current = {
       pointerId: event.pointerId,
@@ -173,23 +179,22 @@ export default function useCalendarDrag({
       x: event.clientX,
       y: event.clientY,
       offset:
-        !fromList && grid.current
+        source === "calendar" && grid.current
           ? (event.clientY - grid.current.getBoundingClientRect().top) /
               pixelsPerMinute -
             (mode === "end" ? timing.end : timing.start)
           : 0,
       timing,
       mode,
+      source,
       moved: false,
-      listCard: fromList
-        ? event.currentTarget.getBoundingClientRect()
-        : undefined,
+      listCard: source === "list" ? target.getBoundingClientRect() : undefined,
       dayKey,
     };
     setDragging(true);
   }
 
-  function move(event: ReactPointerEvent<HTMLElement>) {
+  function move(event: ReactPointerEvent<HTMLElement> | PointerEvent) {
     const current = gesture.current;
     if (!current || current.pointerId !== event.pointerId || disabled) return;
     current.x = event.clientX;
@@ -221,7 +226,7 @@ export default function useCalendarDrag({
     setOverActivityList(false);
   }
 
-  function finish(event: ReactPointerEvent<HTMLElement>) {
+  function finish(event: ReactPointerEvent<HTMLElement> | PointerEvent) {
     const current = gesture.current;
     if (!current || current.pointerId !== event.pointerId) return;
     const drop = { ...current, x: event.clientX, y: event.clientY };
@@ -236,17 +241,104 @@ export default function useCalendarDrag({
       next &&
       (next.start !== current.timing.start ||
         next.end !== current.timing.end ||
-        current.listCard ||
+        current.source !== "calendar" ||
         current.dayKey !== dayKey)
     )
       onTiming(next);
   }
 
+  const beginMapDrag = useEffectEvent((event: PointerEvent) => {
+    suppressClick.current = false;
+    if (disabled || !(event.target instanceof Element)) return;
+    const marker = event.target.closest<HTMLButtonElement>(
+      "button[data-calendar-activity-id]:not(:disabled)",
+    );
+    const activityId = marker?.dataset.calendarActivityId;
+    if (!marker || !activityId) return;
+    const timing = mapTiming(activityId);
+    if (timing) begin(event, marker, timing, "move", "map");
+  });
+  const moveMapDrag = useEffectEvent(move);
+  const finishMapDrag = useEffectEvent(finish);
+  const cancelMapDrag = useEffectEvent((event: PointerEvent) => {
+    if (
+      gesture.current?.source === "map" &&
+      gesture.current.pointerId === event.pointerId
+    )
+      cancel();
+  });
+  const mapKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === "Escape" && gesture.current?.source === "map") cancel();
+    else suppressClick.current = false;
+  });
+  function filterClick(event: React.MouseEvent<HTMLElement> | MouseEvent) {
+    if (suppressClick.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressClick.current = false;
+    }
+  }
+
+  useEffect(() => {
+    const panel = mapPanel?.current;
+    if (!panel) return;
+    const listeners = new AbortController();
+    const options = { capture: true, signal: listeners.signal };
+    panel.addEventListener(
+      "pointerdown",
+      (event) => beginMapDrag(event),
+      options,
+    );
+    panel.addEventListener(
+      "pointermove",
+      (event) => moveMapDrag(event),
+      options,
+    );
+    panel.addEventListener(
+      "pointerup",
+      (event) => finishMapDrag(event),
+      options,
+    );
+    panel.addEventListener(
+      "pointercancel",
+      (event) => cancelMapDrag(event),
+      options,
+    );
+    panel.addEventListener(
+      "lostpointercapture",
+      (event) => cancelMapDrag(event),
+      options,
+    );
+    panel.addEventListener("keydown", (event) => mapKeyDown(event), options);
+    panel.addEventListener("click", filterClick, options);
+    return () => listeners.abort();
+  }, [mapPanel]);
+  useEffect(() => {
+    const panel = mapPanel?.current;
+    if (!panel || disabled) return;
+    panel.dataset.calendarMapDrag = "true";
+    return () => {
+      delete panel.dataset.calendarMapDrag;
+    };
+  }, [mapPanel, disabled]);
+
   return {
     preview,
     dragCard,
     overActivityList,
-    begin,
+    begin: (
+      event: ReactPointerEvent<HTMLElement>,
+      timing: CalendarTiming,
+      mode: CalendarGesture = "move",
+      fromList = false,
+    ) =>
+      begin(
+        event,
+        event.currentTarget,
+        timing,
+        mode,
+        fromList ? "list" : "calendar",
+      ),
     handlers: {
       onPointerDownCapture: () => {
         suppressClick.current = false;
@@ -259,13 +351,7 @@ export default function useCalendarDrag({
         if (event.key === "Escape") cancel();
         else suppressClick.current = false;
       },
-      onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
-        if (suppressClick.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          suppressClick.current = false;
-        }
-      },
+      onClickCapture: filterClick,
     },
   };
 }

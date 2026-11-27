@@ -48,7 +48,7 @@ for (const selection of ["partial", "complete"]) {
         page.getByRole("img", { name: "Japan", exact: true }),
       ).toBeVisible();
       await expect(
-        page.locator(".overview-destination-link .city-icon"),
+        page.locator(".overview-destination-heading .city-icon"),
       ).toBeVisible();
       await page.screenshot({
         path: testInfo.outputPath("online-trip-artwork.png"),
@@ -71,7 +71,7 @@ for (const selection of ["partial", "complete"]) {
           ),
         )
         .toBe(true);
-      await page.locator(".overview-destination-link").first().click();
+      await page.locator(".overview-destination-link").first().press("Enter");
       const destinationTab = page.getByRole("tab", { name: /Tokyo/ });
       await expect(destinationTab.locator(".city-icon")).toBeVisible();
       await expect
@@ -169,7 +169,7 @@ for (const selection of ["partial", "complete"]) {
         offlinePage.getByRole("img", { name: "Japan", exact: true }),
       ).toBeVisible();
       const cityIcon = offlinePage.locator(
-        ".overview-destination-link .city-icon",
+        ".overview-destination-heading .city-icon",
       );
       await expect(cityIcon).toBeVisible();
       // Confirm external SVG symbols have rendered geometry while disconnected.

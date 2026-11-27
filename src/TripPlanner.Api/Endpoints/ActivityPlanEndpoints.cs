@@ -542,8 +542,8 @@ public static class ActivityPlanEndpoints
         bool preserveTiming =
             previous is not null
             && request.ProposalId is null
-            && ActivityPlanRules.OnlyDayNamesChanged(previous.Plan, plan);
-        // An unchanged saved schedule can contain stale flight candidates. Renaming
+            && ActivityPlanRules.OnlyDayDetailsChanged(previous.Plan, plan);
+        // An unchanged saved schedule can contain stale flight candidates. Editing day details
         // validates its annotated input fields without revalidating or accepting timing.
         var errors = preserveTiming
             ? new Dictionary<string, string[]>()

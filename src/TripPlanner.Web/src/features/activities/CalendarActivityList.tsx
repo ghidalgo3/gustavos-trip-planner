@@ -9,10 +9,11 @@ import type { ActivityPlan } from "./activityPlanApi";
 import { activityRule } from "./activityPlanApi";
 import { activityMatchesSearch } from "./activitySearch";
 import {
+  calendarActivityDragTiming,
+  calendarActivityMinutes,
   calendarDateLabel,
   type CalendarTiming,
 } from "./activityCalendarModel";
-import { durationMinutes } from "../../shared/time/durations";
 import type { CalendarDragCard } from "./useCalendarDrag";
 import { CalendarActivityCardsSkeleton } from "./ActivityPlanningSkeletons";
 
@@ -45,9 +46,11 @@ export default function CalendarActivityList({
   const matching =
     loading || !plan
       ? []
-      : activities.filter((item) =>
-          activityMatchesSearch(item, query.trim().toLocaleLowerCase()),
-        );
+      : activities
+          .map((item, index) => ({ item, number: index + 1 }))
+          .filter(({ item }) =>
+            activityMatchesSearch(item, query.trim().toLocaleLowerCase()),
+          );
   return (
     <aside
       ref={listRef}
@@ -84,7 +87,7 @@ export default function CalendarActivityList({
       <div className="schedule-activity-groups">
         {[false, true].map((scheduled) => {
           const items = matching.filter(
-            (item) => timedIds.has(item.id) === scheduled,
+            ({ item }) => timedIds.has(item.id) === scheduled,
           );
           return (
             <section
@@ -100,12 +103,9 @@ export default function CalendarActivityList({
               {loading && <CalendarActivityCardsSkeleton />}
               <ul>
                 {plan &&
-                  items.map((activity) => {
+                  items.map(({ item: activity, number }) => {
                     const rule = activityRule(plan, activity.id);
-                    const minutes =
-                      durationMinutes(
-                        rule.duration ?? activity.properties.duration,
-                      ) ?? 60;
+                    const minutes = calendarActivityMinutes(plan, activity);
                     const day = plan.days.find((item) =>
                       item.activityIds.includes(activity.id),
                     );
@@ -119,7 +119,10 @@ export default function CalendarActivityList({
                             <ReOrderDotsVertical24Regular />
                           </span>
                         )}
-                        <span>
+                        <span className="activity-number" aria-hidden="true">
+                          {number}
+                        </span>
+                        <span className="schedule-activity-label">
                           <strong>{activity.properties.name}</strong>
                           <small>
                             {minutes} min
@@ -138,6 +141,7 @@ export default function CalendarActivityList({
                           data-draggable={!!onDrag && !readOnly}
                           data-dragging={!!preview}
                           aria-label={`Schedule ${activity.properties.name}`}
+                          aria-description={`Activity ${number}`}
                           disabled={disabled}
                           onClick={() => onEvent(activity.id)}
                           onPointerDown={(event) => {
@@ -148,11 +152,10 @@ export default function CalendarActivityList({
                               )
                             )
                               return;
-                            onDrag?.(event, {
-                              activityId: activity.id,
-                              start: 0,
-                              end: Math.min(1440, Math.max(15, minutes)),
-                            });
+                            onDrag?.(
+                              event,
+                              calendarActivityDragTiming(activity.id, minutes),
+                            );
                           }}
                         >
                           {content}

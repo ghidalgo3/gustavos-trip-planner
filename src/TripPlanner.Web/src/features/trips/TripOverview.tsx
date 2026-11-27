@@ -3,6 +3,7 @@ import type { TransportStop } from "./destinationTransportModel";
 import {
   useExplicitResourceRefresh,
   useTripResourceVersion,
+  useTripDocumentState,
 } from "../../api/tripDocumentStore";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
 import CityIcon from "../../shared/components/CityIcon";
@@ -10,9 +11,10 @@ import { activityStatuses } from "../activities/activityStatus";
 import { DestinationOverviewSkeleton } from "./TripSkeletons";
 import { useActionToast } from "../../shared/hooks/useActionToast";
 import { Fragment, useEffect, useState } from "react";
-import { Button, Text, Title3 } from "@fluentui/react-components";
+import { Badge, Button, Text, Title3 } from "@fluentui/react-components";
 import {
   Add24Regular,
+  Checkmark16Regular,
   ArrowRight20Regular,
   Location24Regular,
   Delete20Regular,
@@ -26,6 +28,7 @@ import {
   getDestinations,
   getActivities,
   deleteDestination,
+  type Activity,
   type Destination,
   type DestinationCollection,
   type Stay,
@@ -46,7 +49,9 @@ import { flightNumbers } from "../flights/flightFormatting";
 import AddDestinationDrawer from "./AddDestinationDrawer";
 import StayLocationDrawer from "./StayLocationDrawer";
 import DeleteDestinationDialog from "./DeleteDestinationDialog";
-import DestinationPlanningProgress from "./DestinationPlanningProgress";
+import { listTransportation, type Transportation } from "./transportationApi";
+import { tripPlanningProgress } from "./tripPlanningProgress";
+import { calendarDayKey } from "../activities/activityCalendarModel";
 import {
   activityPlanPath,
   planningRequest,
@@ -69,6 +74,12 @@ export default function TripOverview({
   homeCity?: string | null;
 }) {
   const documentVersion = useTripResourceVersion(`/trips/${trip.id}`);
+  const document = useTripDocumentState();
+  const itinerary =
+    document.tripId === trip.id
+      ? document.document?.document.itinerary
+      : undefined;
+  const [transportation, setTransportation] = useState<Transportation[]>();
   const [flightData, setFlightData] = useState<{
     flights?: SelectedFlight[];
     choices?: FlightChoiceProgress[];
@@ -85,6 +96,7 @@ export default function TripOverview({
       string,
       {
         counts?: Record<string, number>;
+        items?: Activity[];
         error?: boolean;
       }
     >
@@ -169,7 +181,7 @@ export default function TripOverview({
         for (const activity of activities.features)
           counts[activity.properties.state] =
             (counts[activity.properties.state] ?? 0) + 1;
-        return { counts };
+        return { counts, items: activities.features };
       }),
     ).then((results) => {
       if (!controller.signal.aborted)
@@ -232,6 +244,21 @@ export default function TripOverview({
       });
     return () => controller.abort();
   }, [trip.id, destinations?.features, documentVersion]);
+
+  useEffect(() => {
+    if (!destinations?.features.length) return;
+    let active = true;
+    void listTransportation(trip.id)
+      .then(({ data }) => {
+        if (active && Array.isArray(data)) setTransportation(data);
+      })
+      .catch(() => {
+        if (active) setTransportation(undefined);
+      });
+    return () => {
+      active = false;
+    };
+  }, [trip.id, destinations?.features, documentVersion, summaryRetry]);
 
   function destinationAdded(destination: Destination) {
     setDestinations((current) => {
@@ -325,6 +352,76 @@ export default function TripOverview({
           : a.stay.order - b.stay.order;
   });
 
+  const stops = visits.map(visitStop);
+  const planningStops = homeCity
+    ? [{ city: homeCity }, ...stops, { city: homeCity }]
+    : stops;
+  const planningLegs = planningStops
+    .slice(1)
+    .map((to: FlightStop & TransportStop, index) => {
+      const from: FlightStop & TransportStop = planningStops[index];
+      return {
+        from: from.stayId,
+        to: to.stayId,
+        fromCity: from.city ?? "Home",
+        toCity: to.city ?? "Home",
+        hasFlight: matchingFlightLegs(from, to, legs, airportCities).length > 0,
+      };
+    });
+  const progress = tripPlanningProgress(
+    visits,
+    planningSummaries,
+    activitySummaries,
+    planningLegs,
+    transportation,
+    itinerary,
+  );
+  const next = progress.next;
+
+  function editDates(visit: (typeof visits)[number]) {
+    setEditingVisit(visit);
+    setShowDateDrawer(true);
+  }
+
+  function activityLink(
+    visit: (typeof visits)[number],
+    params: Record<string, string> = {},
+  ) {
+    const query = new URLSearchParams({
+      destination: visit.destination.id,
+      ...params,
+    });
+    return `/trips/${encodeURIComponent(trip.id)}/activities?${query}`;
+  }
+
+  function activityAction(visit: (typeof visits)[number]) {
+    if (
+      (next?.kind !== "choose" && next?.kind !== "schedule") ||
+      next.visit.stay.id !== visit.stay.id
+    )
+      return null;
+    const city = visit.destination.properties.name;
+    const label =
+      next.kind === "schedule"
+        ? `Schedule ${next.count} ${next.count === 1 ? "activity" : "activities"} in ${city}`
+        : `Choose activities in ${city}`;
+    return (
+      <Link
+        className="navigation-button"
+        data-next-action
+        to={activityLink(
+          visit,
+          next.kind === "choose"
+            ? { view: "ideas" }
+            : { view: "schedule", unscheduled: "1" },
+        )}
+      >
+        {label}
+        <ArrowRight20Regular aria-hidden="true" />
+      </Link>
+    );
+  }
+
   function transportSpacer(
     from: TransportStop & FlightStop,
     to: TransportStop & FlightStop,
@@ -344,6 +441,11 @@ export default function TripOverview({
         }}
         readOnly={readOnly}
         homeUserId={trip.ownerUserId}
+        nextAction={
+          next?.kind === "transport" &&
+          next.leg.from === from.stayId &&
+          next.leg.to === to.stayId
+        }
         flights={matches.map(flightNumbers).join(" · ")}
       />
     );
@@ -351,18 +453,32 @@ export default function TripOverview({
 
   return (
     <section className="trip-overview" aria-label="Overview">
-      {!readOnly && destinations && destinations.features.length > 0 && (
-        <div className="trip-overview-heading">
-          <Button
-            appearance="primary"
-            icon={<Add24Regular />}
-            onClick={() => setShowDrawer(true)}
-          >
-            Add destination
-          </Button>
+      {toaster}
+      {visits.length > 0 && (!readOnly || progress.planned) && (
+        <div className="overview-planning-header">
+          {progress.planned && (
+            <Badge
+              appearance="outline"
+              color="subtle"
+              size="large"
+              icon={<Checkmark16Regular />}
+              role="status"
+            >
+              Trip planned
+            </Badge>
+          )}
+          {!readOnly && (
+            <Button
+              appearance="secondary"
+              icon={<Add24Regular />}
+              className="overview-add-destination"
+              onClick={() => setShowDrawer(true)}
+            >
+              Add destination
+            </Button>
+          )}
         </div>
       )}
-      {toaster}
       {error ? (
         <div className="overview-load-error">
           <Text role="alert">{error}</Text>
@@ -409,19 +525,19 @@ export default function TripOverview({
                   : visitStop(visits[index - 1]),
                 visitStop({ destination, stay }),
               )}
-              <li className="overview-destination overview-destination-navigable interactive-card">
+              <li className="overview-destination interactive-card">
+                <Link
+                  className="overview-destination-link card-action card-overlay"
+                  aria-label={destination.properties.name}
+                  to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
+                />
                 <div className="overview-destination-details">
-                  <Title3 as="h3">
-                    <Link
-                      className="overview-destination-link card-action"
-                      to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
-                    >
-                      <CityIcon
-                        name={destination.properties.name}
-                        countryCode={destination.properties.countryCode}
-                      />
-                      {destination.properties.name}
-                    </Link>
+                  <Title3 as="h3" className="overview-destination-heading">
+                    <CityIcon
+                      name={destination.properties.name}
+                      countryCode={destination.properties.countryCode}
+                    />
+                    {destination.properties.name}
                   </Title3>
                   {!readOnly && (
                     <Button
@@ -441,13 +557,14 @@ export default function TripOverview({
                 ) : (
                   <Button
                     className="overview-destination-dates"
-                    appearance="outline"
+                    appearance={
+                      next?.kind === "dates" && next.visit.stay.id === stay.id
+                        ? "primary"
+                        : "outline"
+                    }
                     icon={<Calendar24Regular />}
                     aria-label={`Edit dates: ${destination.properties.name}, visit ${index + 1}`}
-                    onClick={() => {
-                      setEditingVisit({ destination, stay });
-                      setShowDateDrawer(true);
-                    }}
+                    onClick={() => editDates({ destination, stay })}
                   >
                     <span className="overview-visit-button-label">
                       {visitDates(stay)}
@@ -474,13 +591,26 @@ export default function TripOverview({
                     <ChevronRight20Regular aria-hidden="true" />
                   </Button>
                 )}
-                {planningSummaries[destination.id] && (
-                  <DestinationPlanningProgress
-                    response={planningSummaries[destination.id]!}
-                    stayId={stay.id}
-                    name={destination.properties.name}
-                  />
-                )}
+                {next?.kind === "conflict" &&
+                  next.visit.stay.id === stay.id && (
+                    <Link
+                      className="navigation-button overview-conflict-link"
+                      data-next-action
+                      to={activityLink(
+                        { destination, stay },
+                        {
+                          view: "schedule",
+                          day: calendarDayKey({
+                            stayId: stay.id,
+                            date: next.date,
+                          }),
+                          details: "1",
+                        },
+                      )}
+                    >
+                      Review timing conflict
+                    </Link>
+                  )}
                 {planningSummaries[destination.id] === null && (
                   <Button
                     appearance="outline"
@@ -490,6 +620,7 @@ export default function TripOverview({
                   </Button>
                 )}
                 <div className="overview-activity-summary">
+                  {activityAction({ destination, stay })}
                   {activitySummaries[destination.id]?.counts ? (
                     Object.keys(activitySummaries[destination.id].counts!)
                       .length ? (
@@ -525,7 +656,7 @@ export default function TripOverview({
                       </div>
                     ) : (
                       <Link
-                        className="overview-activities-link"
+                        className="navigation-button overview-activities-link"
                         aria-label={`${readOnly ? "View activities" : "Plan activities"} in ${destination.properties.name}`}
                         to={`/trips/${encodeURIComponent(trip.id)}/activities?destination=${encodeURIComponent(destination.id)}`}
                       >

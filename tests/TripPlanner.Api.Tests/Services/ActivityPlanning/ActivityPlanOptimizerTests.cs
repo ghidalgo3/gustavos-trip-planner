@@ -63,6 +63,35 @@ public sealed class ActivityPlanOptimizerTests
     }
 
     [TestMethod]
+    public async Task SharedVisitDate_PreservesTheOtherVisitsDayReviewWithoutSplittingTheSchedule()
+    {
+        var context = Context(TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15));
+        var first = context.Visits[0];
+        var second = first with { StayId = Guid.NewGuid(), Order = 1 };
+        context = context with { Visits = [first, second] };
+        var plan = Plan(context);
+        var openDay = new ActivityPlanDay(second.StayId, Date, [])
+        {
+            Review = "open:0123456789abcdef",
+        };
+        plan = plan with { Days = [openDay, .. plan.Days] };
+
+        var result = await Schedule(context, plan);
+        Assert.IsNotEmpty(result.Alternatives);
+        foreach (var alternative in result.Alternatives)
+        {
+            var days = alternative.Plan.Days;
+            Assert.HasCount(2, days);
+            Assert.AreEqual(openDay.Review, days.Single(day => day.StayId == second.StayId).Review);
+            Assert.IsEmpty(days.Single(day => day.StayId == second.StayId).ActivityIds);
+            CollectionAssert.AreEquivalent(
+                plan.SelectedActivityIds,
+                days.Single(day => day.StayId == first.StayId).ActivityIds
+            );
+        }
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ScheduleSelected_MinimizesTravel_WithOrWithoutStay_ComparedWithAllOrders(

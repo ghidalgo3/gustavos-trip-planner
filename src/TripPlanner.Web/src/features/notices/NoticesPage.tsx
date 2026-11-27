@@ -16,7 +16,9 @@ export default function NoticesPage() {
           </li>
         ))}
       </ul>
-      <a href="/notices/software-licenses.txt">Third-party software licenses</a>
+      <a className="navigation-button" href="/notices/software-licenses.txt">
+        Third-party software licenses
+      </a>
     </section>
   );
 }

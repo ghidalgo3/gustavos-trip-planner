@@ -27,7 +27,7 @@ a SwiftUI iOS app, and a .NET API with PostgreSQL. Production runs on Azure.
 
 | Topic | Guide |
 | --- | --- |
-| Desktop and mobile web journey audits | [UX testing with Codex](docs/ux_testing.md) |
+| Desktop and mobile web journey audits, including planning progress | [UX testing with Codex](docs/ux_testing.md) |
 | Endpoints and request validation | [REST API reference](docs/api.md) |
 | Portable trip model and JSON Schema | [Trip document](docs/trip_document.md) |
 | Storage, migrations, and resource relationships | [PostgreSQL database](docs/database.md) |

@@ -62,7 +62,8 @@ public sealed record TransportationRequest(
         "bus",
         "train",
         "transit",
-        "flight"
+        "flight",
+        "arranged-separately"
     )]
         string? Mode = null,
     [property: SupportedDate] DateOnly? DepartureDate = null,

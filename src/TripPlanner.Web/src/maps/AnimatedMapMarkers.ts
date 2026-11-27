@@ -48,6 +48,10 @@ export class AnimatedMapMarkers<T> {
         if (description.button.dataset.selected)
           button.dataset.selected = description.button.dataset.selected;
         else delete button.dataset.selected;
+        if (description.button.dataset.calendarActivityId)
+          button.dataset.calendarActivityId =
+            description.button.dataset.calendarActivityId;
+        else delete button.dataset.calendarActivityId;
         button.onclick = description.button.onclick;
         button.disabled = false;
         button.removeAttribute("aria-hidden");

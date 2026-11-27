@@ -182,6 +182,24 @@ export type CalendarEntry = {
 export type CalendarTiming = { activityId: string; start: number; end: number };
 export type CalendarGesture = "move" | "start" | "end";
 
+export function calendarActivityMinutes(
+  plan: ActivityPlan,
+  activity: Activity,
+) {
+  return (
+    durationMinutes(
+      activityRule(plan, activity.id).duration ?? activity.properties.duration,
+    ) ?? 60
+  );
+}
+
+export function calendarActivityDragTiming(
+  activityId: string,
+  minutes: number,
+): CalendarTiming {
+  return { activityId, start: 0, end: Math.min(1440, Math.max(15, minutes)) };
+}
+
 // A gesture edits destination wall-clock time in quarter-hour increments.
 export function calendarGestureTiming(
   timing: CalendarTiming,

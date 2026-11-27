@@ -105,8 +105,8 @@ public sealed class RouteFareComposer(AirportCatalog airports)
         var results = new List<FareSearchResult>();
         foreach (var party in parties)
         {
-            var chosen =
-                savedChoices?.FirstOrDefault(choice => choice.PartyId == party.Id)?.LegKeys ?? [];
+            var choice = savedChoices?.FirstOrDefault(choice => choice.PartyId == party.Id);
+            var chosen = choice?.LegKeys ?? [];
             var settings = document.Parties.Single(p => p.PartyId == party.Id);
             var raw = fares.Where(f => f.PartyId == party.Id).OrderBy(f => f.CacheKey).ToArray();
             if (raw.Length == 0)
@@ -135,12 +135,21 @@ public sealed class RouteFareComposer(AirportCatalog airports)
                         .Distinct();
                 })
                 .ToArray();
-            var purchasedIds =
-                savedChoices
-                    ?.FirstOrDefault(choice => choice.PartyId == party.Id)
-                    ?.PurchasedOfferIds
-                ?? [];
-            var purchased = offers.Where(offer => purchasedIds.Contains(offer.Id)).ToArray();
+            var purchasedIds = choice?.PurchasedOfferIds ?? [];
+            // A booking retained for review can cover a flight outside the current visit dates.
+            // Only bookings whose full set of flights is still selected constrain this route.
+            var purchased = offers
+                .Where(offer =>
+                    purchasedIds.Contains(offer.Id)
+                    && (
+                        offer.Legs.Length == 1
+                            ? selectedKeys.Contains(offer.Legs[0].Key)
+                            : chosen.Length == document.Visits.Length + 1
+                                && chosen[0] == offer.Legs[0].Key
+                                && chosen[^1] == offer.Legs[1].Key
+                    )
+                )
+                .ToArray();
             offers = offers
                 .Where(offer =>
                     purchased.All(booked =>

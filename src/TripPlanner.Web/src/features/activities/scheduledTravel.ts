@@ -38,6 +38,13 @@ export function scheduledTravelEntries(
       item.destinationVisitId !== day.stayId
     )
       return [];
+    const transportation =
+      item.kind === "transportation"
+        ? (item.transportation as Transportation)
+        : undefined;
+    const from = transportation?.originStayId;
+    const to = transportation?.destinationStayId;
+    if ((from || to) && from !== day.stayId && to !== day.stayId) return [];
     const departure = Date.parse(item.start);
     const duration = durationMinutes(
       typeof item.duration === "string" ? item.duration : null,
@@ -67,10 +74,7 @@ export function scheduledTravelEntries(
               : "Transportation",
         start: Math.max(0, start),
         end: Math.min(1440, end),
-        transportation:
-          item.kind === "transportation"
-            ? (item.transportation as Transportation)
-            : undefined,
+        transportation,
       },
     ];
   });

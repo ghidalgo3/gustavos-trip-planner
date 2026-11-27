@@ -1,10 +1,13 @@
 import {
   useEffect,
   useEffectEvent,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type Ref,
+  type RefObject,
 } from "react";
 import {
   Button,
@@ -21,12 +24,13 @@ import {
   useTripResourceVersion,
 } from "../../api/tripDocumentStore";
 import { tripDocumentScheduleDays } from "../../api/tripDocument";
-import { mapsClient } from "../../maps/mapsClient";
+import type { ActivityMapSchedule } from "../../maps/ActivityMap";
+import { estimateTransportation } from "../trips/transportationApi";
 import {
   durationFromMinutes,
   durationMinutes,
 } from "../../shared/time/durations";
-import type { Activity, Destination, Point } from "./activitiesApi";
+import type { Activity, Destination } from "./activitiesApi";
 import {
   activityPlanPath,
   activityPlanSchedule,
@@ -57,10 +61,15 @@ import {
 } from "./activityCalendarModel";
 import {
   activityRouteKey,
+  activityRoutePoint,
+  type ActivityRoutePreview,
   type ActivityRouteSelection,
   type ActivityRouteStep,
 } from "./activityRouteApi";
+import { useScheduledActivityRoutes } from "./useScheduledActivityRoutes";
+import DestinationPlanningProgress from "../trips/DestinationPlanningProgress";
 import ActivityCalendar from "./ActivityCalendar";
+import { dayPlanningReview } from "./dayPlanningReview";
 import DayNameEditor from "./DayNameEditor";
 import ActivityCalendarSubscriptions from "./ActivityCalendarSubscriptions";
 import "./activityPlan.css";
@@ -82,15 +91,27 @@ type TravelDraft = {
   step: ActivityRouteStep;
   mode: "driving" | "walking";
   minutes: string;
-  calculated?: boolean;
+  route?: ActivityRoutePreview;
+  routeError?: string;
+  departure?: string | null;
 };
 type Editor =
-  EventDraft | { kind: "day" } | { kind: "info"; entry: CalendarEntry };
+  | EventDraft
+  | { kind: "day" }
+  | { kind: "notices" }
+  | { kind: "info"; entry: CalendarEntry };
 type CalendarRequests = {
   path: string;
   writing: boolean;
   route?: AbortController;
   save?: AbortController;
+  timingContext?: string;
+};
+
+const inlineScheduleNoticeLimit = 5;
+
+export type DailyActivityPlanHandle = {
+  openActivity: (id: string) => boolean;
 };
 
 function withEventTiming(
@@ -148,39 +169,49 @@ function withTravel(
 }
 
 export default function DailyActivityPlan({
+  ref,
   tripId,
   destinationId,
   destination,
   tripCalendar,
   activities,
   activitiesLoading = false,
+  mapPanel,
+  active = true,
   readOnly: providedReadOnly,
   onSelect,
   onSaved,
   onScheduleError,
   onChooseActivities,
   onSelectTravel,
+  onTravelMapChange,
   onPlanChange,
-  onMapDayChange,
+  onMapScheduleChange,
 }: {
+  ref?: Ref<DailyActivityPlanHandle>;
   tripId: string;
   destinationId: string;
   destination: Destination;
   tripCalendar?: {
     destinations: Destination[];
     initialDayKey?: string;
+    openDayDetails?: boolean;
+    showUnscheduled?: boolean;
     onDestinationDay: (destinationId: string, key: string) => void;
   };
   activities: Activity[];
   activitiesLoading?: boolean;
+  mapPanel?: RefObject<HTMLDivElement | null>;
+  active?: boolean;
   readOnly: boolean;
   onSelect: (id: string) => void;
   onSaved: () => Promise<void>;
   onScheduleError: (message: string) => void;
   onChooseActivities?: () => void;
   onSelectTravel?: (selection: ActivityRouteSelection) => void;
+  onTravelMapChange?: (route: ActivityRoutePreview | undefined) => void;
   onPlanChange?: () => void;
-  onMapDayChange?: (activityIds: string[]) => void;
+  onMapScheduleChange?: (schedule: ActivityMapSchedule) => void;
 }) {
   const path = activityPlanPath(tripId, destinationId);
   const resourceVersion = useTripResourceVersion(path);
@@ -193,12 +224,18 @@ export default function DailyActivityPlan({
   const readOnly = providedReadOnly || offline;
   const [resource, setResource] = useState<Versioned<PlanResponse>>();
   const [dayKey, setDayKey] = useState(tripCalendar?.initialDayKey ?? "");
-  const [editor, setEditor] = useState<Editor>();
-  const [saving, setSaving] = useState<"calendar" | "editor">();
+  const initialEditor: Editor | undefined = tripCalendar?.openDayDetails
+    ? { kind: "day" }
+    : undefined;
+  const [editor, setEditor] = useState<Editor | undefined>(initialEditor);
+  const scheduleSection = useRef<HTMLElement>(null);
+  const [saving, setSaving] = useState<"calendar" | "editor" | "timing">();
   const busy = saving !== undefined;
   const savingEditor = saving === "editor";
+  const [previewTravelKey, setPreviewTravelKey] = useState<string>();
   const [calculating, setCalculating] = useState<string>();
   const [error, setError] = useState("");
+  const [timingError, setTimingError] = useState("");
   const [editorError, setEditorError] = useState("");
   const [pendingSchedule, setPendingSchedule] = useState<{
     plan: ActivityPlan;
@@ -210,10 +247,11 @@ export default function DailyActivityPlan({
     setPreviousPath(path);
     setResource(undefined);
     setDayKey(tripCalendar?.initialDayKey ?? "");
-    setEditor(undefined);
+    setEditor(initialEditor);
     setSaving(undefined);
     setCalculating(undefined);
     setError("");
+    setTimingError("");
     setEditorError("");
     setPendingSchedule(undefined);
   }
@@ -243,6 +281,36 @@ export default function DailyActivityPlan({
       ),
     ) ??
     days[0];
+  const { activeRoutes, rememberRoute } = useScheduledActivityRoutes(
+    path,
+    resource?.data,
+    day,
+    activities,
+    destination,
+    offline,
+  );
+  const dayReview =
+    editor?.kind === "day" && day && resource && !activitiesLoading
+      ? dayPlanningReview(
+          resource.data,
+          day,
+          destination,
+          activities,
+          tripDocument?.itinerary,
+        )
+      : undefined;
+  const scheduleNotices = (assessment?.issues ?? [])
+    .filter(
+      (item) =>
+        item.code !== "unscheduled" &&
+        item.code !== "hours_unknown" &&
+        (!item.date || item.date === day?.date),
+    )
+    .sort(
+      (a, b) =>
+        Number(b.severity === "conflict") - Number(a.severity === "conflict"),
+    );
+  const moreNotices = scheduleNotices.slice(inlineScheduleNoticeLimit);
   const tripDestinations = tripCalendar?.destinations;
   const dayOptions = useMemo(
     () =>
@@ -297,20 +365,32 @@ export default function DailyActivityPlan({
               (step.toActivityId ?? step.fromActivityId) === eventDraft.id,
           )
           .map(
-            ({ step, minutes }): TravelDraft =>
+            ({ step, minutes, departure }): TravelDraft =>
               eventDraft.travelEdits[activityRouteKey(step)] ?? {
                 step,
+                departure,
                 mode: step.mode === "walking" ? "walking" : "driving",
                 minutes: minutes === null ? "" : String(minutes),
               },
           )
       : [];
-  const showDayOnMap = useEffectEvent((activityIds: string[]) =>
-    onMapDayChange?.(activityIds),
+  const travelPreview = travelDrafts.find(
+    ({ step }) => activityRouteKey(step) === previewTravelKey,
+  )?.route;
+  const showTravelMap = useEffectEvent(
+    (route: ActivityRoutePreview | undefined) => onTravelMapChange?.(route),
+  );
+  useLayoutEffect(() => {
+    if (!travelPreview) return;
+    showTravelMap(travelPreview);
+    return () => showTravelMap(undefined);
+  }, [travelPreview]);
+  const showScheduleOnMap = useEffectEvent((schedule: ActivityMapSchedule) =>
+    onMapScheduleChange?.(schedule),
   );
   useLayoutEffect(() => {
     if (!plan || !day) {
-      showDayOnMap([]);
+      showScheduleOnMap({ activeActivityIds: [], scheduledActivityIds: [] });
       return;
     }
     const timed = new Set(
@@ -323,8 +403,15 @@ export default function DailyActivityPlan({
         pendingTiming,
       ).flatMap((entry) => (entry.activityId ? [entry.activityId] : [])),
     );
-    showDayOnMap([...timed, ...day.activityIds.filter((id) => !timed.has(id))]);
-  }, [plan, day, activities, assessment, pendingTiming]);
+    showScheduleOnMap({
+      activeActivityIds: [
+        ...timed,
+        ...day.activityIds.filter((id) => !timed.has(id)),
+      ],
+      scheduledActivityIds: plan.days.flatMap((item) => item.activityIds),
+      ...(activeRoutes.size ? { routes: activeRoutes } : {}),
+    });
+  }, [plan, day, activities, assessment, pendingTiming, activeRoutes]);
   const invalidateRoute = useEffectEvent(() => onPlanChange?.());
   useEffect(() => {
     invalidateRoute();
@@ -363,22 +450,86 @@ export default function DailyActivityPlan({
       activeRequests.current?.save?.abort();
     }
   }, [readOnly]);
-  async function reload() {
+  async function reload(retryTiming = false) {
     const requests = currentRequests();
     if (!requests || requests.writing) return;
+    const controller = retryTiming ? new AbortController() : undefined;
+    if (controller) {
+      requests.writing = true;
+      requests.save = controller;
+      setSaving("timing");
+    }
     if (!resource) setError("");
     try {
-      const value = await planningRequest<PlanResponse>(path);
+      const value = await planningRequest<PlanResponse>(path, {
+        signal: controller?.signal,
+      });
+      if (controller?.signal.aborted) return;
       if (activeRequests.current === requests) {
+        if (retryTiming) {
+          requests.timingContext = undefined;
+          setTimingError("");
+        }
         setResource(value);
         setError("");
       }
     } catch (reason) {
-      if (activeRequests.current === requests)
-        setError((reason as Error).message);
+      if (!controller?.signal.aborted && activeRequests.current === requests) {
+        if (retryTiming) setTimingError((reason as Error).message);
+        else setError((reason as Error).message);
+      }
+    } finally {
+      if (controller) {
+        requests.writing = false;
+        requests.save = undefined;
+        if (activeRequests.current === requests) setSaving(undefined);
+      }
     }
   }
-  useExplicitResourceRefresh(path, reload);
+  useExplicitResourceRefresh(path, () =>
+    reload(resource?.data.timingStale === true),
+  );
+
+  const refreshTiming = useEffectEvent(async () => {
+    const requests = currentRequests();
+    if (
+      !resource?.data.timingStale ||
+      !requests ||
+      requests.writing ||
+      requests.timingContext === resource.data.contextVersion
+    )
+      return;
+    requests.timingContext = resource.data.contextVersion;
+    setTimingError("");
+    try {
+      const saved = await persist(resource.data.plan, {
+        closeEditor: false,
+        refreshingTiming: true,
+      });
+      if (activeRequests.current !== requests) return;
+      if (!saved) requests.timingContext = undefined;
+      else if (saved.data.timingStale)
+        setTimingError("The saved times are still out of date.");
+    } catch (reason) {
+      if (activeRequests.current === requests)
+        setTimingError(reason instanceof Error ? reason.message : "Try again.");
+    }
+  });
+  const editingEvent = editor?.kind === "event";
+  useEffect(() => {
+    if (
+      !active ||
+      readOnly ||
+      busy ||
+      editingEvent ||
+      !resource?.data.timingStale
+    )
+      return;
+    const timer = window.setTimeout(() => void refreshTiming(), 0);
+    return () => window.clearTimeout(timer);
+  }, [active, readOnly, busy, editingEvent, resource]);
+
+  useImperativeHandle(ref, () => ({ openActivity: openEvent }));
 
   function currentRequests() {
     const requests = activeRequests.current;
@@ -401,18 +552,31 @@ export default function DailyActivityPlan({
     {
       closeEditor = true,
       background,
-    }: { closeEditor?: boolean; background?: { timing?: CalendarTiming } } = {},
+      onCommit,
+      refreshingTiming = false,
+    }: {
+      closeEditor?: boolean;
+      background?: { timing?: CalendarTiming };
+      onCommit?: () => void;
+      refreshingTiming?: boolean;
+    } = {},
   ) {
     const requests = currentRequests();
     if (!resource || readOnly || !requests || requests.writing) return;
     requests.writing = true;
-    setSaving(editor && !background ? "editor" : "calendar");
+    setSaving(
+      refreshingTiming
+        ? "timing"
+        : editor && !background
+          ? "editor"
+          : "calendar",
+    );
     setEditorError("");
     const controller = new AbortController();
-    // A dropped card starts a background save that can finish after leaving Schedule.
+    // Calendar drops and refreshes can finish after leaving Schedule.
     if (background)
       setPendingSchedule({ plan: next, timing: background.timing });
-    else requests.save = controller;
+    else if (!refreshingTiming) requests.save = controller;
     try {
       if (next.timeZone === null)
         throw new Error(
@@ -441,9 +605,11 @@ export default function DailyActivityPlan({
       });
       if (controller.signal.aborted || activeRequests.current !== requests)
         return;
+      onCommit?.();
       setResource(value);
       if (background) setPendingSchedule(undefined);
       if (closeEditor) setEditor(undefined);
+      if (refreshingTiming) return value;
       try {
         await onSaved();
       } catch {
@@ -458,7 +624,8 @@ export default function DailyActivityPlan({
       }
       if (controller.signal.aborted || activeRequests.current !== requests)
         return;
-      if (editor) setEditorError((reason as Error).message);
+      if (editor && !refreshingTiming)
+        setEditorError((reason as Error).message);
       throw reason;
     } finally {
       requests.writing = false;
@@ -512,7 +679,7 @@ export default function DailyActivityPlan({
   }
   function openEvent(id?: string, travel?: ActivityRouteStep) {
     const requests = currentRequests();
-    if (!plan || !day || !requests) return;
+    if (!plan || !day || !requests || requests.writing) return false;
     const selected =
       id ??
       plan.selectedActivityIds.find(
@@ -520,7 +687,7 @@ export default function DailyActivityPlan({
       ) ??
       plan.selectedActivityIds[0] ??
       activities[0]?.id;
-    if (!selected) return;
+    if (!selected) return false;
     const assigned =
       plan.days.find((item) => item.activityIds.includes(selected)) ?? day;
     const event = calendarEntries(
@@ -559,6 +726,7 @@ export default function DailyActivityPlan({
       openTravel: travel ? activityRouteKey(travel) : undefined,
     });
     setEditorError("");
+    return true;
   }
   function openEntry(entry: CalendarEntry) {
     setEditorError("");
@@ -599,43 +767,79 @@ export default function DailyActivityPlan({
     );
     setEditorError("");
   }
-  function point(id: string | null, stayId: string): Point | null | undefined {
-    return id === null
-      ? destination?.properties.stays.find((stay) => stay.id === stayId)
-          ?.stayLocation?.geometry
-      : activities.find((item) => item.id === id)?.geometry;
-  }
-  async function calculate(travel: TravelDraft) {
+  async function calculateRoute(travel: TravelDraft, mode = travel.mode) {
     const requests = currentRequests();
-    if (readOnly || calculating || !requests) return;
-    const { step, mode } = travel;
-    const from = point(step.fromActivityId, step.stayId);
-    const to = point(step.toActivityId, step.stayId);
+    if (readOnly || !requests || requests.writing) return;
+    requests.route?.abort();
+    const key = activityRouteKey(travel.step);
+    const draft: TravelDraft = {
+      ...travel,
+      mode,
+      minutes: mode === travel.mode ? travel.minutes : "",
+      route: undefined,
+      routeError: undefined,
+    };
+    const { step } = draft;
+    const from = activityRoutePoint(
+      step.fromActivityId,
+      step.stayId,
+      activities,
+      destination,
+    );
+    const to = activityRoutePoint(
+      step.toActivityId,
+      step.stayId,
+      activities,
+      destination,
+    );
+    setPreviewTravelKey(key);
     if (!from || !to) {
-      setEditorError("Set both locations before calculating travel time.");
+      setCalculating(undefined);
+      updateTravel(draft, {
+        routeError: "Set both locations before calculating the route.",
+      });
       return;
     }
     const controller = new AbortController();
     requests.route = controller;
-    setCalculating(activityRouteKey(step));
-    setEditorError("");
+    updateTravel(draft, {});
+    setCalculating(key);
     try {
-      const duration = await mapsClient.estimateTravelTime(
-        from.coordinates,
-        to.coordinates,
-        mode,
+      const departure =
+        draft.departure && Date.parse(draft.departure) > Date.now()
+          ? draft.departure
+          : undefined;
+      const { data } = await estimateTransportation(
+        tripId,
+        from,
+        to,
+        mode === "walking" ? "walk" : "car",
         controller.signal,
+        departure,
       );
-      if (!controller.signal.aborted)
-        updateTravel(travel, {
-          minutes: String(durationMinutes(duration)),
-          calculated: true,
-        });
+      if (controller.signal.aborted || activeRequests.current !== requests)
+        return;
+      const minutes = durationMinutes(data?.duration);
+      if (minutes == null || !data?.geometry?.coordinates.length)
+        throw new Error("The route could not be calculated.");
+      const route = { mode, geometry: data.geometry };
+      updateTravel(draft, { minutes: String(minutes), route });
     } catch (reason) {
-      if (!controller.signal.aborted) setEditorError((reason as Error).message);
+      if (!controller.signal.aborted && activeRequests.current === requests)
+        updateTravel(draft, {
+          routeError:
+            reason instanceof Error
+              ? reason.message
+              : "The route could not be calculated.",
+        });
     } finally {
-      if (activeRequests.current === requests && requests.route === controller)
+      if (
+        activeRequests.current === requests &&
+        requests.route === controller
+      ) {
+        requests.route = undefined;
         setCalculating(undefined);
+      }
     }
   }
   async function saveEditor() {
@@ -666,24 +870,55 @@ export default function DailyActivityPlan({
           throw new Error("Enter a travel time between 0 and 1,440 minutes.");
         next = withTravel(next, travel, duration);
       }
-      await persist(next);
+      await persist(next, {
+        onCommit: () => {
+          for (const { step, mode, route } of editedTravel) {
+            if (route) rememberRoute({ ...step, mode }, route);
+          }
+        },
+      });
       if (activeRequests.current === requests) setDayKey(eventDraft.dayKey);
     } catch (reason) {
       if (activeRequests.current === requests)
         setEditorError((reason as Error).message);
     }
   }
+  async function confirmDay(day: PlanDay, token: string) {
+    if (!plan) return;
+    const updated = withCalendarDay(plan, day);
+    await persist(
+      {
+        ...updated,
+        days: updated.days.map((item) =>
+          calendarDayKey(item) === calendarDayKey(day)
+            ? { ...item, review: token }
+            : item,
+        ),
+      },
+      { closeEditor: false },
+    );
+  }
+  const calendarReady = !!resource && !activitiesLoading;
+  useLayoutEffect(() => {
+    if (tripCalendar?.showUnscheduled && calendarReady) {
+      scheduleSection.current?.scrollIntoView?.({ block: "start" });
+    }
+  }, [tripCalendar?.showUnscheduled, calendarReady]);
   const title =
     editor?.kind === "event"
       ? (activities.find((item) => item.id === editor.id)?.properties.name ??
         "Event")
-      : editor?.kind === "day"
-        ? "Day details"
-        : editor?.kind === "info"
-          ? editor.entry.title
-          : "Event";
+      : editor?.kind === "info"
+        ? editor.entry.title
+        : editor?.kind === "notices"
+          ? "More schedule notices"
+          : "Day details";
   return (
-    <section className="daily-plan" aria-label="Activity calendar">
+    <section
+      className="daily-plan"
+      aria-label="Activity calendar"
+      ref={scheduleSection}
+    >
       <ActivityCalendar
         tripId={tripId}
         itinerary={tripDocument?.itinerary}
@@ -692,12 +927,16 @@ export default function DailyActivityPlan({
         dayOptions={dayOptions}
         activities={activities}
         activitiesLoading={activitiesLoading}
+        mapPanel={mapPanel}
         planLoading={!resource && !error}
         assessment={assessment}
         destination={destination}
         readOnly={readOnly}
         busy={busy}
         pendingTiming={pendingTiming}
+        scheduleNotices={scheduleNotices.slice(0, inlineScheduleNoticeLimit)}
+        moreNoticeCount={moreNotices.length}
+        onMoreNotices={() => setEditor({ kind: "notices" })}
         notice={
           <>
             {error && (
@@ -708,21 +947,23 @@ export default function DailyActivityPlan({
                 )}
               </div>
             )}
-            {plan && resource?.data.timingStale && (
-              <p className="calendar-notice">
-                Schedule needs review{" "}
-                <Button
-                  disabled={busy || readOnly}
-                  onClick={() =>
-                    void persist(plan, { closeEditor: false }).catch(
-                      (reason: Error) => setError(reason.message),
-                    )
-                  }
-                >
-                  Update times
-                </Button>
+            {saving === "timing" && (
+              <p className="calendar-timing-update" role="status">
+                Updating schedule times…
               </p>
             )}
+            {resource?.data.timingStale &&
+              timingError &&
+              documentState.conflict !== path &&
+              !readOnly &&
+              saving !== "timing" && (
+                <div className="calendar-notice" role="alert">
+                  <p>Couldn’t update schedule times. {timingError}</p>
+                  <Button disabled={busy} onClick={() => void reload(true)}>
+                    Retry
+                  </Button>
+                </div>
+              )}
           </>
         }
         onDay={selectDay}
@@ -743,7 +984,7 @@ export default function DailyActivityPlan({
         )}
       <OverlayDrawer
         open={!!editor}
-        position="end"
+        position={travelDrafts.length ? "start" : "end"}
         size="small"
         className="calendar-editor"
         onOpenChange={(_, data) => {
@@ -755,7 +996,11 @@ export default function DailyActivityPlan({
             action={
               <Button
                 appearance="secondary"
-                aria-label="Close event"
+                aria-label={
+                  editor?.kind === "event" || editor?.kind === "info"
+                    ? "Close event"
+                    : "Close drawer"
+                }
                 icon={<Dismiss24Regular />}
                 disabled={savingEditor}
                 onClick={close}
@@ -854,11 +1099,22 @@ export default function DailyActivityPlan({
                 className="calendar-editor-travel"
                 key={key}
                 open={eventDraft?.openTravel === key || undefined}
+                onToggle={(event) => {
+                  if (event.currentTarget.open) {
+                    if (travel.route) setPreviewTravelKey(key);
+                  } else {
+                    setPreviewTravelKey((current) =>
+                      current === key ? undefined : current,
+                    );
+                  }
+                }}
               >
                 <summary>{heading}</summary>
                 <p className="calendar-journey-label">{travel.step.label}</p>
                 <fieldset
-                  disabled={busy || Boolean(calculating) || readOnly}
+                  disabled={
+                    busy || (Boolean(calculating) && !estimating) || readOnly
+                  }
                   className="calendar-editor-fields"
                 >
                   <legend className="visually-hidden">{heading} details</legend>
@@ -868,69 +1124,109 @@ export default function DailyActivityPlan({
                       aria-label="Transportation mode"
                       value={travel.mode}
                       onChange={(event) =>
-                        updateTravel(travel, {
-                          mode: event.target.value as TravelDraft["mode"],
-                          minutes: "",
-                          calculated: false,
-                        })
+                        void calculateRoute(
+                          travel,
+                          event.target.value as TravelDraft["mode"],
+                        )
                       }
                     >
                       <option value="driving">Driving</option>
                       <option value="walking">Walking</option>
                     </select>
                   </label>
-                  <Button
-                    appearance="secondary"
-                    onClick={() => void calculate(travel)}
-                  >
-                    {estimating ? "Calculating…" : "Calculate travel time"}
-                  </Button>
                   <label>
                     Travel time (minutes)
                     <input
                       aria-label="Travel time (minutes)"
+                      aria-busy={estimating}
+                      disabled={estimating}
+                      placeholder={estimating ? "Calculating…" : undefined}
                       type="number"
                       min={0}
                       max={1440}
                       value={travel.minutes}
                       onChange={(event) =>
-                        updateTravel(travel, {
-                          minutes: event.target.value,
-                          calculated: false,
-                        })
+                        updateTravel(travel, { minutes: event.target.value })
                       }
                     />
                   </label>
-                  {travel.calculated && (
-                    <span role="status">Azure Maps estimate</span>
-                  )}
-                  {estimating && (
-                    <span role="status">Calculating travel time…</span>
+                  {travel.routeError && (
+                    <>
+                      <p role="alert">{travel.routeError}</p>
+                      <Button
+                        appearance="secondary"
+                        onClick={() => void calculateRoute(travel)}
+                      >
+                        Retry route
+                      </Button>
+                    </>
                   )}
                 </fieldset>
-                {onSelectTravel && resource && travelPlan && (
-                  <Button
-                    disabled={busy || Boolean(calculating) || offline}
-                    onClick={() => {
-                      const duration = travelDuration(travel.minutes);
-                      onSelectTravel({
-                        ...travel.step,
-                        mode: travel.mode,
-                        duration: duration ?? travel.step.duration,
-                        plan: withTravel(travelPlan, travel, duration),
-                        contextVersion: resource.data.contextVersion,
-                      });
-                      close();
-                    }}
-                  >
-                    View route
-                  </Button>
-                )}
+                {!travel.route &&
+                  !travel.routeError &&
+                  !estimating &&
+                  onSelectTravel &&
+                  resource &&
+                  travelPlan && (
+                    <Button
+                      disabled={busy || Boolean(calculating) || offline}
+                      onClick={() => {
+                        const duration = travelDuration(travel.minutes);
+                        onSelectTravel({
+                          ...travel.step,
+                          mode: travel.mode,
+                          duration: duration ?? travel.step.duration,
+                          plan: withTravel(travelPlan, travel, duration),
+                          contextVersion: resource.data.contextVersion,
+                        });
+                        close();
+                      }}
+                    >
+                      View route
+                    </Button>
+                  )}
               </details>
             );
           })}
+          {editor?.kind === "notices" && (
+            <ul className="calendar-notice-list">
+              {moreNotices.map((issue, index) => (
+                <li key={index}>{issue.message}</li>
+              ))}
+            </ul>
+          )}
           {editor?.kind === "day" && day && plan && (
             <>
+              <p>{calendarDateLabel(day.date)}</p>
+              {resource && (
+                <DestinationPlanningProgress
+                  response={resource.data}
+                  stayId={day.stayId}
+                  date={day.date}
+                  name={destination.properties.name}
+                />
+              )}
+
+              {dayReview?.conflict && <p role="alert">{dayReview.conflict}</p>}
+              {dayReview?.missingTiming && (
+                <p>
+                  Schedule the activities on this day before marking it planned.
+                </p>
+              )}
+              {dayReview?.planned && (
+                <p>{dayReview.open ? "Open by choice" : "Day planned"}</p>
+              )}
+              {dayReview?.canReview && !dayReview.planned && !readOnly && (
+                <Button
+                  appearance="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void confirmDay(day, dayReview.token).catch(() => {})
+                  }
+                >
+                  {dayReview.open ? "Keep day open" : "Mark day planned"}
+                </Button>
+              )}
               <DayNameEditor
                 day={day}
                 draftDay={false}
@@ -1006,6 +1302,9 @@ export default function DailyActivityPlan({
               )}
             </>
           )}
+          {savingEditor && editor?.kind !== "event" && (
+            <p role="status">Saving day review…</p>
+          )}
           {editorError && (
             <div role="alert" className="calendar-editor-error">
               {editorError}
@@ -1048,7 +1347,10 @@ export default function DailyActivityPlan({
             </Button>
           )}
           <Button disabled={savingEditor} onClick={close}>
-            {readOnly || editor?.kind === "info" || editor?.kind === "day"
+            {readOnly ||
+            editor?.kind === "info" ||
+            editor?.kind === "day" ||
+            editor?.kind === "notices"
               ? "Close"
               : "Cancel"}
           </Button>

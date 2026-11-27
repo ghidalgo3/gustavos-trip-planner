@@ -1,3 +1,7 @@
+import {
+  calendarActivities,
+  calendarResponse,
+} from "../../test/activityCalendarFixture";
 import { tripDocumentFixture } from "../../test/tripDocumentFixture";
 import {
   act,
@@ -104,7 +108,13 @@ function show(readOnly = false, homeCity: string | null = "New York") {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(planningRequest).mockImplementation(async (path) => ({
-    data: path.endsWith("/transportation") ? [] : { version: 0 },
+    data: path.endsWith("/transportation")
+      ? []
+      : {
+          ...calendarResponse,
+          plan: { ...calendarResponse.plan, days: [] },
+          version: 0,
+        },
     etag: '"0"',
   }));
   vi.mocked(getSelectedFlights).mockResolvedValue([]);
@@ -212,6 +222,8 @@ test.each([false, true])(
     });
     show(readOnly);
     expect(await screen.findByRole("link", { name: "Paris" })).toBeVisible();
+    const heading = screen.getByRole("heading", { name: "Paris" });
+    expect(within(heading).queryByRole("link")).toBeNull();
     expect(screen.queryByRole("button", { name: /^Plans for/ })).toBeNull();
     expect(screen.queryByText("Plans", { exact: true })).toBeNull();
   },
@@ -672,6 +684,47 @@ test("orders dated visits chronologically, then keeps undated visits in itinerar
       .getAllByRole("heading")
       .map((item) => item.textContent),
   ).toEqual(["Early", "Late", "Paris"]);
+});
+
+test("the next scheduling action sits on the visit card and opens its schedule", async () => {
+  const stay = {
+    ...paris.properties.stays[0],
+    arrivalDate: "2027-06-10",
+    departureDate: "2027-06-12",
+  };
+  vi.mocked(getDestinations).mockResolvedValue({
+    type: "FeatureCollection",
+    features: [
+      { ...paris, properties: { ...paris.properties, stays: [stay] } },
+    ],
+    route: [],
+  });
+  vi.mocked(getActivities).mockResolvedValue({
+    type: "FeatureCollection",
+    features: calendarActivities.slice(0, 1),
+  });
+
+  show();
+  const visits = await screen.findByRole("list", { name: "Trip destinations" });
+  const action = await within(visits).findByRole("link", {
+    name: "Schedule 1 activity in Paris",
+  });
+  expect(action).toHaveClass("navigation-button");
+  expect(action).toHaveAttribute(
+    "href",
+    "/trips/trip/activities?destination=paris-fr&view=schedule&unscheduled=1",
+  );
+  expect(
+    within(visits).queryByRole("link", { name: "Day details" }),
+  ).toBeNull();
+  expect(
+    within(visits).queryByRole("link", { name: "Review days" }),
+  ).toBeNull();
+  expect(
+    screen.queryByText(
+      /visits planned|travel legs arranged|of \d+ days planned/,
+    ),
+  ).not.toBeInTheDocument();
 });
 
 test("shows activity counts by decision state instead of a plan button for a populated city", async () => {
@@ -1146,7 +1199,13 @@ test("failed planning summary can retry without losing activity counts", async (
       throw new Error("Unavailable");
     }
     return {
-      data: path.endsWith("/transportation") ? [] : { version: 0 },
+      data: path.endsWith("/transportation")
+        ? []
+        : {
+            ...calendarResponse,
+            plan: { ...calendarResponse.plan, days: [] },
+            version: 0,
+          },
       etag: '"0"',
     };
   });

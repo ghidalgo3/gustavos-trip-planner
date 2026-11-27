@@ -96,45 +96,7 @@ public sealed class RoundTripGridTests
     {
         var fares = Enumerable
             .Range(0, 2)
-            .Select(index =>
-            {
-                var outbound = Fare(false, index);
-                var inbound = Fare(true, index);
-                return outbound with
-                {
-                    Request = outbound.Request with
-                    {
-                        SearchKind = "flexible",
-                        Legs =
-                        [
-                            new("ATL", "JFK", new(2030, 5, 1), null),
-                            new("LGA", "ATL", new(2030, 5, 5), null),
-                        ],
-                    },
-                    Response = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            itineraries = new[]
-                            {
-                                new
-                                {
-                                    ignav_id = $"bundle-{index}",
-                                    price = new { amount = 200 + index, currency = "USD" },
-                                    legs = new[]
-                                    {
-                                        outbound
-                                            .Response.GetProperty("itineraries")[0]
-                                            .GetProperty("outbound"),
-                                        inbound
-                                            .Response.GetProperty("itineraries")[0]
-                                            .GetProperty("outbound"),
-                                    },
-                                },
-                            },
-                        }
-                    ),
-                };
-            })
+            .Select(index => Bundle(Fare(false, index), Fare(true, index), $"bundle-{index}"))
             .ToArray();
         var response = new RouteFareComposer(_airports)
             .Compose(Document, [Party], fares)
@@ -162,11 +124,104 @@ public sealed class RoundTripGridTests
         }
     }
 
-    private FareSearchResult Fare(bool returning, int index, int returnDay = 5)
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void ABookedBundleOnlyRestrictsOptionsWhileBothFlightsAreSelected(bool bothSelected)
+    {
+        var bookedOutbound = Fare(false, 0, bothSelected ? 1 : 2);
+        var nextOutbound = Fare(false, 1);
+        var inbound = Fare(true, 0);
+        var bundle = Bundle(bookedOutbound, inbound, "booked-bundle");
+        var bookedKey = FlightChoiceRoute.FlightKey(OneWayLeg(bookedOutbound))!;
+        var inboundKey = FlightChoiceRoute.FlightKey(OneWayLeg(inbound))!;
+        var choice = new FlightChoiceProgress(
+            _partyId,
+            [bothSelected ? bookedKey : null, inboundKey],
+            []
+        )
+        {
+            PurchasedOfferIds = ["booked-bundle"],
+            UnmatchedLegKeys = bothSelected ? [] : [bookedKey],
+            SavedFares = [bundle, inbound],
+        };
+
+        var response = new RouteFareComposer(_airports)
+            .Compose(
+                Document,
+                [Party],
+                [bundle, nextOutbound, inbound],
+                [choice],
+                includeAllConnections: true
+            )
+            .Single()
+            .Response;
+
+        var itinerary = response.GetProperty("itineraries").EnumerateArray().Single();
+        var legs = itinerary.GetProperty("legs");
+        Assert.AreEqual(
+            bothSelected ? bookedKey : FlightChoiceRoute.FlightKey(OneWayLeg(nextOutbound)),
+            FlightChoiceRoute.FlightKey(legs[0])
+        );
+        Assert.AreEqual(inboundKey, FlightChoiceRoute.FlightKey(legs[1]));
+        Assert.AreEqual(
+            bothSelected ? 1 : 2,
+            itinerary.GetProperty("bookingOffers").GetArrayLength()
+        );
+        Assert.HasCount(1, response.GetProperty("roundTripConnections").EnumerateArray().ToArray());
+        CollectionAssert.AreEqual(new[] { "booked-bundle" }, choice.PurchasedOfferIds);
+    }
+
+    private static FareSearchResult Bundle(
+        FareSearchResult outbound,
+        FareSearchResult inbound,
+        string offerId
+    ) =>
+        outbound with
+        {
+            Request = outbound.Request with
+            {
+                SearchKind = "flexible",
+                Legs =
+                [
+                    new(
+                        outbound.Request.Origin,
+                        outbound.Request.Destination,
+                        outbound.Request.DepartureDate,
+                        null
+                    ),
+                    new(
+                        inbound.Request.Origin,
+                        inbound.Request.Destination,
+                        inbound.Request.DepartureDate,
+                        null
+                    ),
+                ],
+            },
+            Response = JsonSerializer.SerializeToElement(
+                new
+                {
+                    itineraries = new[]
+                    {
+                        new
+                        {
+                            ignav_id = offerId,
+                            price = new { amount = 200, currency = "USD" },
+                            legs = new[] { OneWayLeg(outbound), OneWayLeg(inbound) },
+                        },
+                    },
+                }
+            ),
+        };
+
+    private static JsonElement OneWayLeg(FareSearchResult fare) =>
+        fare.Response.GetProperty("itineraries")[0].GetProperty("outbound");
+
+    private FareSearchResult Fare(bool returning, int index, int? dayOfMonth = null)
     {
         string origin = returning ? "LGA" : "ATL";
         string destination = returning ? "ATL" : "JFK";
-        var day = new DateOnly(2030, 5, returning ? returnDay : 1);
+        var day = new DateOnly(2030, 5, dayOfMonth ?? (returning ? 5 : 1));
         return new(
             _partyId,
             $"{returning}-{index}",

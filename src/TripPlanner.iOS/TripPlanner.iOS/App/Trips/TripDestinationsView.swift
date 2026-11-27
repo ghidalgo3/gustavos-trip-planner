@@ -265,7 +265,7 @@ private struct DestinationList: View {
             Label(title, systemImage: "arrow.down").font(.headline)
             Text(leg.title).font(.subheadline).foregroundStyle(.secondary)
             if let value {
-                Text(value.mode?.capitalized ?? "Transportation").font(.headline)
+                Text(value.mode == "arranged-separately" ? "Arranged separately" : value.mode?.capitalized ?? "Transportation").font(.headline)
                 if value.mode == "train" {
                     Text(value.features.filter { $0.id == "from" || $0.id == "to" }.compactMap { $0.properties.name }.joined(separator: " → "))
                 }

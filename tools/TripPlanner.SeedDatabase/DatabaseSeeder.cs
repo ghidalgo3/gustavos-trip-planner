@@ -11,7 +11,7 @@ namespace TripPlanner.SeedDatabase;
 
 public sealed record SeedResult(int Created, int Updated, int Skipped);
 
-public sealed class DatabaseSeeder(IPlannerDb database)
+public sealed partial class DatabaseSeeder(IPlannerDb database)
 {
     private sealed record City(
         string Id,

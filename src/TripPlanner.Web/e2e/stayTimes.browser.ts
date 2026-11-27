@@ -154,7 +154,7 @@ for (const width of [320, 390, 1280]) {
         await expect(checkIn).toHaveValue("18:30");
         await expect(checkOut).toHaveValue("10:15");
         await drawer.getByRole("button", { name: "Done", exact: true }).click();
-        await page.locator(".overview-destination-link").first().click();
+        await page.locator(".overview-destination-link").first().press("Enter");
         await page.getByRole("tab", { name: "Schedule", exact: true }).click();
         for (const offline of [false, true]) {
           if (offline) await context.setOffline(true);

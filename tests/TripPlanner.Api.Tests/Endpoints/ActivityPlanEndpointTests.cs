@@ -334,6 +334,43 @@ public sealed class ActivityPlanEndpointTests
     }
 
     [TestMethod]
+    [DataRow("open:0123456789abcdef", HttpStatusCode.OK)]
+    [DataRow("open:invalid", HttpStatusCode.BadRequest)]
+    public async Task DayReview_ValidatesAndRoundTrips(string review, HttpStatusCode expected)
+    {
+        await using var factory = new TestApplicationFactory();
+        using var client = factory.CreateClient();
+        var (trip, _, place, _) = await Seed(factory, client);
+        var path = $"/trips/{trip.Id}/destinations/{place.CityId}/activity-plan";
+        var read = await client.GetAsync(path);
+        var initial = (await read.Content.ReadFromJsonAsync<ActivityPlanResponse>())!;
+        var plan = initial.Plan with { Days = [initial.Plan.Days[0] with { Review = review }] };
+
+        var write = await Put(
+            client,
+            path,
+            new ReplaceActivityPlanRequest(plan, initial.ContextVersion),
+            read.Headers.ETag!.ToString()
+        );
+
+        Assert.AreEqual(expected, write.StatusCode, await write.Content.ReadAsStringAsync());
+        if (expected == HttpStatusCode.OK)
+        {
+            var reloaded = (await client.GetFromJsonAsync<ActivityPlanResponse>(path))!;
+            Assert.AreEqual(review, reloaded.Plan.Days.Single().Review);
+            var document = (
+                await client.GetFromJsonAsync<TripDocument>($"/trips/{trip.Id}/document")
+            )!;
+            Assert.AreEqual(
+                review,
+                document.Preferences["destinations"]![0]!["schedule"]!["days"]![0]![
+                    "review"
+                ]!.GetValue<string>()
+            );
+        }
+    }
+
+    [TestMethod]
     public async Task ScheduleProposal_QueuesSelectedPlanWithoutApplyingIt()
     {
         await using var factory = new TestApplicationFactory();

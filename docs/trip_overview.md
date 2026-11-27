@@ -29,3 +29,23 @@ Each saved accommodation has visit-specific `properties.checkInTime` and `proper
 Changing either date of a visit atomically unschedules activities assigned to that visit and clears their fixed dates/times, its saved day settings and availability choices, and its dated travel overrides. Activities retain their decision states, durations, and preferences and can be scheduled again. Other visits, including repeat visits to the same destination, retain their schedules. Saving unchanged dates or rejecting an invalid date change leaves schedules intact; old plan versions cannot restore invalidated assignments.
 
 Migration `0015_VisitStayLocations.sql` copies each old city-wide accommodation onto all of its existing visits, preserving current choices while allowing independent edits afterwards. New visits start with no accommodation, and deleting a visit cascades only to its own accommodation. The old city-wide `/stay` read/write routes are replaced by the visit-specific resource so clients cannot accidentally update all visits.
+
+
+## Planning progress
+
+Overview highlights the next action on its visit or transportation card. The
+**Trip planned** badge appears when the planning decisions are complete. Timing
+conflicts take priority, followed by dates, choosing activities, scheduling,
+and transportation. A planned trip has at least one visit. Every
+visit has both dates and reviewed days, each selected activity is scheduled,
+and each applicable travel leg has a choice. Accommodation is optional. Search
+for a place name or address and use **Details** to name it, such as a friend's
+home or rental.
+
+In Schedule, open **Day details** to **Mark day planned** or **Keep day open**. Both choices
+count toward the visit's progress, including rest and travel days. Timing
+conflicts and missing activity times prevent confirmation. Changes to a
+day's calendar or visit dates can require confirmation again. To record travel
+planned outside the app, select the **Arranged separately** transportation tab
+and choose **Save**. Booked status for flights continues to reflect purchase
+separately.

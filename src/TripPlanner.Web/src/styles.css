@@ -158,12 +158,44 @@ main {
   text-align: center;
   font-size: 12px;
 }
-.app-footer a {
+.app-footer .navigation-button {
+  margin-block: 6px;
+}
+.navigation-button {
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 44px;
   min-height: 44px;
-  padding: 0 12px;
-  color: var(--colorNeutralForeground2);
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 6px;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.navigation-button:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.navigation-button[data-next-action] {
+  border-color: var(--colorBrandStroke1);
+  background: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  font-weight: 600;
+}
+.navigation-button[data-next-action]:hover {
+  background: var(--colorBrandBackground2Hover);
+}
+.navigation-button:focus-visible {
+  outline: 2px solid var(--colorStrokeFocus2);
+  outline-offset: 2px;
+}
+.navigation-button > svg {
+  flex-shrink: 0;
 }
 .notices-page {
   width: min(900px, calc(100% - 2 * var(--app-page-gutter)));
@@ -186,8 +218,11 @@ main {
   background: var(--colorNeutralBackground1);
   overflow-wrap: anywhere;
 }
-.notices-page a {
+.notices-page a:not(.navigation-button) {
   color: var(--colorBrandForegroundLink);
+}
+.notices-page > .navigation-button {
+  justify-self: start;
 }
 .notice-heading {
   display: flex;
@@ -1288,6 +1323,87 @@ main {
   box-shadow: var(--shadow4);
   cursor: pointer;
 }
+.activity-map-active-day,
+.activity-map-scheduled {
+  --map-marker-hover: var(--colorBrandBackgroundHover);
+  background: var(--colorBrandBackground);
+  color: var(--colorNeutralForegroundOnBrand);
+  border-color: var(--colorNeutralForegroundOnBrand);
+}
+.activity-map-other-day {
+  --map-marker-hover: var(--colorNeutralBackground3Hover);
+  background: var(--colorNeutralBackground3);
+  color: var(--colorNeutralForeground2);
+  border-color: var(--colorNeutralStrokeAccessible);
+}
+.activity-map-unscheduled {
+  --map-marker-hover: var(--colorBrandBackground2Hover);
+  background: var(--colorNeutralBackground1);
+  color: var(--colorBrandForeground1);
+  border: 2px dashed var(--colorBrandStroke1);
+}
+.activity-map-marker:is(
+  .activity-map-active-day,
+  .activity-map-scheduled,
+  .activity-map-other-day,
+  .activity-map-unscheduled
+) {
+  min-width: 44px;
+  height: 44px;
+}
+.activity-map-marker:is(
+    .activity-map-active-day,
+    .activity-map-scheduled,
+    .activity-map-other-day,
+    .activity-map-unscheduled
+  ):hover {
+  background: var(--map-marker-hover);
+}
+.activity-map-legend {
+  position: absolute;
+  bottom: 28px;
+  left: 8px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: 6px;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  box-shadow: var(--shadow4);
+  font-size: 13px;
+}
+.activity-map-legend summary {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 12px;
+  cursor: pointer;
+}
+.activity-map-legend summary:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.activity-map-legend ul {
+  display: grid;
+  gap: 8px;
+  margin: 0 12px 12px;
+  padding: 0;
+  list-style: none;
+}
+.activity-map-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.activity-map-key {
+  box-sizing: border-box;
+  flex: 0 0 18px;
+  height: 18px;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 50%;
+}
+.activity-map-key.activity-map-unscheduled {
+  border-style: dashed;
+}
 .activity-map-marker[data-selected="true"] {
   outline: 3px solid var(--colorPaletteYellowBorderActive);
 }
@@ -1461,12 +1577,14 @@ main {
   display: grid;
   gap: 24px;
 }
-.trip-overview-heading {
+.overview-planning-header {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 16px;
+  align-items: center;
+  gap: 8px 16px;
+}
+.overview-add-destination {
+  margin-inline-start: auto;
 }
 .overview-empty h3,
 .overview-destination h3 {
@@ -1516,7 +1634,6 @@ main {
   align-items: center;
   gap: 16px;
   padding: 20px;
-  border: 1px solid var(--colorNeutralStroke2);
   border-radius: 12px;
   background: var(--colorNeutralBackground1);
 }
@@ -1528,32 +1645,10 @@ main {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.overview-destination-link {
-  display: inline-flex;
+.overview-destination-heading {
+  display: flex;
   align-items: center;
   gap: 8px;
-  color: inherit;
-  text-decoration: none;
-}
-.overview-destination-link::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: inherit;
-}
-.overview-destination-link:focus-visible {
-  outline: none;
-}
-.overview-destination-link:focus-visible::after {
-  outline: 2px solid var(--colorStrokeFocus2);
-  outline-offset: 2px;
-}
-/* Keep the card's other actions above the destination link's hit area. */
-.overview-destination-navigable button,
-.overview-destination-navigable a:not(.overview-destination-link) {
-  position: relative;
-  z-index: 2;
 }
 .overview-destination > .overview-destination-dates,
 .overview-destination > .overview-destination-stay {
@@ -1602,9 +1697,6 @@ main {
   width: 100%;
   color: var(--colorBrandForegroundLink);
   text-decoration: none;
-}
-.overview-activities-link:hover {
-  text-decoration: underline;
 }
 .overview-load-error {
   display: grid;
@@ -2105,6 +2197,9 @@ main {
   overflow-wrap: anywhere;
 }
 .overview-activity-summary {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
   width: 100%;
 }
 .overview-activity-tags {
@@ -2138,6 +2233,7 @@ main {
 }
 .overview-activity-tags > a:hover {
   border-color: var(--activity-state-foreground);
+  background: var(--activity-state-hover);
 }
 .overview-activity-tags > a:focus-visible {
   outline: 2px solid var(--activity-state-border);
@@ -2150,9 +2246,11 @@ main {
 .overview-activities-link {
   padding: 8px 12px;
   box-sizing: border-box;
-  border: 1px solid var(--colorBrandStroke2);
-  border-radius: 6px;
+  border-color: var(--colorBrandStroke2);
   background: var(--colorBrandBackground2);
+}
+.overview-activities-link:hover {
+  background: var(--colorBrandBackground2Hover);
 }
 
 .trip-calendar-day[aria-pressed="true"] {
@@ -3473,4 +3571,8 @@ main:has(.trip-workspace-activities) > .topbar {
   color: var(--colorNeutralForeground2);
   font-size: 12px;
   line-height: 20px;
+}
+
+.overview-conflict-link {
+  justify-self: start;
 }

@@ -36,6 +36,7 @@ private enum TransferMode: String, CaseIterable, Identifiable {
     case car = "Car"
     case walking = "Walking"
     case train = "Train"
+    case arrangedSeparately = "Arranged separately"
     case unselected = "Choose transportation"
     case flight = "Flight"
 
@@ -47,6 +48,7 @@ private enum TransferMode: String, CaseIterable, Identifiable {
         case .walking: "figure.walk"
         case .train: "tram"
         case .flight: "airplane"
+        case .arrangedSeparately: "checkmark"
         case .unselected: "arrow.left.arrow.right"
         }
     }
@@ -57,6 +59,7 @@ private enum TransferMode: String, CaseIterable, Identifiable {
         case .walking: "walk"
         case .train: "train"
         case .flight: "flight"
+        case .arrangedSeparately: "arranged-separately"
         case .unselected: nil
         }
     }
@@ -245,7 +248,7 @@ struct DestinationTransferSheet: View {
     }
 
     private func endpoint(_ id: String, _ destination: Destination, mode: TransferMode) async throws -> TransportationFeature {
-        if mode == .flight, destination.stayID == nil, let ownerID = trip?.ownerUserId {
+        if mode == .flight || mode == .arrangedSeparately, destination.stayID == nil, let ownerID = trip?.ownerUserId {
             return TransportationFeature(id: id, geometry: nil, properties: .init(reference: .init(kind: .home, id: ownerID)))
         }
         return feature(id, try await mapItem(destination))

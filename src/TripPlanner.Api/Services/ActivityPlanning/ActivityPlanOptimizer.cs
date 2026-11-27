@@ -246,6 +246,14 @@ public sealed class ActivityPlanOptimizer(
         );
     }
 
+    // An adjacent visit can share the date and retain its own review.
+    // The optimizer still schedules activities in one visit per local date.
+    private static IEnumerable<ActivityPlanDay> SchedulingDays(ActivityPlan plan) =>
+        plan
+            .Days.GroupBy(day => day.Date)
+            .OrderBy(date => date.Key)
+            .Select(date => date.FirstOrDefault(day => day.ActivityIds.Length > 0) ?? date.First());
+
     private ActivityPlan? Seed(
         ActivityPlanningContext planningContext,
         ActivityPlan original,
@@ -262,6 +270,9 @@ public sealed class ActivityPlanOptimizer(
                 .Select(d => d with { ActivityIds = [], MealPositions = null })
                 .ToArray(),
         };
+        var schedulingDays = SchedulingDays(original)
+            .Select(day => (day.StayId, day.Date))
+            .ToHashSet();
         var rules = original.Rules.ToDictionary(r => r.ActivityId);
         var remaining = planningContext
             .Activities.Where(a => !original.ExcludedActivityIds.Contains(a.Id))
@@ -297,9 +308,14 @@ public sealed class ActivityPlanOptimizer(
             )
             {
                 int d = (nextDay + offset) % plan.Days.Length;
+                var slot = plan.Days[d];
+                if (!schedulingDays.Contains((slot.StayId, slot.Date)))
+                {
+                    continue;
+                }
                 if (
                     rules.GetValueOrDefault(activity.Id)?.FixedDate is { } date
-                    && date != plan.Days[d].Date
+                    && date != slot.Date
                 )
                 {
                     continue;
@@ -374,7 +390,7 @@ public sealed class ActivityPlanOptimizer(
             .ThenBy(a => a.Geometry?.Position.Latitude ?? planningContext.Place.Latitude)
             .ThenBy(a => a.Id)
             .ToArray();
-        var days = plan.Days.OrderBy(d => d.Date).ToArray();
+        var days = SchedulingDays(plan).ToArray();
         int n = activities.Length,
             dCount = days.Length;
         var model = new CpModel();
@@ -854,6 +870,12 @@ public sealed class ActivityPlanOptimizer(
                                 .ToArray(),
                         }
                 )
+                .Concat(
+                    original.Days.Where(day =>
+                        !model.Days.Any(slot => slot.StayId == day.StayId && slot.Date == day.Date)
+                    )
+                )
+                .OrderBy(day => day.Date)
                 .ToArray(),
         };
 
@@ -907,7 +929,7 @@ public sealed class ActivityPlanOptimizer(
         + to.Days.Sum(d =>
             d.ActivityIds.Where(
                     (id, i) =>
-                        from.Days.FirstOrDefault(x => x.Date == d.Date)
+                        from.Days.FirstOrDefault(x => x.Date == d.Date && x.StayId == d.StayId)
                             ?.ActivityIds.ElementAtOrDefault(i) != id
                 )
                 .Count()
@@ -1061,7 +1083,10 @@ public sealed class ActivityPlanOptimizer(
                 if (
                     leg.Mode == "driving"
                     || (
-                        original.Days.First(d => d.Date == day.Date).Settings ?? original.Settings
+                        original
+                            .Days.First(d => d.Date == day.Date && d.StayId == day.StayId)
+                            .Settings
+                        ?? original.Settings
                     ).TransportMode
                         is "fastest"
                             or "walking"

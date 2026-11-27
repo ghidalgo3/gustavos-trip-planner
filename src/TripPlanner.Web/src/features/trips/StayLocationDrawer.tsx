@@ -50,6 +50,7 @@ export default function StayLocationDrawer({
   const [savedStay, setSavedStay] = useState<StayLocation | null>(
     existing ?? null,
   );
+  const [stayName, setStayName] = useState(existing?.properties.name ?? "");
   const [checkInTime, setCheckInTime] = useState(
     (existing?.properties.checkInTime ?? "16:00:00").slice(0, 5),
   );
@@ -154,6 +155,7 @@ export default function StayLocationDrawer({
         location,
       );
       setSavedStay(canonical);
+      setStayName(canonical?.properties.name ?? "");
       setSelectedStay(canonical);
       setSelectedIndex(index);
       if (!canonical) {
@@ -185,6 +187,10 @@ export default function StayLocationDrawer({
 
   function saveDetails() {
     if (!savedStay) return;
+    if (!stayName.trim()) {
+      setDetailsError("Enter a name for this stay.");
+      return;
+    }
     if (
       ![checkInTime, checkOutTime].every((time) =>
         /^([01]\d|2[0-3]):[0-5]\d$/.test(time),
@@ -198,6 +204,10 @@ export default function StayLocationDrawer({
         ...savedStay,
         properties: {
           ...savedStay.properties,
+          name: stayName.trim(),
+          ...(stayName.trim() !== savedStay.properties.name && {
+            hotelId: null,
+          }),
           checkInTime: `${checkInTime}:00`,
           checkOutTime: `${checkOutTime}:00`,
         },
@@ -207,7 +217,8 @@ export default function StayLocationDrawer({
     );
   }
 
-  const timesChanged =
+  const detailsChanged =
+    stayName.trim() !== savedStay?.properties.name ||
     checkInTime !==
       (savedStay?.properties.checkInTime ?? "16:00:00").slice(0, 5) ||
     checkOutTime !==
@@ -255,7 +266,7 @@ export default function StayLocationDrawer({
             <Field label="Stay location">
               <SearchBox
                 value={query}
-                placeholder="Hotel name or address"
+                placeholder="Place name or address"
                 maxLength={200}
                 disabled={busy || researching}
                 onChange={(_, data) => {
@@ -283,7 +294,7 @@ export default function StayLocationDrawer({
           )}
           {searched && results.length === 0 && (
             <Text role="status">
-              No matching stays found. Try a more specific hotel name or
+              No matching stays found. Try a more specific place name or
               address.
             </Text>
           )}
@@ -342,7 +353,14 @@ export default function StayLocationDrawer({
             <details className="stay-details">
               <summary>Details</summary>
               <fieldset disabled={busy || researching}>
-                <legend className="visually-hidden">Stay times</legend>
+                <legend className="visually-hidden">Stay details</legend>
+                <Field label="Stay name">
+                  <Input
+                    value={stayName}
+                    maxLength={200}
+                    onChange={(_, data) => setStayName(data.value)}
+                  />
+                </Field>
                 <Field label="Check-in">
                   <Input
                     type="time"
@@ -359,11 +377,11 @@ export default function StayLocationDrawer({
                 </Field>
                 {detailsError && <Text role="alert">{detailsError}</Text>}
                 <Button
-                  appearance={timesChanged ? "primary" : "secondary"}
-                  disabled={!timesChanged}
+                  appearance={detailsChanged ? "primary" : "secondary"}
+                  disabled={!detailsChanged}
                   onClick={saveDetails}
                 >
-                  Save times
+                  Save details
                 </Button>
               </fieldset>
             </details>

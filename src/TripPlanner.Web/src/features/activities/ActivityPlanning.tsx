@@ -49,13 +49,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import type { PlaceSuggestion, Trip } from "../../api/api";
 import {
   useExplicitResourceRefresh,
+  useTripDocumentState,
   useTripResourceVersion,
 } from "../../api/tripDocumentStore";
-import ActivityMap from "../../maps/ActivityMap";
+import ActivityMap, { type ActivityMapSchedule } from "../../maps/ActivityMap";
 import { activityMapLink } from "../../maps/activityMapLink";
 import { mapsClient } from "../../maps/mapsClient";
 import PlaceSearchResultButton from "../../shared/components/PlaceSearchResultButton";
@@ -73,7 +74,9 @@ import ActivityDurationSlider from "./ActivityDurationSlider";
 import ActivityLinksEditor from "./ActivityLinksEditor";
 import ActivityKindsPicker from "./ActivityKindsPicker";
 import { ActivityWorkspaceSkeleton } from "./ActivityPlanningSkeletons";
-import DailyActivityPlan from "./DailyActivityPlan";
+import DailyActivityPlan, {
+  type DailyActivityPlanHandle,
+} from "./DailyActivityPlan";
 import ResizableActivityWorkspace from "./ResizableActivityWorkspace";
 import { activityMatchesSearch } from "./activitySearch";
 import { activityStatus, activityStatuses } from "./activityStatus";
@@ -95,6 +98,7 @@ import { validActivityKinds, type TicketRequirement } from "./activityKinds";
 import { validActivityLink } from "./activityLinks";
 import {
   useActivityRoute,
+  type ActivityRoutePreview,
   type ActivityRouteSelection,
 } from "./activityRouteApi";
 
@@ -126,6 +130,11 @@ const emptyActivity = (): ActivityInput => ({
     links: [],
   },
 });
+const emptyMapSchedule: ActivityMapSchedule = {
+  activeActivityIds: [],
+  scheduledActivityIds: [],
+};
+
 const emptyCollection: ActivityCollection = {
   type: "FeatureCollection",
   features: [],
@@ -162,8 +171,23 @@ export default function ActivityPlanning({
   const documentVersion = useTripResourceVersion(
     `/trips/${trip.id}/destinations`,
   );
+  const documentState = useTripDocumentState();
+  const tripDocument =
+    documentState.tripId === trip.id
+      ? documentState.document?.document
+      : undefined;
   const [query, setQuery] = useSearchParams();
-  const [activityView, setActivityView] = useState("ideas");
+  const location = useLocation();
+  const requestedView = active ? query.get("view") : null;
+  const requestedViewKey = requestedView ? location.key : undefined;
+  const [openedViewKey, setOpenedViewKey] = useState(requestedViewKey);
+  const [activityView, setActivityView] = useState(
+    requestedView === "schedule" ? "daily" : "ideas",
+  );
+  if (requestedViewKey && requestedViewKey !== openedViewKey) {
+    setOpenedViewKey(requestedViewKey);
+    setActivityView(requestedView === "schedule" ? "daily" : "ideas");
+  }
   const [excludedStatuses, setExcludedStatuses] = useState<Set<string>>(
     () => new Set(["No"]),
   );
@@ -184,9 +208,13 @@ export default function ActivityPlanning({
     cityId: string;
     selection: ActivityRouteSelection;
   }>();
-  const [scheduledMapDay, setScheduledMapDay] = useState<{
+  const [draftTravelRoute, setDraftTravelRoute] = useState<{
     cityId: string;
-    activityIds: string[];
+    route: ActivityRoutePreview;
+  }>();
+  const [mapSchedule, setMapSchedule] = useState<{
+    cityId: string;
+    schedule: ActivityMapSchedule;
   }>();
   const [requestedScheduleDay, setRequestedScheduleDay] = useState<{
     destinationId: string;
@@ -207,6 +235,7 @@ export default function ActivityPlanning({
   }, [activitySearchOpen, activityView, active]);
   const mapPanelId = useId("activity-map-panel");
   const mapPanel = useRef<HTMLDivElement>(null);
+  const dailyPlan = useRef<DailyActivityPlanHandle>(null);
   const [fullscreenContainer, setFullscreenContainer] =
     useState<HTMLDivElement | null>(null);
   const [fullscreenMapHost, setFullscreenMapHost] =
@@ -270,6 +299,13 @@ export default function ActivityPlanning({
       ? selectedTravel.selection
       : undefined;
   const routePreview = useActivityRoute(trip.id, cityId, routeSelection);
+  const draftRoute =
+    active &&
+    activityView === "daily" &&
+    !editor &&
+    draftTravelRoute?.cityId === cityId
+      ? draftTravelRoute?.route
+      : undefined;
   useEffect(() => {
     if (!routeSelection) return;
     const frame = requestAnimationFrame(() =>
@@ -281,11 +317,6 @@ export default function ActivityPlanning({
     activityData && activityData.cityId === cityId
       ? activityData.collection
       : emptyCollection;
-  const scheduledActivities = useMemo(() => {
-    if (!scheduledMapDay || scheduledMapDay.cityId !== cityId) return [];
-    const byId = new Map(activities.features.map((item) => [item.id, item]));
-    return scheduledMapDay.activityIds.flatMap((id) => byId.get(id) ?? []);
-  }, [scheduledMapDay, cityId, activities.features]);
   const searchText = activitySearch.trim().toLocaleLowerCase();
   const matchingActivities = activities.features
     .map((item, index) => ({ item, index }))
@@ -392,8 +423,19 @@ export default function ActivityPlanning({
     [],
   );
 
-  const savedActivitiesForMap =
-    activityView === "daily" ? scheduledActivities : activities.features;
+  const ideasScheduledActivityIds = useMemo(
+    () =>
+      tripDocument?.itinerary.items.flatMap((item) =>
+        item.kind === "activity" &&
+        item.destinationId === cityId &&
+        typeof item.visitId === "string" &&
+        typeof item.id === "string"
+          ? [item.id]
+          : [],
+      ) ?? [],
+    [tripDocument, cityId],
+  );
+  const savedActivitiesForMap = activities.features;
   const draftOnMap =
     editor && editor.value.geometry
       ? { ...editor.value, id: editor.value.id ?? "draft-activity" }
@@ -426,6 +468,8 @@ export default function ActivityPlanning({
       (current) => {
         const next = new URLSearchParams(current);
         next.set("destination", cityId);
+        for (const key of ["view", "day", "details", "unscheduled"])
+          next.delete(key);
         return next;
       },
       { preventScrollReset: true },
@@ -777,6 +821,22 @@ export default function ActivityPlanning({
     setShowMapCard(true);
   }
 
+  function selectMapMarker(id: string) {
+    if (
+      activityView !== "daily" ||
+      editor ||
+      !activities.features.some((activity) => activity.id === id)
+    ) {
+      selectActivity(id);
+      return;
+    }
+    if (!dailyPlan.current?.openActivity(id)) return;
+    setSelectedTravel(undefined);
+    setSelectedId(id);
+    setShowMapCard(false);
+    setMapExpanded(false);
+  }
+
   function openIdea(item: Activity) {
     if (busy) return;
     if (canEdit) void openEdit(item);
@@ -1042,7 +1102,12 @@ export default function ActivityPlanning({
             Add a destination on Overview to start planning activities.
           </Text>
         )}
-        <Link to={`/trips/${encodeURIComponent(trip.id)}`}>Go to Overview</Link>
+        <Link
+          className="navigation-button"
+          to={`/trips/${encodeURIComponent(trip.id)}`}
+        >
+          Go to Overview
+        </Link>
       </section>
     );
 
@@ -1584,7 +1649,7 @@ export default function ActivityPlanning({
         selectedValue={activityView}
         onTabSelect={(_, data) => {
           setActivityView(String(data.value));
-          if (activityView !== data.value) setScheduledMapDay(undefined);
+          if (activityView !== data.value) setMapSchedule(undefined);
           setSelectedTravel(undefined);
           setShowMapCard(false);
         }}
@@ -1609,18 +1674,28 @@ export default function ActivityPlanning({
                 : [],
             )}
             activities={activitiesForMap}
-            connectActivities={active && activityView === "daily" && !editor}
+            ideasScheduledActivityIds={
+              activityView === "ideas" ? ideasScheduledActivityIds : undefined
+            }
+            schedule={
+              active && activityView === "daily" && !editor
+                ? mapSchedule?.cityId === destination.id
+                  ? mapSchedule.schedule
+                  : emptyMapSchedule
+                : undefined
+            }
             placeSearch={placeSearch}
             portalHost={mapExpanded && active ? fullscreenMapHost : undefined}
-            route={routePreview.route}
+            route={draftRoute ?? routePreview.route}
+            animateRoute={!!(draftRoute || routeSelection)}
             routeLoading={routePreview.loading}
             routeError={routePreview.error}
-            routeLabel={routeSelection?.label}
+            routeLabel={draftRoute ? undefined : routeSelection?.label}
             onClearRoute={
               routeSelection ? () => setSelectedTravel(undefined) : undefined
             }
             selectedId={chosenPlace && draftOnMap ? draftOnMap.id : selectedId}
-            onSelect={selectActivity}
+            onSelect={selectMapMarker}
           />
           {!mapExpanded && renderMapDetails()}
           <Button
@@ -1640,17 +1715,26 @@ export default function ActivityPlanning({
         >
           {activityView === "daily" ? (
             <DailyActivityPlan
-              key={trip.id}
+              key={openedViewKey ?? trip.id}
+              ref={dailyPlan}
               tripId={trip.id}
               destinationId={destination.id}
               destination={destination}
               tripCalendar={{
                 destinations: destinations.features,
-                initialDayKey: scheduleDay?.key,
+                initialDayKey:
+                  scheduleDay?.key ??
+                  (requestedView ? (query.get("day") ?? undefined) : undefined),
+                openDayDetails: query.get("details") === "1",
+                showUnscheduled: active && query.get("unscheduled") === "1",
                 onDestinationDay: selectDestination,
               }}
               activities={activities.features}
               activitiesLoading={activityData?.cityId !== cityId && !error}
+              active={active}
+              mapPanel={
+                active && !editor && !mapExpanded ? mapPanel : undefined
+              }
               readOnly={!canEdit}
               onSelect={selectActivity}
               onScheduleError={(message) => notify(message, "error")}
@@ -1658,8 +1742,13 @@ export default function ActivityPlanning({
                 setSelectedTravel(undefined);
                 setShowMapCard(false);
               }}
-              onMapDayChange={(activityIds) =>
-                setScheduledMapDay({ cityId: destination.id, activityIds })
+              onMapScheduleChange={(schedule) =>
+                setMapSchedule({ cityId: destination.id, schedule })
+              }
+              onTravelMapChange={(route) =>
+                setDraftTravelRoute(
+                  route ? { cityId: destination.id, route } : undefined,
+                )
               }
               onSelectTravel={(selection) => {
                 setSelectedTravel({ cityId: destination.id, selection });

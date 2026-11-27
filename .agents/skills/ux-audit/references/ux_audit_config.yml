@@ -125,6 +125,42 @@ scenarios:
         goal: Move Luxembourg Gardens to June 16, then reload and verify the trip.
         success: The revised activity appears once on June 16 at 14:00. After reload, the other activities retain their dates and times and all three ground legs appear on Overview.
 
+  - id: finish-seeded-trip-plan
+    version: "2"
+    goal: Finish planning a seeded Amsterdam and London trip, then see what needs attention after a date change.
+    persona: new-trip-planner
+    setup: >-
+      Start signed in as the owner on Trips in the local Docker app. Seed a new disposable trip
+      with scripts/seed_database --planning-audit TRIP_NAME. Tell the traveler the seeded trip name.
+      They want to visit the market on Amsterdam's first day from 14:00 to 15:00, keep
+      Amsterdam's last day and their London day open, and have already arranged their
+      Amsterdam-to-London train outside the app. Use a fresh seed for each attempt.
+    startPath: /
+    success: The trip shows Planned after the last travel leg is accounted for. Changing Amsterdam's dates reopens its days while London stays planned.
+    partial: Some planning decisions are saved, but the traveler cannot confirm trip completion or tell what reopened.
+    writes: true
+    components: [trip-list, trip-overview, activities, schedule, transportation]
+    platforms: [desktop, mobile-web]
+    checkpoints:
+      - id: find-next-step
+        goal: Open the seeded trip and work out what needs to happen next.
+        success: Overview identifies the unscheduled Amsterdam activity as the next action.
+      - id: schedule-market
+        goal: Schedule the market for 14:00 to 15:00 on the first day in Amsterdam.
+        success: The Amsterdam calendar shows the market at the intended time.
+      - id: review-amsterdam
+        goal: Use Day details to confirm each scheduled Amsterdam day and keep the remaining day open.
+        success: Each scheduled day shows Day planned in Day details, and the last day shows Open by choice.
+      - id: review-london
+        goal: Leave London open and return to the trip plan.
+        success: Both visits are planned and the remaining trip action points to intercity travel.
+      - id: arrange-train
+        goal: Record that Amsterdam-to-London travel is already arranged and check the trip after reload.
+        success: The leg reads Arranged separately and the trip still shows Planned after reload.
+      - id: reopen-amsterdam
+        goal: Move Amsterdam's departure one day earlier and check which parts need attention.
+        success: Amsterdam's updated dates require schedule work, and London stays planned. Stale times refresh automatically when Schedule opens.
+
 # Browser profiles are defined by the skill and can be overridden here.
 # Use a rule ID and false to disable it, or supply the fields to override.
 rules: {}

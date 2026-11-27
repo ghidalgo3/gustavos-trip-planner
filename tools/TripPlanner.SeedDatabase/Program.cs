@@ -13,9 +13,20 @@ internal static class Program
         {
             int count = 3;
             string? email = null;
+            string? auditName = null;
             for (int index = 0; index < args.Length; index++)
             {
-                if (args[index] == "--count")
+                if (args[index] == "--planning-audit")
+                {
+                    if (++index >= args.Length || string.IsNullOrWhiteSpace(args[index]))
+                    {
+                        throw new ArgumentException(
+                            "--planning-audit requires a unique trip name."
+                        );
+                    }
+                    auditName = args[index].Trim();
+                }
+                else if (args[index] == "--count")
                 {
                     if (
                         ++index >= args.Length
@@ -59,11 +70,20 @@ internal static class Program
             );
             var seeder = new DatabaseSeeder(database);
             var owner = await seeder.FindOwnerAsync(email);
+            var today = DateOnly.FromDateTime(TimeProvider.System.GetLocalNow().DateTime);
+            if (auditName is not null)
+            {
+                var auditTrip = await seeder.SeedPlanningAuditAsync(owner, auditName, today);
+                Console.WriteLine(
+                    $"Created planning audit trip {auditTrip.Name} ({auditTrip.Id:D})."
+                );
+                return 0;
+            }
             Console.WriteLine($"Seeding {count:N0} trips in the local database...");
             var result = await seeder.SeedAsync(
                 owner.Id,
                 count,
-                DateOnly.FromDateTime(TimeProvider.System.GetLocalNow().DateTime),
+                today,
                 processed =>
                 {
                     if (processed % 100 == 0)

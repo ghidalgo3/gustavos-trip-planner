@@ -25,6 +25,9 @@ test.each([false, true])(
             [calendarDestination],
           )}
           activities={[]}
+          scheduleNotices={[]}
+          moreNoticeCount={0}
+          onMoreNotices={vi.fn()}
           itinerary={{
             items: [
               {
