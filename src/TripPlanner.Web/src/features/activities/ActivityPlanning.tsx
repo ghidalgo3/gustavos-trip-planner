@@ -41,7 +41,14 @@ import {
   Location16Regular,
   Search24Regular,
 } from "@fluentui/react-icons";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useSearchParams } from "react-router";
 import type { PlaceSuggestion, Trip } from "../../api/api";
 import {
@@ -58,6 +65,7 @@ import { durationMinutes } from "../../shared/time/durations";
 import { trackBehavior } from "../../telemetry/telemetry";
 import { destinationDates, tripSpansMultipleYears } from "../trips/tripDates";
 import CityIcon from "../../shared/components/CityIcon";
+import CountryFlag from "../../shared/components/CountryFlag";
 import { ActivityDetailsEvidence } from "./ActivityDetailsEvidence";
 import ActivityTextField from "./ActivityTextField";
 import ActivityCardTags from "./ActivityCardTags";
@@ -143,11 +151,13 @@ export default function ActivityPlanning({
   readOnly,
   onDestinationChange,
   active = true,
+  tripHeader,
 }: {
   trip: Trip;
   readOnly: boolean;
   onDestinationChange?: (destination: Destination | undefined) => void;
   active?: boolean;
+  tripHeader?: ReactNode;
 }) {
   const documentVersion = useTripResourceVersion(
     `/trips/${trip.id}/destinations`,
@@ -174,6 +184,10 @@ export default function ActivityPlanning({
     cityId: string;
     selection: ActivityRouteSelection;
   }>();
+  const [scheduledMapDay, setScheduledMapDay] = useState<{
+    cityId: string;
+    activityIds: string[];
+  }>();
   const [selectedId, setSelectedId] = useState<string>();
   const [mapExpanded, setMapExpanded] = useState(false);
   const [activitySearch, setActivitySearch] = useState("");
@@ -193,9 +207,13 @@ export default function ActivityPlanning({
     useState<HTMLDivElement | null>(null);
   const [fullscreenMapHost, setFullscreenMapHost] =
     useState<HTMLDivElement | null>(null);
-  const { notify, toaster } = useActionToast();
   const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
+  const { notify, toaster } = useActionToast({
+    trapFocus: Boolean(editor || deleteTarget || mapExpanded),
+  });
+  const activityDrawerRef = useRef<HTMLDivElement>(null);
+  const detailSectionsId = useId("activity-detail-sections");
   const [searching, setSearching] = useState(false);
 
   const [chosenPlace, setChosenPlace] = useState<ActivityPlaceResult>();
@@ -225,9 +243,16 @@ export default function ActivityPlanning({
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
     observer.observe(list);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [active, activityView, cityId, loading]);
   const routeSelection =
     activityView === "daily" &&
@@ -248,6 +273,11 @@ export default function ActivityPlanning({
     activityData && activityData.cityId === cityId
       ? activityData.collection
       : emptyCollection;
+  const scheduledActivities = useMemo(() => {
+    if (!scheduledMapDay || scheduledMapDay.cityId !== cityId) return [];
+    const byId = new Map(activities.features.map((item) => [item.id, item]));
+    return scheduledMapDay.activityIds.flatMap((id) => byId.get(id) ?? []);
+  }, [scheduledMapDay, cityId, activities.features]);
   const searchText = activitySearch.trim().toLocaleLowerCase();
   const matchingActivities = activities.features
     .map((item, index) => ({ item, index }))
@@ -263,6 +293,39 @@ export default function ActivityPlanning({
 
   const deleteOpen = Boolean(deleteTarget && active);
   const editorOpen = Boolean(editor && canEdit && active);
+  const invalidLinks = (editor?.value.properties.links ?? []).some(
+    (link) => !validActivityLink(link),
+  );
+
+  useEffect(() => {
+    const drawer = activityDrawerRef.current;
+    const viewport = window.visualViewport;
+    if (!editorOpen || !drawer || !viewport) return;
+
+    // The software keyboard can shrink the visual viewport without changing dvh.
+    const fitDrawer = () => {
+      if (viewport.scale === 1) {
+        drawer.style.setProperty(
+          "--activity-viewport-height",
+          `${viewport.height}px`,
+        );
+        drawer.style.setProperty(
+          "--activity-viewport-top",
+          `${viewport.offsetTop}px`,
+        );
+      } else {
+        drawer.style.removeProperty("--activity-viewport-height");
+        drawer.style.removeProperty("--activity-viewport-top");
+      }
+    };
+    fitDrawer();
+    viewport.addEventListener("resize", fitDrawer);
+    viewport.addEventListener("scroll", fitDrawer);
+    return () => {
+      viewport.removeEventListener("resize", fitDrawer);
+      viewport.removeEventListener("scroll", fitDrawer);
+    };
+  }, [editorOpen, mapExpanded]);
 
   useEffect(() => {
     // Changing the parent map's modal type runs its own initial-focus effect.
@@ -322,11 +385,7 @@ export default function ActivityPlanning({
   );
 
   const savedActivitiesForMap =
-    activityView === "daily"
-      ? activities.features.filter(
-          (activity) => activity.properties.state === "Yes",
-        )
-      : activities.features;
+    activityView === "daily" ? scheduledActivities : activities.features;
   const draftOnMap =
     editor && editor.value.geometry
       ? { ...editor.value, id: editor.value.id ?? "draft-activity" }
@@ -926,7 +985,11 @@ export default function ActivityPlanning({
         </section>
       );
     }
-    return showMapCard && selected && !editor ? (
+    if (!showMapCard || !selected || editor) return null;
+    const mapIndex = activitiesForMap.findIndex(
+      (item) => item.id === selected.id,
+    );
+    return (
       <section
         key={selected.id}
         className="activity-map-bottom-card"
@@ -942,17 +1005,24 @@ export default function ActivityPlanning({
         <ul className="activity-map-card-list">
           {renderActivityCard(
             selected,
-            activities.features.findIndex((item) => item.id === selected.id),
+            mapIndex >= 0
+              ? mapIndex
+              : activities.features.findIndex(
+                  (item) => item.id === selected.id,
+                ),
           )}
         </ul>
       </section>
-    ) : null;
+    );
   }
 
-  if (loading) return <ActivityWorkspaceSkeleton />;
+  if (loading) return <ActivityWorkspaceSkeleton tripHeader={tripHeader} />;
   if (!destinations || !destination)
     return (
       <section className="activity-planning">
+        {tripHeader && (
+          <div className="activity-planning-heading">{tripHeader}</div>
+        )}
         {error ? (
           <Text role="alert">{error}</Text>
         ) : (
@@ -1009,6 +1079,7 @@ export default function ActivityPlanning({
       open={editorOpen}
       position="start"
       className="activity-drawer"
+      ref={activityDrawerRef}
       onOpenChange={(_, data) => {
         if (!data.open) closeDrawer();
       }}
@@ -1038,6 +1109,7 @@ export default function ActivityPlanning({
                 <label>
                   Activity name
                   <Input
+                    required
                     value={editor.value.properties.name}
                     maxLength={200}
                     onChange={(_, data) => updateEditor({ name: data.value })}
@@ -1199,174 +1271,211 @@ export default function ActivityPlanning({
                     ))}
                   </div>
                 )}
-                <ActivityKindsPicker
-                  value={editor.value.properties.kinds}
-                  disabled={busy}
-                  onChange={(kinds) => updateEditor({ kinds })}
-                />
-                <label>
-                  Address
-                  <Input
-                    value={editor.value.properties.address ?? ""}
-                    maxLength={2000}
-                    onChange={(_, data) =>
-                      updateEditor({ address: data.value || null })
-                    }
-                  />
-                </label>
-                <label>
-                  Tickets
-                  <Select
-                    value={editor.value.properties.ticketRequirement}
-                    onChange={(_, data) =>
-                      updateEditor({
-                        ticketRequirement: data.value as TicketRequirement,
-                      })
-                    }
-                  >
-                    <option value="Unknown">Unknown</option>
-                    <option value="Required">Required</option>
-                    <option value="NotRequired">Not required</option>
-                  </Select>
-                </label>
-                <ActivityTextField
-                  label="Description"
-                  value={editor.value.properties.description}
-                  onChange={(description) => updateEditor({ description })}
-                />
-                <ActivityTextField
-                  label="Notes"
-                  value={editor.value.properties.notes}
-                  onChange={(notes) => updateEditor({ notes })}
-                />
-
-                <ActivityDetailsEvidence properties={editor.value.properties} />
-                <div className="activity-editor-grid">
-                  <ActivityDurationSlider
-                    value={editor.value.properties.duration}
-                    disabled={busy}
-                    onChange={(duration) => updateEditor({ duration })}
-                  />
-                  <label>
-                    Cost amount
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={
-                        editor.value.properties.cost?.amount.toString() ?? ""
-                      }
-                      onChange={(_, data) =>
-                        updateEditor({
-                          cost: data.value
-                            ? {
-                                amount: Number(data.value),
-                                currency:
-                                  editor.value.properties.cost?.currency ??
-                                  "USD",
-                                basis:
-                                  editor.value.properties.cost?.basis ??
-                                  "perPerson",
-                              }
-                            : null,
-                        })
-                      }
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>Activity details</summary>
+                  <div className="activity-section-fields">
+                    <ActivityKindsPicker
+                      value={editor.value.properties.kinds}
+                      disabled={busy}
+                      onChange={(kinds) => updateEditor({ kinds })}
                     />
-                  </label>
-                  <label>
-                    Currency
-                    <select
-                      value={editor.value.properties.cost?.currency ?? ""}
-                      disabled={!editor.value.properties.cost}
-                      onChange={(event) =>
-                        updateEditor({
-                          cost: editor.value.properties.cost
-                            ? {
-                                ...editor.value.properties.cost,
-                                currency: event.target.value,
-                              }
-                            : null,
-                        })
-                      }
-                    >
-                      <option value="" disabled>
-                        Select currency
-                      </option>
-                      {currencies.map((currency) => (
-                        <option key={currency} value={currency}>
-                          {currency} — {currencyNames.of(currency)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Cost basis
-                    <select
-                      value={editor.value.properties.cost?.basis ?? "perPerson"}
-                      disabled={!editor.value.properties.cost}
-                      onChange={(event) =>
-                        updateEditor({
-                          cost: editor.value.properties.cost
-                            ? {
-                                ...editor.value.properties.cost,
-                                basis: event.target
-                                  .value as ActivityCost["basis"],
-                              }
-                            : null,
-                        })
-                      }
-                    >
-                      <option value="perPerson">Per person</option>
-                      <option value="total">Total</option>
-                    </select>
-                  </label>
-                  <div className="activity-state-picker">
-                    <span id="activity-state-label">Status</span>
-                    <Menu
-                      checkedValues={{
-                        state: [editor.value.properties.state],
-                      }}
-                      onCheckedValueChange={(_, data) => {
-                        const state = data.checkedItems[0];
-                        if (state) updateEditor({ state });
-                      }}
-                    >
-                      <MenuTrigger disableButtonEnhancement>
-                        <MenuButton
-                          aria-label={`Status: ${editorStatus.label}`}
-                          aria-labelledby="activity-state-label activity-state-value"
-                          icon={<editorStatus.Icon />}
-                        >
-                          <span id="activity-state-value">
-                            {editorStatus.label}
-                          </span>
-                        </MenuButton>
-                      </MenuTrigger>
-                      <MenuPopover>
-                        <MenuList
-                          className="activity-status-menu"
-                          hasCheckmarks={false}
-                        >
-                          {activityStatuses.map((status) => (
-                            <MenuItemRadio
-                              key={status.value}
-                              name="state"
-                              value={status.value}
-                              checkmark={null}
-                              icon={<status.Icon />}
-                            >
-                              {status.label}
-                            </MenuItemRadio>
-                          ))}
-                        </MenuList>
-                      </MenuPopover>
-                    </Menu>
+                    <label>
+                      Address
+                      <Input
+                        value={editor.value.properties.address ?? ""}
+                        maxLength={2000}
+                        onChange={(_, data) =>
+                          updateEditor({ address: data.value || null })
+                        }
+                      />
+                    </label>
+                    <ActivityTextField
+                      label="Description"
+                      value={editor.value.properties.description}
+                      onChange={(description) => updateEditor({ description })}
+                    />
+                    <div className="activity-state-picker">
+                      <span id="activity-state-label">Status</span>
+                      <Menu
+                        checkedValues={{
+                          state: [editor.value.properties.state],
+                        }}
+                        onCheckedValueChange={(_, data) => {
+                          const state = data.checkedItems[0];
+                          if (state) updateEditor({ state });
+                        }}
+                      >
+                        <MenuTrigger disableButtonEnhancement>
+                          <MenuButton
+                            aria-label={`Status: ${editorStatus.label}`}
+                            aria-labelledby="activity-state-label activity-state-value"
+                            icon={<editorStatus.Icon />}
+                          >
+                            <span id="activity-state-value">
+                              {editorStatus.label}
+                            </span>
+                          </MenuButton>
+                        </MenuTrigger>
+                        <MenuPopover>
+                          <MenuList
+                            className="activity-status-menu"
+                            hasCheckmarks={false}
+                          >
+                            {activityStatuses.map((status) => (
+                              <MenuItemRadio
+                                key={status.value}
+                                name="state"
+                                value={status.value}
+                                checkmark={null}
+                                icon={<status.Icon />}
+                              >
+                                {status.label}
+                              </MenuItemRadio>
+                            ))}
+                          </MenuList>
+                        </MenuPopover>
+                      </Menu>
+                    </div>
                   </div>
-                </div>
-                <ActivityLinksEditor
-                  links={editor.value.properties.links ?? []}
-                  onChange={(links) => updateEditor({ links })}
-                />
+                </details>
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>Timing</summary>
+                  <div className="activity-section-fields">
+                    <ActivityDurationSlider
+                      value={editor.value.properties.duration}
+                      disabled={busy}
+                      onChange={(duration) => updateEditor({ duration })}
+                    />
+                  </div>
+                </details>
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>Tickets and cost</summary>
+                  <div className="activity-section-fields">
+                    <label>
+                      Tickets
+                      <Select
+                        value={editor.value.properties.ticketRequirement}
+                        onChange={(_, data) =>
+                          updateEditor({
+                            ticketRequirement: data.value as TicketRequirement,
+                          })
+                        }
+                      >
+                        <option value="Unknown">Unknown</option>
+                        <option value="Required">Required</option>
+                        <option value="NotRequired">Not required</option>
+                      </Select>
+                    </label>
+                    <label>
+                      Cost amount
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={
+                          editor.value.properties.cost?.amount.toString() ?? ""
+                        }
+                        onChange={(_, data) =>
+                          updateEditor({
+                            cost: data.value
+                              ? {
+                                  amount: Number(data.value),
+                                  currency:
+                                    editor.value.properties.cost?.currency ??
+                                    "USD",
+                                  basis:
+                                    editor.value.properties.cost?.basis ??
+                                    "perPerson",
+                                }
+                              : null,
+                          })
+                        }
+                      />
+                    </label>
+                    {editor.value.properties.cost && (
+                      <div className="activity-editor-grid">
+                        <label>
+                          Currency
+                          <select
+                            value={editor.value.properties.cost?.currency ?? ""}
+                            onChange={(event) =>
+                              updateEditor({
+                                cost: editor.value.properties.cost
+                                  ? {
+                                      ...editor.value.properties.cost,
+                                      currency: event.target.value,
+                                    }
+                                  : null,
+                              })
+                            }
+                          >
+                            <option value="" disabled>
+                              Select currency
+                            </option>
+                            {currencies.map((currency) => (
+                              <option key={currency} value={currency}>
+                                {currency} — {currencyNames.of(currency)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Cost basis
+                          <select
+                            value={
+                              editor.value.properties.cost?.basis ?? "perPerson"
+                            }
+                            onChange={(event) =>
+                              updateEditor({
+                                cost: editor.value.properties.cost
+                                  ? {
+                                      ...editor.value.properties.cost,
+                                      basis: event.target
+                                        .value as ActivityCost["basis"],
+                                    }
+                                  : null,
+                              })
+                            }
+                          >
+                            <option value="perPerson">Per person</option>
+                            <option value="total">Total</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </details>
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>
+                    Notes and links
+                    {invalidLinks && <span>Check link URLs</span>}
+                  </summary>
+                  <div className="activity-section-fields">
+                    <ActivityTextField
+                      label="Notes"
+                      value={editor.value.properties.notes}
+                      onChange={(notes) => updateEditor({ notes })}
+                    />
+
+                    <ActivityLinksEditor
+                      links={editor.value.properties.links ?? []}
+                      onChange={(links) => updateEditor({ links })}
+                    />
+                  </div>
+                </details>
+                <ActivityDetailsEvidence properties={editor.value.properties} />
               </div>
             }
           </fieldset>
@@ -1397,9 +1506,7 @@ export default function ActivityPlanning({
               busy ||
               !editor?.value.properties.name.trim() ||
               !validActivityKinds(editor?.value.properties.kinds) ||
-              (editor?.value.properties.links ?? []).some(
-                (link) => !validActivityLink(link),
-              )
+              invalidLinks
             }
             onClick={() => void save()}
           >
@@ -1420,31 +1527,52 @@ export default function ActivityPlanning({
       aria-label="Activity planning"
     >
       {toaster}
-      <TabList
-        aria-label="Destinations"
-        selectedValue={destination.id}
-        onTabSelect={(_, data) => selectDestination(String(data.value))}
-        className="activity-destination-tabs"
-      >
-        {destinations.features.map((item) => (
-          <Tab value={item.id} key={item.id} disabled={busy}>
-            <span className="activity-tab-label">
-              <CityIcon
-                name={item.properties.name}
-                countryCode={item.properties.countryCode}
-              />
-              <strong>{item.properties.name}</strong>
-              <small>{destinationDates(item, includeDestinationYears)}</small>
-            </span>
-          </Tab>
-        ))}
-      </TabList>
+      <div className="activity-planning-heading">
+        {tripHeader}
+        <TabList
+          aria-label="Destinations"
+          selectedValue={destination.id}
+          onTabSelect={(_, data) => selectDestination(String(data.value))}
+          className="activity-destination-tabs"
+        >
+          {destinations.features.map((item) => {
+            const name = item.properties.name;
+            const dates = destinationDates(item, includeDestinationYears);
+            return (
+              <Tab
+                value={item.id}
+                key={item.id}
+                disabled={busy}
+                title={`${name} · ${dates}`}
+              >
+                <span className="activity-tab-label">
+                  <span className="activity-tab-icon" aria-hidden="true">
+                    <CityIcon
+                      name={name}
+                      countryCode={item.properties.countryCode}
+                    />
+                  </span>
+                  <span className="activity-tab-title">
+                    <strong>{name}</strong>
+                    <CountryFlag
+                      code={item.properties.countryCode}
+                      decorative
+                    />
+                  </span>
+                  <small>{dates}</small>
+                </span>
+              </Tab>
+            );
+          })}
+        </TabList>
+      </div>
       <TabList
         aria-label="Activity views"
         appearance="filled-circular"
         selectedValue={activityView}
         onTabSelect={(_, data) => {
           setActivityView(String(data.value));
+          if (activityView !== data.value) setScheduledMapDay(undefined);
           setSelectedTravel(undefined);
           setShowMapCard(false);
         }}
@@ -1468,6 +1596,7 @@ export default function ActivityPlanning({
                 : [],
             )}
             activities={activitiesForMap}
+            connectActivities={active && activityView === "daily" && !editor}
             placeSearch={placeSearch}
             portalHost={mapExpanded && active ? fullscreenMapHost : undefined}
             route={routePreview.route}
@@ -1506,7 +1635,14 @@ export default function ActivityPlanning({
               readOnly={!canEdit}
 
               onSelect={selectActivity}
-              onPlanChange={() => setSelectedTravel(undefined)}
+              onScheduleError={(message) => notify(message, "error")}
+              onPlanChange={() => {
+                setSelectedTravel(undefined);
+                setShowMapCard(false);
+              }}
+              onMapDayChange={(activityIds) =>
+                setScheduledMapDay({ cityId: destination.id, activityIds })
+              }
               onSelectTravel={(selection) => {
                 setSelectedTravel({ cityId: destination.id, selection });
                 setSelectedId(undefined);

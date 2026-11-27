@@ -12,6 +12,11 @@ import { Button } from "@fluentui/react-components";
 import { useSystemDarkMode } from "../shared/hooks/useSystemDarkMode";
 import { useReducedMotion } from "../shared/hooks/useReducedMotion";
 import {
+  activityConnections,
+  connectionFeature,
+  flowingConnections,
+} from "./activityConnections";
+import {
   AnimatedMapMarkers,
   type MapMarkerDescription,
 } from "./AnimatedMapMarkers";
@@ -46,6 +51,7 @@ export default function ActivityMap({
   destinationName,
   destinationId,
   activities: savedActivities,
+  connectActivities = false,
   selectedId,
   onSelect,
   onPick,
@@ -67,6 +73,7 @@ export default function ActivityMap({
   destinationName?: string;
   destinationId?: string;
   activities: Activity[];
+  connectActivities?: boolean;
   selectedId?: string;
   onSelect: (id: string) => void;
   onPick?: (point: Point) => void;
@@ -468,6 +475,76 @@ export default function ActivityMap({
     placeSearch,
     reducedMotion,
     landmarks,
+  ]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (
+      !ready ||
+      !instance ||
+      !control ||
+      !connectActivities ||
+      placeSearch ||
+      route
+    )
+      return;
+    const connections = activityConnections(
+      activities.map((activity) => activity.geometry),
+    );
+    if (!connections.length) return;
+
+    const source = control.createRouteSource();
+    const layer = control.createRouteLayer(source, {
+      strokeColor: darkMode ? "#60cdff" : "#005a9e",
+      strokeWidth: 4,
+      lineCap: "round",
+    });
+    instance.sources.add(source);
+    source.add(connectionFeature(connections));
+    instance.layers.add(layer);
+
+    let frame = 0;
+    const flowSource = reducedMotion ? undefined : control.createRouteSource();
+    const flowLayer =
+      flowSource &&
+      control.createRouteLayer(flowSource, {
+        strokeColor: darkMode ? "#ffffff" : "#8aeaff",
+        strokeWidth: 3,
+        lineCap: "round",
+      });
+    if (flowSource && flowLayer) {
+      instance.sources.add(flowSource);
+      instance.layers.add(flowLayer);
+      const began = performance.now();
+      let lastFrame = began;
+      const animate = (time: number) => {
+        if (time - lastFrame >= 32) {
+          flowSource.setShapes(flowingConnections(connections, time - began));
+          lastFrame = time;
+        }
+        frame = requestAnimationFrame(animate);
+      };
+      frame = requestAnimationFrame(animate);
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      if (map.current !== instance) return;
+      if (flowSource && flowLayer) {
+        instance.layers.remove(flowLayer);
+        instance.sources.remove(flowSource);
+      }
+      instance.layers.remove(layer);
+      instance.sources.remove(source);
+    };
+  }, [
+    ready,
+    control,
+    connectActivities,
+    placeSearch,
+    route,
+    activities,
+    darkMode,
+    reducedMotion,
   ]);
 
   const restoreMap = useEffectEvent(() => fitActivities());

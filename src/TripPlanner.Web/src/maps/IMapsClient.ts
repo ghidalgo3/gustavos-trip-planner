@@ -20,7 +20,10 @@ export type MapToken = {
 
 type Marker = { getElement?: () => HTMLElement };
 type MapEvent = { position?: [number, number]; error?: Error };
-type RouteSource = { add: (feature: object) => void };
+type RouteSource = {
+  add: (feature: object) => void;
+  setShapes: (features: object[]) => void;
+};
 type RouteLayer = object;
 export type MapCamera = { center: [number, number]; zoom: number };
 export type MapHandle = {

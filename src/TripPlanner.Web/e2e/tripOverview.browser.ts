@@ -161,11 +161,42 @@ for (const width of [320, 390, 1280]) {
           const response = await route.fetch();
           const document = await response.json();
           document.name = "Amsterdam Trip VERY LONG TRIP NAME LMAOOOOOOOOOOOOO";
+          document.places.push({
+            id: "versailles",
+            name: "Versailles",
+            type: "Place",
+            destinationId: "versailles",
+            countryCode: "FR",
+            timeZone: "Europe/Paris",
+            active: true,
+            etag: "1",
+            activitiesEtag: "1",
+            location: { type: "Point", coordinates: [2.13, 48.8] },
+          });
+          document.itinerary.items.push({
+            id: "versailles-visit",
+            order: 1,
+            kind: "visit",
+            type: "event",
+            name: "Versailles",
+            busy: false,
+            start: "2030-04-10",
+            end: "2030-04-15",
+            destinationId: "versailles",
+            placeId: "versailles",
+          });
+          document.preferences.destinations.push({
+            destinationId: "versailles",
+            constraints: {},
+            activities: { instructions: "", defaults: null },
+            schedule: {},
+          });
           await route.fulfill({ json: document });
         });
         await page.goto(overviewPath);
         const share = page.getByRole("button", { name: "Share", exact: true });
         await expect(share).toBeVisible();
+        await expect(page.locator(".app-footer")).toHaveCount(0);
         await expect(
           page.getByRole("navigation", { name: "Trip pages" }),
         ).toHaveCount(0);
@@ -178,18 +209,12 @@ for (const width of [320, 390, 1280]) {
         });
         for (const [name, section] of [
           ["Activities", "activities"],
-          ["Flights", "flights"],
           ["Party", "party"],
         ]) {
           const link =
             section === "party"
               ? share
-              : section === "activities"
-                ? page.locator(".overview-destination-link").first()
-                : page
-                    .locator(".overview-flight-spacer")
-                    .getByRole("link", { name: /^(Plan|View) Flights$/ })
-                    .first();
+              : page.locator(".overview-destination-link").first();
           await link.focus();
           await link.press("Enter");
           await expect(page).toHaveURL(
@@ -211,18 +236,57 @@ for (const width of [320, 390, 1280]) {
             .boundingBox())!;
           const navigation = (await breadcrumb.boundingBox())!;
           expect(dates.y).toBeGreaterThanOrEqual(title.y + title.height);
-          expect(navigation.y).toBeGreaterThanOrEqual(dates.y + dates.height);
+          if (section !== "activities" || width < 1100) {
+            expect(navigation.y).toBeGreaterThanOrEqual(dates.y + dates.height);
+          }
           if (section === "activities") {
-            const destination = page
-              .getByRole("tablist", { name: "Destinations", exact: true })
-              .getByRole("tab")
-              .first();
+            const destinations = page.getByRole("tablist", {
+              name: "Destinations",
+              exact: true,
+            });
+            const destination = destinations.getByRole("tab", {
+              name: /Tokyo/,
+            });
+            const versailles = destinations.getByRole("tab", {
+              name: /Versailles/,
+            });
             await expect(destination).toBeVisible();
+            await expect(destination.locator(".city-icon")).toBeAttached();
+            await expect(versailles.locator(".city-icon")).toHaveCount(0);
+            const destinationName = ".fui-Tab__content .activity-tab-title strong";
+            const tokyoName = await destination
+              .locator(destinationName)
+              .boundingBox();
+            const versaillesName = await versailles
+              .locator(destinationName)
+              .boundingBox();
+            expect(versaillesName!.y).toBeCloseTo(tokyoName!.y);
             const tab = (await destination.boundingBox())!;
-            const topbar = (await page.locator(".topbar").boundingBox())!;
-            const above = title.y - topbar.y - topbar.height;
-            const below = tab.y - navigation.y - navigation.height;
-            expect({ above, below }).toEqual({ above: 16, below: 16 });
+            await expect(
+              destination.locator(".country-flag").first(),
+            ).toBeVisible();
+            await expect(
+              page.locator(".trip-page-header .country-flag"),
+            ).toHaveCount(0);
+            if (width >= 1100) {
+              const topbar = page.locator(".topbar");
+              await expect(
+                topbar.getByRole("navigation", { name: "Breadcrumb" }),
+              ).toBeVisible();
+              const brand = (await topbar
+                .getByRole("link", { name: /Trip Planner/ })
+                .boundingBox())!;
+              expect(navigation.x).toBeGreaterThanOrEqual(
+                brand.x + brand.width,
+              );
+              expect(tab.x).toBeGreaterThanOrEqual(title.x + title.width);
+              expect(tab.y).toBeLessThan(dates.y + dates.height);
+              expect(tab.height).toBeLessThanOrEqual(76);
+            } else {
+              expect(tab.y).toBeGreaterThanOrEqual(
+                navigation.y + navigation.height,
+              );
+            }
           }
           expect(
             await page.evaluate(

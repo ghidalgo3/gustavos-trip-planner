@@ -59,6 +59,9 @@ export default function App() {
   const [apiAvailable, setApiAvailable] = useState(true);
   const [offline, setOffline] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [breadcrumbHost, setBreadcrumbHost] = useState<HTMLDivElement | null>(
+    null,
+  );
   const userMenu = useRef<HTMLDetailsElement>(null);
   const profile = user?.profile ?? emptyProfile;
 
@@ -147,15 +150,18 @@ export default function App() {
       <BehaviorTracking user={user} />
       <ScrollPositionRestoration />
       <header className="topbar">
-        <Link className="brand" to="/">
-          <Location24Regular aria-hidden="true" />
-          <Text weight="semibold" size={400}>
-            Trip Planner
-            {window.location.hostname.endsWith(
-              "-preview.azurewebsites.net",
-            ) && <span aria-label="Test environment"> 🏗️</span>}
-          </Text>
-        </Link>
+        <div className="topbar-navigation">
+          <Link className="brand" to="/">
+            <Location24Regular aria-hidden="true" />
+            <Text weight="semibold" size={400}>
+              Trip Planner
+              {window.location.hostname.endsWith(
+                "-preview.azurewebsites.net",
+              ) && <span aria-label="Test environment"> 🏗️</span>}
+            </Text>
+          </Link>
+          <div className="topbar-breadcrumbs" ref={setBreadcrumbHost} />
+        </div>
         {user?.isAuthenticated && (
           <div className="user-actions">
             <details className="user-menu" ref={userMenu}>
@@ -217,6 +223,7 @@ export default function App() {
                 userId={user.id}
                 offline={offline}
                 homeCity={profile.homeCity?.name ?? null}
+                breadcrumbHost={breadcrumbHost}
               />
             }
           />
@@ -226,7 +233,6 @@ export default function App() {
               offline ? (
                 <section className="planning-page">
                   <Text>Connect to the internet to manage your profile.</Text>
-                  <Button onClick={() => navigate("/")}>Back to trips</Button>
                 </section>
               ) : (
                 <ProfilePage user={{ ...user, profile }} onSaved={acceptUser} />
@@ -351,11 +357,13 @@ export default function App() {
           </Card>
         </section>
       )}
-      <footer className="app-footer">
-        <Link to="/notices" onClick={() => window.scrollTo(0, 0)}>
-          Notices
-        </Link>
-      </footer>
+      {location.pathname === "/" && (
+        <footer className="app-footer">
+          <Link to="/notices" onClick={() => window.scrollTo(0, 0)}>
+            Notices
+          </Link>
+        </footer>
+      )}
     </main>
   );
 }

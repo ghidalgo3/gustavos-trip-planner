@@ -42,6 +42,7 @@ const props = {
   readOnly: false,
   onSelect: vi.fn(),
   onSaved: vi.fn(async () => {}),
+  onScheduleError: vi.fn(),
 };
 let response: PlanResponse;
 beforeEach(() => {
@@ -66,6 +67,32 @@ const writes = () =>
   vi
     .mocked(planningRequest)
     .mock.calls.filter(([, options]) => options?.method === "PUT");
+
+test("reports the selected day's activities in time order, then assigned activities without times", async () => {
+  response.plan.days[0].activityIds = [
+    "activity-2",
+    "activity-1",
+    "activity-0",
+  ];
+  const onMapDayChange = vi.fn();
+  render(<DailyActivityPlan {...props} onMapDayChange={onMapDayChange} />);
+  await screen.findByRole("region", { name: "Day calendar" });
+  expect(onMapDayChange).toHaveBeenLastCalledWith([
+    "activity-0",
+    "activity-1",
+    "activity-2",
+  ]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+  expect(onMapDayChange).toHaveBeenLastCalledWith([]);
+  fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
+  expect(onMapDayChange).toHaveBeenLastCalledWith([
+    "activity-0",
+    "activity-1",
+    "activity-2",
+  ]);
+  expect(writes()).toHaveLength(0);
+});
 
 test("refreshing the trip after a visit edit removes invalidated calendar assignments", async () => {
   const view = render(<DailyActivityPlan {...props} />);

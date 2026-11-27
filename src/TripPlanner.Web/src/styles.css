@@ -135,10 +135,25 @@ main {
   background: var(--app-topbar-background);
   backdrop-filter: blur(12px);
 }
+.topbar-navigation {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+}
+.topbar-breadcrumbs:empty {
+  display: none;
+}
+.topbar-breadcrumbs .trip-breadcrumbs {
+  margin: 0;
+}
+.topbar-breadcrumbs .trip-breadcrumbs ol {
+  flex-wrap: nowrap;
+}
 .app-footer {
   flex-shrink: 0;
   margin-top: auto;
-  padding: 8px var(--app-page-gutter) max(8px, env(safe-area-inset-bottom));
+  padding: 0 var(--app-page-gutter) env(safe-area-inset-bottom);
   border-top: 1px solid var(--colorNeutralStroke2);
   text-align: center;
   font-size: 12px;
@@ -1135,6 +1150,15 @@ main {
   width: 100%;
   min-width: 0;
 }
+.activity-planning-heading {
+  display: grid;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.activity-planning-heading > .trip-page-header {
+  width: 100%;
+  margin: 0;
+}
 .retained-activity-panel:not([hidden]) {
   display: contents;
 }
@@ -1805,10 +1829,67 @@ main {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.activity-tab-icon {
+  min-height: 36px;
+}
 .activity-tab-label small {
   font-weight: 400;
   color: var(--colorNeutralForeground2);
   font-size: 12px;
+}
+.activity-tab-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.activity-tab-title > .country-flag {
+  width: 18px;
+  height: 14px;
+  flex-shrink: 0;
+}
+@media (min-width: 1100px) {
+  .activity-planning-heading:has(> .trip-page-header):has(
+      > .activity-destination-tabs,
+      > .skeleton-destination-tabs
+    ) {
+    grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+    align-items: center;
+    gap: 20px;
+  }
+  .activity-planning-heading > .trip-page-header {
+    padding-block: 12px;
+  }
+  .activity-destination-tabs,
+  .skeleton-destination-tabs {
+    gap: 8px;
+    padding-block: 8px;
+    min-width: 0;
+  }
+  .activity-destination-tabs .fui-Tab,
+  .skeleton-destination-tabs > .skeleton-stack {
+    min-height: 60px;
+    padding: 8px;
+    align-items: center;
+  }
+  .activity-destination-tabs .activity-tab-icon {
+    display: none;
+  }
+  .activity-destination-tabs .activity-tab-title {
+    justify-content: space-between;
+  }
+  .activity-destination-tabs .activity-tab-title > strong,
+  .activity-destination-tabs .activity-tab-label > small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .skeleton-destination-tabs > .skeleton-stack {
+    gap: 4px;
+  }
+  .skeleton-destination-tabs > .skeleton-stack > :first-child {
+    display: none;
+  }
 }
 .city-icon {
   display: block;
@@ -1904,10 +1985,11 @@ main {
   min-width: 0;
 }
 .activity-drawer-footer {
+  flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 .activity-drawer-progress {
   flex-basis: 100%;
@@ -1920,6 +2002,9 @@ main {
 }
 .activity-drawer .fui-SearchBox {
   max-width: none;
+}
+.activity-drawer :is(input:not([type="range"]), textarea, select) {
+  font-size: 16px;
 }
 .visually-hidden {
   position: absolute;
@@ -1935,8 +2020,44 @@ main {
 
 .activity-drawer-body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  min-height: 0;
   gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 12px;
+}
+
+.activity-field-section {
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+}
+
+.activity-field-section > summary {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.activity-field-section:hover {
+  border-color: var(--colorBrandStroke1);
+}
+
+.activity-field-section > summary span {
+  margin-inline-start: 8px;
+  color: var(--colorPaletteRedForeground1);
+}
+
+.activity-section-fields {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.activity-drawer button[aria-label="Close activity drawer"] {
+  min-width: 44px;
 }
 
 .activity-card button,
@@ -2496,20 +2617,10 @@ main:has(.trip-workspace-activities) > .topbar {
     overscroll-behavior-y: auto;
   }
 
-  /* Scroll the whole editor, including its actions, within the visible screen. */
   .activity-drawer.fui-OverlayDrawer {
-    height: 100dvh;
-    max-height: 100dvh;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-  }
-  .activity-drawer > .fui-DrawerHeader,
-  .activity-drawer > .fui-DrawerFooter {
-    flex-shrink: 0;
-  }
-  .activity-drawer > .activity-drawer-body {
-    flex: none;
-    overflow: visible;
+    top: var(--activity-viewport-top, 0px);
+    height: var(--activity-viewport-height, 100dvh);
+    max-height: var(--activity-viewport-height, 100dvh);
   }
 }
 .activity-delete-button {

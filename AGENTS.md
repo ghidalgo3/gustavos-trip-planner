@@ -76,6 +76,7 @@ cd src/TripPlanner.Web && corepack pnpm test && corepack pnpm run lint && corepa
 These do not apply to iOS.
 
 - Mobile UI is the primary design target. Design for small screens.
+- Use the [web UI complexity rubric](docs/ux_testing.md#web-ui-complexity) for single-task screens and drawers. Aim for at most five visible navigation choices, four exposed form controls, one vertical scroll area, and a next action visible when it becomes relevant.
 - All place searches must use the shared `PlaceSearchResultButton` and `PlaceSearchResult` components, with consistent full-width numbered buttons, name/address typography, spacing, selection feedback, and loading placeholders. When a place-search drawer has a map, show the same results as numbered map pins with matching indices; selecting a list result or its pin must perform the same action. Do not create feature-specific radio cards or alternate result layouts.
 - Search fields must use the same text sizing in toolbars and edit drawers, with a computed inner-input font size of at least 16 CSS pixels at every viewport width to prevent Safari focus zoom. Do not rely only on mobile-width or coarse-pointer media queries; tablets and touch devices can use wider layouts. Verify computed font sizes in browser checks, including desktop-width layouts, and preserve browser pinch zoom.
 - New or modified icon-only actions must provide at least a 44×44 CSS pixel tap target. Search clear/dismiss buttons must be at least 48 CSS pixels wide.

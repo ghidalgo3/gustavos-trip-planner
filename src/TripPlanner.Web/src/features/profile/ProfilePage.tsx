@@ -9,7 +9,6 @@ import {
   Title1,
   Title2,
 } from "@fluentui/react-components";
-import { useNavigate } from "react-router";
 import HomeAirportPicker from "./HomeAirportPicker";
 import AsyncAutocomplete from "../../shared/components/AsyncAutocomplete";
 import AirlineCombobox from "../flights/AirlineCombobox";
@@ -31,7 +30,6 @@ export default function ProfilePage({
   user: CurrentUser;
   onSaved: (user: CurrentUser) => void;
 }) {
-  const navigate = useNavigate();
   const [cityQuery, setCityQuery] = useState(user.profile.homeCity?.name ?? "");
   const [selectedCity, setSelectedCity] = useState<CitySuggestion | undefined>(
     () => {
@@ -170,9 +168,6 @@ export default function ProfilePage({
 
   return (
     <section className="profile-page" aria-label="Your profile">
-      <Button appearance="secondary" onClick={() => navigate("/")}>
-        Back to trips
-      </Button>
       <Title1 as="h1">Your profile</Title1>
       <Text>
         Set your home city and the airlines you prefer when planning trips.

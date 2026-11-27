@@ -87,11 +87,17 @@ vi.mock("../../maps/mapsClient", () => ({
 vi.mock("./DailyActivityPlan", () => ({
   default: ({
     onSelectTravel,
+    onMapDayChange,
   }: {
     onSelectTravel?: (value: ActivityRouteSelection) => void;
+    onMapDayChange?: (activityIds: string[]) => void;
   }) => (
     <div>
       Plan editor
+      <button onClick={() => onMapDayChange?.(["museum"])}>
+        Map first day
+      </button>
+      <button onClick={() => onMapDayChange?.(["garden"])}>Map next day</button>
       <button
         onClick={() =>
           onSelectTravel?.({
@@ -260,12 +266,17 @@ function change(
   act(() => element.focus());
   fireEvent.change(element, options);
 }
+function openSection(drawer: HTMLElement, name: string) {
+  const summary = within(drawer).getByText(name, { selector: "summary" });
+  if (!summary.closest("details")?.open) click(summary);
+}
 async function add(chooseKind = true) {
   const trigger = await screen.findByRole("button", { name: "Add activity" });
   act(() => trigger.focus());
   click(trigger);
   const drawer = await screen.findByRole("dialog");
   if (chooseKind) {
+    openSection(drawer, "Activity details");
     const input = within(drawer).getByRole("combobox", { name: "Kinds" });
     change(input, { target: { value: "Culture" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
@@ -339,7 +350,7 @@ test("selecting a Plan travel step focuses the map and forwards its route; closi
   ).not.toBeInTheDocument();
 });
 
-test("Plan shows only activity bubbles marked Yes, and Ideas restores the others", async () => {
+test("Schedule shows bubbles from its selected day, and Ideas restores the other bubbles", async () => {
   vi.mocked(getActivities).mockResolvedValue({
     type: "FeatureCollection",
     features: [
@@ -375,9 +386,14 @@ test("Plan shows only activity bubbles marked Yes, and Ideas restores the others
     await screen.findByRole("button", { name: "Map marker: Louvre" }),
   ).toBeInTheDocument();
   click(screen.getByRole("tab", { name: "Schedule" }));
+  click(screen.getByRole("button", { name: "Map first day" }));
   expect(
-    screen.queryByRole("tab", { name: "Daily plan" }),
+    screen.getByRole("button", { name: "Map marker: Louvre" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Map marker: Garden" }),
   ).not.toBeInTheDocument();
+  click(screen.getByRole("button", { name: "Map next day" }));
   expect(
     screen.getByRole("button", { name: "Map marker: Garden" }),
   ).toBeInTheDocument();
@@ -581,12 +597,14 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   expect(drawer).not.toHaveAttribute("aria-modal", "true");
   expect(document.querySelector(".fui-DialogSurface__backdrop")).toBeNull();
   expect(within(drawer).getByLabelText("Activity name")).toHaveValue("Louvre");
-  expect(within(drawer).getByLabelText("Notes")).toHaveValue(
-    "Book morning entry.",
-  );
+  openSection(drawer, "Activity details");
   change(within(drawer).getByLabelText("Description"), {
     target: { value: "Paintings and sculpture" },
   });
+  openSection(drawer, "Notes and links");
+  expect(within(drawer).getByLabelText("Notes")).toHaveValue(
+    "Book morning entry.",
+  );
   change(within(drawer).getByLabelText("Notes"), {
     target: { value: "Visit in the morning\nMeet at the entrance." },
   });
@@ -597,6 +615,7 @@ test("editing uses a drawer and preserves changes after a failed save for retry"
   change(within(drawer).getByLabelText("Link label 1"), {
     target: { value: "Tickets" },
   });
+  openSection(drawer, "Activity details");
   const stateTrigger = within(drawer).getByRole("button", {
     name: "Status Maybe",
   });
@@ -659,6 +678,7 @@ test.each(["", "Visit after lunch.\nBring the booking confirmation."])(
     show();
     click(await screen.findByRole("button", { name: "Louvre" }));
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    openSection(drawer, "Notes and links");
     change(within(drawer).getByLabelText("Notes"), {
       target: { value: notes },
     });
@@ -681,6 +701,7 @@ test("canceling the activity drawer discards its draft", async () => {
   change(within(drawer).getByLabelText("Description"), {
     target: { value: "Unsaved description" },
   });
+  openSection(drawer, "Notes and links");
   change(within(drawer).getByLabelText("Notes"), {
     target: { value: "Unsaved notes" },
   });
@@ -691,6 +712,7 @@ test("canceling the activity drawer discards its draft", async () => {
   const reopened = await add();
   expect(within(reopened).getByLabelText("Activity name")).toHaveValue("");
   expect(within(reopened).getByLabelText("Description")).toHaveValue("");
+  openSection(reopened, "Notes and links");
   expect(within(reopened).getByLabelText("Notes")).toHaveValue("");
   expect(saveActivity).not.toHaveBeenCalled();
 });
@@ -977,15 +999,18 @@ test("a Stay marker presents accommodation details separately from activities", 
 test("activity costs use a known currency selection and save the selected currency", async () => {
   show();
   const drawer = await add();
-  const currency = within(drawer).getByRole("combobox", { name: "Currency" });
-  expect(currency.tagName).toBe("SELECT");
-  expect(currency).toBeDisabled();
+  openSection(drawer, "Tickets and cost");
+  expect(
+    within(drawer).queryByRole("combobox", { name: "Currency" }),
+  ).toBeNull();
   change(within(drawer).getByLabelText("Activity name"), {
     target: { value: "Museum" },
   });
   change(within(drawer).getByLabelText("Cost amount"), {
     target: { value: "25" },
   });
+  const currency = within(drawer).getByRole("combobox", { name: "Currency" });
+  expect(currency.tagName).toBe("SELECT");
   expect(currency).toBeEnabled();
   expect(currency).toHaveValue("USD");
   for (const code of ["USD", "EUR", "JPY", "GBP"]) {
@@ -1386,6 +1411,7 @@ test.each([
     change(within(drawer).getByLabelText("Activity name"), {
       target: { value: "Explore the museum" },
     });
+    openSection(drawer, "Timing");
     const slider = within(drawer).getByRole("slider", { name: "Duration" });
     expect(slider).toHaveAttribute("min", "0.5");
     expect(slider).toHaveAttribute("max", "12");
@@ -1420,6 +1446,7 @@ test.each([null, "PT45M", "PT13H"])(
     show();
     click(await screen.findByRole("button", { name: "Louvre" }));
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    openSection(drawer, "Timing");
     expect(
       within(drawer).getByText(
         duration === null
@@ -1466,6 +1493,7 @@ test.each([3, null])(
     expect(
       within(drawer).getByRole("link", { name: "Duration source" }),
     ).toBeVisible();
+    openSection(drawer, "Timing");
     if (hours === null)
       click(within(drawer).getByRole("button", { name: "Clear duration" }));
     else
@@ -1632,6 +1660,7 @@ test.each([false, true])(
       show();
       click(await screen.findByRole("button", { name: "Louvre" }));
       drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+      openSection(drawer, "Activity details");
       click(within(drawer).getByLabelText("Remove Culture"));
     } else {
       show();
@@ -1640,6 +1669,7 @@ test.each([false, true])(
         target: { value: "Gallery visit" },
       });
     }
+    openSection(drawer, "Activity details");
     expect(
       within(drawer).getByRole("combobox", { name: "Kinds" }),
     ).not.toBeRequired();
@@ -1665,6 +1695,7 @@ test("activity details save multiple kinds, address and tickets together", async
   });
   const save = within(drawer).getByRole("button", { name: "Save activity" });
   expect(save).toBeEnabled();
+  openSection(drawer, "Activity details");
   const kinds = within(drawer).getByRole("combobox", { name: "Kinds" });
   const addKind = (value: string) => {
     change(kinds, { target: { value } });
@@ -1681,6 +1712,7 @@ test("activity details save multiple kinds, address and tickets together", async
   change(within(drawer).getByLabelText("Address"), {
     target: { value: "1 museum street" },
   });
+  openSection(drawer, "Tickets and cost");
   expect(within(drawer).getByRole("combobox", { name: "Tickets" })).toHaveValue(
     "Unknown",
   );
@@ -1762,6 +1794,7 @@ test.each(["Address", "Activity name"])(
     show();
     click(await screen.findByRole("button", { name: "Louvre" }));
     const drawer = await screen.findByRole("dialog", { name: "Edit activity" });
+    if (field === "Address") openSection(drawer, "Activity details");
     change(within(drawer).getByLabelText(field), {
       target: {
         value: field === "Address" ? "2 museum street" : "Louvre visit",

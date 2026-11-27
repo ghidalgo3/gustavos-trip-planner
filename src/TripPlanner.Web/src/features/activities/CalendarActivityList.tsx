@@ -1,5 +1,5 @@
 import { useState, type PointerEvent } from "react";
-import { Button, SearchBox } from "@fluentui/react-components";
+import { Button, Portal, SearchBox } from "@fluentui/react-components";
 import {
   Dismiss24Regular,
   ReOrderDotsVertical24Regular,
@@ -13,6 +13,7 @@ import {
   type CalendarTiming,
 } from "./activityCalendarModel";
 import { durationMinutes } from "../../shared/time/durations";
+import type { CalendarDragCard } from "./useCalendarDrag";
 
 export default function CalendarActivityList({
   activities,
@@ -21,6 +22,7 @@ export default function CalendarActivityList({
   disabled,
   readOnly,
   onEvent,
+  dragCard,
   onDrag,
 }: {
   activities: Activity[];
@@ -29,7 +31,8 @@ export default function CalendarActivityList({
   disabled: boolean;
   readOnly: boolean;
   onEvent: (id: string) => void;
-  onDrag: (event: PointerEvent<HTMLElement>, timing: CalendarTiming) => void;
+  dragCard: CalendarDragCard | null;
+  onDrag?: (event: PointerEvent<HTMLElement>, timing: CalendarTiming) => void;
 }) {
   const [query, setQuery] = useState("");
   const matching = activities.filter((item) =>
@@ -82,12 +85,34 @@ export default function CalendarActivityList({
                   const day = plan.days.find((item) =>
                     item.activityIds.includes(activity.id),
                   );
+                  const className = `schedule-activity${scheduled ? " is-scheduled" : ""}`;
+                  const preview =
+                    dragCard?.activityId === activity.id ? dragCard : null;
+                  const content = (
+                    <>
+                      {onDrag && (
+                        <span data-drag-handle="true" aria-hidden="true">
+                          <ReOrderDotsVertical24Regular />
+                        </span>
+                      )}
+                      <span>
+                        <strong>{activity.properties.name}</strong>
+                        <small>
+                          {minutes} min
+                          {scheduled && day
+                            ? ` · ${calendarDateLabel(day.date)}${rule.fixedStart ? ` · ${rule.fixedStart.slice(0, 5)}` : ""}`
+                            : ""}
+                        </small>
+                      </span>
+                    </>
+                  );
                   return (
                     <li key={activity.id}>
                       <button
                         type="button"
-                        className={`schedule-activity${scheduled ? " is-scheduled" : ""}`}
-                        data-draggable={!readOnly}
+                        className={className}
+                        data-draggable={!!onDrag && !readOnly}
+                        data-dragging={!!preview}
                         aria-label={`Schedule ${activity.properties.name}`}
                         disabled={disabled}
                         onClick={() => onEvent(activity.id)}
@@ -99,26 +124,31 @@ export default function CalendarActivityList({
                             )
                           )
                             return;
-                          onDrag(event, {
+                          onDrag?.(event, {
                             activityId: activity.id,
                             start: 0,
                             end: Math.min(1440, Math.max(15, minutes)),
                           });
                         }}
                       >
-                        <span data-drag-handle="true" aria-hidden="true">
-                          <ReOrderDotsVertical24Regular />
-                        </span>
-                        <span>
-                          <strong>{activity.properties.name}</strong>
-                          <small>
-                            {minutes} min
-                            {scheduled && day
-                              ? ` · ${calendarDateLabel(day.date)}${rule.fixedStart ? ` · ${rule.fixedStart.slice(0, 5)}` : ""}`
-                              : ""}
-                          </small>
-                        </span>
+                        {content}
                       </button>
+                      {preview && (
+                        <Portal>
+                          <div
+                            className={`${className} schedule-activity-drag-card`}
+                            aria-hidden="true"
+                            style={{
+                              left: preview.left,
+                              top: preview.top,
+                              width: preview.width,
+                              height: preview.height,
+                            }}
+                          >
+                            {content}
+                          </div>
+                        </Portal>
+                      )}
                     </li>
                   );
                 })}

@@ -13,15 +13,21 @@ import type { ActivityPlan } from "../src/features/activities/activityPlanApi";
 
 for (const width of [390, 820, 1100, 1280]) {
   test.describe(`activity calendar at ${width}px`, () => {
-    test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
+    test.use({
+      viewport: { width, height: 844 },
+      serviceWorkers: "block",
+      hasTouch: width === 1280,
+    });
     test("edits event times and transportation on the calendar, preserving it offline", async ({
       page,
       request,
+      browserName,
     }, testInfo) => {
       await request.post("/__test/session", { data: { authenticated: true } });
       const response = structuredClone(calendarResponse);
       const writes: ActivityPlan[] = [];
       let failNextSave = false;
+      let holdNextSave: Promise<void> | undefined;
       const path = `/trips/${fixtures.trip.id}/destinations/${fixtures.destination.id}/activity-plan`;
       await page.route(
         `**/trips/${fixtures.trip.id}/document`,
@@ -58,6 +64,9 @@ for (const width of [390, 820, 1100, 1280]) {
       );
       await page.route(`**${path}`, async (route) => {
         if (route.request().method() === "PUT") {
+          const held = holdNextSave;
+          holdNextSave = undefined;
+          if (held) await held;
           if (failNextSave) {
             failNextSave = false;
             await route.fulfill({
@@ -127,12 +136,87 @@ for (const width of [390, 820, 1100, 1280]) {
       await expect(
         page.getByRole("tab", { name: "Schedule", exact: true }),
       ).toBeVisible({ timeout: 10_000 });
+      const mapPanel = page.locator(".activity-map-panel");
+      const activityViews = page.getByRole("tablist", {
+        name: "Activity views",
+      });
+      const activitiesPane = page.getByRole("region", {
+        name: "Destination activities",
+      });
+      const originalMap = width < 768 ? await mapPanel.elementHandle() : null;
+      const measureMap = async () => {
+        const mapBounds = (await mapPanel.boundingBox())!;
+        const tabBounds = (await activityViews.boundingBox())!;
+        const contentBounds = (await activitiesPane.boundingBox())!;
+        expect(mapBounds.y + mapBounds.height).toBeLessThanOrEqual(
+          contentBounds.y,
+        );
+        return mapBounds.y - tabBounds.y;
+      };
+      const ideasMapPosition = originalMap ? await measureMap() : null;
       await page.getByRole("tab", { name: "Schedule", exact: true }).click();
       const calendar = page.getByRole("region", {
         name: "Day calendar",
         exact: true,
       });
       await expect(calendar).toBeVisible();
+      if (width === 1100) {
+        const rowPosition = async (
+          name: string,
+          role: "button" | "combobox" = "button",
+        ) => {
+          const bounds = (await page
+            .getByRole(role, { name, exact: true })
+            .boundingBox())!;
+          return bounds.y + bounds.height / 2;
+        };
+        const dayPicker = page.getByRole("combobox", { name: "Calendar day" });
+        expect((await dayPicker.boundingBox())!.width).toBeGreaterThanOrEqual(
+          160,
+        );
+        const firstRow = await rowPosition("Calendar day", "combobox");
+        expect(await rowPosition("Previous day")).toBe(firstRow);
+        expect(await rowPosition("Next day")).toBe(firstRow);
+        const secondRow = await rowPosition("Day details");
+        expect(secondRow).toBeGreaterThan(firstRow);
+        expect(await rowPosition("Add event")).toBe(secondRow);
+      }
+      if (originalMap) {
+        expect(
+          await mapPanel.evaluate(
+            (panel, original) => panel === original,
+            originalMap,
+          ),
+        ).toBe(true);
+        expect(await measureMap()).toBe(ideasMapPosition);
+        await page.getByRole("tab", { name: "Ideas", exact: true }).click();
+        expect(await measureMap()).toBe(ideasMapPosition);
+        await page.getByRole("tab", { name: "Schedule", exact: true }).click();
+        await expect(calendar).toBeVisible();
+      }
+      if (width < 1100) {
+        const schedule = page.getByRole("region", {
+          name: "Activity calendar",
+        });
+        await expect(calendar).toHaveClass("calendar-agenda");
+        const nestedScrollRegions = await schedule.evaluate(
+          (root) =>
+            [...root.querySelectorAll("*")].filter(
+              (element) =>
+                element.clientHeight > 0 &&
+                element.scrollHeight > element.clientHeight + 1 &&
+                /auto|scroll/.test(getComputedStyle(element).overflowY),
+            ).length,
+        );
+        expect(nestedScrollRegions).toBe(0);
+        const museum = await calendar
+          .getByRole("button", { name: "Museum", exact: true })
+          .boundingBox();
+        const garden = await calendar
+          .getByRole("button", { name: "Garden", exact: true })
+          .boundingBox();
+        expect(museum!.y + museum!.height).toBeLessThan(garden!.y);
+      }
       await expect(
         page.getByRole("button", { name: /^(Show|Hide) map$/ }),
       ).toHaveCount(0);
@@ -316,23 +400,123 @@ for (const width of [390, 820, 1100, 1280]) {
         await calendar.evaluate((element) => {
           element.scrollTop = 10 * 90;
         });
-        const cafe = (await page
-          .getByRole("button", { name: "Schedule Cafe", exact: true })
-          .boundingBox())!;
-        const grid = (await page.locator(".calendar-events").boundingBox())!;
-        await page.mouse.move(
-          cafe.x + cafe.width / 2,
-          cafe.y + cafe.height / 2,
-        );
-        await page.mouse.down();
-        await page.mouse.move(grid.x + grid.width / 2, grid.y + 12 * 90, {
-          steps: 10,
+        const cafe = page.getByRole("button", {
+          name: "Schedule Cafe",
+          exact: true,
         });
-        await expect(page.locator(".calendar-drag-preview")).toHaveText(
-          /Cafe12:00–13:00/,
-        );
-        expect(writes).toHaveLength(5);
-        await page.mouse.up();
+        const unscheduled = page.getByRole("region", {
+          name: "Unscheduled activities",
+        });
+        const card = page.locator(".schedule-activity-drag-card");
+        const cafeEvent = calendar.getByRole("button", {
+          name: "Cafe",
+          exact: true,
+        });
+        const toast = page.locator(".fui-Toast");
+        const dismissToast = toast.getByRole("button", {
+          name: "Dismiss notification",
+        });
+
+        if (width === 1280 && browserName === "chromium") {
+          const touch = await page.context().newCDPSession(page);
+          const handle = (await cafe
+            .locator("[data-drag-handle]")
+            .boundingBox())!;
+          const x = handle.x + handle.width / 2;
+          const y = handle.y + handle.height / 2;
+          await touch.send("Input.dispatchTouchEvent", {
+            type: "touchStart",
+            touchPoints: [{ x, y }],
+          });
+          await touch.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x: x + 90, y: y + 30 }],
+          });
+          await expect(card).toBeVisible();
+          expect((await card.boundingBox())!.x).toBeCloseTo(
+            (await cafe.boundingBox())!.x + 90,
+            0,
+          );
+          await touch.send("Input.dispatchTouchEvent", {
+            type: "touchCancel",
+            touchPoints: [],
+          });
+          await expect(card).toHaveCount(0);
+          await touch.detach();
+        }
+
+        const dragCafe = async () => {
+          const source = (await cafe.boundingBox())!;
+          const grid = (await page.locator(".calendar-events").boundingBox())!;
+          const x = source.x + source.width / 2;
+          const y = source.y + source.height / 2;
+          const dropX = grid.x + grid.width / 2;
+          const dropY = grid.y + 12 * 90;
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(dropX, dropY, { steps: 10 });
+          await expect(card).toContainText("Cafe");
+          const cardBounds = (await card.boundingBox())!;
+          expect(cardBounds.x).toBeCloseTo(source.x + dropX - x, 0);
+          expect(cardBounds.y).toBeCloseTo(source.y + dropY - y, 0);
+          await expect(page.locator(".calendar-drag-preview")).toHaveText(
+            /Cafe12:00–13:00/,
+          );
+          expect(writes).toHaveLength(5);
+          await page.mouse.up();
+          await expect(card).toHaveCount(0);
+        };
+
+        const failedSave = Promise.withResolvers<void>();
+        holdNextSave = failedSave.promise;
+        failNextSave = true;
+        try {
+          await dragCafe();
+          await expect(cafeEvent).toBeVisible();
+          await expect(cafeEvent).toBeDisabled();
+          await expect(
+            unscheduled.getByText("Cafe", { exact: true }),
+          ).toHaveCount(0);
+          await expect(page.getByText("Saving schedule…")).toHaveCount(0);
+          await expect(toast).toHaveCount(0);
+          expect(writes).toHaveLength(5);
+        } finally {
+          failedSave.resolve();
+        }
+        await expect(toast).toContainText("Schedule unavailable.");
+        await expect(cafeEvent).toHaveCount(0);
+        await expect(
+          unscheduled.getByRole("button", { name: "Schedule Cafe" }),
+        ).toBeEnabled();
+        await dismissToast.click();
+        await expect(toast).toHaveCount(0);
+
+        const successfulSave = Promise.withResolvers<void>();
+        holdNextSave = successfulSave.promise;
+        const eventDraft = page.getByRole("dialog");
+        const saveDraft = eventDraft.getByRole("button", {
+          name: "Save",
+          exact: true,
+        });
+        const draftStart = eventDraft.getByLabel("Event start");
+        try {
+          await dragCafe();
+          await page
+            .getByRole("button", { name: "Add event", exact: true })
+            .click();
+          const draftActivity = eventDraft.getByLabel("Event activity");
+          await draftActivity.selectOption("activity-2");
+          await expect(draftStart).toHaveValue("12:00");
+          await expect(eventDraft.getByLabel("Event end")).toHaveValue("13:00");
+          await draftActivity.selectOption("activity-1");
+          await draftStart.fill("10:30");
+          await expect(saveDraft).toBeDisabled();
+        } finally {
+          successfulSave.resolve();
+        }
+        await expect(saveDraft).toBeEnabled();
+        await expect(draftStart).toHaveValue("10:30");
+        await eventDraft.getByRole("button", { name: "Cancel" }).click();
         await expect.poll(() => writes.length).toBe(6);
         expect(
           writes[5].rules.find((rule) => rule.activityId === "activity-2"),
@@ -348,23 +532,18 @@ for (const width of [390, 820, 1100, 1280]) {
           calendar.getByRole("button", { name: "Cafe", exact: true }),
         ).toBeEnabled();
 
-        // Failed gestures keep the last confirmed event and can retry the same change.
+        // A failed move also restores an already scheduled event to its last saved time.
         failNextSave = true;
         await dragBy(
           calendar.getByRole("button", { name: "Cafe", exact: true }),
           22.5,
         );
-        await expect(
-          page
-            .getByRole("region", { name: "Activity calendar", exact: true })
-            .getByRole("alert"),
-        ).toContainText("Schedule unavailable.");
+        await expect(toast).toContainText("Schedule unavailable.");
         await expect(
           calendar.getByText("12:00–13:00", { exact: true }),
         ).toBeVisible();
-        await page
-          .getByRole("button", { name: "Retry schedule change" })
-          .click();
+        await dismissToast.click();
+        await dragBy(cafeEvent, 22.5);
         await expect.poll(() => writes.length).toBe(7);
         expect(
           writes[6].rules.find((rule) => rule.activityId === "activity-2"),

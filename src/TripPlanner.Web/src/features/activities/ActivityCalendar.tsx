@@ -1,5 +1,11 @@
 import { Button } from "@fluentui/react-components";
-import { useEffect, useEffectEvent, useId, useRef } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { Link } from "react-router";
 import {
   Add20Regular,
@@ -37,6 +43,7 @@ export default function ActivityCalendar({
   destination,
   readOnly,
   busy,
+  pendingTiming,
   onDay,
   onEvent,
   onEntry,
@@ -52,12 +59,14 @@ export default function ActivityCalendar({
   destination?: Destination;
   readOnly: boolean;
   busy: boolean;
+  pendingTiming?: CalendarTiming;
   onDay: (key: string) => void;
   onEvent: (id?: string) => void;
   onEntry: (entry: CalendarEntry) => void;
   onDayDetails: () => void;
   onTiming: (timing: CalendarTiming) => void;
 }) {
+  const agenda = useSyncExternalStore(subscribeToWideCalendar, showAgenda);
   const days = [...plan.days].sort((a, b) => a.date.localeCompare(b.date));
   const index = days.findIndex(
     (item) => day && calendarDayKey(item) === calendarDayKey(day),
@@ -73,6 +82,7 @@ export default function ActivityCalendar({
           activities,
           assessment,
           destination,
+          pendingTiming,
         ).filter(
           (entry) =>
             entry.kind !== "flight" ||
@@ -84,7 +94,14 @@ export default function ActivityCalendar({
   const timed = new Set(
     plan.days
       .flatMap((item) =>
-        calendarEntries(plan, item, activities, assessment, destination),
+        calendarEntries(
+          plan,
+          item,
+          activities,
+          assessment,
+          destination,
+          pendingTiming,
+        ),
       )
       .filter((item) => item.kind === "activity")
       .flatMap((item) => (item.activityId ? [item.activityId] : [])),
@@ -97,7 +114,7 @@ export default function ActivityCalendar({
   const scroll = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const drag = useCalendarDrag({
-    disabled: readOnly || busy || !day,
+    disabled: agenda || readOnly || busy || !day,
     onTiming,
     grid,
     scroll,
@@ -115,7 +132,7 @@ export default function ActivityCalendar({
   });
   useEffect(() => {
     scrollToEvents();
-  }, [day?.stayId, day?.date]);
+  }, [agenda, day?.stayId, day?.date]);
   const issues =
     assessment?.issues.filter(
       (item) => !item.date || item.date === day?.date,
@@ -130,7 +147,12 @@ export default function ActivityCalendar({
           disabled={busy}
           readOnly={readOnly}
           onEvent={onEvent}
-          onDrag={(event, timing) => drag.begin(event, timing, "move", true)}
+          dragCard={drag.dragCard}
+          onDrag={
+            agenda
+              ? undefined
+              : (event, timing) => drag.begin(event, timing, "move", true)
+          }
         />
         <div className="activity-calendar" id={calendarId}>
           <header className="calendar-toolbar">
@@ -185,7 +207,7 @@ export default function ActivityCalendar({
                 <Button
                   appearance="primary"
                   icon={<Add20Regular />}
-                  disabled={busy || !days.length || !activities.length}
+                  disabled={!days.length || !activities.length}
                   onClick={() => onEvent()}
                 >
                   Add event
@@ -220,24 +242,31 @@ export default function ActivityCalendar({
                 </time>
               </h3>
               <div
-                ref={scroll}
-                className="calendar-scroll"
-                tabIndex={0}
+                ref={agenda ? undefined : scroll}
+                className={agenda ? "calendar-agenda" : "calendar-scroll"}
+                tabIndex={agenda ? undefined : 0}
                 role="region"
                 aria-label="Day calendar"
               >
-                <div className="calendar-grid" style={{ height }}>
-                  {Array.from({ length: endHour - startHour + 1 }, (_, i) => (
-                    <div
-                      key={i}
-                      className="calendar-hour"
-                      style={{ top: i * 90 }}
-                    >
-                      <time>{calendarClock((startHour + i) * 60)}</time>
-                      <span />
-                    </div>
-                  ))}
-                  <div className="calendar-events" ref={grid}>
+                <div
+                  className="calendar-grid"
+                  style={agenda ? undefined : { height }}
+                >
+                  {!agenda &&
+                    Array.from({ length: endHour - startHour + 1 }, (_, i) => (
+                      <div
+                        key={i}
+                        className="calendar-hour"
+                        style={{ top: i * 90 }}
+                      >
+                        <time>{calendarClock((startHour + i) * 60)}</time>
+                        <span />
+                      </div>
+                    ))}
+                  <div
+                    className="calendar-events"
+                    ref={agenda ? undefined : grid}
+                  >
                     {calendarLayout(entries)
                       .filter(
                         (entry) =>
@@ -291,12 +320,16 @@ export default function ActivityCalendar({
                           <div
                             key={entry.id}
                             className={`calendar-event calendar-event-${entry.kind}${entry.estimated ? " calendar-event-estimated" : ""}`}
-                            style={{
-                              top,
-                              height: size,
-                              left: `calc(${(entry.lane / entry.lanes) * 100}% + 2px)`,
-                              width: `calc(${100 / entry.lanes}% - 4px)`,
-                            }}
+                            style={
+                              agenda
+                                ? undefined
+                                : {
+                                    top,
+                                    height: size,
+                                    left: `calc(${(entry.lane / entry.lanes) * 100}% + 2px)`,
+                                    width: `calc(${100 / entry.lanes}% - 4px)`,
+                                  }
+                            }
                             onPointerDown={(event) => {
                               if (
                                 event.target === event.currentTarget &&
@@ -325,7 +358,9 @@ export default function ActivityCalendar({
                               <button
                                 type="button"
                                 className={`calendar-event-content${entry.kind === "transportation" ? " calendar-transportation-link" : ""}`}
-                                data-draggable={!!entry.activityId && !readOnly}
+                                data-draggable={
+                                  !!entry.activityId && !readOnly && !agenda
+                                }
                                 aria-label={label}
                                 disabled={busy}
                                 onClick={() => onEntry(entry)}
@@ -341,7 +376,7 @@ export default function ActivityCalendar({
                                 {content}
                               </button>
                             )}
-                            {entry.activityId && !readOnly && (
+                            {entry.activityId && !readOnly && !agenda && (
                               <>
                                 {(["start", "end"] as const).map((edge) => (
                                   <button
@@ -411,4 +446,17 @@ export default function ActivityCalendar({
       </ResizableActivityWorkspace>
     </div>
   );
+}
+
+// Match the breakpoint where the schedule workspace stacks its panels.
+const wideCalendar = "(min-width: 1100px)";
+
+function showAgenda() {
+  return !(window.matchMedia?.(wideCalendar).matches ?? true);
+}
+
+function subscribeToWideCalendar(onChange: () => void) {
+  const media = window.matchMedia?.(wideCalendar);
+  media?.addEventListener?.("change", onChange);
+  return () => media?.removeEventListener?.("change", onChange);
 }

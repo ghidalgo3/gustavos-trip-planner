@@ -12,10 +12,10 @@ import {
 } from "@fluentui/react-components";
 import { Dismiss20Regular } from "@fluentui/react-icons";
 
-export function useActionToast() {
+export function useActionToast({ trapFocus = true } = {}) {
   // Keep notifications outside transformed drawers/dialogs, but reachable while a modal is open.
   const { modalAttributes } = useModalAttributes({
-    trapFocus: true,
+    trapFocus,
     alwaysFocusable: true,
   });
   const toasterId = useId("action-feedback");

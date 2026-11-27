@@ -8,6 +8,7 @@
   padding: 4px;
 }
 .activity-calendar {
+  container: schedule-calendar / inline-size;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -27,7 +28,7 @@
   align-items: center;
   min-width: 0;
   gap: 6px;
-  flex: 1;
+  flex: 1 1 16rem;
 }
 .calendar-navigation > button {
   flex-shrink: 0;
@@ -60,6 +61,19 @@
   color: var(--colorNeutralForeground2);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+@container schedule-calendar (max-width: 600px) {
+  .calendar-navigation,
+  .calendar-toolbar-actions {
+    flex-basis: 100%;
+  }
+  .calendar-date-picker {
+    max-width: none;
+  }
+  .calendar-toolbar-actions .calendar-zone {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 .calendar-day-heading {
   display: grid;
@@ -285,26 +299,8 @@
   border-radius: 4px;
 }
 @media (max-width: 600px) {
-  .calendar-toolbar {
-    align-items: stretch;
-  }
-  .calendar-navigation {
-    flex-basis: 100%;
-  }
-  .calendar-date-picker {
-    max-width: none;
-  }
-  .calendar-toolbar-actions {
-    width: 100%;
-  }
-  .calendar-toolbar-actions .calendar-zone {
-    flex: 1;
-  }
   .calendar-event {
     padding: 3px 5px;
-  }
-  .calendar-scroll {
-    max-height: 65vh;
   }
   .calendar-editor {
     width: 100% !important;
@@ -435,6 +431,15 @@
 .schedule-activity:disabled {
   cursor: default;
 }
+.schedule-activity[data-dragging="true"] {
+  opacity: 0;
+}
+.schedule-activity-drag-card {
+  position: fixed;
+  cursor: grabbing;
+  box-shadow: var(--shadow8);
+  pointer-events: none;
+}
 .schedule-activity > [data-drag-handle] {
   display: grid;
   place-items: center;
@@ -520,6 +525,35 @@
   outline: 2px solid var(--colorStrokeFocus2);
   outline-offset: -3px;
 }
+.calendar-agenda .calendar-events {
+  position: static;
+  display: grid;
+  gap: 8px;
+}
+.calendar-agenda .calendar-event,
+.calendar-agenda .calendar-empty-day {
+  position: static;
+}
+.calendar-agenda .calendar-event-content {
+  height: auto;
+  max-height: none;
+  padding: 10px 12px;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+.calendar-agenda .calendar-event strong {
+  font-size: 14px;
+}
+.calendar-agenda .calendar-event span,
+.calendar-agenda .calendar-event small {
+  font-size: 13px;
+  line-height: 18px;
+}
+.calendar-agenda .calendar-empty-day {
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 6px;
+}
 .calendar-transportation-details {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -593,18 +627,10 @@
   box-shadow: var(--shadow8);
   pointer-events: none;
 }
-.calendar-save-status {
-  margin: 0;
-  font-size: 13px;
-  color: var(--colorNeutralForeground2);
-}
 .calendar-loading-workspace {
   display: flex;
   flex-direction: column-reverse;
   gap: 16px;
-}
-.activity-plan-workspace > .activity-map-panel {
-  order: 1;
 }
 @media (min-width: 1100px) {
   .calendar-loading-workspace {
@@ -667,11 +693,6 @@
     display: none;
   }
   .schedule-activity-groups {
-    max-height: 260px;
-  }
-}
-@media (max-width: 767px) {
-  .activity-plan-workspace > .activity-cards-section {
-    order: 0;
+    overflow: visible;
   }
 }

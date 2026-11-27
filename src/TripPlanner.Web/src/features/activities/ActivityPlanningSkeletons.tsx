@@ -1,4 +1,5 @@
 import { SkeletonItem } from "@fluentui/react-components";
+import type { ReactNode } from "react";
 import ContentSkeleton from "../../shared/components/ContentSkeleton";
 
 export function DailyPlanSkeleton() {
@@ -39,18 +40,25 @@ export function DailyPlanSkeleton() {
   );
 }
 
-export function ActivityWorkspaceSkeleton() {
+export function ActivityWorkspaceSkeleton({
+  tripHeader,
+}: {
+  tripHeader?: ReactNode;
+}) {
   return (
     <ContentSkeleton label="Loading destinations">
       <div className="skeleton-stack">
-        <div className="skeleton-row skeleton-destination-tabs">
-          {[0, 1, 2].map((index) => (
-            <div className="skeleton-stack" key={index}>
-              <SkeletonItem size={32} style={{ width: 36 }} />
-              <SkeletonItem size={20} style={{ width: "70%" }} />
-              <SkeletonItem size={12} />
-            </div>
-          ))}
+        <div className="activity-planning-heading">
+          {tripHeader}
+          <div className="skeleton-row skeleton-destination-tabs">
+            {[0, 1, 2].map((index) => (
+              <div className="skeleton-stack" key={index}>
+                <SkeletonItem size={32} style={{ width: 36 }} />
+                <SkeletonItem size={20} style={{ width: "70%" }} />
+                <SkeletonItem size={12} />
+              </div>
+            ))}
+          </div>
         </div>
         <div className="skeleton-row skeleton-activity-tabs">
           <SkeletonItem shape="circle" size={32} style={{ width: 72 }} />
