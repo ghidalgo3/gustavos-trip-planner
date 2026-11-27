@@ -411,6 +411,45 @@ function removeFromMeals(day: PlanDay, id: string): MealPositions {
   ) as MealPositions;
 }
 
+export function unscheduleActivity(
+  plan: ActivityPlan,
+  id: string,
+): ActivityPlan {
+  const assignedDates = new Set(
+    plan.days
+      .filter((day) => day.activityIds.includes(id))
+      .map((day) => day.date),
+  );
+  if (!assignedDates.size) return plan;
+
+  return {
+    ...plan,
+    days: plan.days.map((day) =>
+      day.activityIds.includes(id)
+        ? {
+            ...day,
+            activityIds: day.activityIds.filter(
+              (activityId) => activityId !== id,
+            ),
+            ...(day.mealPositions
+              ? { mealPositions: removeFromMeals(day, id) }
+              : {}),
+          }
+        : day,
+    ),
+    rules: plan.rules.map((rule) =>
+      rule.activityId === id
+        ? { ...rule, fixedDate: null, fixedStart: null }
+        : rule,
+    ),
+    transportOverrides: plan.transportOverrides.filter(
+      (leg) =>
+        !assignedDates.has(leg.date) ||
+        (leg.fromActivityId !== id && leg.toActivityId !== id),
+    ),
+  };
+}
+
 export function moveActivity(
   plan: ActivityPlan,
   id: string,

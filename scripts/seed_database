@@ -10,10 +10,11 @@ Start scripts/server and sign in at least once first. Requires the .NET 10 SDK.
 
 Defaults to Trip Small, Trip Medium, and Trip Large. Use --count 1000 for 1,000
 sample trips, cycling through those destination sets with numbered names.
-Trip names identify existing samples: their dates are refreshed without replacing
-trip/visit IDs or other fields. Each destination gets three nights, with one day
-between trips. The first ten samples are in the past; later trips start tomorrow
-and continue into the future. With multiple users, supply the owner's email.
+Large trips include 15 activity ideas per destination. Reruns refresh visit dates
+and fill in missing sample activities, including any deleted sample activities.
+The first trip starts tomorrow. Each destination gets three nights, with one
+day between trips.
+With multiple users, supply the owner's email.
 USAGE
 }
 

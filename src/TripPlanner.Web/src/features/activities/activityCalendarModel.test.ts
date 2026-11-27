@@ -15,7 +15,7 @@ import {
   calendarAssessment,
   calendarDestination,
 } from "../../test/activityCalendarFixture";
-import { activityRule } from "./activityPlanApi";
+import { activityRule, unscheduleActivity } from "./activityPlanApi";
 
 test.each([
   ["2027-06-10", "Check-in · Hotel", 960],
@@ -239,6 +239,54 @@ test("timing edits order activities by their start times", () => {
   expect(next.days[0].activityIds).toEqual(["activity-1", "activity-0"]);
 });
 
+test("unscheduling clears the assignment, time and connected routes while retaining the activity", () => {
+  const plan = structuredClone(calendarPlan);
+  const day = plan.days[0];
+  day.mealPositions = { breakfast: 0, lunch: 1, dinner: 2 };
+  plan.rules = [
+    {
+      ...activityRule(plan, "activity-0"),
+      mustDo: true,
+      fixedDate: day.date,
+      fixedStart: "09:00:00",
+      duration: "PT90M",
+    },
+  ];
+  const leg = {
+    date: day.date,
+    fromActivityId: "activity-0",
+    toActivityId: "activity-1",
+    mode: "driving",
+    duration: "PT15M",
+  };
+  const remaining = {
+    ...leg,
+    fromActivityId: "activity-1",
+    toActivityId: null,
+  };
+  plan.transportOverrides = [
+    leg,
+    remaining,
+    { ...leg, fromActivityId: null, toActivityId: "activity-0" },
+  ];
+  const next = unscheduleActivity(plan, "activity-0");
+
+  expect(next.selectedActivityIds).toEqual(plan.selectedActivityIds);
+  expect(next.days[0]).toMatchObject({
+    activityIds: ["activity-1"],
+    mealPositions: { breakfast: 0, lunch: 0, dinner: 1 },
+  });
+  expect(next.days[1]).toBe(plan.days[1]);
+  expect(next.rules[0]).toMatchObject({
+    fixedDate: null,
+    fixedStart: null,
+    duration: "PT90M",
+    mustDo: true,
+  });
+  expect(next.transportOverrides).toEqual([remaining]);
+  expect(unscheduleActivity(next, "activity-0")).toBe(next);
+});
+
 test("date choices distinguish visits sharing a boundary date", () => {
   const plan = structuredClone(calendarPlan);
   plan.days[1].date = plan.days[0].date;
@@ -320,7 +368,45 @@ test("overlapping events use separate columns and later events regain the full w
     [1, 2],
     [0, 1],
   ]);
+  expect(calendarLayout(events).map((entry) => entry.overlaps)).toEqual([
+    [{ start: 570, end: 600 }],
+    [{ start: 570, end: 600 }],
+    [],
+  ]);
 });
+
+test.each([
+  { start: 610, overlap: [{ start: 590, end: 600 }] },
+  { start: 660, overlap: [] },
+])(
+  "inbound travel ends at the activity start ($start), even before assessment refresh",
+  ({ start, overlap }) => {
+    const entries = calendarEntries(
+      calendarPlan,
+      calendarPlan.days[0],
+      calendarActivities,
+      calendarAssessment,
+      undefined,
+      { activityId: "activity-1", start, end: start + 60 },
+    );
+    const [museum, travel, garden] = calendarLayout(entries);
+
+    expect(travel).toMatchObject({
+      kind: "travel",
+      start: start - 20,
+      end: start,
+      isTravelExtension: true,
+      lane: garden.lane,
+      lanes: garden.lanes,
+      overlaps: overlap,
+    });
+    expect(museum.overlaps).toEqual(overlap);
+    expect(garden).toMatchObject({
+      hasTravelExtension: true,
+      overlaps: [],
+    });
+  },
+);
 
 test.each([
   ["2027-03-14", "01:30", "03:30", "PT60M"],

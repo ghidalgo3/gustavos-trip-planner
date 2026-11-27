@@ -42,6 +42,7 @@ test.each([false, true])(
           onEntry={onEntry}
           onDayDetails={vi.fn()}
           onTiming={vi.fn()}
+          onUnschedule={vi.fn()}
         />
       </MemoryRouter>,
     );

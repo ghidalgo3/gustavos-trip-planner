@@ -1,4 +1,4 @@
-import { useState, type PointerEvent } from "react";
+import { useState, type PointerEvent, type RefObject } from "react";
 import { Button, Portal, SearchBox } from "@fluentui/react-components";
 import {
   Dismiss24Regular,
@@ -16,6 +16,8 @@ import { durationMinutes } from "../../shared/time/durations";
 import type { CalendarDragCard } from "./useCalendarDrag";
 
 export default function CalendarActivityList({
+  listRef,
+  dropToUnschedule,
   activities,
   plan,
   timedIds,
@@ -25,6 +27,8 @@ export default function CalendarActivityList({
   dragCard,
   onDrag,
 }: {
+  listRef: RefObject<HTMLElement | null>;
+  dropToUnschedule: boolean;
   activities: Activity[];
   plan: ActivityPlan;
   timedIds: Set<string>;
@@ -39,7 +43,17 @@ export default function CalendarActivityList({
     activityMatchesSearch(item, query.trim().toLocaleLowerCase()),
   );
   return (
-    <aside className="schedule-activities" aria-label="Schedule activities">
+    <aside
+      ref={listRef}
+      className="schedule-activities"
+      aria-label="Schedule activities"
+      data-unschedule-hover={dropToUnschedule || undefined}
+    >
+      {dropToUnschedule && (
+        <span className="calendar-unschedule-drop-hint" aria-hidden="true">
+          Drop to unschedule
+        </span>
+      )}
       <h2>
         Activities <span>{activities.length}</span>
       </h2>

@@ -74,7 +74,7 @@ internal static class Program
             );
             var trips = await database.GetTripsAsync(owner.Id);
             Console.WriteLine(
-                $"Created {result.Created:N0}; dated {result.Updated:N0} existing trips; skipped {result.Skipped:N0} unchanged trips. "
+                $"Created {result.Created:N0} trips, updated {result.Updated:N0}, and skipped {result.Skipped:N0} unchanged trips. "
                     + $"Owner now has {trips.Count(trip => trip.OwnerUserId == owner.Id):N0} trips."
             );
             return 0;

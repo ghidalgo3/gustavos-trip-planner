@@ -13,6 +13,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
+- Seed 15 local activity ideas at each destination on large sample trips, including existing samples when rerun.
+
 - Show numbered activities and animated connections for the selected day on the web Schedule map.
 
 - Add measurable web UI complexity guidelines and a four-city UX audit scenario with train, car, and walking legs plus an activity reschedule.
@@ -26,6 +28,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Add a Codex UX audit skill for evaluating desktop and mobile web journeys with Playwright, bundled Trip Planner rules, and styled HTML regression reports with embedded screenshots.
 
 ### Fixed
+
+- Unschedule activities from the activity drawer or by dragging them back to the activities panel on wide displays.
 
 - Keep Add event available while the calendar saves a timing change.
 
@@ -49,6 +53,10 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Reload Azure test slot authentication during deployment so the Trip Planner sign-in page becomes available.
 
 ### Changed
+
+- Show inbound travel time above scheduled activities, stripe overlapping times, and edit transportation in the activity drawer.
+
+- Schedule all sample trips in the future, starting tomorrow.
 
 - Use OpenStreetMap for South Korean destinations and transportation legs that start or end there on the web.
 

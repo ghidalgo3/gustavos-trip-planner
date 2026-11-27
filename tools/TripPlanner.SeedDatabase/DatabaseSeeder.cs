@@ -1,5 +1,8 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Transactions;
+using Microsoft.Spatial;
 using TripPlanner.Api.Database;
 using TripPlanner.Api.DTO;
 using TripPlanner.Api.Models;
@@ -116,10 +119,10 @@ public sealed class DatabaseSeeder(IPlannerDb database)
         41.8781
     );
 
-    private static readonly (string Name, City[] Cities)[] Templates =
+    private static readonly (string Name, City[] Cities, bool IncludeActivities)[] Templates =
     [
-        ("Trip Small", [NewYork]),
-        ("Trip Medium", [Amsterdam, London]),
+        ("Trip Small", [NewYork], false),
+        ("Trip Medium", [Amsterdam, London], false),
         (
             "Trip Large",
             [
@@ -134,7 +137,8 @@ public sealed class DatabaseSeeder(IPlannerDb database)
                 Honolulu,
                 LosAngeles,
                 Chicago,
-            ]
+            ],
+            true
         ),
     ];
 
@@ -170,6 +174,7 @@ public sealed class DatabaseSeeder(IPlannerDb database)
     private sealed record SeedTrip(
         string Name,
         City[] Cities,
+        bool IncludeActivities,
         Trip? Existing,
         IReadOnlyList<DestinationVisit> Visits
     )
@@ -205,28 +210,21 @@ public sealed class DatabaseSeeder(IPlannerDb database)
                 ? []
                 : await database.GetDestinationVisitsAsync(ownerId, trip.Id, cancellationToken);
             seeds.Add(
-                new(name, template.Cities, trip, visits.OrderBy(visit => visit.Order).ToArray())
+                new(
+                    name,
+                    template.Cities,
+                    template.IncludeActivities,
+                    trip,
+                    visits.OrderBy(visit => visit.Order).ToArray()
+                )
             );
         }
 
-        // Reserve ten past trips even for a smaller dataset, so growing it on
-        // the same day doesn't move the examples already created.
-        int pastDays = Enumerable
-            .Range(0, 10)
-            .Sum(index =>
-                index < seeds.Count
-                    ? seeds[index].DurationDays
-                    : Templates[index % Templates.Length].Cities.Length * 3
-            );
-        var cursor = today.AddDays(-pastDays - 10);
+        var cursor = today.AddDays(1);
         var schedule = new List<(SeedTrip Trip, DateOnly Start)>();
-        for (int index = 0; index < seeds.Count; index++)
+        foreach (var seed in seeds)
         {
-            if (index == 10)
-            {
-                cursor = today.AddDays(1);
-            }
-            var end = cursor.AddDays(seeds[index].DurationDays);
+            var end = cursor.AddDays(seed.DurationDays);
             if (cursor.Year < 2000 || end.Year > 2100)
             {
                 throw new ArgumentOutOfRangeException(
@@ -234,7 +232,7 @@ public sealed class DatabaseSeeder(IPlannerDb database)
                     "The seed schedule must fit within the application's supported dates, 2000–2100."
                 );
             }
-            schedule.Add((seeds[index], cursor));
+            schedule.Add((seed, cursor));
             cursor = end.AddDays(1);
         }
 
@@ -252,12 +250,13 @@ public sealed class DatabaseSeeder(IPlannerDb database)
                             || visit.DepartureDate != start.AddDays((index + 1) * 3)
                     )
                     .Any();
-            if (seed.Existing is not null && !needsDates)
+            if (seed.Existing is not null && !needsDates && !seed.IncludeActivities)
             {
                 skipped++;
             }
             else
             {
+                bool addedActivities = false;
                 using (
                     var transaction = new TransactionScope(
                         TransactionScopeOption.Required,
@@ -314,7 +313,7 @@ public sealed class DatabaseSeeder(IPlannerDb database)
                                 );
                         }
                     }
-                    else
+                    else if (needsDates)
                     {
                         // Clear old ranges inside this transaction first; otherwise a
                         // moved visit can temporarily overlap a neighbour's old dates.
@@ -341,20 +340,128 @@ public sealed class DatabaseSeeder(IPlannerDb database)
                             );
                         }
                     }
+                    if (seed.IncludeActivities)
+                    {
+                        var cityIds =
+                            seed.Visits.Count == 0
+                                ? seed.Cities.Select(city => city.Id)
+                                : seed.Visits.Select(visit => visit.CityId);
+                        addedActivities = await SeedActivitiesAsync(
+                            ownerId,
+                            trip.Id,
+                            cityIds.ToHashSet(StringComparer.Ordinal),
+                            cancellationToken
+                        );
+                    }
                     transaction.Complete();
                 }
                 if (seed.Existing is null)
                 {
                     created++;
                 }
-                else
+                else if (needsDates || addedActivities)
                 {
                     updated++;
+                }
+                else
+                {
+                    skipped++;
                 }
             }
             progress?.Invoke(created + updated + skipped);
         }
         return new(created, updated, skipped);
+    }
+
+    private async Task<bool> SeedActivitiesAsync(
+        Guid ownerId,
+        Guid tripId,
+        HashSet<string> visitedCities,
+        CancellationToken cancellationToken
+    )
+    {
+        bool addedActivities = false;
+        var now = DateTimeOffset.UtcNow;
+        var places = await database.GetDestinationPlacesAsync(ownerId, tripId, cancellationToken);
+        foreach (var place in places.Where(place => visitedCities.Contains(place.CityId)))
+        {
+            var examples = SeedActivityCatalog.ForCity(place.CityId);
+            if (examples.Count == 0)
+            {
+                continue;
+            }
+
+            var existing = await database.GetActivitiesAsync(
+                ownerId,
+                tripId,
+                place.CityId,
+                cancellationToken
+            );
+            var existingIds = existing.Select(activity => activity.Id).ToHashSet();
+            var existingNames = existing
+                .Select(activity => activity.Properties.Name.Trim())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var example in examples)
+            {
+                // Stable IDs let reruns recognize sample activities even after they're renamed.
+                var hash = SHA256.HashData(
+                    Encoding.UTF8.GetBytes(
+                        $"TripPlanner seed activity:{tripId:D}:{place.CityId}:{example.Name}"
+                    )
+                );
+                var id = new Guid(hash.AsSpan(0, 16));
+                if (existingIds.Contains(id) || existingNames.Contains(example.Name))
+                {
+                    continue;
+                }
+
+                var activity = new Activity(
+                    id,
+                    tripId,
+                    place.CityId,
+                    new("Point", GeographyPoint.Create(example.Latitude, example.Longitude)),
+                    new(
+                        example.Name,
+                        TimeSpan.FromMinutes(example.DurationMinutes),
+                        example.Description,
+                        null,
+                        ActivityState.Maybe,
+                        [example.Kind],
+                        example.Name
+                    ),
+                    now,
+                    now
+                );
+                var saved = await database.SaveActivityAsync(
+                    ownerId,
+                    activity,
+                    place.ContextVersion,
+                    null,
+                    cancellationToken
+                );
+                if (saved is not null)
+                {
+                    addedActivities = true;
+                }
+                else if (
+                    await database.GetActivityAsync(
+                        ownerId,
+                        tripId,
+                        place.CityId,
+                        id,
+                        cancellationToken
+                    )
+                    is null
+                )
+                {
+                    throw new InvalidOperationException(
+                        $"Could not add {example.Name} to {place.Name}."
+                    );
+                }
+            }
+        }
+
+        return addedActivities;
     }
 
     private async Task ReplaceDatesAsync(

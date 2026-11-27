@@ -25,6 +25,7 @@ for (const width of [390, 820, 1100, 1280]) {
     }, testInfo) => {
       await request.post("/__test/session", { data: { authenticated: true } });
       const response = structuredClone(calendarResponse);
+      response.assessment.days[0].travel[0].duration = "PT30M";
       const writes: ActivityPlan[] = [];
       let failNextSave = false;
       let holdNextSave: Promise<void> | undefined;
@@ -160,6 +161,38 @@ for (const width of [390, 820, 1100, 1280]) {
         exact: true,
       });
       await expect(calendar).toBeVisible();
+      const walking = calendar.getByRole("button", {
+        name: "Walking from Museum to Garden",
+      });
+      const travelBlock = walking.locator("..");
+      const gardenBlock = calendar
+        .getByRole("button", { name: "Garden", exact: true })
+        .locator("..");
+      const overlap = travelBlock.locator(".calendar-event-overlap");
+      await expect(walking).toHaveAccessibleDescription(
+        "Overlaps another calendar event.",
+      );
+      await expect(overlap).toHaveCSS(
+        "background-image",
+        /repeating-linear-gradient/,
+      );
+      const travelBounds = (await travelBlock.boundingBox())!;
+      const gardenBounds = (await gardenBlock.boundingBox())!;
+      expect(travelBounds.x).toBeCloseTo(gardenBounds.x);
+      expect(travelBounds.width).toBeCloseTo(gardenBounds.width);
+      expect(travelBounds.y + travelBounds.height).toBeCloseTo(gardenBounds.y);
+      if (width >= 1100) {
+        expect(travelBounds.height).toBeCloseTo(45);
+        const museumOverlap = calendar
+          .getByRole("button", { name: "Museum", exact: true })
+          .locator("..")
+          .locator(".calendar-event-overlap");
+        const travelStripe = (await overlap.boundingBox())!;
+        const museumStripe = (await museumOverlap.boundingBox())!;
+        expect(travelStripe.height).toBeCloseTo(15);
+        expect(museumStripe.height).toBeCloseTo(travelStripe.height);
+        expect(museumStripe.y).toBeCloseTo(travelStripe.y);
+      }
       if (width === 1100) {
         const rowPosition = async (
           name: string,
@@ -299,12 +332,12 @@ for (const width of [390, 820, 1100, 1280]) {
       await expect(
         calendar.getByText("08:30–10:00", { exact: true }),
       ).toBeVisible();
-      await page
-        .getByRole("button", {
-          name: "Walking from Museum to Garden",
-          exact: true,
-        })
+      await calendar
+        .getByRole("button", { name: "Garden", exact: true })
         .click();
+      const activityDrawer = page.getByRole("dialog", { name: "Garden" });
+      await expect(activityDrawer.getByLabel("Event start")).toBeVisible();
+      await activityDrawer.getByText("Transportation", { exact: true }).click();
       await page
         .getByLabel("Transportation mode", { exact: true })
         .selectOption("driving");
@@ -330,12 +363,18 @@ for (const width of [390, 820, 1100, 1280]) {
         mode: "driving",
         duration: "PT11M",
       });
-      await expect(
-        page.getByRole("button", {
+      await calendar
+        .getByRole("button", {
           name: "Driving from Museum to Garden",
           exact: true,
-        }),
-      ).toBeVisible();
+        })
+        .click();
+      await expect(
+        activityDrawer.getByLabel("Transportation mode"),
+      ).toHaveValue("driving");
+      await activityDrawer
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -614,6 +653,65 @@ for (const width of [390, 820, 1100, 1280]) {
           fullPage: true,
         });
       }
+      const garden = calendar.getByRole("button", {
+        name: "Garden",
+        exact: true,
+      });
+      const unscheduledActivities = page.getByRole("region", {
+        name: "Unscheduled activities",
+      });
+      const unscheduledGarden = unscheduledActivities.getByRole("button", {
+        name: "Schedule Garden",
+      });
+      const priorWrites = writes.length;
+      if (width >= 1100) {
+        const list = page.getByRole("complementary", {
+          name: "Schedule activities",
+        });
+        await calendar.evaluate((element) => {
+          element.scrollTop = 8 * 90;
+        });
+        const dropIntoList = async () => {
+          const source = (await garden.boundingBox())!;
+          const target = (await list.boundingBox())!;
+          await page.mouse.move(source.x + source.width / 2, source.y + 20);
+          await page.mouse.down();
+          await page.mouse.move(target.x + target.width / 2, target.y + 30, {
+            steps: 8,
+          });
+          await expect(list.getByText("Drop to unschedule")).toBeVisible();
+          await page.mouse.up();
+        };
+        const failedUnschedule = Promise.withResolvers<void>();
+        failNextSave = true;
+        holdNextSave = failedUnschedule.promise;
+        try {
+          await dropIntoList();
+          await expect(unscheduledGarden).toBeVisible();
+          await expect(garden).toHaveCount(0);
+        } finally {
+          failedUnschedule.resolve();
+        }
+        const toast = page.locator(".fui-Toast");
+        await expect(toast).toContainText("Could not unschedule the activity.");
+        await expect(garden).toBeVisible();
+        await toast
+          .getByRole("button", { name: "Dismiss notification" })
+          .click();
+        await dropIntoList();
+      } else {
+        await garden.click();
+        await page
+          .getByRole("dialog", { name: "Garden" })
+          .getByRole("button", { name: "Unschedule" })
+          .click();
+      }
+      await expect.poll(() => writes.length).toBe(priorWrites + 1);
+      await expect(unscheduledGarden).toBeEnabled();
+      await expect(garden).toHaveCount(0);
+      expect(writes.at(-1)?.selectedActivityIds).toContain("activity-1");
+      expect(writes.at(-1)?.days[0].activityIds).not.toContain("activity-1");
+      expect(writes.at(-1)?.transportOverrides).toEqual([]);
       await page.context().setOffline(true);
       await calendar.evaluate((element) => {
         element.scrollTop = 7 * 90;
