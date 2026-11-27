@@ -1,0 +1,32 @@
+- id: TRIP-VISIBLE-NAVIGATION
+  title: Limit competing navigation choices
+  category: navigation
+  instructions: Count links and tabs to other views visible together in one viewport of the active surface. Record Low for 0–5, Moderate for 6–8, and High for 9 or more. Use Critical when repeated wrong turns prevent unaided recovery.
+  evidence: [Viewport screenshot, Count and names of visible choices, Recovery evidence for Critical]
+  pass: Aim for at most five visible navigation choices on a single-task surface.
+  severity: 2
+  references: [docs/ux_testing.md#web-ui-complexity, https://developer.android.com/develop/ui/compose/components/navigation-bar]
+- id: TRIP-EXPOSED-FIELDS
+  title: Limit exposed form controls
+  category: cognitive-load
+  instructions: Count one control per field or choice group across the expanded step. Include search fields, visible disabled controls, and fields below the fold. Inspect disclosed fields after opening their section. Record Low for 0–4, Moderate for 5–8, and High for 9 or more. Use Critical when users cannot determine what they must enter to complete the task.
+  evidence: [Task and expanded step, Count and labels of exposed fields, Screenshots of the step]
+  pass: Aim for at most four exposed controls for a single task. Show optional detail when relevant.
+  severity: 2
+  references: [docs/ux_testing.md#web-ui-complexity, https://design-system.service.gov.uk/patterns/question-pages/, https://baymard.com/research-articles/checkout-flow-average-form-fields]
+- id: TRIP-SCROLL-REGIONS
+  title: Avoid competing vertical scroll regions
+  category: responsive
+  instructions: Count active independent regions with vertical overflow. Include the page if it can still scroll. Record Low for 0–1, Moderate for two clearly bounded separate regions, and High for two nested vertical regions or three or more independent regions. Use Critical when touch or keyboard users cannot reach required content or an action.
+  evidence: [Viewport screenshot, Count and bounds of scrollable regions, Gesture or keyboard result]
+  pass: Use at most one vertical scroll region for a single task.
+  severity: 2
+  references: [docs/ux_testing.md#web-ui-complexity, https://developer.apple.com/design/human-interface-guidelines/scroll-views]
+- id: TRIP-NEXT-ACTION
+  title: Keep the next action in view
+  category: discoverability
+  instructions: When the next action becomes relevant, measure the shortest scroll to fully reveal it. Divide the distance by the visual viewport height. Record Low when fully visible and usable, Moderate for up to one viewport in the expected direction, and High for more than one viewport or a second scroll region the user must discover. Use Critical when the action is unreachable or remains obstructed. Check with the mobile keyboard open and dismissed when available.
+  evidence: [Screenshot at the point the action becomes relevant, Scroll distance and visual viewport height, Keyboard state]
+  pass: Make the next action visible when it becomes relevant.
+  severity: 2
+  references: [docs/ux_testing.md#web-ui-complexity, https://www.w3.org/WAI/WCAG2/supplemental/objectives/o2-find/, https://fluent2.microsoft.design/components/web/react/core/drawer/usage]

@@ -82,6 +82,34 @@ scenarios:
         goal: Save the named activity at the destination you just added.
         success: The destination's activity list shows the saved activity under its chosen name.
 
+  - id: plan-multi-city-trip-without-flights
+    version: "1"
+    goal: Create a multi-city trip, plan different ground transportation between the cities, and schedule an activity at every destination.
+    persona: new-trip-planner
+    setup: Start signed in on Trips using a disposable local database. Give each attempt a unique trip name. Plan Amsterdam June 10–12, Brussels June 12–14, and Paris June 14–16, 2027. Use a train from Amsterdam to Brussels and a car from Brussels to Paris. Add Canal walk, Grand Place walk, and Seine walk to the matching cities.
+    startPath: /
+    success: The new trip shows all three dated visits, the two saved ground transportation legs, and a scheduled activity within each visit.
+    partial: The trip exists, but one or more dated visits, transportation legs, or scheduled activities could not be confirmed.
+    writes: true
+    components: [trip-list, trip-overview, place-search, transportation, activities, schedule]
+    platforms: [desktop, mobile-web]
+    checkpoints:
+      - id: create-trip
+        goal: Create the new trip.
+        success: The trip overview or Trips page shows the unique name.
+      - id: add-destinations
+        goal: Save all three dated visits in travel order.
+        success: Amsterdam, Brussels, and Paris appear in order with their planned dates.
+      - id: plan-transportation
+        goal: Save the train and car legs between consecutive cities without choosing a flight.
+        success: The Amsterdam-to-Brussels card shows Train and the Brussels-to-Paris card shows Car.
+      - id: create-activities
+        goal: Add each named activity to its matching destination using the activity name only.
+        success: Each named activity appears in the Ideas list for its destination.
+      - id: schedule-activities
+        goal: Schedule the three activities during their respective visits.
+        success: The calendar shows each activity on a date in its destination's visit after returning to the schedule.
+
 # Browser profiles are defined by the skill and can be overridden here.
 # Use a rule ID and false to disable it, or supply the fields to override.
 rules: {}

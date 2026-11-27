@@ -5,6 +5,56 @@ for (const width of [320, 390, 1280]) {
   test.describe(`activity drawer at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
 
+    test("shows two fields on open and keeps Save in view as details expand", async ({
+      page,
+      request,
+    }) => {
+      await request.post("/__test/session", { data: { authenticated: true } });
+      await page.setViewportSize({ width, height: width === 320 ? 568 : 664 });
+      await page.goto(`/trips/${fixtures.trip.id}/activities`);
+      await page
+        .getByRole("button", { name: "Add activity", exact: true })
+        .click();
+      const drawer = page.getByRole("dialog", { name: "Add activity" });
+      const save = drawer.getByRole("button", { name: "Save activity" });
+      await expect(
+        drawer.locator("input:visible, select:visible, textarea:visible"),
+      ).toHaveCount(2);
+      await expect(save).toBeDisabled();
+      const name = drawer.getByLabel("Activity name");
+      await name.fill("Photo walk");
+      await expect(save).toBeEnabled();
+      await expect(save).toBeInViewport({ ratio: 1 });
+      expect(
+        await name.evaluate((element) =>
+          parseFloat(getComputedStyle(element).fontSize),
+        ),
+      ).toBeGreaterThanOrEqual(16);
+      if (width === 320) {
+        await page.setViewportSize({ width, height: 300 });
+        await expect(name).toBeInViewport({ ratio: 1 });
+        await expect(save).toBeInViewport({ ratio: 1 });
+        await page.setViewportSize({ width, height: 568 });
+      }
+
+      const ticketsAndCost = drawer.getByText("Tickets and cost", {
+        exact: true,
+      });
+      await ticketsAndCost.click();
+      await expect(drawer.getByLabel("Currency")).toHaveCount(0);
+      const amount = drawer.getByLabel("Cost amount");
+      await amount.fill("12.50");
+      await drawer.getByLabel("Currency").selectOption("EUR");
+      await expect(save).toBeInViewport({ ratio: 1 });
+      const timing = drawer.getByText("Timing", { exact: true });
+      await timing.click();
+      await expect(amount).toBeHidden();
+      await ticketsAndCost.click();
+      await expect(amount).toHaveValue("12.5");
+      await expect(drawer.getByLabel("Currency")).toHaveValue("EUR");
+      await expect(save).toBeInViewport({ ratio: 1 });
+    });
+
     test("autocompletes known kinds with the keyboard and preserves new labels", async ({
       page,
       request,
@@ -30,6 +80,7 @@ for (const width of [320, 390, 1280]) {
         name: "Add activity",
         exact: true,
       });
+      await drawer.getByText("Activity details", { exact: true }).click();
       const input = drawer.getByRole("combobox", {
         name: "Kinds",
         exact: true,
@@ -154,7 +205,11 @@ for (const width of [320, 390, 1280]) {
             .map((animation) => animation.finished),
         ),
       );
-      for (const label of ["Description", "Notes"]) {
+      for (const [label, section] of [
+        ["Description", "Activity details"],
+        ["Notes", "Notes and links"],
+      ]) {
+        await drawer.getByText(section, { exact: true }).click();
         const field = drawer.getByRole("textbox", {
           name: label,
           exact: true,

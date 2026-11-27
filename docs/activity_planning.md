@@ -60,11 +60,11 @@ share one list in their original order. Filters remain available offline and in
 read-only mode. Map marker numbers stay consistent when filtering the list.
 A plan selects activities,
 assigns each activity at most once across repeat visits, and orders each day.
-Schedule centers a day calendar with an hour rail and time-proportional event blocks.
-On wide screens, a searchable activity list sits to its left and the map to its
-right; both dividers resize with dragging or keyboard arrows. On smaller screens,
-the list and map stack below the calendar and scroll with the page.
-Drag an activity from the list onto the calendar to schedule it, move an event
+On wide screens, Schedule shows an hour grid between a searchable activity list
+and the map. Resize either panel with its divider or the keyboard. On narrower
+screens, the selected day's events, activities, and map scroll with the page.
+The agenda lists timed entries in order. Tap an entry to open it.
+On the hour grid, drag an activity from the list to schedule it, move an event
 to change its time, or drag its start/end handles to resize it. Timing snaps to
 15 minutes, previews before release, and saves the complete versioned plan on
 drop. Drag near the calendar's top or bottom to scroll; hover the previous/next
@@ -78,7 +78,7 @@ planning context; **Cancel** discards the editor draft. Moving an event schedule
 it exactly once, retains its other restrictions, and validates flight availability
 before saving. Overnight events use **Ends next day**. Times use the destination's
 time zone, which appears in the calendar toolbar. Saved meals and flights appear
-alongside activities. Overlapping events occupy separate columns.
+alongside activities. The hour grid shows overlapping events in separate columns.
 
 Tap a travel block between activities (or to/from a saved stay) to choose
 **Driving** or **Walking**. **Calculate travel time** calls the Azure Maps Route
@@ -130,8 +130,9 @@ The activity map stays visible in Ideas and Schedule. Ideas has a search icon be
 and actions with a focused search field and an X button. The filter searches all
 activity field values, works offline, and stays active until X clears and closes
 it. Map markers and their numbering remain unchanged.
-On phones, Ideas and Schedule scroll with the page, and activity editors scroll
-through their action buttons. The calendar's hour grid scrolls independently. Overview keeps destination names and dates above
+**Add activity** starts with a name and optional place search. Open a section
+to enter more details. The drawer body scrolls while **Save activity** stays in
+the footer. Overview keeps destination names and dates above
 the card actions. Action results use dismissible Fluent UI toasts anchored at the viewport’s top-right, above drawers and dialogs without moving when focus changes: successes close
 automatically, while failures stay visible for review. Field validation and
 loading failures remain beside the relevant content.

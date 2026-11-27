@@ -196,6 +196,8 @@ export default function ActivityPlanning({
   const { notify, toaster } = useActionToast();
   const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
+  const activityDrawerRef = useRef<HTMLDivElement>(null);
+  const detailSectionsId = useId("activity-detail-sections");
   const [searching, setSearching] = useState(false);
 
   const [chosenPlace, setChosenPlace] = useState<ActivityPlaceResult>();
@@ -263,6 +265,39 @@ export default function ActivityPlanning({
 
   const deleteOpen = Boolean(deleteTarget && active);
   const editorOpen = Boolean(editor && canEdit && active);
+  const invalidLinks = (editor?.value.properties.links ?? []).some(
+    (link) => !validActivityLink(link),
+  );
+
+  useEffect(() => {
+    const drawer = activityDrawerRef.current;
+    const viewport = window.visualViewport;
+    if (!editorOpen || !drawer || !viewport) return;
+
+    // The software keyboard can shrink the visual viewport without changing dvh.
+    const fitDrawer = () => {
+      if (viewport.scale === 1) {
+        drawer.style.setProperty(
+          "--activity-viewport-height",
+          `${viewport.height}px`,
+        );
+        drawer.style.setProperty(
+          "--activity-viewport-top",
+          `${viewport.offsetTop}px`,
+        );
+      } else {
+        drawer.style.removeProperty("--activity-viewport-height");
+        drawer.style.removeProperty("--activity-viewport-top");
+      }
+    };
+    fitDrawer();
+    viewport.addEventListener("resize", fitDrawer);
+    viewport.addEventListener("scroll", fitDrawer);
+    return () => {
+      viewport.removeEventListener("resize", fitDrawer);
+      viewport.removeEventListener("scroll", fitDrawer);
+    };
+  }, [editorOpen, mapExpanded]);
 
   useEffect(() => {
     // Changing the parent map's modal type runs its own initial-focus effect.
@@ -1009,6 +1044,7 @@ export default function ActivityPlanning({
       open={editorOpen}
       position="start"
       className="activity-drawer"
+      ref={activityDrawerRef}
       onOpenChange={(_, data) => {
         if (!data.open) closeDrawer();
       }}
@@ -1038,6 +1074,7 @@ export default function ActivityPlanning({
                 <label>
                   Activity name
                   <Input
+                    required
                     value={editor.value.properties.name}
                     maxLength={200}
                     onChange={(_, data) => updateEditor({ name: data.value })}
@@ -1199,174 +1236,211 @@ export default function ActivityPlanning({
                     ))}
                   </div>
                 )}
-                <ActivityKindsPicker
-                  value={editor.value.properties.kinds}
-                  disabled={busy}
-                  onChange={(kinds) => updateEditor({ kinds })}
-                />
-                <label>
-                  Address
-                  <Input
-                    value={editor.value.properties.address ?? ""}
-                    maxLength={2000}
-                    onChange={(_, data) =>
-                      updateEditor({ address: data.value || null })
-                    }
-                  />
-                </label>
-                <label>
-                  Tickets
-                  <Select
-                    value={editor.value.properties.ticketRequirement}
-                    onChange={(_, data) =>
-                      updateEditor({
-                        ticketRequirement: data.value as TicketRequirement,
-                      })
-                    }
-                  >
-                    <option value="Unknown">Unknown</option>
-                    <option value="Required">Required</option>
-                    <option value="NotRequired">Not required</option>
-                  </Select>
-                </label>
-                <ActivityTextField
-                  label="Description"
-                  value={editor.value.properties.description}
-                  onChange={(description) => updateEditor({ description })}
-                />
-                <ActivityTextField
-                  label="Notes"
-                  value={editor.value.properties.notes}
-                  onChange={(notes) => updateEditor({ notes })}
-                />
-
-                <ActivityDetailsEvidence properties={editor.value.properties} />
-                <div className="activity-editor-grid">
-                  <ActivityDurationSlider
-                    value={editor.value.properties.duration}
-                    disabled={busy}
-                    onChange={(duration) => updateEditor({ duration })}
-                  />
-                  <label>
-                    Cost amount
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={
-                        editor.value.properties.cost?.amount.toString() ?? ""
-                      }
-                      onChange={(_, data) =>
-                        updateEditor({
-                          cost: data.value
-                            ? {
-                                amount: Number(data.value),
-                                currency:
-                                  editor.value.properties.cost?.currency ??
-                                  "USD",
-                                basis:
-                                  editor.value.properties.cost?.basis ??
-                                  "perPerson",
-                              }
-                            : null,
-                        })
-                      }
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>Activity details</summary>
+                  <div className="activity-section-fields">
+                    <ActivityKindsPicker
+                      value={editor.value.properties.kinds}
+                      disabled={busy}
+                      onChange={(kinds) => updateEditor({ kinds })}
                     />
-                  </label>
-                  <label>
-                    Currency
-                    <select
-                      value={editor.value.properties.cost?.currency ?? ""}
-                      disabled={!editor.value.properties.cost}
-                      onChange={(event) =>
-                        updateEditor({
-                          cost: editor.value.properties.cost
-                            ? {
-                                ...editor.value.properties.cost,
-                                currency: event.target.value,
-                              }
-                            : null,
-                        })
-                      }
-                    >
-                      <option value="" disabled>
-                        Select currency
-                      </option>
-                      {currencies.map((currency) => (
-                        <option key={currency} value={currency}>
-                          {currency} — {currencyNames.of(currency)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Cost basis
-                    <select
-                      value={editor.value.properties.cost?.basis ?? "perPerson"}
-                      disabled={!editor.value.properties.cost}
-                      onChange={(event) =>
-                        updateEditor({
-                          cost: editor.value.properties.cost
-                            ? {
-                                ...editor.value.properties.cost,
-                                basis: event.target
-                                  .value as ActivityCost["basis"],
-                              }
-                            : null,
-                        })
-                      }
-                    >
-                      <option value="perPerson">Per person</option>
-                      <option value="total">Total</option>
-                    </select>
-                  </label>
-                  <div className="activity-state-picker">
-                    <span id="activity-state-label">Status</span>
-                    <Menu
-                      checkedValues={{
-                        state: [editor.value.properties.state],
-                      }}
-                      onCheckedValueChange={(_, data) => {
-                        const state = data.checkedItems[0];
-                        if (state) updateEditor({ state });
-                      }}
-                    >
-                      <MenuTrigger disableButtonEnhancement>
-                        <MenuButton
-                          aria-label={`Status: ${editorStatus.label}`}
-                          aria-labelledby="activity-state-label activity-state-value"
-                          icon={<editorStatus.Icon />}
-                        >
-                          <span id="activity-state-value">
-                            {editorStatus.label}
-                          </span>
-                        </MenuButton>
-                      </MenuTrigger>
-                      <MenuPopover>
-                        <MenuList
-                          className="activity-status-menu"
-                          hasCheckmarks={false}
-                        >
-                          {activityStatuses.map((status) => (
-                            <MenuItemRadio
-                              key={status.value}
-                              name="state"
-                              value={status.value}
-                              checkmark={null}
-                              icon={<status.Icon />}
-                            >
-                              {status.label}
-                            </MenuItemRadio>
-                          ))}
-                        </MenuList>
-                      </MenuPopover>
-                    </Menu>
+                    <label>
+                      Address
+                      <Input
+                        value={editor.value.properties.address ?? ""}
+                        maxLength={2000}
+                        onChange={(_, data) =>
+                          updateEditor({ address: data.value || null })
+                        }
+                      />
+                    </label>
+                    <ActivityTextField
+                      label="Description"
+                      value={editor.value.properties.description}
+                      onChange={(description) => updateEditor({ description })}
+                    />
+                    <div className="activity-state-picker">
+                      <span id="activity-state-label">Status</span>
+                      <Menu
+                        checkedValues={{
+                          state: [editor.value.properties.state],
+                        }}
+                        onCheckedValueChange={(_, data) => {
+                          const state = data.checkedItems[0];
+                          if (state) updateEditor({ state });
+                        }}
+                      >
+                        <MenuTrigger disableButtonEnhancement>
+                          <MenuButton
+                            aria-label={`Status: ${editorStatus.label}`}
+                            aria-labelledby="activity-state-label activity-state-value"
+                            icon={<editorStatus.Icon />}
+                          >
+                            <span id="activity-state-value">
+                              {editorStatus.label}
+                            </span>
+                          </MenuButton>
+                        </MenuTrigger>
+                        <MenuPopover>
+                          <MenuList
+                            className="activity-status-menu"
+                            hasCheckmarks={false}
+                          >
+                            {activityStatuses.map((status) => (
+                              <MenuItemRadio
+                                key={status.value}
+                                name="state"
+                                value={status.value}
+                                checkmark={null}
+                                icon={<status.Icon />}
+                              >
+                                {status.label}
+                              </MenuItemRadio>
+                            ))}
+                          </MenuList>
+                        </MenuPopover>
+                      </Menu>
+                    </div>
                   </div>
-                </div>
-                <ActivityLinksEditor
-                  links={editor.value.properties.links ?? []}
-                  onChange={(links) => updateEditor({ links })}
-                />
+                </details>
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>Timing</summary>
+                  <div className="activity-section-fields">
+                    <ActivityDurationSlider
+                      value={editor.value.properties.duration}
+                      disabled={busy}
+                      onChange={(duration) => updateEditor({ duration })}
+                    />
+                  </div>
+                </details>
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>Tickets and cost</summary>
+                  <div className="activity-section-fields">
+                    <label>
+                      Tickets
+                      <Select
+                        value={editor.value.properties.ticketRequirement}
+                        onChange={(_, data) =>
+                          updateEditor({
+                            ticketRequirement: data.value as TicketRequirement,
+                          })
+                        }
+                      >
+                        <option value="Unknown">Unknown</option>
+                        <option value="Required">Required</option>
+                        <option value="NotRequired">Not required</option>
+                      </Select>
+                    </label>
+                    <label>
+                      Cost amount
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={
+                          editor.value.properties.cost?.amount.toString() ?? ""
+                        }
+                        onChange={(_, data) =>
+                          updateEditor({
+                            cost: data.value
+                              ? {
+                                  amount: Number(data.value),
+                                  currency:
+                                    editor.value.properties.cost?.currency ??
+                                    "USD",
+                                  basis:
+                                    editor.value.properties.cost?.basis ??
+                                    "perPerson",
+                                }
+                              : null,
+                          })
+                        }
+                      />
+                    </label>
+                    {editor.value.properties.cost && (
+                      <div className="activity-editor-grid">
+                        <label>
+                          Currency
+                          <select
+                            value={editor.value.properties.cost?.currency ?? ""}
+                            onChange={(event) =>
+                              updateEditor({
+                                cost: editor.value.properties.cost
+                                  ? {
+                                      ...editor.value.properties.cost,
+                                      currency: event.target.value,
+                                    }
+                                  : null,
+                              })
+                            }
+                          >
+                            <option value="" disabled>
+                              Select currency
+                            </option>
+                            {currencies.map((currency) => (
+                              <option key={currency} value={currency}>
+                                {currency} — {currencyNames.of(currency)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Cost basis
+                          <select
+                            value={
+                              editor.value.properties.cost?.basis ?? "perPerson"
+                            }
+                            onChange={(event) =>
+                              updateEditor({
+                                cost: editor.value.properties.cost
+                                  ? {
+                                      ...editor.value.properties.cost,
+                                      basis: event.target
+                                        .value as ActivityCost["basis"],
+                                    }
+                                  : null,
+                              })
+                            }
+                          >
+                            <option value="perPerson">Per person</option>
+                            <option value="total">Total</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </details>
+                <details
+                  className="activity-field-section"
+                  name={detailSectionsId}
+                >
+                  <summary>
+                    Notes and links
+                    {invalidLinks && <span>Check link URLs</span>}
+                  </summary>
+                  <div className="activity-section-fields">
+                    <ActivityTextField
+                      label="Notes"
+                      value={editor.value.properties.notes}
+                      onChange={(notes) => updateEditor({ notes })}
+                    />
+
+                    <ActivityLinksEditor
+                      links={editor.value.properties.links ?? []}
+                      onChange={(links) => updateEditor({ links })}
+                    />
+                  </div>
+                </details>
+                <ActivityDetailsEvidence properties={editor.value.properties} />
               </div>
             }
           </fieldset>
@@ -1397,9 +1471,7 @@ export default function ActivityPlanning({
               busy ||
               !editor?.value.properties.name.trim() ||
               !validActivityKinds(editor?.value.properties.kinds) ||
-              (editor?.value.properties.links ?? []).some(
-                (link) => !validActivityLink(link),
-              )
+              invalidLinks
             }
             onClick={() => void save()}
           >

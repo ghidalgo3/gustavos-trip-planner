@@ -13,6 +13,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 
 ### Added
 
+- Add measurable web UI complexity guidelines and a UX audit scenario for planning a multi-city trip by train and car, then scheduling activities.
+
 - Add two opt-in local sign-in accounts for development and UX audits.
 
 - Add UX audit checkpoints and multi-step scenarios for trip changes, destinations, and activities.
@@ -22,6 +24,8 @@ separately. The tag stays on the deployed source commit. Failed releases and
 - Add a Codex UX audit skill for evaluating desktop and mobile web journeys with Playwright, bundled Trip Planner rules, and styled HTML regression reports with embedded screenshots.
 
 ### Fixed
+
+- Show a short Add activity form, keep Save visible on phones, and use a single scrolling agenda for narrow activity schedules.
 
 - Keep saved transportation when browsing mode tabs. Use Save to apply a change.
 

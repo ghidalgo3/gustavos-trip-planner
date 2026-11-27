@@ -29,7 +29,7 @@ export default function CalendarActivityList({
   disabled: boolean;
   readOnly: boolean;
   onEvent: (id: string) => void;
-  onDrag: (event: PointerEvent<HTMLElement>, timing: CalendarTiming) => void;
+  onDrag?: (event: PointerEvent<HTMLElement>, timing: CalendarTiming) => void;
 }) {
   const [query, setQuery] = useState("");
   const matching = activities.filter((item) =>
@@ -87,7 +87,7 @@ export default function CalendarActivityList({
                       <button
                         type="button"
                         className={`schedule-activity${scheduled ? " is-scheduled" : ""}`}
-                        data-draggable={!readOnly}
+                        data-draggable={!!onDrag && !readOnly}
                         aria-label={`Schedule ${activity.properties.name}`}
                         disabled={disabled}
                         onClick={() => onEvent(activity.id)}
@@ -99,16 +99,18 @@ export default function CalendarActivityList({
                             )
                           )
                             return;
-                          onDrag(event, {
+                          onDrag?.(event, {
                             activityId: activity.id,
                             start: 0,
                             end: Math.min(1440, Math.max(15, minutes)),
                           });
                         }}
                       >
-                        <span data-drag-handle="true" aria-hidden="true">
-                          <ReOrderDotsVertical24Regular />
-                        </span>
+                        {onDrag && (
+                          <span data-drag-handle="true" aria-hidden="true">
+                            <ReOrderDotsVertical24Regular />
+                          </span>
+                        )}
                         <span>
                           <strong>{activity.properties.name}</strong>
                           <small>

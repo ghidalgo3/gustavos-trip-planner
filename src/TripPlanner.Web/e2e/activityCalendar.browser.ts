@@ -133,6 +133,29 @@ for (const width of [390, 820, 1100, 1280]) {
         exact: true,
       });
       await expect(calendar).toBeVisible();
+      if (width < 1100) {
+        const schedule = page.getByRole("region", {
+          name: "Activity calendar",
+        });
+        await expect(calendar).toHaveClass("calendar-agenda");
+        const nestedScrollRegions = await schedule.evaluate(
+          (root) =>
+            [...root.querySelectorAll("*")].filter(
+              (element) =>
+                element.clientHeight > 0 &&
+                element.scrollHeight > element.clientHeight + 1 &&
+                /auto|scroll/.test(getComputedStyle(element).overflowY),
+            ).length,
+        );
+        expect(nestedScrollRegions).toBe(0);
+        const museum = await calendar
+          .getByRole("button", { name: "Museum", exact: true })
+          .boundingBox();
+        const garden = await calendar
+          .getByRole("button", { name: "Garden", exact: true })
+          .boundingBox();
+        expect(museum!.y + museum!.height).toBeLessThan(garden!.y);
+      }
       await expect(
         page.getByRole("button", { name: /^(Show|Hide) map$/ }),
       ).toHaveCount(0);

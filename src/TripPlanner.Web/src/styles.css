@@ -1904,10 +1904,11 @@ main {
   min-width: 0;
 }
 .activity-drawer-footer {
+  flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 .activity-drawer-progress {
   flex-basis: 100%;
@@ -1920,6 +1921,9 @@ main {
 }
 .activity-drawer .fui-SearchBox {
   max-width: none;
+}
+.activity-drawer :is(input:not([type="range"]), textarea, select) {
+  font-size: 16px;
 }
 .visually-hidden {
   position: absolute;
@@ -1935,8 +1939,44 @@ main {
 
 .activity-drawer-body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  min-height: 0;
   gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 12px;
+}
+
+.activity-field-section {
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+}
+
+.activity-field-section > summary {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.activity-field-section:hover {
+  border-color: var(--colorBrandStroke1);
+}
+
+.activity-field-section > summary span {
+  margin-inline-start: 8px;
+  color: var(--colorPaletteRedForeground1);
+}
+
+.activity-section-fields {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.activity-drawer button[aria-label="Close activity drawer"] {
+  min-width: 44px;
 }
 
 .activity-card button,
@@ -2496,20 +2536,10 @@ main:has(.trip-workspace-activities) > .topbar {
     overscroll-behavior-y: auto;
   }
 
-  /* Scroll the whole editor, including its actions, within the visible screen. */
   .activity-drawer.fui-OverlayDrawer {
-    height: 100dvh;
-    max-height: 100dvh;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-  }
-  .activity-drawer > .fui-DrawerHeader,
-  .activity-drawer > .fui-DrawerFooter {
-    flex-shrink: 0;
-  }
-  .activity-drawer > .activity-drawer-body {
-    flex: none;
-    overflow: visible;
+    top: var(--activity-viewport-top, 0px);
+    height: var(--activity-viewport-height, 100dvh);
+    max-height: var(--activity-viewport-height, 100dvh);
   }
 }
 .activity-delete-button {

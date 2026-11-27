@@ -76,6 +76,46 @@ enabled, and `--allow-fixture-writes`. Reset that fixture before trying a second
 path. To check offline startup and service-worker caching, run the
 [offline browser regression](web_app.md#offline-browser-regression).
 
+## Web UI complexity
+
+Apply these starting thresholds to mobile single-task screens and drawers. Check
+the same task on desktop for responsive differences. Rate each dimension
+independently and use the highest rating to prioritize review. The bands are
+Trip Planner review thresholds informed by public design guidance and research.
+
+| Dimension | Low (1) | Moderate (2) | High (3) | Critical (4) |
+| --- | --- | --- | --- | --- |
+| Navigation choices visible together | 0–5 | 6–8 | 9+ | Users repeatedly choose the wrong destination and cannot recover unaided |
+| Form controls exposed in the current step | 0–4 | 5–8 | 9+ | Users cannot determine what they must enter to complete the task |
+| Independent vertical scrolling areas | 0–1 | 2 separate, clearly bounded areas | 2 nested on the same axis, or 3+ independent areas | Touch or keyboard users cannot reach required content or an action |
+| Distance to the next action | Fully visible and usable without scrolling | Up to one visible viewport height of scrolling in the expected direction | More than one viewport height, or reaching it requires discovering a second scrolling area | The action is unreachable or remains obstructed |
+
+- Count links and tabs that take the user to another view and are visible in one
+  viewport. For a modal, count the active surface. Count one input per field or
+  choice group across the expanded step, including visible disabled inputs and
+  fields below the fold. A search field counts as one input. Save, Cancel, and
+  disclosure buttons are actions. Measure the disclosed step after opening it.
+- Count independently scrollable regions with actual overflow, including the page
+  when it can still scroll while the surface is active. Record when the same
+  vertical gesture can move both a child and its parent.
+- Measure the shortest scroll needed to fully reveal the next action as soon as it
+  becomes relevant. Record the distance in CSS pixels and divide by the visual
+  viewport height. For **Add activity**, measure after a valid name enables
+  **Save activity**. On a phone, check with the software keyboard open and
+  dismissed. Record when a physical-device check is unavailable.
+- Use Critical for an observed or reproducible barrier to completing the task.
+  Capture the viewport and task state, counts or distances, and screenshots.
+
+Google recommends three to five peer destinations for a compact navigation bar.
+GOV.UK starts with one question and groups related questions when appropriate.
+Baymard's checkout research supports reducing the fields users must consider.
+[Android navigation guidance](https://developer.android.com/develop/ui/compose/components/navigation-bar) · [GOV.UK question pages](https://design-system.service.gov.uk/patterns/question-pages/) · [Baymard checkout research](https://baymard.com/research-articles/checkout-flow-average-form-fields)
+
+Apple recommends avoiding same-axis nested scroll views. W3C prioritizes easy
+access to the most important action. Fluent describes persistent drawer actions
+and accounts for short viewports and high zoom.
+[Apple scroll views](https://developer.apple.com/design/human-interface-guidelines/scroll-views) · [W3C cognitive accessibility guidance](https://www.w3.org/WAI/WCAG2/supplemental/objectives/o2-find/) · [Fluent drawer guidance](https://fluent2.microsoft.design/components/web/react/core/drawer/usage)
+
 ## Drive an audit from the terminal
 
 From the repository root, start an interactive session for one profile. Use a new
@@ -113,6 +153,7 @@ one. The starter scenarios cover these paths.
 | `trip-lifecycle` | Create the trip → rename it → delete it |
 | `add-destination-to-new-trip` | Create the trip → add a destination |
 | `add-activity-to-new-trip` | Create the trip → add a destination → add an activity there |
+| `plan-multi-city-trip-without-flights` | Create the trip → add three dated cities → save train and car legs → create one activity per city → schedule each during its visit |
 
 Start a write audit in a disposable local database. Use a unique trip name
 for each attempt and pass the database name as the fixture.
