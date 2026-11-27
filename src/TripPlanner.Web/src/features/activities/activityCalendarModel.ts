@@ -132,6 +132,7 @@ export function calendarEntries(
   activities: Activity[],
   assessment?: PlanAssessment,
   destination?: Destination,
+  pendingTiming?: CalendarTiming,
 ): CalendarEntry[] {
   const evaluated = assessment?.days.find(
     (item) => calendarDayKey(item) === calendarDayKey(day),
@@ -169,17 +170,22 @@ export function calendarEntries(
       (item) => item.activityId === id,
     );
     const rule = activityRule(plan, id);
-    const start = evaluatedEntry?.start
-      ? localMinutes(evaluatedEntry.start, day.date)
-      : rule.fixedStart
-        ? clockMinutes(rule.fixedStart)
-        : null;
+    const pending = pendingTiming?.activityId === id ? pendingTiming : undefined;
+    const start =
+      pending?.start ??
+      (evaluatedEntry?.start
+        ? localMinutes(evaluatedEntry.start, day.date)
+        : rule.fixedStart
+          ? clockMinutes(rule.fixedStart)
+          : null);
     if (start === null) continue;
     const duration =
       durationMinutes(rule.duration ?? activity?.properties.duration) ?? 60;
-    const end = evaluatedEntry?.end
-      ? localMinutes(evaluatedEntry.end, day.date)
-      : start + duration;
+    const end =
+      pending?.end ??
+      (evaluatedEntry?.end
+        ? localMinutes(evaluatedEntry.end, day.date)
+        : start + duration);
     entries.push({
       id,
       kind: "activity",

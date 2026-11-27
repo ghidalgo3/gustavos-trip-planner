@@ -114,6 +114,7 @@ export default function DailyActivityPlan({
   readOnly: providedReadOnly,
   onSelect,
   onSaved,
+  onScheduleError,
   onChooseActivities,
   onSelectTravel,
   onPlanChange,
@@ -126,6 +127,7 @@ export default function DailyActivityPlan({
   readOnly: boolean;
   onSelect: (id: string) => void;
   onSaved: () => Promise<void>;
+  onScheduleError: (message: string) => void;
   onChooseActivities?: () => void;
   onSelectTravel?: (selection: ActivityRouteSelection) => void;
   onPlanChange?: () => void;
@@ -143,16 +145,16 @@ export default function DailyActivityPlan({
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState("");
   const [editorError, setEditorError] = useState("");
-  const [timingError, setTimingError] = useState<{
+  const [pendingSchedule, setPendingSchedule] = useState<{
+    plan: ActivityPlan;
     timing: CalendarTiming;
-    message: string;
-    dayKey: string;
   }>();
   const operation = useRef(false);
   const active = useRef(true);
   const routeRequest = useRef<AbortController | undefined>(undefined);
   const savedRequest = useRef<AbortController | undefined>(undefined);
-  const plan = resource?.data.plan;
+  const plan = pendingSchedule?.plan ?? resource?.data.plan;
+  const pendingTiming = pendingSchedule?.timing;
   const assessment = resource?.data.assessment;
   const savedVisits = resource?.data.context.visits;
   const visits = useMemo(
@@ -189,12 +191,17 @@ export default function DailyActivityPlan({
       return;
     }
     const timed = new Set(
-      calendarEntries(plan, day, activities, assessment).flatMap((entry) =>
-        entry.activityId ? [entry.activityId] : [],
-      ),
+      calendarEntries(
+        plan,
+        day,
+        activities,
+        assessment,
+        undefined,
+        pendingTiming,
+      ).flatMap((entry) => (entry.activityId ? [entry.activityId] : [])),
     );
     showDayOnMap([...timed, ...day.activityIds.filter((id) => !timed.has(id))]);
-  }, [plan, day, activities, assessment]);
+  }, [plan, day, activities, assessment, pendingTiming]);
   const invalidateRoute = useEffectEvent(() => onPlanChange?.());
   useEffect(() => {
     invalidateRoute();
@@ -241,13 +248,21 @@ export default function DailyActivityPlan({
   }
   useExplicitResourceRefresh(path, reload);
 
-  async function persist(next: ActivityPlan, close = true) {
+  async function persist(
+    next: ActivityPlan,
+    {
+      closeEditor = true,
+      timing,
+    }: { closeEditor?: boolean; timing?: CalendarTiming } = {},
+  ) {
     if (!resource || readOnly || operation.current) return;
     operation.current = true;
     setBusy(true);
     setEditorError("");
     const controller = new AbortController();
-    savedRequest.current = controller;
+    // A dropped card starts a background save that can finish after leaving Schedule.
+    if (timing) setPendingSchedule({ plan: next, timing });
+    else savedRequest.current = controller;
     try {
       if (next.timeZone === null)
         throw new Error(
@@ -276,49 +291,48 @@ export default function DailyActivityPlan({
       });
       if (controller.signal.aborted || !active.current) return;
       setResource(value);
-      if (close) setEditor(undefined);
+      if (timing) setPendingSchedule(undefined);
+      if (closeEditor) setEditor(undefined);
       try {
         await onSaved();
       } catch {
-        setError("Calendar saved. Activity details could not refresh.");
+        const message = "Calendar saved. Activity details could not refresh.";
+        if (timing) onScheduleError(message);
+        else if (active.current) setError(message);
       }
     } catch (reason) {
-      if (!controller.signal.aborted && active.current) {
-        setEditorError((reason as Error).message);
+      if (timing) {
+        if (active.current) setPendingSchedule(undefined);
         throw reason;
       }
+      if (controller.signal.aborted || !active.current) return;
+      setEditorError((reason as Error).message);
+      throw reason;
     } finally {
       operation.current = false;
       if (active.current) setBusy(false);
     }
   }
-  async function saveTiming(
-    timing: CalendarTiming,
-    targetKey = day && calendarDayKey(day),
-  ) {
+  async function saveTiming(timing: CalendarTiming) {
     if (!plan || !day || readOnly || operation.current) return;
-    const target = days.find((item) => calendarDayKey(item) === targetKey);
-    if (!target) return;
-    setTimingError(undefined);
     setError("");
     try {
       const next = applyEventTiming(
-        withCalendarDay(plan, target),
+        withCalendarDay(plan, day),
         timing.activityId,
-        target,
+        day,
         calendarClock(timing.start),
         calendarClock(timing.end),
         timing.end >= 1440,
         resource?.data.assessment,
       );
-      await persist(next, false);
+      await persist(next, { closeEditor: false, timing });
     } catch (reason) {
-      if (active.current)
-        setTimingError({
-          timing,
-          message: (reason as Error).message,
-          dayKey: calendarDayKey(target),
-        });
+      const message =
+        reason instanceof Error && !(reason instanceof TypeError)
+          ? reason.message
+          : "Try again.";
+      onScheduleError(`Could not save the schedule. ${message}`);
     }
   }
   function openEvent(id?: string) {
@@ -501,29 +515,6 @@ export default function DailyActivityPlan({
   return (
     <section className="daily-plan" aria-label="Activity calendar">
       {error && <p role="alert">{error}</p>}
-      {busy && (
-        <p className="calendar-save-status" role="status">
-          Saving schedule…
-        </p>
-      )}
-      {timingError && (
-        <div className="calendar-editor-error" role="alert">
-          {timingError.message}
-          <div>
-            <Button
-              disabled={busy || readOnly}
-              onClick={() =>
-                void saveTiming(timingError.timing, timingError.dayKey)
-              }
-            >
-              Retry schedule change
-            </Button>
-            <Button disabled={busy || offline} onClick={() => void reload()}>
-              Refresh calendar
-            </Button>
-          </div>
-        </div>
-      )}
       {resource.data.timingStale && (
         <p className="calendar-notice">
           Schedule needs review{" "}
@@ -553,6 +544,7 @@ export default function DailyActivityPlan({
         destination={destination}
         readOnly={readOnly}
         busy={busy}
+        pendingTiming={pendingTiming}
         onDay={(key) => {
           setDayKey(key);
           onPlanChange?.();
@@ -764,7 +756,7 @@ export default function DailyActivityPlan({
                           : item,
                       ),
                     },
-                    false,
+                    { closeEditor: false },
                   );
                 }}
               />

@@ -13,6 +13,14 @@ import {
 } from "./activityCalendarModel";
 
 const pixelsPerMinute = 1.5;
+export type CalendarDragCard = {
+  activityId: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 type Gesture = {
   pointerId: number;
   originX: number;
@@ -23,7 +31,7 @@ type Gesture = {
   timing: CalendarTiming;
   mode: CalendarGesture;
   moved: boolean;
-  fromList: boolean;
+  listCard?: DOMRect;
   dayKey: string;
   hoveredDay?: string;
   hoverStarted?: number;
@@ -48,6 +56,7 @@ export default function useCalendarDrag({
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<CalendarTiming | null>(null);
+  const [dragCard, setDragCard] = useState<CalendarDragCard | null>(null);
   const [wasDisabled, setWasDisabled] = useState(disabled);
   const navigate = useEffectEvent(onNavigate);
   const previewAtPointer = useEffectEvent((current: Gesture) =>
@@ -57,6 +66,7 @@ export default function useCalendarDrag({
     setWasDisabled(disabled);
     setDragging(false);
     setPreview(null);
+    setDragCard(null);
   }
 
   function atPointer(current: Gesture) {
@@ -153,7 +163,9 @@ export default function useCalendarDrag({
       timing,
       mode,
       moved: false,
-      fromList,
+      listCard: fromList
+        ? event.currentTarget.getBoundingClientRect()
+        : undefined,
       dayKey,
     };
     setDragging(true);
@@ -170,6 +182,15 @@ export default function useCalendarDrag({
       event.preventDefault();
       suppressClick.current = true;
       setPreview(atPointer(current));
+      if (current.listCard) {
+        setDragCard({
+          activityId: current.timing.activityId,
+          left: current.listCard.left + current.x - current.originX,
+          top: current.listCard.top + current.y - current.originY,
+          width: current.listCard.width,
+          height: current.listCard.height,
+        });
+      }
     }
   }
 
@@ -177,6 +198,7 @@ export default function useCalendarDrag({
     gesture.current = null;
     setDragging(false);
     setPreview(null);
+    setDragCard(null);
   }
 
   function finish(event: ReactPointerEvent<HTMLElement>) {
@@ -191,7 +213,7 @@ export default function useCalendarDrag({
       next &&
       (next.start !== current.timing.start ||
         next.end !== current.timing.end ||
-        current.fromList ||
+        current.listCard ||
         current.dayKey !== dayKey)
     )
       onTiming(next);
@@ -199,6 +221,7 @@ export default function useCalendarDrag({
 
   return {
     preview,
+    dragCard,
     begin,
     handlers: {
       onPointerDownCapture: () => {

@@ -42,6 +42,7 @@ const props = {
   readOnly: false,
   onSelect: vi.fn(),
   onSaved: vi.fn(async () => {}),
+  onScheduleError: vi.fn(),
 };
 let response: PlanResponse;
 beforeEach(() => {

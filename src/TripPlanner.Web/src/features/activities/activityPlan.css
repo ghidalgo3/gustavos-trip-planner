@@ -431,6 +431,15 @@
 .schedule-activity:disabled {
   cursor: default;
 }
+.schedule-activity[data-dragging="true"] {
+  opacity: 0;
+}
+.schedule-activity-drag-card {
+  position: fixed;
+  cursor: grabbing;
+  box-shadow: var(--shadow8);
+  pointer-events: none;
+}
 .schedule-activity > [data-drag-handle] {
   display: grid;
   place-items: center;
@@ -617,11 +626,6 @@
   color: var(--colorBrandForeground1);
   box-shadow: var(--shadow8);
   pointer-events: none;
-}
-.calendar-save-status {
-  margin: 0;
-  font-size: 13px;
-  color: var(--colorNeutralForeground2);
 }
 .calendar-loading-workspace {
   display: flex;

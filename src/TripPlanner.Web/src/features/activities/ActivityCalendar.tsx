@@ -43,6 +43,7 @@ export default function ActivityCalendar({
   destination,
   readOnly,
   busy,
+  pendingTiming,
   onDay,
   onEvent,
   onEntry,
@@ -58,6 +59,7 @@ export default function ActivityCalendar({
   destination?: Destination;
   readOnly: boolean;
   busy: boolean;
+  pendingTiming?: CalendarTiming;
   onDay: (key: string) => void;
   onEvent: (id?: string) => void;
   onEntry: (entry: CalendarEntry) => void;
@@ -80,6 +82,7 @@ export default function ActivityCalendar({
           activities,
           assessment,
           destination,
+          pendingTiming,
         ).filter(
           (entry) =>
             entry.kind !== "flight" ||
@@ -91,7 +94,14 @@ export default function ActivityCalendar({
   const timed = new Set(
     plan.days
       .flatMap((item) =>
-        calendarEntries(plan, item, activities, assessment, destination),
+        calendarEntries(
+          plan,
+          item,
+          activities,
+          assessment,
+          destination,
+          pendingTiming,
+        ),
       )
       .filter((item) => item.kind === "activity")
       .flatMap((item) => (item.activityId ? [item.activityId] : [])),
@@ -137,6 +147,7 @@ export default function ActivityCalendar({
           disabled={busy}
           readOnly={readOnly}
           onEvent={onEvent}
+          dragCard={drag.dragCard}
           onDrag={
             agenda
               ? undefined

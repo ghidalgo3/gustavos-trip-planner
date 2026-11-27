@@ -207,9 +207,11 @@ export default function ActivityPlanning({
     useState<HTMLDivElement | null>(null);
   const [fullscreenMapHost, setFullscreenMapHost] =
     useState<HTMLDivElement | null>(null);
-  const { notify, toaster } = useActionToast();
   const [showMapCard, setShowMapCard] = useState(false);
   const [editor, setEditor] = useState<Editor>();
+  const { notify, toaster } = useActionToast({
+    trapFocus: Boolean(editor || deleteTarget || mapExpanded),
+  });
   const activityDrawerRef = useRef<HTMLDivElement>(null);
   const detailSectionsId = useId("activity-detail-sections");
   const [searching, setSearching] = useState(false);
@@ -1633,6 +1635,7 @@ export default function ActivityPlanning({
               readOnly={!canEdit}
 
               onSelect={selectActivity}
+              onScheduleError={(message) => notify(message, "error")}
               onPlanChange={() => {
                 setSelectedTravel(undefined);
                 setShowMapCard(false);

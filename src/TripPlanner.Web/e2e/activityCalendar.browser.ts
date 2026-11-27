@@ -13,15 +13,21 @@ import type { ActivityPlan } from "../src/features/activities/activityPlanApi";
 
 for (const width of [390, 820, 1100, 1280]) {
   test.describe(`activity calendar at ${width}px`, () => {
-    test.use({ viewport: { width, height: 844 }, serviceWorkers: "block" });
+    test.use({
+      viewport: { width, height: 844 },
+      serviceWorkers: "block",
+      hasTouch: width === 1280,
+    });
     test("edits event times and transportation on the calendar, preserving it offline", async ({
       page,
       request,
+      browserName,
     }, testInfo) => {
       await request.post("/__test/session", { data: { authenticated: true } });
       const response = structuredClone(calendarResponse);
       const writes: ActivityPlan[] = [];
       let failNextSave = false;
+      let holdNextSave: Promise<void> | undefined;
       const path = `/trips/${fixtures.trip.id}/destinations/${fixtures.destination.id}/activity-plan`;
       await page.route(
         `**/trips/${fixtures.trip.id}/document`,
@@ -58,6 +64,9 @@ for (const width of [390, 820, 1100, 1280]) {
       );
       await page.route(`**${path}`, async (route) => {
         if (route.request().method() === "PUT") {
+          const held = holdNextSave;
+          holdNextSave = undefined;
+          if (held) await held;
           if (failNextSave) {
             failNextSave = false;
             await route.fulfill({
@@ -391,23 +400,98 @@ for (const width of [390, 820, 1100, 1280]) {
         await calendar.evaluate((element) => {
           element.scrollTop = 10 * 90;
         });
-        const cafe = (await page
-          .getByRole("button", { name: "Schedule Cafe", exact: true })
-          .boundingBox())!;
-        const grid = (await page.locator(".calendar-events").boundingBox())!;
-        await page.mouse.move(
-          cafe.x + cafe.width / 2,
-          cafe.y + cafe.height / 2,
-        );
-        await page.mouse.down();
-        await page.mouse.move(grid.x + grid.width / 2, grid.y + 12 * 90, {
-          steps: 10,
+        const cafe = page.getByRole("button", {
+          name: "Schedule Cafe",
+          exact: true,
         });
-        await expect(page.locator(".calendar-drag-preview")).toHaveText(
-          /Cafe12:00–13:00/,
-        );
-        expect(writes).toHaveLength(5);
-        await page.mouse.up();
+        const unscheduled = page.getByRole("region", {
+          name: "Unscheduled activities",
+        });
+        const card = page.locator(".schedule-activity-drag-card");
+        const cafeEvent = calendar.getByRole("button", {
+          name: "Cafe",
+          exact: true,
+        });
+        const toast = page.locator(".fui-Toast");
+        const dismissToast = toast.getByRole("button", {
+          name: "Dismiss notification",
+        });
+
+        if (width === 1280 && browserName === "chromium") {
+          const touch = await page.context().newCDPSession(page);
+          const handle = (await cafe
+            .locator("[data-drag-handle]")
+            .boundingBox())!;
+          const x = handle.x + handle.width / 2;
+          const y = handle.y + handle.height / 2;
+          await touch.send("Input.dispatchTouchEvent", {
+            type: "touchStart",
+            touchPoints: [{ x, y }],
+          });
+          await touch.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x: x + 90, y: y + 30 }],
+          });
+          await expect(card).toBeVisible();
+          expect((await card.boundingBox())!.x).toBeCloseTo(
+            (await cafe.boundingBox())!.x + 90,
+            0,
+          );
+          await touch.send("Input.dispatchTouchEvent", {
+            type: "touchCancel",
+            touchPoints: [],
+          });
+          await expect(card).toHaveCount(0);
+          await touch.detach();
+        }
+
+        const dragCafe = async () => {
+          const source = (await cafe.boundingBox())!;
+          const grid = (await page.locator(".calendar-events").boundingBox())!;
+          const x = source.x + source.width / 2;
+          const y = source.y + source.height / 2;
+          const dropX = grid.x + grid.width / 2;
+          const dropY = grid.y + 12 * 90;
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(dropX, dropY, { steps: 10 });
+          await expect(card).toContainText("Cafe");
+          const cardBounds = (await card.boundingBox())!;
+          expect(cardBounds.x).toBeCloseTo(source.x + dropX - x, 0);
+          expect(cardBounds.y).toBeCloseTo(source.y + dropY - y, 0);
+          await expect(page.locator(".calendar-drag-preview")).toHaveText(
+            /Cafe12:00–13:00/,
+          );
+          expect(writes).toHaveLength(5);
+          await page.mouse.up();
+          await expect(card).toHaveCount(0);
+        };
+
+        const failedSave = Promise.withResolvers<void>();
+        holdNextSave = failedSave.promise;
+        failNextSave = true;
+        try {
+          await dragCafe();
+          await expect(cafeEvent).toBeVisible();
+          await expect(cafeEvent).toBeDisabled();
+          await expect(
+            unscheduled.getByText("Cafe", { exact: true }),
+          ).toHaveCount(0);
+          await expect(page.getByText("Saving schedule…")).toHaveCount(0);
+          await expect(toast).toHaveCount(0);
+          expect(writes).toHaveLength(5);
+        } finally {
+          failedSave.resolve();
+        }
+        await expect(toast).toContainText("Schedule unavailable.");
+        await expect(cafeEvent).toHaveCount(0);
+        await expect(
+          unscheduled.getByRole("button", { name: "Schedule Cafe" }),
+        ).toBeEnabled();
+        await dismissToast.click();
+        await expect(toast).toHaveCount(0);
+
+        await dragCafe();
         await expect.poll(() => writes.length).toBe(6);
         expect(
           writes[5].rules.find((rule) => rule.activityId === "activity-2"),
@@ -423,23 +507,18 @@ for (const width of [390, 820, 1100, 1280]) {
           calendar.getByRole("button", { name: "Cafe", exact: true }),
         ).toBeEnabled();
 
-        // Failed gestures keep the last confirmed event and can retry the same change.
+        // A failed move also restores an already scheduled event to its last saved time.
         failNextSave = true;
         await dragBy(
           calendar.getByRole("button", { name: "Cafe", exact: true }),
           22.5,
         );
-        await expect(
-          page
-            .getByRole("region", { name: "Activity calendar", exact: true })
-            .getByRole("alert"),
-        ).toContainText("Schedule unavailable.");
+        await expect(toast).toContainText("Schedule unavailable.");
         await expect(
           calendar.getByText("12:00–13:00", { exact: true }),
         ).toBeVisible();
-        await page
-          .getByRole("button", { name: "Retry schedule change" })
-          .click();
+        await dismissToast.click();
+        await dragBy(cafeEvent, 22.5);
         await expect.poll(() => writes.length).toBe(7);
         expect(
           writes[6].rules.find((rule) => rule.activityId === "activity-2"),
